@@ -374,9 +374,14 @@ async def feishu_event_webhook(
 
 
 async def _call_agent_llm(db: AsyncSession, agent_id: uuid.UUID, user_text: str, history: list[dict] | None = None) -> str:
-    """Call the agent's configured LLM model with conversation history."""
+    """Call the agent's configured LLM model with conversation history.
+    
+    Reuses the same call_llm function as the WebSocket chat endpoint so that
+    all providers (OpenRouter, Qwen, etc.) work identically on both channels.
+    """
     from app.models.agent import Agent
     from app.models.llm import LLMModel
+    from app.api.websocket import call_llm
 
     # Load agent and model
     agent_result = await db.execute(select(Agent).where(Agent.id == agent_id))
@@ -392,104 +397,27 @@ async def _call_agent_llm(db: AsyncSession, agent_id: uuid.UUID, user_text: str,
     if not model:
         return "⚠️ 配置的模型不存在"
 
-    # Build rich prompt with soul, memory, skills, relationships
-    from app.services.agent_context import build_agent_context
-    system_prompt = await build_agent_context(agent_id, agent.name, agent.role_description or "")
-
-    messages = [{"role": "system", "content": system_prompt}]
-    # Add conversation history
+    # Build conversation messages (without system prompt — call_llm adds it)
+    messages: list[dict] = []
     if history:
-        messages.extend(history[-10:])  # Last 10 messages for context
+        messages.extend(history[-10:])
     messages.append({"role": "user", "content": user_text})
 
-    # Determine base URL
-    from app.services.llm_utils import get_provider_base_url, get_tool_params, get_max_tokens
-    base_url = get_provider_base_url(model.provider, model.base_url)
-
-    if not base_url:
-        return f"⚠️ 未配置 {model.provider} 的 API 地址"
-
-    url = f"{base_url.rstrip('/')}/chat/completions"
-    api_key = model.api_key_encrypted
-
     try:
-        import asyncio, json as _json
-        from app.services.agent_tools import AGENT_TOOLS, execute_tool, get_agent_tools_for_llm
-
-        # Find creator_id for tools
-        from app.models.agent import Agent as AgentModel
-        agent_r = await db.execute(select(AgentModel).where(AgentModel.id == agent_id))
-        agent_obj = agent_r.scalar_one_or_none()
-        creator_id = agent_obj.creator_id if agent_obj else agent_id
-
-        # Load tools dynamically from DB
-        tools_for_llm = await get_agent_tools_for_llm(agent_id)
-
-        # Tool-calling loop (max 5 rounds)
-        for round_i in range(5):
-            payload = _json.dumps({
-                "model": model.model, "messages": messages,
-                "temperature": 0.7, "max_tokens": get_max_tokens(model.provider, model.model),
-                "tools": tools_for_llm,
-                **get_tool_params(model.provider),
-            }, ensure_ascii=False)
-
-            proc = await asyncio.create_subprocess_exec(
-                "curl", "-s", "--max-time", "30",
-                "-X", "POST", url,
-                "-H", "Content-Type: application/json",
-                "-H", f"Authorization: Bearer {api_key}",
-                "-d", payload,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await proc.communicate()
-            if proc.returncode != 0:
-                return f"⚠️ 调用模型出错: curl exit {proc.returncode}"
-
-            data = _json.loads(stdout.decode())
-            if "error" in data:
-                return f"⚠️ LLM 错误: {data['error'].get('message', str(data['error']))[:150]}"
-
-            choice = data["choices"][0]
-            msg = choice["message"]
-
-            tool_calls = msg.get("tool_calls")
-            if not tool_calls:
-                reply = msg.get("content", "")
-                print(f"[LLM] Reply: {reply[:80]}")
-                return reply
-
-            # Execute tool calls
-            print(f"[LLM] Round {round_i+1}: {len(tool_calls)} tool call(s)")
-            messages.append(msg)
-
-            for tc in tool_calls:
-                fn = tc["function"]
-                tool_name = fn["name"]
-                # Robustly parse arguments — Claude/OpenRouter may return pre-parsed dicts or ints
-                raw_args = fn.get("arguments", {})
-                if isinstance(raw_args, dict):
-                    args = raw_args
-                elif isinstance(raw_args, str):
-                    try:
-                        args = _json.loads(raw_args) if raw_args else {}
-                    except _json.JSONDecodeError:
-                        args = {}
-                else:
-                    args = {}  # int or other unexpected type
-                # Ensure tool_call_id is always a string
-                tc_id = str(tc.get("id", ""))
-                print(f"[LLM] Tool: {tool_name}({args})")
-                result = await execute_tool(tool_name, args, agent_id=agent_id, user_id=creator_id)
-                print(f"[LLM] Result: {result[:100]}")
-                messages.append({"role": "tool", "tool_call_id": tc_id, "content": result})
-
-        return "⚠️ 工具调用轮次过多"
+        reply = await call_llm(
+            model,
+            messages,
+            agent.name,
+            agent.role_description or "",
+            agent_id=agent_id,
+            user_id=agent_id,  # use agent_id as fallback user for tool execution
+        )
+        return reply
     except Exception as e:
         import traceback
         traceback.print_exc()
         error_msg = str(e) or repr(e)
         print(f"[LLM] Error: {error_msg}")
         return f"⚠️ 调用模型出错: {error_msg[:150]}"
+
 
