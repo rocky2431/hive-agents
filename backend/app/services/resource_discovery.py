@@ -287,6 +287,7 @@ async def import_mcp_from_smithery(
                     if not agent_check.scalar_one_or_none():
                         db.add(AgentTool(agent_id=agent_id, tool_id=existing_tool.id, enabled=True,
                                          source="user_installed", installed_by_agent_id=agent_id))
+                    continue  # ← skip creating duplicate Tool record
 
                 tool = Tool(
                     name=tool_name,
