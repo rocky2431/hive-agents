@@ -514,6 +514,9 @@
   },
   "channelGuide": {
     "setupGuide": "Setup Guide",
+    "feishuPermJson": "Permission JSON (bulk import)",
+    "feishuPermCopy": "Copy",
+    "feishuPermCopied": "✓ Copied",
     "slack": {
       "step1": "Go to api.slack.com/apps → click Create New App → choose From Scratch → enter an app name and pick your workspace → click Create App",
       "step2": "In the left sidebar, click OAuth & Permissions → scroll down to Scopes → under Bot Token Scopes click Add an OAuth Scope → add: chat:write, im:history, app_mentions:read",
