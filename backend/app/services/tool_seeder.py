@@ -203,6 +203,24 @@ BUILTIN_TOOLS = [
         "config_schema": {},
     },
     {
+        "name": "send_web_message",
+        "display_name": "Web Message",
+        "description": "Send a proactive message to a user on the Clawith web platform. The message appears in their chat history and is pushed in real-time if they are online.",
+        "category": "communication",
+        "icon": "🌐",
+        "is_default": True,
+        "parameters_schema": {
+            "type": "object",
+            "properties": {
+                "username": {"type": "string", "description": "Recipient username or display name"},
+                "message": {"type": "string", "description": "Message content"},
+            },
+            "required": ["username", "message"],
+        },
+        "config": {},
+        "config_schema": {},
+    },
+    {
         "name": "send_message_to_agent",
         "display_name": "Agent Message",
         "description": "Send a message to a digital employee colleague and receive a reply. Suitable for questions, delegation, or collaboration.",

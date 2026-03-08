@@ -241,6 +241,27 @@ AGENT_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "send_web_message",
+            "description": "Send a message to a user on the Clawith web platform. The message will appear in their web chat history and be pushed in real-time if they are online. Use this to proactively notify web users.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "username": {
+                        "type": "string",
+                        "description": "Username or display name of the recipient (must be a registered platform user)",
+                    },
+                    "message": {
+                        "type": "string",
+                        "description": "Message content to send",
+                    },
+                },
+                "required": ["username", "message"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "send_message_to_agent",
             "description": "Send a message to a digital employee colleague and receive a reply. The recipient is another AI agent, not a human. This triggers the recipient's LLM reasoning and returns their response. Suitable for asking questions, delegating tasks, or collaboration. Your relationships.md lists available digital employees under 'Digital Employee Colleagues'.",
             "parameters": {
@@ -616,6 +637,8 @@ async def execute_tool(
             result = await _handle_list_triggers(agent_id)
         elif tool_name == "send_feishu_message":
             result = await _send_feishu_message(agent_id, arguments)
+        elif tool_name == "send_web_message":
+            result = await _send_web_message(agent_id, arguments)
         elif tool_name == "send_message_to_agent":
             result = await _send_message_to_agent(agent_id, arguments)
         elif tool_name == "send_channel_file":
@@ -1580,6 +1603,95 @@ async def _send_feishu_message(agent_id: uuid.UUID, args: dict) -> str:
             return f"❌ {member_name} has no Feishu open_id and cannot be resolved via email/phone"
     except Exception as e:
         return f"❌ Message send error: {str(e)[:200]}"
+
+
+async def _send_web_message(agent_id: uuid.UUID, args: dict) -> str:
+    """Send a proactive message to a web platform user."""
+    username = args.get("username", "").strip()
+    message_text = args.get("message", "").strip()
+
+    if not username or not message_text:
+        return "❌ Please provide recipient username and message content"
+
+    try:
+        from app.models.user import User as UserModel
+        from app.models.audit import ChatMessage
+        from app.models.chat_session import ChatSession
+        from datetime import datetime as _dt, timezone as _tz
+
+        async with async_session() as db:
+            # Look up target user by username or display_name
+            from sqlalchemy import or_
+            u_result = await db.execute(
+                select(UserModel).where(
+                    or_(
+                        UserModel.username == username,
+                        UserModel.display_name == username,
+                    )
+                )
+            )
+            target_user = u_result.scalar_one_or_none()
+            if not target_user:
+                # List available users for the agent to pick from
+                all_r = await db.execute(select(UserModel.username, UserModel.display_name).limit(20))
+                names = [f"{r.display_name or r.username}" for r in all_r.all()]
+                return f"❌ No user named '{username}' found. Available users: {', '.join(names) if names else 'none'}"
+
+            # Find or create a web session between the agent and this user
+            sess_r = await db.execute(
+                select(ChatSession).where(
+                    ChatSession.agent_id == agent_id,
+                    ChatSession.user_id == target_user.id,
+                    ChatSession.source_channel == "web",
+                ).order_by(ChatSession.created_at.desc()).limit(1)
+            )
+            session = sess_r.scalar_one_or_none()
+
+            if not session:
+                # Create a new session for this user
+                session = ChatSession(
+                    agent_id=agent_id,
+                    user_id=target_user.id,
+                    title=f"[Agent Message] {_dt.now(_tz.utc).strftime('%m-%d %H:%M')}",
+                    source_channel="web",
+                    created_at=_dt.now(_tz.utc),
+                )
+                db.add(session)
+                await db.flush()
+
+            # Save the message
+            db.add(ChatMessage(
+                agent_id=agent_id,
+                user_id=target_user.id,
+                role="assistant",
+                content=message_text,
+                conversation_id=str(session.id),
+            ))
+            session.last_message_at = _dt.now(_tz.utc)
+            await db.commit()
+
+            # Push via WebSocket if user has an active connection
+            try:
+                from app.api.websocket import manager as ws_manager
+                agent_id_str = str(agent_id)
+                if agent_id_str in ws_manager.active_connections:
+                    for ws, sid in list(ws_manager.active_connections[agent_id_str]):
+                        try:
+                            await ws.send_json({
+                                "type": "trigger_notification",
+                                "content": message_text,
+                                "triggers": ["web_message"],
+                            })
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+            display = target_user.display_name or target_user.username
+            return f"✅ Message sent to {display} on web platform. It has been saved to their chat history."
+
+    except Exception as e:
+        return f"❌ Web message send error: {str(e)[:200]}"
 
 
 async def _send_message_to_agent(from_agent_id: uuid.UUID, args: dict) -> str:
