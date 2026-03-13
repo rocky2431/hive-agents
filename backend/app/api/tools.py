@@ -182,6 +182,9 @@ async def get_agent_tools(
             continue
         tid = str(t.id)
         at = assignments.get(tid)
+        # MCP tools only show for agents that have an explicit assignment
+        if t.type == "mcp" and not at:
+            continue
         # If no explicit assignment, use is_default
         enabled = at.enabled if at else t.is_default
         result.append({
@@ -378,6 +381,9 @@ async def get_agent_tools_with_config(
             continue
         tid = str(t.id)
         at = assignments.get(tid)
+        # MCP tools only show for agents that have an explicit assignment
+        if t.type == "mcp" and not at:
+            continue
         enabled = at.enabled if at else t.is_default
         result.append({
             "id": tid,
