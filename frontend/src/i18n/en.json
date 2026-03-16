@@ -704,7 +704,14 @@
     "welcomeMessage": "Welcome Message",
     "saved": "Saved",
     "welcomePlaceholder": "e.g. Hello! I'm your AI assistant. How can I help you?",
-    "welcomeMessageDesc": "Greeting message sent automatically when a user starts a new web conversation. Supports Markdown. Leave empty to disable."
+    "welcomeMessageDesc": "Greeting message sent automatically when a user starts a new web conversation. Supports Markdown. Leave empty to disable.",
+    "configHistory": "Configuration History",
+    "configHistoryDesc": "Track changes to agent settings. Click a version to view details.",
+    "noHistory": "No configuration history yet.",
+    "version": "v{{version}}",
+    "rollback": "Rollback",
+    "rollbackConfirm": "Rollback to v{{version}}?",
+    "rolledBack": "Rolled back successfully"
   },
   "userMgmt": {
     "quotaUpdated": "Quota updated",

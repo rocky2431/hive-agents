@@ -704,7 +704,14 @@
     "welcomeMessage": "欢迎语",
     "saved": "已保存",
     "welcomePlaceholder": "例如：你好！我是你的 AI 助手，有什么可以帮你的吗？",
-    "welcomeMessageDesc": "当用户在网页端发起新对话时，Agent 会自动发送的欢迎语。支持 Markdown 语法。留空则不发送。"
+    "welcomeMessageDesc": "当用户在网页端发起新对话时，Agent 会自动发送的欢迎语。支持 Markdown 语法。留空则不发送。",
+    "configHistory": "配置变更历史",
+    "configHistoryDesc": "追踪 Agent 设置的变更。点击版本查看详情。",
+    "noHistory": "暂无配置历史记录。",
+    "version": "v{{version}}",
+    "rollback": "回滚",
+    "rollbackConfirm": "确定回滚到 v{{version}} 吗？",
+    "rolledBack": "回滚成功"
   },
   "userMgmt": {
     "quotaUpdated": "配额已更新",
