@@ -10,7 +10,7 @@ import logging
 
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import Response
 
 from app.config import get_settings
 
@@ -58,19 +58,23 @@ class TenantMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         path = request.url.path
 
+        from app.database import set_current_tenant
+
         # Skip public paths
         if _is_public_path(path):
+            set_current_tenant(None)
             request.state.tenant_id = None
             return await call_next(request)
 
         # Try to extract tenant_id from JWT
         auth_header = request.headers.get("authorization", "")
         if not auth_header.startswith("Bearer "):
-            # No auth header — let the route dependency handle 401
+            set_current_tenant(None)
             request.state.tenant_id = None
             return await call_next(request)
 
         token = auth_header[7:]
+        tenant_id = None
         try:
             from jose import jwt as jose_jwt
             payload = jose_jwt.decode(
@@ -78,22 +82,15 @@ class TenantMiddleware(BaseHTTPMiddleware):
                 algorithms=[settings.JWT_ALGORITHM],
                 options={"verify_exp": False},  # Expiry checked by route dependency
             )
-            tenant_id = payload.get("tid")  # tenant_id claim
+            tenant_id = payload.get("tid")
             user_role = payload.get("role", "")
 
-            if tenant_id:
-                request.state.tenant_id = tenant_id
-            elif user_role == "platform_admin":
-                # Platform admins may not have a tenant — use header override
-                override = request.headers.get("x-tenant-id")
-                request.state.tenant_id = override
-            else:
-                # User has no tenant — this shouldn't happen for normal users
-                # Let the request through; route-level checks will handle it
-                request.state.tenant_id = None
+            if not tenant_id and user_role == "platform_admin":
+                tenant_id = request.headers.get("x-tenant-id")
 
-        except Exception:
-            # JWT decode failed — let the route dependency handle it
-            request.state.tenant_id = None
+        except Exception as e:
+            logger.debug("JWT decode skipped in TenantMiddleware: %s", e)
 
+        set_current_tenant(tenant_id)
+        request.state.tenant_id = tenant_id
         return await call_next(request)
