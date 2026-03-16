@@ -1115,63 +1115,63 @@ export default function EnterpriseSettings() {
                 {/* ── Quotas Tab ── */}
                 {activeTab === 'quotas' && (
                     <div>
-                        <h3 style={{ marginBottom: '4px' }}>Default User Quotas</h3>
+                        <h3 style={{ marginBottom: '4px' }}>{t('enterprise.quotas.title', 'Default User Quotas')}</h3>
                         <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '16px' }}>
-                            These defaults apply to newly registered users. Existing users are not affected.
+                            {t('enterprise.quotas.description', 'These defaults apply to newly registered users. Existing users are not affected.')}
                         </p>
                         <div className="card" style={{ padding: '16px' }}>
                             {/* ── Conversation Limits ── */}
-                            <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '10px' }}>Conversation Limits</div>
+                            <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '10px' }}>{t('enterprise.quotas.conversationLimits', 'Conversation Limits')}</div>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
                                 <div className="form-group">
-                                    <label className="form-label">Message Limit</label>
+                                    <label className="form-label">{t('enterprise.quotas.messageLimit', 'Message Limit')}</label>
                                     <input className="form-input" type="number" min={0} value={quotaForm.default_message_limit}
                                         onChange={e => setQuotaForm({ ...quotaForm, default_message_limit: Number(e.target.value) })} />
-                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>Max messages per period</div>
+                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>{t('enterprise.quotas.messageLimitDesc', 'Max messages per period')}</div>
                                 </div>
                                 <div className="form-group">
-                                    <label className="form-label">Message Period</label>
+                                    <label className="form-label">{t('enterprise.quotas.messagePeriod', 'Message Period')}</label>
                                     <select className="form-input" value={quotaForm.default_message_period}
                                         onChange={e => setQuotaForm({ ...quotaForm, default_message_period: e.target.value })}>
-                                        <option value="permanent">Permanent</option>
-                                        <option value="daily">Daily</option>
-                                        <option value="weekly">Weekly</option>
-                                        <option value="monthly">Monthly</option>
+                                        <option value="permanent">{t('enterprise.quotas.permanent', 'Permanent')}</option>
+                                        <option value="daily">{t('enterprise.quotas.daily', 'Daily')}</option>
+                                        <option value="weekly">{t('enterprise.quotas.weekly', 'Weekly')}</option>
+                                        <option value="monthly">{t('enterprise.quotas.monthly', 'Monthly')}</option>
                                     </select>
                                 </div>
                             </div>
 
                             {/* ── Agent Limits ── */}
-                            <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '10px' }}>Agent Limits</div>
+                            <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '10px' }}>{t('enterprise.quotas.agentLimits', 'Agent Limits')}</div>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', marginBottom: '20px' }}>
                                 <div className="form-group">
-                                    <label className="form-label">Max Agents</label>
+                                    <label className="form-label">{t('enterprise.quotas.maxAgents', 'Max Agents')}</label>
                                     <input className="form-input" type="number" min={0} value={quotaForm.default_max_agents}
                                         onChange={e => setQuotaForm({ ...quotaForm, default_max_agents: Number(e.target.value) })} />
-                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>Agents a user can create</div>
+                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>{t('enterprise.quotas.maxAgentsDesc', 'Agents a user can create')}</div>
                                 </div>
                                 <div className="form-group">
-                                    <label className="form-label">Agent TTL (hours)</label>
+                                    <label className="form-label">{t('enterprise.quotas.agentTTL', 'Agent TTL (hours)')}</label>
                                     <input className="form-input" type="number" min={1} value={quotaForm.default_agent_ttl_hours}
                                         onChange={e => setQuotaForm({ ...quotaForm, default_agent_ttl_hours: Number(e.target.value) })} />
-                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>Agent auto-expiry time from creation</div>
+                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>{t('enterprise.quotas.agentTTLDesc', 'Agent auto-expiry time from creation')}</div>
                                 </div>
                                 <div className="form-group">
-                                    <label className="form-label">Daily LLM Calls / Agent</label>
+                                    <label className="form-label">{t('enterprise.quotas.dailyLLMCalls', 'Daily LLM Calls / Agent')}</label>
                                     <input className="form-input" type="number" min={0} value={quotaForm.default_max_llm_calls_per_day}
                                         onChange={e => setQuotaForm({ ...quotaForm, default_max_llm_calls_per_day: Number(e.target.value) })} />
-                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>Max LLM calls per agent per day</div>
+                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>{t('enterprise.quotas.dailyLLMCallsDesc', 'Max LLM calls per agent per day')}</div>
                                 </div>
                             </div>
 
                             {/* ── System Limits ── */}
-                            <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '10px' }}>System</div>
+                            <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '10px' }}>{t('enterprise.quotas.system', 'System')}</div>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
                                 <div className="form-group">
-                                    <label className="form-label">Min Heartbeat Interval (min)</label>
+                                    <label className="form-label">{t('enterprise.quotas.minHeartbeat', 'Min Heartbeat Interval (min)')}</label>
                                     <input className="form-input" type="number" min={1} value={quotaForm.min_heartbeat_interval_minutes}
                                         onChange={e => setQuotaForm({ ...quotaForm, min_heartbeat_interval_minutes: Number(e.target.value) })} />
-                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>Minimum heartbeat interval for all agents</div>
+                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>{t('enterprise.quotas.minHeartbeatDesc', 'Minimum heartbeat interval for all agents')}</div>
                                 </div>
                             </div>
 

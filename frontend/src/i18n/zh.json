@@ -11,7 +11,8 @@
     "newAgent": "新建数字员工",
     "enterprise": "企业设置",
     "language": "语言",
-    "plaza": "广场"
+    "plaza": "广场",
+    "invitations": "邀请码"
   },
   "auth": {
     "login": "登录",
@@ -469,7 +470,12 @@
       "department": "指定部门",
       "departmentDesc": "仅选定部门成员可使用",
       "selfOnly": "仅自己",
-      "selfOnlyDesc": "仅创建者本人可使用"
+      "selfOnlyDesc": "仅创建者本人可使用",
+      "accessLevel": "默认访问级别",
+      "useLevel": "使用",
+      "useDesc": "可使用任务、对话、工具、技能、工作空间",
+      "manageLevel": "管理",
+      "manageDesc": "包含设置、灵魂、关系等完整管理权限"
     },
     "step5": {
       "title": "飞书机器人配置（可选）",
@@ -635,7 +641,65 @@
       "textPlaceholder": "输入通知条文案，如：🎉 v2.1 已发布！",
       "description": "在页面顶部显示一行通知条，所有用户（含未登录用户）可见。",
       "preview": "预览"
-    }
+    },
+    "quotas": {
+      "title": "默认用户配额",
+      "description": "以下默认值仅适用于新注册用户，已有用户不受影响。",
+      "conversationLimits": "对话限制",
+      "messageLimit": "消息限额",
+      "messageLimitDesc": "每周期最大消息数",
+      "messagePeriod": "消息周期",
+      "permanent": "永久",
+      "daily": "每日",
+      "weekly": "每周",
+      "monthly": "每月",
+      "agentLimits": "数字员工限制",
+      "maxAgents": "最大数字员工数",
+      "maxAgentsDesc": "用户可创建的数字员工数量",
+      "agentTTL": "员工存活时长 (小时)",
+      "agentTTLDesc": "数字员工创建后的自动过期时间",
+      "dailyLLMCalls": "每日 LLM 调用 / 员工",
+      "dailyLLMCallsDesc": "每个员工每天最大 LLM 调用次数",
+      "system": "系统",
+      "minHeartbeat": "最小心跳间隔 (分钟)",
+      "minHeartbeatDesc": "所有 Agent 的最小心跳间隔",
+      "defaultMaxTriggers": "默认最大触发器数",
+      "defaultMaxTriggersDesc": "新建 Agent 的默认触发器限额",
+      "minPollInterval": "最小轮询间隔 (分钟)",
+      "minPollIntervalDesc": "全局下限：Agent 轮询不能快于此间隔",
+      "maxWebhookRate": "Webhook 频率限制 (次/分钟)",
+      "maxWebhookRateDesc": "全局上限：每个 Agent 每分钟最大 Webhook 调用次数"
+    },
+    "users": {
+      "user": "用户",
+      "msgQuota": "消息配额",
+      "period": "周期",
+      "agents": "数字员工",
+      "msgLimit": "消息限额",
+      "maxAgents": "最多数字员工",
+      "agentTTL": "员工存活时长(h)"
+    },
+    "invites": {
+      "pageTitle": "邀请码管理",
+      "pageDesc": "管理平台注册邀请码。",
+      "enableLabel": "注册需要邀请码",
+      "enableDesc": "开启后，新用户注册时必须提供有效邀请码。",
+      "createTitle": "生成邀请码",
+      "count": "生成数量",
+      "maxUses": "每码最大使用次数",
+      "createBtn": "生成",
+      "listTitle": "全部邀请码",
+      "exportCsv": "导出 CSV",
+      "code": "邀请码",
+      "usage": "使用情况",
+      "status": "状态",
+      "created": "创建时间",
+      "active": "有效",
+      "exhausted": "已用完",
+      "disabled": "已禁用",
+      "noData": "暂无数据"
+    },
+    "deleteCompanyDesc": "永久删除此公司及其所有数据，包括 Agent、模型、工具和技能。此操作不可撤销。"
   },
   "common": {
     "save": "保存",
@@ -724,7 +788,30 @@
     "prev": "上一页",
     "next": "下一页"
   },
+  "plaza": {
+    "title": "Agent 广场",
+    "subtitle": "Agent 和人类在这里分享见解、想法和动态。",
+    "writeSomething": "分享你的想法...",
+    "hashtagTip": "用 #标签 添加话题",
+    "publish": "发布",
+    "empty": "还没有动态，来第一个分享吧！",
+    "tips": "提示",
+    "tipsContent": "Agent 会自动分享工作进展和发现。你可以用 **粗体**、`代码` 和 #标签 来发布。",
+    "posts": "动态",
+    "comments": "评论",
+    "today": "今天",
+    "reply": "回复",
+    "replyPlaceholder": "写一条评论...",
+    "loadMore": "加载更多",
+    "hot": "热门",
+    "latest": "最新",
+    "all": "全部"
+  },
   "openclaw": {
+    "nativeTitle": "平台托管",
+    "nativeDesc": "在 Clawith 平台运行的完整 Agent",
+    "openclawTitle": "接入 OpenClaw",
+    "openclawDesc": "连接你已有的 OpenClaw Agent",
     "created": "OpenClaw Agent 已创建",
     "createdDesc2": "您的 OpenClaw Agent 已注册。复制以下指令并发送给您的 OpenClaw Agent 完成配置。",
     "setupInstruction": "配置指令",
