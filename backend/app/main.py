@@ -64,7 +64,20 @@ async def lifespan(app: FastAPI):
     from app.services.dingtalk_stream import dingtalk_stream_manager
     from app.services.wecom_stream import wecom_stream_manager
 
-    # ── Step 0: Ensure all DB tables exist (idempotent, safe to run on every startup) ──
+    # ── Step 0a: Validate production secrets ──
+    if not settings.DEBUG:
+        if settings.SECRET_KEY == "change-me-in-production":
+            import logging as _log
+            _log.getLogger(__name__).critical("SECRET_KEY has default value — set a strong random key for production")
+        if settings.JWT_SECRET_KEY == "change-me-jwt-secret":
+            import logging as _log
+            _log.getLogger(__name__).critical("JWT_SECRET_KEY has default value — set a strong random key for production")
+
+    # ── Step 0b: Initialize secrets provider ──
+    from app.services.secrets_provider import init_secrets_provider
+    init_secrets_provider(settings.SECRETS_MASTER_KEY or None)
+
+    # ── Step 0c: Ensure all DB tables exist (idempotent, safe to run on every startup) ──
     try:
         from app.database import Base, engine
         # Import all models so Base.metadata is fully populated
@@ -198,8 +211,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS
+# CORS — reject wildcard in production
 _cors_origins = settings.CORS_ORIGINS
+if "*" in _cors_origins and not settings.DEBUG:
+    import logging as _logging
+    _logging.getLogger(__name__).critical(
+        "CORS_ORIGINS contains '*' in non-DEBUG mode. "
+        "Set explicit origins (e.g. CORS_ORIGINS='[\"https://your-domain.com\"]') for production."
+    )
 _allow_creds = "*" not in _cors_origins  # CORS spec forbids credentials with wildcard
 app.add_middleware(
     CORSMiddleware,

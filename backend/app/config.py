@@ -79,6 +79,9 @@ class Settings(BaseSettings):
     # CORS
     CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:5173"]
 
+    # Secrets encryption (set a strong random string in production)
+    SECRETS_MASTER_KEY: str = ""
+
     # Jina AI (Reader + Search APIs)
     JINA_API_KEY: str = ""
 
