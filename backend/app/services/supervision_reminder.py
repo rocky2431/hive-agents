@@ -139,7 +139,7 @@ async def _get_agent_reply(target_agent, message: str, db) -> str | None:
 
     client = create_llm_client(
         provider=model.provider,
-        api_key=model.api_key_encrypted,
+        api_key=model.api_key,
         model=model.model,
         base_url=base_url,
         timeout=60.0,

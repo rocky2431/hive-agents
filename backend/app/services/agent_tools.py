@@ -2565,7 +2565,7 @@ async def _send_message_to_agent(from_agent_id: uuid.UUID, args: dict) -> str:
 
             llm_client = create_llm_client(
                 provider=target_model.provider,
-                api_key=target_model.api_key_encrypted,
+                api_key=target_model.api_key,
                 model=target_model.model,
                 base_url=base_url,
                 timeout=120.0,

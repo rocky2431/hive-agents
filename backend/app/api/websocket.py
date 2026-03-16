@@ -210,7 +210,7 @@ async def call_llm(
     try:
         client = create_llm_client(
             provider=model.provider,
-            api_key=model.api_key_encrypted,
+            api_key=model.api_key,
             model=model.model,
             base_url=model.base_url,
             timeout=120.0,

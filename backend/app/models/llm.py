@@ -30,3 +30,9 @@ class LLMModel(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+    @property
+    def api_key(self) -> str:
+        """Return decrypted API key (transparent envelope decryption)."""
+        from app.services.secrets_provider import get_secrets_provider
+        return get_secrets_provider().decrypt(self.api_key_encrypted)

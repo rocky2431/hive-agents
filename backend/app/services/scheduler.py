@@ -81,7 +81,7 @@ async def _execute_schedule(schedule_id: uuid.UUID, agent_id: uuid.UUID, instruc
             try:
                 client = create_llm_client(
                     provider=model.provider,
-                    api_key=model.api_key_encrypted,
+                    api_key=model.api_key,
                     model=model.model,
                     base_url=model.base_url,
                     timeout=120.0,

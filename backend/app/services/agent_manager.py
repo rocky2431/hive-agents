@@ -127,7 +127,7 @@ class AgentManager:
 
         if model and model.api_key_encrypted:
             config["env"] = {
-                f"{model.provider.upper()}_API_KEY": model.api_key_encrypted,
+                f"{model.provider.upper()}_API_KEY": model.api_key,
             }
 
         return config

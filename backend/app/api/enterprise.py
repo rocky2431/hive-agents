@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import get_current_admin, get_current_user, require_role
 from app.database import get_db
+from app.services.secrets_provider import get_secrets_provider
 from app.models.agent import Agent
 from app.models.audit import ApprovalRequest, AuditLog, EnterpriseInfo
 from app.models.llm import LLMModel
@@ -52,7 +53,7 @@ async def add_llm_model(
     model = LLMModel(
         provider=data.provider,
         model=data.model,
-        api_key_encrypted=data.api_key,  # TODO: encrypt
+        api_key_encrypted=get_secrets_provider().encrypt(data.api_key),
         base_url=data.base_url,
         label=data.label,
         max_tokens_per_day=data.max_tokens_per_day,
@@ -131,7 +132,7 @@ async def update_llm_model(
         if hasattr(data, 'base_url') and data.base_url is not None:
             model.base_url = data.base_url
         if data.api_key and data.api_key.strip():  # Only update API key if provided (not empty)
-            model.api_key_encrypted = data.api_key.strip()
+            model.api_key_encrypted = get_secrets_provider().encrypt(data.api_key.strip())
         if data.max_tokens_per_day is not None:
             model.max_tokens_per_day = data.max_tokens_per_day
         if data.enabled is not None:
