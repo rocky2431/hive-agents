@@ -2,7 +2,7 @@
 
 import type { Agent, TokenResponse, User, Task, ChatMessage } from '../types';
 
-const API_BASE = '/api';
+const API_BASE = '/api/v1';
 
 async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
     const token = localStorage.getItem('token');

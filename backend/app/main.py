@@ -267,42 +267,30 @@ from app.api.notification import router as notification_router
 from app.api.gateway import router as gateway_router
 from app.api.config_history import router as config_history_router
 
-app.include_router(auth_router, prefix=settings.API_PREFIX)
-app.include_router(agents_router, prefix=settings.API_PREFIX)
-app.include_router(tasks_router, prefix=settings.API_PREFIX)
-app.include_router(files_router, prefix=settings.API_PREFIX)
-app.include_router(feishu_router, prefix=settings.API_PREFIX)
-app.include_router(org_router, prefix=settings.API_PREFIX)
-app.include_router(enterprise_router, prefix=settings.API_PREFIX)
-app.include_router(advanced_router, prefix=settings.API_PREFIX)
-app.include_router(upload_router, prefix=settings.API_PREFIX)
-app.include_router(relationships_router, prefix=settings.API_PREFIX)
-app.include_router(activity_router, prefix=settings.API_PREFIX)
-app.include_router(messages_router, prefix=settings.API_PREFIX)
-app.include_router(tenants_router, prefix=settings.API_PREFIX)
-app.include_router(schedules_router, prefix=settings.API_PREFIX)
-app.include_router(tools_router, prefix=settings.API_PREFIX)
-app.include_router(files_upload_router, prefix=settings.API_PREFIX)
-app.include_router(enterprise_kb_router, prefix=settings.API_PREFIX)
-app.include_router(skills_router, prefix=settings.API_PREFIX)
-app.include_router(users_router, prefix=settings.API_PREFIX)
-app.include_router(slack_router, prefix=settings.API_PREFIX)
-app.include_router(discord_router, prefix=settings.API_PREFIX)
-app.include_router(dingtalk_router, prefix=settings.API_PREFIX)
-app.include_router(wecom_router, prefix=settings.API_PREFIX)
-app.include_router(teams_router, prefix=settings.API_PREFIX)
+# All API routers — mounted under both /api (backward compat) and /api/v1
+_api_routers = [
+    auth_router, agents_router, tasks_router, files_router, feishu_router,
+    org_router, enterprise_router, advanced_router, upload_router,
+    relationships_router, activity_router, messages_router, tenants_router,
+    schedules_router, tools_router, files_upload_router, enterprise_kb_router,
+    skills_router, users_router, slack_router, discord_router, dingtalk_router,
+    wecom_router, teams_router, atlassian_router, notification_router,
+    gateway_router, config_history_router,
+]
 
-app.include_router(atlassian_router, prefix=settings.API_PREFIX)
+for _r in _api_routers:
+    app.include_router(_r, prefix="/api")      # backward compat
+    app.include_router(_r, prefix="/api/v1")   # versioned
+
+# Routers without /api prefix (WebSocket, webhooks, triggers, etc.)
 app.include_router(triggers_router)
 app.include_router(chat_sessions_router)
 app.include_router(plaza_router)
-app.include_router(notification_router, prefix=settings.API_PREFIX)
 app.include_router(webhooks_router)  # Public endpoint, no API prefix
 app.include_router(ws_router)
-app.include_router(gateway_router, prefix=settings.API_PREFIX)
-app.include_router(config_history_router, prefix=settings.API_PREFIX)
 
 
+# Health check — unversioned (infrastructure)
 @app.get("/api/health", response_model=HealthResponse, tags=["health"])
 async def health_check():
     """Health check endpoint."""
