@@ -278,6 +278,9 @@ export const enterpriseApi = {
         request(`/enterprise/knowledge-base/content?path=${encodeURIComponent(path)}`, {
             method: 'DELETE',
         }),
+
+    openvikingStatus: () =>
+        request<{ connected: boolean; version?: string; reason?: string }>('/enterprise/knowledge-base/openviking-status'),
 };
 
 // ─── Activity Logs ────────────────────────────────────

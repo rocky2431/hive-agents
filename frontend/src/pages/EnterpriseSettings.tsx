@@ -386,7 +386,7 @@ function NotificationBarConfig() {
             });
             setSaved(true);
             setTimeout(() => setSaved(false), 2000);
-        } catch (e) { }
+        } catch (e: any) { console.error('[EnterpriseSettings] save failed:', e?.message || e); }
         setSaving(false);
     };
 
@@ -499,7 +499,7 @@ function CompanyNameEditor() {
             qc.invalidateQueries({ queryKey: ['tenants'] });
             setSaved(true);
             setTimeout(() => setSaved(false), 2000);
-        } catch (e) { }
+        } catch (e: any) { console.error('[EnterpriseSettings] save failed:', e?.message || e); }
         setSaving(false);
     };
 
@@ -570,7 +570,7 @@ function CompanyTimezoneEditor() {
             });
             setSaved(true);
             setTimeout(() => setSaved(false), 2000);
-        } catch (e) { }
+        } catch (e: any) { console.error('[EnterpriseSettings] save failed:', e?.message || e); }
         setSaving(false);
     };
 
@@ -661,7 +661,7 @@ export default function EnterpriseSettings() {
             });
             setCompanyIntroSaved(true);
             setTimeout(() => setCompanyIntroSaved(false), 2000);
-        } catch (e) { }
+        } catch (e: any) { console.error('[EnterpriseSettings] save failed:', e?.message || e); }
         setCompanyIntroSaving(false);
     };
     const [auditFilter, setAuditFilter] = useState<'all' | 'background' | 'actions'>('all');
@@ -1062,7 +1062,28 @@ export default function EnterpriseSettings() {
                         </div>
 
                         {/* ── 2. Company Knowledge Base ── */}
-                        <h3 style={{ marginBottom: '8px' }}>{t('enterprise.kb.title')}</h3>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+                            <h3 style={{ margin: 0 }}>{t('enterprise.kb.title')}</h3>
+                            {(() => {
+                                const { data: vikingStatus } = useQuery({
+                                    queryKey: ['openviking-status'],
+                                    queryFn: enterpriseApi.openvikingStatus,
+                                    refetchInterval: 60000,
+                                    retry: false,
+                                });
+                                if (!vikingStatus) return null;
+                                return vikingStatus.connected ? (
+                                    <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '10px', background: 'rgba(16,185,129,0.15)', color: 'rgb(16,185,129)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'rgb(16,185,129)' }} />
+                                        OpenViking {vikingStatus.version || ''}
+                                    </span>
+                                ) : (
+                                    <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '10px', background: 'var(--bg-secondary)', color: 'var(--text-tertiary)', fontWeight: 500 }}>
+                                        {t('enterprise.kb.vikingOffline', 'Knowledge engine offline')}
+                                    </span>
+                                );
+                            })()}
+                        </div>
                         <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
                             {t('enterprise.kb.description', 'Shared files accessible to all agents via enterprise_info/ directory.')}
                         </p>

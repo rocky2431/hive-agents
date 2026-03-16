@@ -302,6 +302,24 @@ async def upload_file_to_workspace(
 enterprise_kb_router = APIRouter(prefix="/enterprise/knowledge-base", tags=["enterprise"])
 
 
+@enterprise_kb_router.get("/openviking-status")
+async def openviking_status(current_user: User = Depends(get_current_user)):
+    """Check OpenViking connection status for the KB status indicator."""
+    from app.services.viking_client import is_configured, _get_client
+    if not is_configured():
+        return {"connected": False, "reason": "not_configured"}
+    client = _get_client()
+    if not client:
+        return {"connected": False, "reason": "client_error"}
+    try:
+        resp = await client.get("/api/v1/health", timeout=5.0)
+        if resp.status_code == 200:
+            return {"connected": True, "version": resp.json().get("version", "unknown")}
+        return {"connected": False, "reason": f"status_{resp.status_code}"}
+    except Exception as e:
+        return {"connected": False, "reason": str(e)[:100]}
+
+
 def _enterprise_kb_dir() -> Path:
     return Path(settings.AGENT_DATA_DIR) / "enterprise_info" / "knowledge_base"
 
@@ -376,6 +394,27 @@ async def upload_enterprise_kb_file(
         txt_file = save_extracted_text(save_path, content, filename)
         if txt_file:
             extracted_path = str(txt_file.resolve().relative_to(info_dir.resolve()))
+
+    # Auto-index in OpenViking (fire-and-forget, non-blocking)
+    try:
+        from app.services.viking_client import is_configured, add_resource
+        if is_configured() and current_user.tenant_id:
+            text_content = content.decode("utf-8", errors="ignore") if not needs_extraction(filename) else ""
+            if extracted_path:
+                txt_path = info_dir / extracted_path
+                text_content = txt_path.read_text(errors="ignore") if txt_path.exists() else text_content
+            if text_content.strip():
+                import asyncio
+                uri = f"viking://enterprise/knowledge_base/{sub_path}/{filename}" if sub_path else f"viking://enterprise/knowledge_base/{filename}"
+                asyncio.create_task(add_resource(
+                    content=text_content[:50000],
+                    to=uri,
+                    tenant_id=str(current_user.tenant_id),
+                    reason=f"Enterprise KB upload: {filename}",
+                ))
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("OpenViking auto-index skipped: %s", e)
 
     return {
         "status": "ok",
