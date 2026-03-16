@@ -31,6 +31,10 @@ async def check_agent_access(db: AsyncSession, user: User, agent_id: uuid.UUID) 
     if user.role == "platform_admin":
         return agent, "manage"
 
+    # Tenant boundary: non-platform users can only access agents in their own tenant
+    if user.tenant_id and agent.tenant_id and user.tenant_id != agent.tenant_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+
     # Creator always has manage access
     if agent.creator_id == user.id:
         return agent, "manage"

@@ -228,6 +228,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Tenant isolation middleware (runs after CORS, extracts tenant_id from JWT)
+from app.core.tenant_middleware import TenantMiddleware
+app.add_middleware(TenantMiddleware)
+
 # Register API routes
 from app.api.auth import router as auth_router
 from app.api.agents import router as agents_router

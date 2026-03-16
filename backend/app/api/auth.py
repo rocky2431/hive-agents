@@ -119,7 +119,7 @@ async def register(data: UserRegister, db: AsyncSession = Depends(get_db)):
             import logging
             logging.getLogger(__name__).warning(f"Failed to seed default agents: {e}")
 
-    token = create_access_token(str(user.id), user.role)
+    token = create_access_token(str(user.id), user.role, tenant_id=str(user.tenant_id) if user.tenant_id else None)
     return TokenResponse(access_token=token, user=UserOut.model_validate(user))
 
 
@@ -135,7 +135,7 @@ async def login(data: UserLogin, db: AsyncSession = Depends(get_db)):
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is disabled")
 
-    token = create_access_token(str(user.id), user.role)
+    token = create_access_token(str(user.id), user.role, tenant_id=str(user.tenant_id) if user.tenant_id else None)
     return TokenResponse(access_token=token, user=UserOut.model_validate(user))
 
 

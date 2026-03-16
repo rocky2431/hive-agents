@@ -80,7 +80,7 @@ class FeishuService:
         if user:
             # Existing user — update info
             user.avatar_url = feishu_user.get("avatar_url") or user.avatar_url
-            token = create_access_token(str(user.id), user.role)
+            token = create_access_token(str(user.id), user.role, tenant_id=str(user.tenant_id) if user.tenant_id else None)
             return user, token
 
         # New user — create account
