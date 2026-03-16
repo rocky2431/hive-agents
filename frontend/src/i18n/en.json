@@ -272,6 +272,9 @@
       "currentUsage": "Current Usage",
       "today": "Today",
       "month": "This Month",
+      "maxToolRounds": "Max Tool Call Rounds",
+      "maxToolRoundsLabel": "Max rounds per message",
+      "maxToolRoundsDesc": "Maximum tool-call rounds the agent can execute per message (search, write, etc.). Default: 50",
       "saveSettings": "Save Settings",
       "saved": "Saved",
       "autonomy": {
@@ -518,13 +521,24 @@
       "publicUrl": "Public URL (PUBLIC_BASE_URL)",
       "publicUrlPlaceholder": "e.g. https://xxx.cpolar.top",
       "maxRounds": "Agent Max Conversation Rounds",
+      "maxRoundsDesc": "Maximum rounds for a single collaboration conversation between two agents. Controls how many message exchanges agents can have when collaborating.",
       "maxRoundsPlaceholder": "Default 20",
       "save": "Save",
       "saved": "Saved",
       "themeColor": "Theme Color"
     },
+    "companyName": {
+      "title": "Company Name",
+      "placeholder": "Enter company name"
+    },
+    "companyIntro": {
+      "title": "Company Introduction",
+      "description": "Describe your company's mission, products, and culture. This information is included as context in every agent conversation.",
+      "hint": "This content appears in every agent's system prompt"
+    },
     "kb": {
       "title": "Company Knowledge Base",
+      "description": "Shared files accessible to all agents via the enterprise_info/ directory.",
       "rootDir": "Root",
       "uploadFile": "Upload File",
       "newFolder": "New Folder",
