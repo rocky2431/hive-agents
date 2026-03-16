@@ -119,7 +119,7 @@ export default function Chat() {
     // Load chat history on mount
     useEffect(() => {
         if (!id || !token) return;
-        fetch(`/api/chat/${id}/history`, {
+        fetch(`/api/v1/chat/${id}/history`, {
             headers: { Authorization: `Bearer ${token}` },
         })
             .then(r => r.json())
@@ -246,7 +246,7 @@ export default function Chat() {
             formData.append('file', file);
             if (id) formData.append('agent_id', id);
 
-            const resp = await fetch('/api/chat/upload', {
+            const resp = await fetch('/api/v1/chat/upload', {
                 method: 'POST',
                 headers: { Authorization: `Bearer ${token}` },
                 body: formData,

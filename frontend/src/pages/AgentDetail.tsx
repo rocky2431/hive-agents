@@ -50,13 +50,13 @@ function ToolsManager({ agentId, canManage = false }: { agentId: string; canMana
     const loadTools = async () => {
         try {
             const token = localStorage.getItem('token');
-            const res = await fetch(`/api/tools/agents/${agentId}/with-config`, {
+            const res = await fetch(`/api/v1/tools/agents/${agentId}/with-config`, {
                 headers: { Authorization: `Bearer ${token}` },
             });
             if (res.ok) setTools(await res.json());
             else {
                 // Fallback to old endpoint
-                const res2 = await fetch(`/api/tools/agents/${agentId}`, { headers: { Authorization: `Bearer ${token}` } });
+                const res2 = await fetch(`/api/v1/tools/agents/${agentId}`, { headers: { Authorization: `Bearer ${token}` } });
                 if (res2.ok) setTools(await res2.json());
             }
         } catch (e) { console.error(e); }
@@ -69,7 +69,7 @@ function ToolsManager({ agentId, canManage = false }: { agentId: string; canMana
         setTools(prev => prev.map(t => t.id === toolId ? { ...t, enabled } : t));
         try {
             const token = localStorage.getItem('token');
-            await fetch(`/api/tools/agents/${agentId}`, {
+            await fetch(`/api/v1/tools/agents/${agentId}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                 body: JSON.stringify([{ tool_id: toolId, enabled }]),
@@ -91,7 +91,7 @@ function ToolsManager({ agentId, canManage = false }: { agentId: string; canMana
             const token = localStorage.getItem('token');
             const hasSchema = configTool.config_schema?.fields?.length > 0;
             const payload = hasSchema ? configData : JSON.parse(configJson || '{}');
-            await fetch(`/api/tools/agents/${agentId}/tool-config/${configTool.id}`, {
+            await fetch(`/api/v1/tools/agents/${agentId}/tool-config/${configTool.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                 body: JSON.stringify({ config: payload }),
@@ -163,7 +163,7 @@ function ToolsManager({ agentId, canManage = false }: { agentId: string; canMana
                                                 setDeletingToolId(tool.id);
                                                 try {
                                                     const token = localStorage.getItem('token');
-                                                    const res = await fetch(`/api/tools/agent-tool/${tool.agent_tool_id}`, {
+                                                    const res = await fetch(`/api/v1/tools/agent-tool/${tool.agent_tool_id}`, {
                                                         method: 'DELETE',
                                                         headers: { Authorization: `Bearer ${token}` },
                                                     });
@@ -334,7 +334,7 @@ function ToolsManager({ agentId, canManage = false }: { agentId: string; canMana
                                                 if (btn) (btn as HTMLButtonElement).disabled = true;
                                                 try {
                                                     const token = localStorage.getItem('token');
-                                                    const res = await fetch('/api/tools/test-email', {
+                                                    const res = await fetch('/api/v1/tools/test-email', {
                                                         method: 'POST',
                                                         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                                                         body: JSON.stringify({ config: configData }),
@@ -378,7 +378,7 @@ function ToolsManager({ agentId, canManage = false }: { agentId: string; canMana
                             {Object.keys(configTool.agent_config || {}).length > 0 && (
                                 <button className="btn btn-ghost" style={{ color: 'var(--error)', marginRight: 'auto' }} onClick={async () => {
                                     const token = localStorage.getItem('token');
-                                    await fetch(`/api/tools/agents/${agentId}/tool-config/${configTool.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ config: {} }) });
+                                    await fetch(`/api/v1/tools/agents/${agentId}/tool-config/${configTool.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ config: {} }) });
                                     setConfigTool(null); loadTools();
                                 }}>Reset to Global</button>
                             )}
@@ -719,7 +719,7 @@ function AgentDetailInner() {
         queryKey: ['pulse-sessions', id],
         queryFn: async () => {
             const tkn = localStorage.getItem('token');
-            const res = await fetch(`/api/agents/${id}/sessions?scope=all`, { headers: { Authorization: `Bearer ${tkn}` } });
+            const res = await fetch(`/api/v1/agents/${id}/sessions?scope=all`, { headers: { Authorization: `Bearer ${tkn}` } });
             if (!res.ok) return [];
             const all = await res.json();
             return all.filter((s: any) => s.source_channel === 'trigger').slice(0, 20);
@@ -792,7 +792,7 @@ function AgentDetailInner() {
         if (!silent) setSessionsLoading(true);
         try {
             const tkn = localStorage.getItem('token');
-            const res = await fetch(`/api/agents/${id}/sessions?scope=mine`, { headers: { Authorization: `Bearer ${tkn}` } });
+            const res = await fetch(`/api/v1/agents/${id}/sessions?scope=mine`, { headers: { Authorization: `Bearer ${tkn}` } });
             if (res.ok) { const data = await res.json(); setSessions(data); return data; }
         } catch { }
         if (!silent) setSessionsLoading(false);
@@ -803,7 +803,7 @@ function AgentDetailInner() {
         if (!id) return;
         try {
             const tkn = localStorage.getItem('token');
-            const res = await fetch(`/api/agents/${id}/sessions?scope=all`, { headers: { Authorization: `Bearer ${tkn}` } });
+            const res = await fetch(`/api/v1/agents/${id}/sessions?scope=all`, { headers: { Authorization: `Bearer ${tkn}` } });
             if (res.ok) setAllSessions(await res.json());
         } catch { }
     };
@@ -811,7 +811,7 @@ function AgentDetailInner() {
     const createNewSession = async () => {
         try {
             const tkn = localStorage.getItem('token');
-            const res = await fetch(`/api/agents/${id}/sessions`, {
+            const res = await fetch(`/api/v1/agents/${id}/sessions`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tkn}` },
                 body: JSON.stringify({}),
             });
@@ -838,7 +838,7 @@ function AgentDetailInner() {
         setActiveSession(sess);
         // Always load stored messages for the selected session
         const tkn = localStorage.getItem('token');
-        const res = await fetch(`/api/agents/${id}/sessions/${sess.id}/messages`, { headers: { Authorization: `Bearer ${tkn}` } });
+        const res = await fetch(`/api/v1/agents/${id}/sessions/${sess.id}/messages`, { headers: { Authorization: `Bearer ${tkn}` } });
         if (res.ok) {
             const msgs = await res.json();
             // Agent-to-agent sessions are always read-only
@@ -886,7 +886,7 @@ function AgentDetailInner() {
         try {
             const token = localStorage.getItem('token');
             const body = permanent ? { expires_at: null } : { expires_at: expiryValue ? new Date(expiryValue).toISOString() : null };
-            await fetch(`/api/agents/${id}`, {
+            await fetch(`/api/v1/agents/${id}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                 body: JSON.stringify(body),
@@ -2407,7 +2407,7 @@ function AgentDetailInner() {
                                                                 if (!reflectionMessages[session.id]) {
                                                                     try {
                                                                         const tkn = localStorage.getItem('token');
-                                                                        const res = await fetch(`/api/agents/${id}/sessions/${session.id}/messages`, {
+                                                                        const res = await fetch(`/api/v1/agents/${id}/sessions/${session.id}/messages`, {
                                                                             headers: { Authorization: `Bearer ${tkn}` },
                                                                         });
                                                                         if (res.ok) {
@@ -3360,7 +3360,7 @@ function AgentDetailInner() {
                             const resolveMut = useMutation({
                                 mutationFn: async ({ approvalId, action }: { approvalId: string; action: string }) => {
                                     const token = localStorage.getItem('token');
-                                    return fetch(`/api/agents/${id}/approvals/${approvalId}/resolve`, {
+                                    return fetch(`/api/v1/agents/${id}/approvals/${approvalId}/resolve`, {
                                         method: 'POST',
                                         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
                                         body: JSON.stringify({ action }),

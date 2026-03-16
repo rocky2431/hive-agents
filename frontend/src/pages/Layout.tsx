@@ -110,7 +110,7 @@ function AccountSettingsModal({ user, onClose, isChinese }: { user: any; onClose
             if (username !== user?.username) body.username = username;
             if (displayName !== user?.display_name) body.display_name = displayName;
             if (Object.keys(body).length === 0) { showMsg(isChinese ? '没有变更' : 'No changes', 'error'); setSaving(false); return; }
-            const res = await fetch('/api/auth/me', {
+            const res = await fetch('/api/v1/auth/me', {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                 body: JSON.stringify(body),
@@ -130,7 +130,7 @@ function AccountSettingsModal({ user, onClose, isChinese }: { user: any; onClose
         setSaving(true);
         try {
             const token = localStorage.getItem('token');
-            const res = await fetch('/api/auth/me/password', {
+            const res = await fetch('/api/v1/auth/me/password', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                 body: JSON.stringify({ old_password: oldPassword, new_password: newPassword }),
@@ -200,13 +200,13 @@ export default function Layout() {
     });
     const markAllRead = async () => {
         const token = localStorage.getItem('token');
-        await fetch('/api/notifications/read-all', { method: 'POST', headers: token ? { Authorization: `Bearer ${token}` } : {} });
+        await fetch('/api/v1/notifications/read-all', { method: 'POST', headers: token ? { Authorization: `Bearer ${token}` } : {} });
         queryClient.invalidateQueries({ queryKey: ['notifications-unread'] });
         queryClient.invalidateQueries({ queryKey: ['notifications'] });
     };
     const markOneRead = async (id: string) => {
         const token = localStorage.getItem('token');
-        await fetch(`/api/notifications/${id}/read`, { method: 'POST', headers: token ? { Authorization: `Bearer ${token}` } : {} });
+        await fetch(`/api/v1/notifications/${id}/read`, { method: 'POST', headers: token ? { Authorization: `Bearer ${token}` } : {} });
         queryClient.invalidateQueries({ queryKey: ['notifications-unread'] });
         queryClient.invalidateQueries({ queryKey: ['notifications'] });
     };
@@ -312,7 +312,7 @@ export default function Layout() {
         const token = localStorage.getItem('token');
         const slug = newCompanyName.toLowerCase().replace(/[\s]+/g, '-').replace(/[^a-z0-9_-]/g, '').slice(0, 50)
             || `company-${Date.now().toString(36)}`;
-        await fetch('/api/tenants/', {
+        await fetch('/api/v1/tenants/', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
             body: JSON.stringify({ name: newCompanyName, slug, im_provider: 'web_only' }),

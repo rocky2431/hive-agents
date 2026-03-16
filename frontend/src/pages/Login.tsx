@@ -24,7 +24,7 @@ export default function Login() {
 
     // Check if invitation code is required
     useEffect(() => {
-        fetch('/api/auth/registration-config')
+        fetch('/api/v1/auth/registration-config')
             .then(r => r.json())
             .then(d => setInvitationRequired(d.invitation_code_required))
             .catch(() => { });

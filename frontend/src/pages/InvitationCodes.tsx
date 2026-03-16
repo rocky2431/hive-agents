@@ -19,7 +19,7 @@ export default function InvitationCodes() {
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
     const loadSetting = async () => {
-        const res = await fetch('/api/enterprise/system-settings/invitation_code_enabled', { headers });
+        const res = await fetch('/api/v1/enterprise/system-settings/invitation_code_enabled', { headers });
         const data = await res.json();
         setEnabled(data.value?.enabled || false);
     };
@@ -32,7 +32,7 @@ export default function InvitationCodes() {
             page_size: String(pageSize),
         });
         if (currentSearch) params.set('search', currentSearch);
-        const res = await fetch(`/api/enterprise/invitation-codes?${params}`, { headers });
+        const res = await fetch(`/api/v1/enterprise/invitation-codes?${params}`, { headers });
         const data = await res.json();
         setCodes(data.items || []);
         setTotal(data.total || 0);
@@ -50,7 +50,7 @@ export default function InvitationCodes() {
 
     const toggleEnabled = async () => {
         const newVal = !enabled;
-        await fetch('/api/enterprise/system-settings/invitation_code_enabled', {
+        await fetch('/api/v1/enterprise/system-settings/invitation_code_enabled', {
             method: 'PUT', headers, body: JSON.stringify({ value: { enabled: newVal } }),
         });
         setEnabled(newVal);
@@ -58,7 +58,7 @@ export default function InvitationCodes() {
 
     const createBatch = async () => {
         setCreating(true);
-        await fetch('/api/enterprise/invitation-codes', {
+        await fetch('/api/v1/enterprise/invitation-codes', {
             method: 'POST', headers, body: JSON.stringify({ count: batchCount, max_uses: maxUses }),
         });
         setPage(1);
@@ -70,7 +70,7 @@ export default function InvitationCodes() {
     };
 
     const deactivate = async (id: string) => {
-        await fetch(`/api/enterprise/invitation-codes/${id}`, { method: 'DELETE', headers });
+        await fetch(`/api/v1/enterprise/invitation-codes/${id}`, { method: 'DELETE', headers });
         await loadCodes();
     };
 
@@ -78,7 +78,7 @@ export default function InvitationCodes() {
         const token = localStorage.getItem('token');
         const a = document.createElement('a');
         // Use fetch to include auth header, then trigger download
-        fetch('/api/enterprise/invitation-codes/export', {
+        fetch('/api/v1/enterprise/invitation-codes/export', {
             headers: token ? { Authorization: `Bearer ${token}` } : {},
         })
             .then(r => r.blob())

@@ -25,7 +25,7 @@ function NotificationBar() {
     const [dismissed, setDismissed] = useState(false);
 
     useEffect(() => {
-        fetch('/api/enterprise/system-settings/notification_bar/public')
+        fetch('/api/v1/enterprise/system-settings/notification_bar/public')
             .then(r => r.ok ? r.json() : null)
             .then(d => { if (d) setConfig(d); })
             .catch(() => { });
