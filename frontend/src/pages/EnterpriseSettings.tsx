@@ -606,6 +606,14 @@ export default function EnterpriseSettings() {
     const qc = useQueryClient();
     const [activeTab, setActiveTab] = useState<'llm' | 'org' | 'info' | 'approvals' | 'audit' | 'tools' | 'skills' | 'quotas' | 'users'>('info');
 
+    // OpenViking status for KB tab
+    const { data: vikingStatus } = useQuery({
+        queryKey: ['openviking-status'],
+        queryFn: enterpriseApi.openvikingStatus,
+        refetchInterval: 60000,
+        retry: false,
+    });
+
     // Track selected tenant as state so page refreshes on company switch
     const [selectedTenantId, setSelectedTenantId] = useState(localStorage.getItem('current_tenant_id') || '');
     useEffect(() => {
@@ -1064,25 +1072,16 @@ export default function EnterpriseSettings() {
                         {/* ── 2. Company Knowledge Base ── */}
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
                             <h3 style={{ margin: 0 }}>{t('enterprise.kb.title')}</h3>
-                            {(() => {
-                                const { data: vikingStatus } = useQuery({
-                                    queryKey: ['openviking-status'],
-                                    queryFn: enterpriseApi.openvikingStatus,
-                                    refetchInterval: 60000,
-                                    retry: false,
-                                });
-                                if (!vikingStatus) return null;
-                                return vikingStatus.connected ? (
-                                    <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '10px', background: 'rgba(16,185,129,0.15)', color: 'rgb(16,185,129)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'rgb(16,185,129)' }} />
-                                        OpenViking {vikingStatus.version || ''}
-                                    </span>
-                                ) : (
-                                    <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '10px', background: 'var(--bg-secondary)', color: 'var(--text-tertiary)', fontWeight: 500 }}>
-                                        {t('enterprise.kb.vikingOffline', 'Knowledge engine offline')}
-                                    </span>
-                                );
-                            })()}
+                            {vikingStatus?.connected ? (
+                                <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '10px', background: 'rgba(16,185,129,0.15)', color: 'rgb(16,185,129)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'rgb(16,185,129)' }} />
+                                    OpenViking {vikingStatus.version || ''}
+                                </span>
+                            ) : vikingStatus ? (
+                                <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '10px', background: 'var(--bg-secondary)', color: 'var(--text-tertiary)', fontWeight: 500 }}>
+                                    {t('enterprise.kb.vikingOffline', 'Knowledge engine offline')}
+                                </span>
+                            ) : null}
                         </div>
                         <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
                             {t('enterprise.kb.description', 'Shared files accessible to all agents via enterprise_info/ directory.')}
