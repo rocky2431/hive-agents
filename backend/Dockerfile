@@ -23,7 +23,7 @@ FROM python:3.12-slim AS production
 
 WORKDIR /app
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends libpq5 curl shadowsocks-libev gosu && \
+    apt-get install -y --no-install-recommends libpq5 curl gosu && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy installed packages from deps stage

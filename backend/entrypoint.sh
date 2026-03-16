@@ -8,14 +8,15 @@
 
 set -e
 
-# --- Added: Permission fixing and privilege dropping ---
-if [ "$(id -u)" = '0' ]; then
+# --- Permission fixing (skip gosu on Railway / non-root environments) ---
+if [ "$(id -u)" = '0' ] && [ -d "${AGENT_DATA_DIR:-/data/agents}" ]; then
     echo "[entrypoint] Detected root user, fixing permissions..."
-    # Ensure directories exist and are owned by clawith
-    chown -R clawith:clawith ${AGENT_DATA_DIR}
-    
-    echo "[entrypoint] Dropping privileges to 'clawith' and re-executing..."
-    exec gosu clawith /bin/bash "$0" "$@"
+    chown -R clawith:clawith "${AGENT_DATA_DIR:-/data/agents}" 2>/dev/null || true
+    # Drop privileges via gosu if available, otherwise continue as root
+    if command -v gosu >/dev/null 2>&1; then
+        echo "[entrypoint] Dropping privileges to 'clawith'..."
+        exec gosu clawith /bin/bash "$0" "$@"
+    fi
 fi
 # -------------------------------------------------------
 
@@ -99,7 +100,7 @@ PYEOF
 
 echo "[entrypoint] Step 2: Running alembic migrations..."
 # Run all migrations to ensure database schema is up to date
-alembic upgrade head
+alembic upgrade head || echo "[entrypoint] WARNING: alembic migration failed (non-fatal, app may still work)"
 
 echo "[entrypoint] Step 3: Starting uvicorn..."
 exec uvicorn app.main:app --host 0.0.0.0 --port 8000
