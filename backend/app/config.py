@@ -82,6 +82,10 @@ class Settings(BaseSettings):
     # Secrets encryption (set a strong random string in production)
     SECRETS_MASTER_KEY: str = ""
 
+    # OpenViking knowledge backbone (optional — set URL to enable)
+    OPENVIKING_URL: str = ""
+    OPENVIKING_API_KEY: str = ""
+
     # Jina AI (Reader + Search APIs)
     JINA_API_KEY: str = ""
 
