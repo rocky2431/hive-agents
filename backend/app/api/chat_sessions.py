@@ -75,8 +75,11 @@ async def list_sessions(
         result = await db.execute(
             select(ChatSession)
             .where(
-                (ChatSession.agent_id == agent_id)
-                | ((ChatSession.peer_agent_id == agent_id) & (ChatSession.source_channel == "agent"))
+                (
+                    (ChatSession.agent_id == agent_id)
+                    | ((ChatSession.peer_agent_id == agent_id) & (ChatSession.source_channel == "agent"))
+                ),
+                ChatSession.source_channel != "trigger",  # Reflections only shown in Aware tab
             )
             .order_by(ChatSession.last_message_at.desc().nulls_last(), ChatSession.created_at.desc())
         )
@@ -139,7 +142,7 @@ async def list_sessions(
             .where(
                 ChatSession.agent_id == agent_id,
                 ChatSession.user_id == current_user.id,
-                ChatSession.source_channel != "agent",  # Exclude agent-to-agent sessions
+                ChatSession.source_channel.notin_(["agent", "trigger"]),  # Exclude agent-to-agent and reflection sessions
             )
             .order_by(ChatSession.last_message_at.desc().nulls_last(), ChatSession.created_at.desc())
         )
