@@ -254,15 +254,31 @@ export default function Layout() {
         });
     };
 
-    // Use user's own tenant_id directly (no switching)
-    const currentTenant = user?.tenant_id || '';
+    // Tenant switching: platform_admin can switch between companies
+    const isPlatformAdmin = user?.role === 'platform_admin';
+    const [currentTenant, setCurrentTenant] = useState(() =>
+        localStorage.getItem('current_tenant_id') || user?.tenant_id || ''
+    );
+    const [tenants, setTenants] = useState<{ id: string; name: string }[]>([]);
 
-    // Keep tenant in localStorage for other components that read it
+    // Load available tenants for platform_admin
     useEffect(() => {
-        if (currentTenant) {
-            localStorage.setItem('current_tenant_id', currentTenant);
+        if (!isPlatformAdmin) {
+            const tid = user?.tenant_id || '';
+            setCurrentTenant(tid);
+            if (tid) localStorage.setItem('current_tenant_id', tid);
+            return;
         }
-    }, [currentTenant]);
+        import('../services/api').then(({ adminApi }) => {
+            adminApi.listCompanies().then((companies: any[]) => {
+                setTenants(companies.map((c: any) => ({ id: c.id, name: c.name })));
+                // If no tenant selected yet, use user's own
+                if (!localStorage.getItem('current_tenant_id') && user?.tenant_id) {
+                    localStorage.setItem('current_tenant_id', user.tenant_id);
+                }
+            }).catch(() => {});
+        });
+    }, [isPlatformAdmin, user?.tenant_id]);
 
     const { data: agents = [] } = useQuery({
         queryKey: ['agents', currentTenant],
@@ -279,9 +295,10 @@ export default function Layout() {
         i18n.changeLanguage(i18n.language === 'zh' ? 'en' : 'zh');
     };
     const switchTenant = (tenantId: string) => {
+        setCurrentTenant(tenantId);
         localStorage.setItem('current_tenant_id', tenantId);
-        // Notify other components about tenant change
         window.dispatchEvent(new StorageEvent('storage', { key: 'current_tenant_id', newValue: tenantId }));
+        queryClient.invalidateQueries({ queryKey: ['agents'] });
     };
 
     return (
@@ -452,6 +469,23 @@ export default function Layout() {
                                 <span>{i18n.language === 'zh' ? '中文' : 'EN'}</span>
                             </button>
                         </div>
+                        {/* Tenant switcher for platform_admin */}
+                        {isPlatformAdmin && tenants.length > 1 && !isSidebarCollapsed && (
+                            <select
+                                value={currentTenant}
+                                onChange={e => switchTenant(e.target.value)}
+                                style={{
+                                    width: '100%', padding: '6px 8px', marginBottom: '8px',
+                                    fontSize: '12px', borderRadius: '6px',
+                                    background: 'var(--bg-tertiary)', color: 'var(--text-primary)',
+                                    border: '1px solid var(--border-subtle)', cursor: 'pointer',
+                                }}
+                            >
+                                {tenants.map(t => (
+                                    <option key={t.id} value={t.id}>{t.name}</option>
+                                ))}
+                            </select>
+                        )}
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <div
                                 style={{
