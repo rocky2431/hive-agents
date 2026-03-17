@@ -312,7 +312,7 @@ async def openviking_status(current_user: User = Depends(get_current_user)):
     if not client:
         return {"connected": False, "reason": "client_error"}
     try:
-        resp = await client.get("/api/v1/health", timeout=5.0)
+        resp = await client.get("/health", timeout=5.0)
         if resp.status_code == 200:
             return {"connected": True, "version": resp.json().get("version", "unknown")}
         return {"connected": False, "reason": f"status_{resp.status_code}"}
