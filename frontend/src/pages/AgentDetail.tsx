@@ -37,6 +37,55 @@ const getCategoryLabels = (t: any): Record<string, string> => ({
     general: t('agent.toolCategories.general'),
 });
 
+function ConfigVersionHistory({ agentId }: { agentId: string }) {
+    const { t } = useTranslation();
+    const tkn = localStorage.getItem('token');
+    const { data: configHistory = [] } = useQuery({
+        queryKey: ['config-history', agentId],
+        queryFn: () => fetch(`/api/v1/config-history/agent/${agentId}`, { headers: { Authorization: `Bearer ${tkn}` } }).then(r => r.ok ? r.json() : []),
+        enabled: !!agentId,
+    });
+    const [expandedVersion, setExpandedVersion] = useState<number | null>(null);
+    if (!configHistory.length) return null;
+    return (
+        <details className="card" style={{ marginBottom: '12px' }}>
+            <summary style={{ cursor: 'pointer', fontWeight: 600, fontSize: '14px', listStyle: 'none', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span>▸</span> {t('agentDetail.configHistory', 'Config History')}
+                <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontWeight: 400 }}>({configHistory.length})</span>
+            </summary>
+            <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', margin: '8px 0 12px' }}>
+                {t('agentDetail.configHistoryDesc', 'Previous configuration snapshots')}
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {configHistory.map((rev: any) => (
+                    <div key={rev.version} style={{
+                        padding: '10px 12px', borderRadius: '6px',
+                        background: expandedVersion === rev.version ? 'var(--bg-secondary)' : 'var(--bg-elevated)',
+                        border: '1px solid var(--border-subtle)', cursor: 'pointer',
+                    }} onClick={() => setExpandedVersion(expandedVersion === rev.version ? null : rev.version)}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span style={{ fontWeight: 600, fontSize: '13px' }}>v{rev.version}</span>
+                                {rev.change_summary && <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{rev.change_summary}</span>}
+                            </div>
+                            <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                                {rev.created_at ? new Date(rev.created_at).toLocaleString() : ''}
+                            </span>
+                        </div>
+                        {expandedVersion === rev.version && rev.snapshot && (
+                            <pre style={{
+                                marginTop: '8px', padding: '8px', background: 'var(--bg-primary)',
+                                borderRadius: '4px', fontSize: '11px', overflow: 'auto',
+                                maxHeight: '200px', border: '1px solid var(--border-subtle)',
+                            }}>{JSON.stringify(rev.snapshot, null, 2)}</pre>
+                        )}
+                    </div>
+                ))}
+            </div>
+        </details>
+    );
+}
+
 function ToolsManager({ agentId, canManage = false }: { agentId: string; canManage?: boolean }) {
     const { t } = useTranslation();
     const [tools, setTools] = useState<any[]>([]);
@@ -4031,51 +4080,7 @@ function AgentDetailInner() {
                                 </div>
 
                                 {/* Config Version History */}
-                                {(() => {
-                                    const { data: configHistory = [] } = useQuery({
-                                        queryKey: ['config-history', id],
-                                        queryFn: () => fetchAuth<any[]>(`/config-history/agent/${id}`),
-                                        enabled: !!id,
-                                    });
-                                    const [expandedVersion, setExpandedVersion] = useState<number | null>(null);
-                                    return configHistory.length > 0 ? (
-                                        <details className="card" style={{ marginBottom: '12px' }}>
-                                            <summary style={{ cursor: 'pointer', fontWeight: 600, fontSize: '14px', listStyle: 'none', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                <span>▸</span> {t('agentDetail.configHistory')}
-                                                <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontWeight: 400 }}>({configHistory.length})</span>
-                                            </summary>
-                                            <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', margin: '8px 0 12px' }}>
-                                                {t('agentDetail.configHistoryDesc')}
-                                            </p>
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                                {configHistory.map((rev: any) => (
-                                                    <div key={rev.version} style={{
-                                                        padding: '10px 12px', borderRadius: '6px',
-                                                        background: expandedVersion === rev.version ? 'var(--bg-secondary)' : 'var(--bg-elevated)',
-                                                        border: '1px solid var(--border-subtle)', cursor: 'pointer',
-                                                    }} onClick={() => setExpandedVersion(expandedVersion === rev.version ? null : rev.version)}>
-                                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                                <span style={{ fontWeight: 600, fontSize: '13px' }}>{t('agentDetail.version', { version: rev.version })}</span>
-                                                                {rev.change_summary && <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{rev.change_summary}</span>}
-                                                            </div>
-                                                            <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
-                                                                {rev.created_at ? new Date(rev.created_at).toLocaleString() : ''}
-                                                            </span>
-                                                        </div>
-                                                        {expandedVersion === rev.version && rev.snapshot && (
-                                                            <pre style={{
-                                                                marginTop: '8px', padding: '8px', background: 'var(--bg-primary)',
-                                                                borderRadius: '4px', fontSize: '11px', overflow: 'auto',
-                                                                maxHeight: '200px', border: '1px solid var(--border-subtle)',
-                                                            }}>{JSON.stringify(rev.snapshot, null, 2)}</pre>
-                                                        )}
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </details>
-                                    ) : null;
-                                })()}
+                                <ConfigVersionHistory agentId={id!} />
 
                                 {/* Danger Zone */}
                                 <div className="card" style={{ borderColor: 'var(--error)' }}>
