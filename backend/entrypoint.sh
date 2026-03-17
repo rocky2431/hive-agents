@@ -95,4 +95,4 @@ echo "[entrypoint] Step 2.5: Running data migrations..."
 python -m app.scripts.migrate_schedules_to_triggers
 
 echo "[entrypoint] Step 3: Starting uvicorn..."
-exec uvicorn app.main:app --host 0.0.0.0 --port 8000
+exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips '*'
