@@ -16,7 +16,7 @@ from app.models.chat_session import ChatSession
 from app.models.agent import Agent
 from app.models.user import User
 
-router = APIRouter(prefix="/api/agents", tags=["chat-sessions"])
+router = APIRouter(prefix="/agents", tags=["chat-sessions"])
 
 
 def _is_admin_or_creator(user: User, agent: Agent) -> bool:
@@ -327,8 +327,9 @@ async def get_session_messages(
                 entry["toolArgs"] = data.get("args")
                 entry["toolStatus"] = data.get("status", "done")
                 entry["toolResult"] = data.get("result", "")
-            except Exception:
-                pass
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).debug("Tool call parse failed: %s", e)
             if sender_name:
                 entry["sender_name"] = sender_name
             out.append(entry)

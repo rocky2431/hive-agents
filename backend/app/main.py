@@ -280,6 +280,7 @@ _api_routers = [
     skills_router, users_router, slack_router, discord_router, dingtalk_router,
     wecom_router, teams_router, atlassian_router, notification_router,
     gateway_router, config_history_router, feature_flags_router, admin_router,
+    chat_sessions_router,
 ]
 
 for _r in _api_routers:
@@ -288,7 +289,6 @@ for _r in _api_routers:
 
 # Routers without /api prefix (WebSocket, webhooks, triggers, etc.)
 app.include_router(triggers_router)
-app.include_router(chat_sessions_router)
 app.include_router(plaza_router)
 app.include_router(webhooks_router)  # Public endpoint, no API prefix
 app.include_router(ws_router)
