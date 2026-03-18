@@ -627,8 +627,8 @@ async def delete_skill(skill_id: str, _=Depends(require_role("platform_admin")))
 
 
 class SkillSettingsIn(BaseModel):
-    github_token: str = ""
-    clawhub_key: str = ""
+    github_token: str | None = None
+    clawhub_key: str | None = None
 
 
 async def _upsert_tenant_setting(tenant_id, key: str, value: str):
