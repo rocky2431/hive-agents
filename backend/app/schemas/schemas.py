@@ -56,9 +56,9 @@ class UserUpdate(BaseModel):
 # ─── Agent ──────────────────────────────────────────────
 
 class AgentCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=100)
+    name: str = Field(min_length=2, max_length=100, description="Agent name, 2-100 characters")
     agent_type: str = "native"  # native | openclaw
-    role_description: str = Field(default="", max_length=500)
+    role_description: str = Field(default="", max_length=500, description="Role description, max 500 characters")
     bio: str | None = None
     welcome_message: str | None = None
     avatar_url: str | None = None
@@ -271,6 +271,7 @@ class LLMModelOut(BaseModel):
     model: str
     base_url: str | None = None
     label: str
+    api_key_masked: str = ""
     max_tokens_per_day: int | None = None
     enabled: bool
     supports_vision: bool = False

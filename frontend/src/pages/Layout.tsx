@@ -76,14 +76,17 @@ const fetchJson = async <T,>(url: string): Promise<T> => {
     return res.json();
 };
 
-const statusDotClass = (status: string) => {
-    switch (status) {
-        case 'running': return 'running';
-        case 'stopped': return 'stopped';
-        case 'creating': return 'creating';
-        case 'error': return 'error';
-        default: return 'idle';
+/* Compute display badge status for an agent */
+const getAgentBadgeStatus = (agent: any): string | null => {
+    if (agent.status === 'error') return 'error';
+    if (agent.status === 'creating') return 'creating';
+    // OpenClaw disconnected detection: 60 min timeout
+    if (agent.agent_type === 'openclaw' && agent.status === 'running' && agent.openclaw_last_seen) {
+        const elapsed = Date.now() - new Date(agent.openclaw_last_seen).getTime();
+        if (elapsed > 60 * 60 * 1000) return 'disconnected';
     }
+    // idle / running / stopped → no badge
+    return null;
 };
 
 /* ────── Account Settings Modal ────── */
@@ -336,7 +339,10 @@ export default function Layout() {
                             const bp = pinnedAgents.has(b.id) ? 1 : 0;
                             return bp - ap;
                         });
-                        const renderAgent = (agent: any) => (
+                        const renderAgent = (agent: any) => {
+                            const badge = getAgentBadgeStatus(agent);
+                            const avatarChar = (agent.name || '?')[0].toUpperCase();
+                            return (
                             <div key={agent.id} style={{ position: 'relative' }} className={`sidebar-agent-item${agent.creator_id === user?.id ? ' owned' : ''}`}>
                                 <NavLink
                                     to={`/agents/${agent.id}`}
@@ -344,8 +350,9 @@ export default function Layout() {
                                     title={agent.name}
                                     style={{ paddingRight: '28px' }}
                                 >
-                                    <span className="sidebar-item-icon">
-                                        <span className={`status-dot ${statusDotClass(agent.status)}`} />
+                                    <span className="sidebar-item-icon" style={{ position: 'relative' }}>
+                                        <span className="agent-avatar">{avatarChar}</span>
+                                        {badge && <span className={`agent-avatar-badge ${badge}`} />}
                                     </span>
                                     <span className="sidebar-item-text">{agent.name}</span>
                                 </NavLink>
@@ -361,7 +368,7 @@ export default function Layout() {
                                     </button>
                                 )}
                             </div>
-                        );
+                        );};
                         return (
                             <>
                                 {sortedAgents.map(renderAgent)}
@@ -423,13 +430,14 @@ export default function Layout() {
                                 {SidebarIcons.bell}
                                 {(unreadCount as number) > 0 && (
                                     <span style={{
-                                        position: 'absolute', top: '-2px', right: '-2px',
-                                        width: '16px', height: '16px', borderRadius: '50%',
+                                        position: 'absolute', top: '-2px', right: '-4px',
+                                        minWidth: '16px', height: '16px', borderRadius: '8px',
+                                        padding: '0 4px', boxSizing: 'border-box',
                                         background: 'var(--error)', color: '#fff',
                                         fontSize: '10px', fontWeight: 600,
                                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                                         lineHeight: 1,
-                                    }}>{(unreadCount as number) > 9 ? '9+' : unreadCount}</span>
+                                    }}>{(unreadCount as number) > 99 ? '99+' : unreadCount}</span>
                                 )}
                             </button>
                             <button className="btn btn-ghost" onClick={toggleTheme} style={{

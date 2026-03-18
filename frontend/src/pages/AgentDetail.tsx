@@ -723,7 +723,7 @@ function AgentDetailInner() {
             const res = await fetch(`/api/agents/${id}/sessions?scope=all`, { headers: { Authorization: `Bearer ${tkn}` } });
             if (!res.ok) return [];
             const all = await res.json();
-            return all.filter((s: any) => s.source_channel === 'trigger').slice(0, 20);
+            return all.filter((s: any) => s.source_channel === 'trigger');
         },
         enabled: !!id && activeTab === 'aware',
         refetchInterval: activeTab === 'aware' ? 10000 : false,
@@ -737,6 +737,8 @@ function AgentDetailInner() {
     const [showCompletedFocus, setShowCompletedFocus] = useState(false);
     const [showAllTriggers, setShowAllTriggers] = useState(false);
     const [showAllReflections, setShowAllReflections] = useState(false);
+    const [reflectionPage, setReflectionPage] = useState(0);
+    const REFLECTIONS_PAGE_SIZE = 10;
     const SECTION_PAGE_SIZE = 5;
 
     const { data: soulContent } = useQuery({
@@ -805,7 +807,10 @@ function AgentDetailInner() {
         try {
             const tkn = localStorage.getItem('token');
             const res = await fetch(`/api/agents/${id}/sessions?scope=all`, { headers: { Authorization: `Bearer ${tkn}` } });
-            if (res.ok) setAllSessions(await res.json());
+            if (res.ok) {
+                const all = await res.json();
+                setAllSessions(all.filter((s: any) => s.source_channel !== 'trigger'));
+            }
         } catch { }
     };
 
@@ -848,7 +853,10 @@ function AgentDetailInner() {
             const r1 = await fetch(`/api/agents/${id}/sessions?scope=mine`, { headers: { Authorization: `Bearer ${tkn}` } });
             if (r1.ok) setSessions(await r1.json());
             const r2 = await fetch(`/api/agents/${id}/sessions?scope=all`, { headers: { Authorization: `Bearer ${tkn}` } });
-            if (r2.ok) setAllSessions(await r2.json());
+            if (r2.ok) {
+                const all2 = await r2.json();
+                setAllSessions(all2.filter((s: any) => s.source_channel !== 'trigger'));
+            }
         } catch (e: any) {
             alert(e.message || 'Delete failed');
         }
@@ -1513,7 +1521,18 @@ function AgentDetailInner() {
         return <div style={{ padding: '40px', color: 'var(--text-tertiary)' }}>{t('common.loading')}</div>;
     }
 
-    const statusKey = agent.status === 'running' ? 'running' : agent.status === 'stopped' ? 'stopped' : agent.status === 'creating' ? 'creating' : 'idle';
+    // Compute display status (including OpenClaw disconnected detection)
+    const computeStatusKey = () => {
+        if (agent.status === 'error') return 'error';
+        if (agent.status === 'creating') return 'creating';
+        if (agent.status === 'stopped') return 'stopped';
+        if ((agent as any).agent_type === 'openclaw' && agent.status === 'running' && (agent as any).openclaw_last_seen) {
+            const elapsed = Date.now() - new Date((agent as any).openclaw_last_seen).getTime();
+            if (elapsed > 60 * 60 * 1000) return 'disconnected';
+        }
+        return agent.status === 'running' ? 'running' : 'idle';
+    };
+    const statusKey = computeStatusKey();
     const canManage = (agent as any).access_level === 'manage' || isAdmin;
 
     return (
@@ -2278,10 +2297,10 @@ function AgentDetailInner() {
                                 </details>
                             )}
 
-                            {/* ── Reflections Card ── */}
                             {reflectionSessions.length > 0 && (() => {
-                                const visibleSessions = showAllReflections ? reflectionSessions : reflectionSessions.slice(0, SECTION_PAGE_SIZE);
-                                const hiddenCount = reflectionSessions.length - visibleSessions.length;
+                                const totalPages = Math.ceil(reflectionSessions.length / REFLECTIONS_PAGE_SIZE);
+                                const pageStart = reflectionPage * REFLECTIONS_PAGE_SIZE;
+                                const visibleSessions = reflectionSessions.slice(pageStart, pageStart + REFLECTIONS_PAGE_SIZE);
                                 return (
                                     <div className="card" style={{ padding: '16px' }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
@@ -2311,7 +2330,6 @@ function AgentDetailInner() {
                                                                     return;
                                                                 }
                                                                 setExpandedReflection(session.id);
-                                                                // Load messages if not cached
                                                                 if (!reflectionMessages[session.id]) {
                                                                     try {
                                                                         const tkn = localStorage.getItem('token');
@@ -2485,17 +2503,29 @@ function AgentDetailInner() {
                                                 );
                                             })}
                                         </div>
-                                        {reflectionSessions.length > SECTION_PAGE_SIZE && (
-                                            <button
-                                                onClick={(e) => { const collapse = showAllReflections; setShowAllReflections(!showAllReflections); if (collapse) e.currentTarget.closest('.card')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}
-                                                className="btn btn-ghost"
-                                                style={{ width: '100%', fontSize: '12px', color: 'var(--text-tertiary)', padding: '8px', marginTop: '4px' }}
-                                            >
-                                                {showAllReflections
-                                                    ? (i18n.language?.startsWith('zh') ? '收起' : 'Show less')
-                                                    : (i18n.language?.startsWith('zh') ? `显示更多 ${hiddenCount} 条...` : `Show ${hiddenCount} more...`)
-                                                }
-                                            </button>
+                                        {/* Pagination controls */}
+                                        {totalPages > 1 && (
+                                            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', marginTop: '12px', paddingTop: '8px', borderTop: '1px solid var(--border-subtle)' }}>
+                                                <button
+                                                    onClick={() => { setReflectionPage(p => Math.max(0, p - 1)); setExpandedReflection(null); }}
+                                                    disabled={reflectionPage === 0}
+                                                    className="btn btn-ghost"
+                                                    style={{ fontSize: '12px', padding: '4px 10px', opacity: reflectionPage === 0 ? 0.3 : 1 }}
+                                                >
+                                                    {i18n.language?.startsWith('zh') ? '上一页' : 'Prev'}
+                                                </button>
+                                                <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontVariantNumeric: 'tabular-nums' }}>
+                                                    {reflectionPage + 1} / {totalPages}
+                                                </span>
+                                                <button
+                                                    onClick={() => { setReflectionPage(p => Math.min(totalPages - 1, p + 1)); setExpandedReflection(null); }}
+                                                    disabled={reflectionPage >= totalPages - 1}
+                                                    className="btn btn-ghost"
+                                                    style={{ fontSize: '12px', padding: '4px 10px', opacity: reflectionPage >= totalPages - 1 ? 0.3 : 1 }}
+                                                >
+                                                    {i18n.language?.startsWith('zh') ? '下一页' : 'Next'}
+                                                </button>
+                                            </div>
                                         )}
                                     </div>
                                 );
@@ -3128,7 +3158,7 @@ function AgentDetailInner() {
                                                 </div>
                                             )}
                                             <input ref={chatInputRef} className="chat-input" value={chatInput} onChange={e => setChatInput(e.target.value)}
-                                                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMsg(); } }}
+                                                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); sendChatMsg(); } }}
                                                 onPaste={handlePaste}
                                                 placeholder={!wsConnected && (!activeSession?.user_id || !currentUser || activeSession.user_id === String(currentUser?.id)) ? 'Connecting...' : attachedFiles.length > 0 ? t('agent.chat.askAboutFile', { name: attachedFiles.length === 1 ? attachedFiles[0].name : `${attachedFiles.length} files` }) : t('chat.placeholder')}
                                                 disabled={!wsConnected || isWaiting || isStreaming} style={{ flex: 1 }} autoFocus />
