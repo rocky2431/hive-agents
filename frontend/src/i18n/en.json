@@ -117,11 +117,12 @@
       "active": "Active"
     },
     "status": {
-      "running": "Running",
-      "idle": "Standby",
+      "running": "Ready",
+      "idle": "Ready",
       "stopped": "Stopped",
       "error": "Error",
-      "creating": "Creating"
+      "creating": "Creating",
+      "disconnected": "Disconnected"
     },
     "noActivity": "No activity yet",
     "noLimit": "Unlimited",
@@ -136,11 +137,12 @@
   },
   "agent": {
     "status": {
-      "running": "Working",
-      "idle": "Idle",
+      "running": "Ready",
+      "idle": "Ready",
       "stopped": "Stopped",
       "creating": "Creating",
-      "error": "Error"
+      "error": "Error",
+      "disconnected": "Disconnected"
     },
     "tabs": {
       "status": "Status",
@@ -509,6 +511,9 @@
       "title": "Feishu Bot Configuration (Optional)",
       "description": "Configure an independent Feishu bot for the digital employee. Users can chat directly via Feishu. You can skip this step and configure it later in Settings.",
       "configSteps": "Configuration Steps:",
+      "connectionMode": "Connection Mode",
+      "modeWebsocket": "WebSocket (Recommended)",
+      "modeWebhook": "Webhook",
       "step1Feishu": "Go to",
       "feishuPlatform": "Feishu Open Platform",
       "step2Feishu": "Create enterprise app → Enable bot capability",
@@ -522,6 +527,14 @@
       "unnamed": "Unnamed",
       "model": "Model",
       "dailyLimit": "Daily limit"
+    },
+    "errors": {
+      "nameRequired": "Agent name is required",
+      "nameTooShort": "Name must be at least 2 characters",
+      "nameTooLong": "Name cannot exceed 100 characters",
+      "roleDescTooLong": "Role description cannot exceed 500 characters (current: {{count}})",
+      "tokenLimitInvalid": "Please enter a valid positive integer",
+      "modelRequired": "Please select a primary model"
     }
   },
   "task": {

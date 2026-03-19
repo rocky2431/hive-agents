@@ -76,14 +76,17 @@ const fetchJson = async <T,>(url: string): Promise<T> => {
     return res.json();
 };
 
-const statusDotClass = (status: string) => {
-    switch (status) {
-        case 'running': return 'running';
-        case 'stopped': return 'stopped';
-        case 'creating': return 'creating';
-        case 'error': return 'error';
-        default: return 'idle';
+/* Compute display badge status for an agent */
+const getAgentBadgeStatus = (agent: any): string | null => {
+    if (agent.status === 'error') return 'error';
+    if (agent.status === 'creating') return 'creating';
+    // OpenClaw disconnected detection: 60 min timeout
+    if (agent.agent_type === 'openclaw' && agent.status === 'running' && agent.openclaw_last_seen) {
+        const elapsed = Date.now() - new Date(agent.openclaw_last_seen).getTime();
+        if (elapsed > 60 * 60 * 1000) return 'disconnected';
     }
+    // idle / running / stopped → no badge
+    return null;
 };
 
 /* ────── Account Settings Modal ────── */
@@ -356,9 +359,16 @@ export default function Layout() {
                         const sortedAgents = [...agents].filter(filterAgent).sort((a: any, b: any) => {
                             const ap = pinnedAgents.has(a.id) ? 1 : 0;
                             const bp = pinnedAgents.has(b.id) ? 1 : 0;
-                            return bp - ap;
+                            if (ap !== bp) return bp - ap;
+                            // Sort by created_at descending (newest first)
+                            const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
+                            const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
+                            return bTime - aTime;
                         });
-                        const renderAgent = (agent: any) => (
+                        const renderAgent = (agent: any) => {
+                            const badge = getAgentBadgeStatus(agent);
+                            const avatarChar = ((Array.from(agent.name || '?')[0] as string) || '?').toUpperCase();
+                            return (
                             <div key={agent.id} style={{ position: 'relative' }} className={`sidebar-agent-item${agent.creator_id === user?.id ? ' owned' : ''}`}>
                                 <NavLink
                                     to={`/agents/${agent.id}`}
@@ -366,8 +376,17 @@ export default function Layout() {
                                     title={agent.name}
                                     style={{ paddingRight: '28px' }}
                                 >
-                                    <span className="sidebar-item-icon">
-                                        <span className={`status-dot ${statusDotClass(agent.status)}`} />
+                                    <span className="sidebar-item-icon" style={{ position: 'relative' }}>
+                                        <span className={`agent-avatar${agent.agent_type === 'openclaw' ? ' openclaw' : ''}`}>{avatarChar}</span>
+                                        {agent.agent_type === 'openclaw' && (
+                                            <span className="agent-avatar-link">
+                                                <svg width="6" height="6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                                                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                                                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                                                </svg>
+                                            </span>
+                                        )}
+                                        {badge && <span className={`agent-avatar-badge ${badge}`} />}
                                     </span>
                                     <span className="sidebar-item-text">{agent.name}</span>
                                 </NavLink>
@@ -383,7 +402,7 @@ export default function Layout() {
                                     </button>
                                 )}
                             </div>
-                        );
+                        );};
                         return (
                             <>
                                 {sortedAgents.map(renderAgent)}

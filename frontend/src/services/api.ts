@@ -24,12 +24,21 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
         }
         const error = await res.json().catch(() => ({ detail: 'Request failed' }));
         // Pydantic validation errors return detail as an array of objects
+        const fieldLabels: Record<string, string> = {
+            name: '名称',
+            role_description: '角色描述',
+            agent_type: '智能体类型',
+            primary_model_id: '主模型',
+            max_tokens_per_day: '每日 Token 上限',
+            max_tokens_per_month: '每月 Token 上限',
+        };
         let message = '';
         if (Array.isArray(error.detail)) {
             message = error.detail
                 .map((e: any) => {
                     const field = e.loc?.slice(-1)[0] || '';
-                    return field ? `${field}: ${e.msg}` : e.msg;
+                    const label = fieldLabels[field] || field;
+                    return label ? `${label}: ${e.msg}` : e.msg;
                 })
                 .join('; ');
         } else {
@@ -361,10 +370,7 @@ export const scheduleApi = {
 
 // ─── Skills ───────────────────────────────────────────
 export const skillApi = {
-    list: () => {
-        const tid = localStorage.getItem('current_tenant_id');
-        return request<any[]>(`/skills/${tid ? `?tenant_id=${tid}` : ''}`);
-    },
+    list: () => request<any[]>('/skills/'),
     get: (id: string) => request<any>(`/skills/${id}`),
     create: (data: any) =>
         request<any>('/skills/', { method: 'POST', body: JSON.stringify(data) }),
@@ -380,6 +386,31 @@ export const skillApi = {
             request<any>('/skills/browse/write', { method: 'PUT', body: JSON.stringify({ path, content }) }),
         delete: (path: string) =>
             request<any>(`/skills/browse/delete?path=${encodeURIComponent(path)}`, { method: 'DELETE' }),
+    },
+    // ClawHub marketplace integration
+    clawhub: {
+        search: (q: string) => request<any[]>(`/skills/clawhub/search?q=${encodeURIComponent(q)}`),
+        detail: (slug: string) => request<any>(`/skills/clawhub/detail/${slug}`),
+        install: (slug: string) => request<any>('/skills/clawhub/install', { method: 'POST', body: JSON.stringify({ slug }) }),
+    },
+    importFromUrl: (url: string) =>
+        request<any>('/skills/import-from-url', { method: 'POST', body: JSON.stringify({ url }) }),
+    previewUrl: (url: string) =>
+        request<any>('/skills/import-from-url/preview', { method: 'POST', body: JSON.stringify({ url }) }),
+    // Tenant-level settings
+    settings: {
+        getToken: () => request<{ configured: boolean; source: string; masked: string; clawhub_configured: boolean; clawhub_masked: string }>('/skills/settings/token'),
+        setToken: (github_token: string) =>
+            request<any>('/skills/settings/token', { method: 'PUT', body: JSON.stringify({ github_token }) }),
+        setClawhubKey: (clawhub_key: string) =>
+            request<any>('/skills/settings/token', { method: 'PUT', body: JSON.stringify({ clawhub_key }) }),
+    },
+    // Agent-level import (writes to agent workspace)
+    agentImport: {
+        fromClawhub: (agentId: string, slug: string) =>
+            request<any>(`/agents/${agentId}/files/import-from-clawhub`, { method: 'POST', body: JSON.stringify({ slug }) }),
+        fromUrl: (agentId: string, url: string) =>
+            request<any>(`/agents/${agentId}/files/import-from-url`, { method: 'POST', body: JSON.stringify({ url }) }),
     },
 };
 

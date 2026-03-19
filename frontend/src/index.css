@@ -415,12 +415,16 @@ select:focus {
   position: relative;
 }
 
-.sidebar-agent-item.owned .sidebar-item {
-  background: linear-gradient(90deg, color-mix(in srgb, var(--accent-primary) 12%, transparent) 0%, transparent 70%);
-}
-
-.sidebar-agent-item.owned .sidebar-item:hover {
-  background: linear-gradient(90deg, color-mix(in srgb, var(--accent-primary) 20%, transparent) 0%, color-mix(in srgb, var(--accent-primary) 5%, transparent) 70%);
+.sidebar-agent-item.owned .agent-avatar::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: -2px;
+  width: 7px;
+  height: 7px;
+  background: var(--accent-primary);
+  border-radius: 50%;
+  border: 1.5px solid var(--bg-secondary);
 }
 
 .sidebar-pin-btn {
@@ -496,6 +500,7 @@ select:focus {
 .sidebar.collapsed .sidebar-item {
   justify-content: center;
   padding: var(--space-2) 0;
+  padding-right: 0 !important;
 }
 
 .sidebar.collapsed .sidebar-item-text {
@@ -646,7 +651,7 @@ select:focus {
   display: block;
 }
 
-/* Status dot */
+/* Status dot (used in Dashboard / AgentDetail) */
 .status-dot {
   width: 8px;
   height: 8px;
@@ -677,6 +682,74 @@ select:focus {
 .status-dot.creating {
   background: var(--info);
   animation: pulse 1.5s infinite;
+}
+
+.status-dot.disconnected {
+  background: var(--warning);
+}
+
+/* Agent avatar — sidebar letter icon */
+.agent-avatar {
+  position: relative;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  flex-shrink: 0;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+/* OpenClaw agent — dashed border to indicate external/connected */
+.agent-avatar.openclaw {
+  border: 1.5px dashed var(--text-tertiary);
+  background: transparent;
+}
+
+/* OpenClaw link icon — top-right of avatar */
+.agent-avatar-link {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+}
+
+/* Small badge dot — absolute over avatar */
+.agent-avatar-badge {
+  position: absolute;
+  bottom: -1px;
+  right: -1px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1.5px solid var(--bg-secondary);
+}
+
+.agent-avatar-badge.error {
+  background: var(--status-error);
+}
+
+.agent-avatar-badge.creating {
+  background: var(--info);
+  animation: pulse 1.5s infinite;
+}
+
+.agent-avatar-badge.disconnected {
+  background: var(--warning, #f59e0b);
 }
 
 @keyframes pulse {
@@ -795,6 +868,15 @@ select:focus {
 .form-input {
   width: 100%;
   height: 38px;
+}
+
+.form-input.input-error {
+  border-color: var(--error);
+}
+
+.form-input.input-error:focus {
+  border-color: var(--error);
+  box-shadow: 0 0 0 2px var(--error-subtle);
 }
 
 .form-textarea {
@@ -1457,7 +1539,7 @@ select:focus {
 }
 
 .wizard-step.completed {
-  color: var(--accent-text);
+  color: var(--success);
 }
 
 .wizard-step-number {
