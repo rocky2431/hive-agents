@@ -870,9 +870,23 @@ async def _agent_has_feishu(agent_id: uuid.UUID) -> bool:
 
 # ─── Dynamic Tool Loading from DB ──────────────────────────────
 
-async def get_agent_tools_for_llm(agent_id: uuid.UUID) -> list[dict]:
+CORE_TOOL_NAMES = {
+    "list_files", "read_file", "write_file", "delete_file",
+    "jina_search", "jina_read", "web_search",
+    "send_message_to_agent", "send_web_message",
+    "set_trigger", "list_triggers",
+    "read_document",
+}
+
+
+async def get_agent_tools_for_llm(agent_id: uuid.UUID, core_only: bool = False) -> list[dict]:
     """Load enabled tools for an agent from DB (OpenAI function-calling format).
-    
+
+    Args:
+        agent_id: The agent to load tools for.
+        core_only: When True, only return tools in CORE_TOOL_NAMES
+                   (progressive loading — full set loaded later when agent reads a skill).
+
     Falls back to hardcoded AGENT_TOOLS if DB not ready.
     Always includes core system tools (send_channel_file, write_file).
     Feishu tools are only included when the agent has a configured Feishu channel.
@@ -922,12 +936,17 @@ async def get_agent_tools_for_llm(agent_id: uuid.UUID) -> list[dict]:
                 for t in _always_tools:
                     if t["function"]["name"] not in db_tool_names:
                         result.append(t)
+                if core_only:
+                    result = [t for t in result if t["function"]["name"] in CORE_TOOL_NAMES]
                 return result
     except Exception as e:
         logger.error(f"[Tools] DB load failed, using fallback: {e}")
 
     # Fallback to hardcoded tools
-    return AGENT_TOOLS
+    fallback = AGENT_TOOLS
+    if core_only:
+        fallback = [t for t in fallback if t["function"]["name"] in CORE_TOOL_NAMES]
+    return fallback
 
 
 # ─── Workspace initialization ──────────────────────────────────
@@ -1082,8 +1101,8 @@ async def execute_tool(
             _tid = _ag.scalar_one_or_none()
             if _tid:
                 _agent_tenant_id = str(_tid)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Failed to resolve tenant_id for tool execution: %s", e)
 
     ws = await ensure_workspace(agent_id, tenant_id=_agent_tenant_id)
 

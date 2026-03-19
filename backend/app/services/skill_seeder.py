@@ -559,6 +559,62 @@ Plan would be:
         "is_default": True,
         "files": [],  # populated at runtime from agent_template/skills/MCP_INSTALLER.md
     },
+    # ─── System operational guides (default — auto-assigned to all agents) ───
+    {
+        "name": "Workspace Guide",
+        "description": "工作区结构、文件操作规则、Focus 管理指南",
+        "category": "system",
+        "icon": "📂",
+        "folder_name": "workspace-guide",
+        "is_default": True,
+        "files": [],  # populated at runtime from templates/system_skills/
+    },
+    {
+        "name": "Trigger Management Guide",
+        "description": "触发器创建、管理和 Focus 绑定完整指南",
+        "category": "system",
+        "icon": "⏰",
+        "folder_name": "trigger-guide",
+        "is_default": True,
+        "files": [],  # populated at runtime from templates/system_skills/
+    },
+    {
+        "name": "Web Research Guide",
+        "description": "网络搜索和网页阅读工具使用指南",
+        "category": "system",
+        "icon": "🌐",
+        "folder_name": "web-research-guide",
+        "is_default": True,
+        "files": [],  # populated at runtime from templates/system_skills/
+    },
+    # ─── Channel integration skills (not default — injected per channel config) ──
+    {
+        "name": "Feishu Integration",
+        "description": "飞书/Lark 消息、日历、文档操作完整指南",
+        "category": "system_integration",
+        "icon": "🐦",
+        "folder_name": "feishu-integration",
+        "is_default": False,
+        "files": [],  # populated at runtime from templates/system_skills/
+    },
+    {
+        "name": "DingTalk Integration",
+        "description": "钉钉消息集成指南",
+        "category": "system_integration",
+        "icon": "💬",
+        "folder_name": "dingtalk-integration",
+        "is_default": False,
+        "files": [],  # populated at runtime from templates/system_skills/
+    },
+    {
+        "name": "Atlassian Rovo",
+        "description": "Jira / Confluence / Compass 工具集成指南",
+        "category": "system_integration",
+        "icon": "🔷",
+        "folder_name": "atlassian-rovo",
+        "is_default": False,
+        "files": [],  # populated at runtime from templates/system_skills/
+    },
 ]
 
 
@@ -585,6 +641,18 @@ async def seed_skills():
                 s["files"] = [{"path": "SKILL.md", "content": mcp_file.read_text(encoding="utf-8")}]
             else:
                 logger.warning("[SkillSeeder] MCP_INSTALLER.md not found in agent_template/skills/")
+
+        # System operational guides + channel integration skills — load from templates/system_skills/<folder>/SKILL.md
+        elif s["folder_name"] in (
+            "workspace-guide", "trigger-guide", "web-research-guide",
+            "feishu-integration", "dingtalk-integration", "atlassian-rovo",
+        ) and not s["files"]:
+            _sys_skills_dir = _Path(__file__).parent.parent / "templates" / "system_skills"
+            skill_md = _sys_skills_dir / s["folder_name"] / "SKILL.md"
+            if skill_md.exists():
+                s["files"] = [{"path": "SKILL.md", "content": skill_md.read_text(encoding="utf-8")}]
+            else:
+                logger.warning(f"[SkillSeeder] {s['folder_name']}/SKILL.md not found in templates/system_skills/")
 
     async with async_session() as db:
         for skill_data in BUILTIN_SKILLS:

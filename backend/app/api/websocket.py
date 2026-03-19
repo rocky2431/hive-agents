@@ -132,7 +132,7 @@ async def call_llm_via_engine(
             logger.debug("Failed to resolve user name for engine")
 
     system_prompt = await build_agent_context(agent_id, agent_name, role_description, current_user_name=_current_user_name)
-    tools_for_llm = await get_agent_tools_for_llm(agent_id) if agent_id else AGENT_TOOLS
+    tools_for_llm = await get_agent_tools_for_llm(agent_id, core_only=True) if agent_id else AGENT_TOOLS
 
     # Resolve agent config
     _max_tool_rounds = 50
@@ -149,6 +149,19 @@ async def call_llm_via_engine(
         except Exception:
             logger.debug("Failed to load agent config for engine")
 
+    # Inject relevant enterprise knowledge based on user's last message
+    if agent_id and messages:
+        last_user_msg = next(
+            (m["content"] for m in reversed(messages) if m.get("role") == "user" and isinstance(m.get("content"), str)),
+            None,
+        )
+        if last_user_msg:
+            from app.services.knowledge_inject import fetch_relevant_knowledge
+
+            knowledge = await fetch_relevant_knowledge(last_user_msg, tenant_id=_tenant_id)
+            if knowledge:
+                system_prompt += "\n\n" + knowledge
+
     # Build callbacks adapter (engine uses positional args, websocket uses dict)
     async def _tool_call_adapter(name: str, args: dict, status: str) -> None:
         if on_tool_call:
@@ -158,6 +171,14 @@ async def call_llm_via_engine(
         on_chunk=on_chunk,
         on_tool_call=_tool_call_adapter,
         on_thinking=on_thinking,
+    )
+
+    # Summarize old messages if conversation is too long
+    from app.services.conversation_summarizer import summarize_conversation
+    messages = await summarize_conversation(
+        messages,
+        trigger_tokens=4000,
+        keep_recent=10,
     )
 
     # Build execution state
@@ -268,8 +289,39 @@ async def call_llm(
             logger.debug("Suppressed: %s", e)
     system_prompt = await build_agent_context(agent_id, agent_name, role_description, current_user_name=_current_user_name)
 
-    # Load tools dynamically from DB
-    tools_for_llm = await get_agent_tools_for_llm(agent_id) if agent_id else AGENT_TOOLS
+    # Inject relevant enterprise knowledge based on user's last message
+    if agent_id and messages:
+        last_user_msg = next(
+            (m["content"] for m in reversed(messages) if m.get("role") == "user" and isinstance(m.get("content"), str)),
+            None,
+        )
+        if last_user_msg:
+            from app.services.knowledge_inject import fetch_relevant_knowledge
+
+            _inject_tenant = None
+            try:
+                async with async_session() as _kdb:
+                    from app.models.agent import Agent as _KAgent
+
+                    _kr = await _kdb.execute(select(_KAgent.tenant_id).where(_KAgent.id == agent_id))
+                    _inject_tenant = _kr.scalar_one_or_none()
+            except Exception as exc:
+                logger.debug("Failed to resolve tenant for knowledge injection: %s", exc)
+            knowledge = await fetch_relevant_knowledge(last_user_msg, tenant_id=_inject_tenant)
+            if knowledge:
+                system_prompt += "\n\n" + knowledge
+
+    # Load tools dynamically from DB (progressive: core tools first, expand on skill read)
+    tools_for_llm = await get_agent_tools_for_llm(agent_id, core_only=True) if agent_id else AGENT_TOOLS
+    _all_tools_cache = None  # lazy-loaded full tool set
+
+    # Summarize old messages if conversation is too long
+    from app.services.conversation_summarizer import summarize_conversation
+    messages = await summarize_conversation(
+        messages,
+        trigger_tokens=4000,
+        keep_recent=10,
+    )
 
     # Convert messages to LLMMessage format
     api_messages = [LLMMessage(role="system", content=system_prompt)]
@@ -455,6 +507,12 @@ async def call_llm(
                 user_id=user_id or agent_id,
             )
             logger.debug(f"[LLM] Tool result: {result[:100]}")
+
+            # Progressive tool loading: expand tool set when agent reads a skill file
+            if tool_name == "read_file" and "SKILL.md" in str(args.get("path", "")):
+                if _all_tools_cache is None:
+                    _all_tools_cache = await get_agent_tools_for_llm(agent_id, core_only=False)
+                tools_for_llm = _all_tools_cache
 
             # Notify client about tool call result
             if on_tool_call:
