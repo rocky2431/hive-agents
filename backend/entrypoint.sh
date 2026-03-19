@@ -78,6 +78,9 @@ async def main():
         # Memory service: session summary + model context window
         "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS summary TEXT",
         "ALTER TABLE llm_models ADD COLUMN IF NOT EXISTS max_input_tokens INTEGER",
+        # Invitation codes: tenant scoping
+        "ALTER TABLE invitation_codes ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenants(id)",
+        "ALTER TABLE invitation_codes ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES users(id)",
     ]
 
     from sqlalchemy import text
