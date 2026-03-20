@@ -23,7 +23,11 @@ from app.services.agent_context import build_agent_context
 from app.services.agent_tools import AGENT_TOOLS, execute_tool, get_agent_tools_for_llm
 from app.services.knowledge_inject import fetch_relevant_knowledge
 from app.services.llm_utils import LLMError, LLMMessage, create_llm_client, get_max_tokens
-from app.services.memory_service import maybe_compress_messages
+from app.services.memory_service import (
+    build_memory_context,
+    maybe_compress_messages,
+    persist_runtime_memory,
+)
 from app.services.token_tracker import (
     estimate_tokens_from_chars,
     extract_usage_tokens,
@@ -53,6 +57,8 @@ class AgentInvocationRequest:
     on_event: EventCallback | None = None
     supports_vision: bool = False
     memory_context: str = ""
+    memory_session_id: str | None = None
+    memory_messages: list[dict] | None = None
     system_prompt_suffix: str = ""
     tool_executor: ToolExecutor | None = None
     initial_tools: list[dict] | None = None
@@ -161,7 +167,11 @@ def _apply_vision_transform(api_messages: list[LLMMessage], supports_vision: boo
     return api_messages
 
 
-async def _build_system_prompt(request: AgentInvocationRequest, tenant_id: uuid.UUID | None) -> str:
+async def _build_system_prompt(
+    request: AgentInvocationRequest,
+    tenant_id: uuid.UUID | None,
+    resolved_memory_context: str,
+) -> str:
     current_user_name = await _resolve_current_user_name(request.user_id)
     system_prompt = await build_agent_context(
         request.agent_id,
@@ -179,13 +189,44 @@ async def _build_system_prompt(request: AgentInvocationRequest, tenant_id: uuid.
         if knowledge:
             system_prompt += "\n\n" + knowledge
 
-    if request.memory_context:
-        system_prompt += "\n\n" + request.memory_context
+    if resolved_memory_context:
+        system_prompt += "\n\n" + resolved_memory_context
 
     if request.system_prompt_suffix:
         system_prompt += "\n\n" + request.system_prompt_suffix
 
     return system_prompt
+
+
+async def _resolve_memory_context(
+    request: AgentInvocationRequest,
+    tenant_id: uuid.UUID | None,
+) -> str:
+    parts: list[str] = []
+
+    if request.agent_id and tenant_id:
+        runtime_memory_context = await build_memory_context(
+            request.agent_id,
+            tenant_id,
+            session_id=request.memory_session_id,
+        )
+        if runtime_memory_context:
+            parts.append(runtime_memory_context)
+
+    if request.memory_context:
+        parts.append(request.memory_context)
+
+    return "\n\n".join(parts)
+
+
+def _build_persisted_memory_messages(
+    request: AgentInvocationRequest,
+    final_content: str,
+) -> list[dict]:
+    base_messages = list(request.memory_messages or request.messages)
+    if final_content and not final_content.startswith("[LLM") and not final_content.startswith("[Error]"):
+        base_messages.append({"role": "assistant", "content": final_content})
+    return base_messages
 
 
 async def _default_tool_executor_factory(request: AgentInvocationRequest) -> ToolExecutor:
@@ -214,7 +255,8 @@ async def invoke_agent(request: AgentInvocationRequest) -> AgentInvocationResult
     if runtime_config.quota_message:
         return AgentInvocationResult(content=runtime_config.quota_message)
 
-    system_prompt = await _build_system_prompt(request, runtime_config.tenant_id)
+    resolved_memory_context = await _resolve_memory_context(request, runtime_config.tenant_id)
+    system_prompt = await _build_system_prompt(request, runtime_config.tenant_id, resolved_memory_context)
 
     tools_for_llm = request.initial_tools
     if tools_for_llm is None:
@@ -345,10 +387,25 @@ async def invoke_agent(request: AgentInvocationRequest) -> AgentInvocationResult
                 accumulated_tokens += estimate_tokens_from_chars(round_chars)
 
             if not response.tool_calls:
+                final_content = response.content or "[LLM returned empty content]"
+                if request.agent_id and runtime_config.tenant_id:
+                    try:
+                        await persist_runtime_memory(
+                            agent_id=request.agent_id,
+                            session_id=request.memory_session_id,
+                            tenant_id=runtime_config.tenant_id,
+                            messages=_build_persisted_memory_messages(request, final_content),
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "[Runtime] Failed to persist memory for agent %s: %s",
+                            request.agent_id,
+                            exc,
+                        )
                 if request.agent_id and accumulated_tokens > 0:
                     await _maybe_await(record_token_usage(request.agent_id, accumulated_tokens))
                 return AgentInvocationResult(
-                    content=response.content or "[LLM returned empty content]",
+                    content=final_content,
                     tokens_used=accumulated_tokens,
                     final_tools=tools_for_llm,
                 )

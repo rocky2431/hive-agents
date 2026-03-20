@@ -34,10 +34,14 @@ async def test_call_llm_delegates_to_runtime_invoker(monkeypatch):
         agent_id=uuid4(),
         user_id=uuid4(),
         supports_vision=True,
+        session_id="session-1",
+        memory_messages=[{"role": "user", "content": "hello"}],
         memory_context="MEM",
     )
 
     assert result == "runtime-result"
     assert captured["request"].model is model
     assert captured["request"].supports_vision is True
+    assert captured["request"].memory_session_id == "session-1"
+    assert captured["request"].memory_messages == [{"role": "user", "content": "hello"}]
     assert captured["request"].memory_context == "MEM"

@@ -105,6 +105,7 @@ async def test_execute_task_delegates_to_runtime_invoker(monkeypatch):
         "role": "user",
         "content": "[任务执行] 整理周报\n任务描述: 汇总本周关键进展\n\n请认真完成此任务，给出详细的执行结果。",
     }]
+    assert request.memory_messages == request.messages
 
     assert task.status == "done"
     assert task.completed_at is not None

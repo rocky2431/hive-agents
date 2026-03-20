@@ -79,4 +79,5 @@ async def test_execute_schedule_delegates_to_runtime_invoker(monkeypatch):
     assert request.user_id == creator_id
     assert request.core_tools_only is False
     assert request.messages == [{"role": "user", "content": "[自动调度任务] 生成日报"}]
+    assert request.memory_messages == request.messages
     assert activity_calls

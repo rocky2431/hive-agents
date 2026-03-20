@@ -10,11 +10,14 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import uuid
 from typing import Awaitable, Callable
 
 from sqlalchemy import select
+from pathlib import Path
 
+from app.config import get_settings
 from app.database import async_session
 from app.models.chat_session import ChatSession
 from app.models.llm import LLMModel
@@ -36,38 +39,39 @@ async def on_conversation_start(
     session_id: str,
     tenant_id: uuid.UUID,
 ) -> str:
-    """Return context string to inject into system prompt.
+    """Backward-compatible wrapper for loading runtime memory context."""
+    return await build_memory_context(agent_id, tenant_id, session_id=session_id)
 
-    Loads: previous session summary + agent structured memory.
-    """
+
+async def build_memory_context(
+    agent_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    *,
+    session_id: str | None = None,
+) -> str:
+    """Build a self-consistent memory context for any runtime entrypoint."""
+    del tenant_id  # Reserved for future tenant-scoped memory backends.
+
     parts: list[str] = []
 
-    # 1. Previous session summary
-    try:
-        async with async_session() as db:
-            result = await db.execute(
-                select(ChatSession.summary)
-                .where(
-                    ChatSession.agent_id == agent_id,
-                    ChatSession.summary.isnot(None),
-                    ChatSession.id != uuid.UUID(session_id) if session_id else True,
-                )
-                .order_by(ChatSession.created_at.desc())
-                .limit(1)
-            )
-            prev_summary = result.scalar_one_or_none()
-            if prev_summary:
-                parts.append(f"[Previous conversation summary]\n{prev_summary}")
-    except Exception as e:
-        logger.debug("Failed to load previous session summary: %s", e)
+    if session_id:
+        try:
+            current_summary = await _load_session_summary(agent_id, session_id)
+            if current_summary:
+                parts.append(f"[Previous conversation summary]\n{current_summary}")
+            else:
+                previous_summary = await _load_previous_session_summary(agent_id, session_id)
+                if previous_summary:
+                    parts.append(f"[Previous conversation summary]\n{previous_summary}")
+        except Exception as exc:
+            logger.debug("Failed to load session summary for %s: %s", agent_id, exc)
 
-    # 2. Agent structured memory
     try:
         memory_text = _load_agent_memory(agent_id)
         if memory_text:
             parts.append(f"[Agent memory]\n{memory_text}")
-    except Exception as e:
-        logger.debug("Failed to load agent memory: %s", e)
+    except Exception as exc:
+        logger.debug("Failed to load agent memory for %s: %s", agent_id, exc)
 
     return "\n\n".join(parts)
 
@@ -152,46 +156,49 @@ async def on_conversation_end(
     tenant_id: uuid.UUID,
     messages: list[dict],
 ) -> None:
-    """Post-conversation background task: persist summary, extract memory, share knowledge.
+    """Backward-compatible wrapper for persisting runtime memory state."""
+    await persist_runtime_memory(
+        agent_id=agent_id,
+        session_id=session_id,
+        tenant_id=tenant_id,
+        messages=messages,
+    )
 
-    Fire-and-forget — exceptions are logged but never propagated.
-    """
-    if len(messages) < 4:
+
+async def persist_runtime_memory(
+    *,
+    agent_id: uuid.UUID,
+    session_id: str | None,
+    tenant_id: uuid.UUID,
+    messages: list[dict],
+) -> None:
+    """Persist summary and agent memory for any runtime entrypoint."""
+    if not _has_meaningful_messages(messages):
         return
 
     try:
-        # 1. Generate session summary
         summary = await _generate_session_summary(messages, tenant_id)
-        if summary:
-            async with async_session() as db:
-                result = await db.execute(
-                    select(ChatSession).where(ChatSession.id == uuid.UUID(session_id))
-                )
-                session = result.scalar_one_or_none()
-                if session:
-                    session.summary = summary
-                    await db.commit()
-                    logger.info("Session summary saved for %s", session_id)
+        if summary and session_id:
+            await _save_session_summary(session_id, summary)
 
-        # 2. Extract and update agent memory
         await _update_agent_memory(agent_id, messages, tenant_id)
 
-        # 3. Write to OpenViking (if configured and enabled)
         config = await _get_memory_config(tenant_id)
         if config.get("extract_to_viking", False) and summary:
             from app.services import viking_client
+
             if viking_client.is_configured():
                 await viking_client.add_resource(
                     content=summary,
-                    to=f"viking://conversations/{agent_id}/{session_id}",
+                    to=f"viking://conversations/{agent_id}/{session_id or 'runtime'}",
                     tenant_id=str(tenant_id),
                     agent_id=str(agent_id),
                     reason="conversation_summary",
                 )
-                logger.info("Summary written to OpenViking for session %s", session_id)
+                logger.info("Summary written to OpenViking for session %s", session_id or "runtime")
 
-    except Exception as e:
-        logger.error("on_conversation_end failed (non-fatal): %s", e, exc_info=True)
+    except Exception as exc:
+        logger.error("persist_runtime_memory failed (non-fatal): %s", exc, exc_info=True)
 
 
 # ============================================================================
@@ -270,22 +277,12 @@ async def _generate_session_summary(messages: list[dict], tenant_id: uuid.UUID) 
 
 async def _update_agent_memory(agent_id: uuid.UUID, messages: list[dict], tenant_id: uuid.UUID) -> None:
     """Extract facts from conversation and update agent's memory.json."""
-    from pathlib import Path
-    from app.config import get_settings
-
     settings = get_settings()
     agent_dir = Path(settings.AGENT_DATA_DIR) / str(agent_id)
     memory_file = agent_dir / "memory" / "memory.json"
 
     # Load existing memory
-    existing_facts: list[dict] = []
-    if memory_file.exists():
-        try:
-            existing_facts = json.loads(memory_file.read_text())
-            if not isinstance(existing_facts, list):
-                existing_facts = []
-        except (json.JSONDecodeError, OSError):
-            existing_facts = []
+    existing_facts = _read_memory_facts(memory_file)
 
     # Try LLM-powered fact extraction
     summary_model = await _get_summary_model_config(tenant_id)
@@ -303,25 +300,15 @@ async def _update_agent_memory(agent_id: uuid.UUID, messages: list[dict], tenant
     if not new_facts:
         return
 
-    # Merge: add new facts, keep recent ones (cap at 50)
-    from datetime import datetime, timezone
-    timestamp = datetime.now(timezone.utc).isoformat()
-    for fact in new_facts:
-        fact.setdefault("timestamp", timestamp)
-
-    all_facts = existing_facts + new_facts
-    all_facts = all_facts[-50:]  # Keep most recent 50
+    all_facts = _merge_memory_facts(existing_facts, new_facts)
 
     memory_file.parent.mkdir(parents=True, exist_ok=True)
-    memory_file.write_text(json.dumps(all_facts, ensure_ascii=False, indent=2))
+    memory_file.write_text(json.dumps(all_facts, ensure_ascii=False, indent=2), encoding="utf-8")
     logger.info("Updated memory.json for agent %s: %d facts", agent_id, len(all_facts))
 
 
 def _load_agent_memory(agent_id: uuid.UUID) -> str:
     """Load agent's structured memory from memory.json."""
-    from pathlib import Path
-    from app.config import get_settings
-
     settings = get_settings()
     memory_file = Path(settings.AGENT_DATA_DIR) / str(agent_id) / "memory" / "memory.json"
 
@@ -329,7 +316,7 @@ def _load_agent_memory(agent_id: uuid.UUID) -> str:
         return ""
 
     try:
-        facts = json.loads(memory_file.read_text())
+        facts = json.loads(memory_file.read_text(encoding="utf-8"))
         if not isinstance(facts, list) or not facts:
             return ""
 
@@ -372,7 +359,7 @@ async def _extract_facts_with_llm(messages: list[dict], model_config: dict) -> l
                     role="system",
                     content=(
                         "Extract key facts from this conversation that would be useful to remember for future interactions. "
-                        "Return a JSON array of objects with 'content' field. Extract 2-5 facts max. "
+                        "Return a JSON array of objects with 'content' and optional 'subject' fields. Extract 2-5 facts max. "
                         "Focus on: user preferences, important decisions, project details, personal information shared. "
                         "Respond ONLY with the JSON array, no other text."
                     ),
@@ -416,6 +403,150 @@ def _extract_facts_simple(messages: list[dict]) -> list[dict]:
             facts.append({"content": content[:200], "source": "user_message"})
 
     return facts[-3:]  # Keep at most 3
+
+
+def _parse_session_uuid(session_id: str | None) -> uuid.UUID | None:
+    if not session_id:
+        return None
+    try:
+        return uuid.UUID(str(session_id))
+    except (ValueError, TypeError):
+        return None
+
+
+async def _load_session_summary(agent_id: uuid.UUID, session_id: str | None) -> str | None:
+    session_uuid = _parse_session_uuid(session_id)
+    if not session_uuid:
+        return None
+
+    async with async_session() as db:
+        result = await db.execute(
+            select(ChatSession.summary).where(
+                ChatSession.id == session_uuid,
+                ChatSession.summary.isnot(None),
+                (ChatSession.agent_id == agent_id) | (ChatSession.peer_agent_id == agent_id),
+            )
+        )
+        return result.scalar_one_or_none()
+
+
+async def _load_previous_session_summary(agent_id: uuid.UUID, session_id: str | None) -> str | None:
+    session_uuid = _parse_session_uuid(session_id)
+
+    async with async_session() as db:
+        query = (
+            select(ChatSession.summary)
+            .where(
+                (ChatSession.agent_id == agent_id) | (ChatSession.peer_agent_id == agent_id),
+                ChatSession.summary.isnot(None),
+            )
+            .order_by(ChatSession.last_message_at.desc(), ChatSession.created_at.desc())
+            .limit(1)
+        )
+        if session_uuid:
+            query = query.where(ChatSession.id != session_uuid)
+        result = await db.execute(query)
+        return result.scalar_one_or_none()
+
+
+async def _save_session_summary(session_id: str, summary: str) -> None:
+    session_uuid = _parse_session_uuid(session_id)
+    if not session_uuid:
+        return
+
+    async with async_session() as db:
+        result = await db.execute(select(ChatSession).where(ChatSession.id == session_uuid))
+        session = result.scalar_one_or_none()
+        if session:
+            session.summary = summary
+            await db.commit()
+            logger.info("Session summary saved for %s", session_id)
+
+
+def _has_meaningful_messages(messages: list[dict]) -> bool:
+    for msg in messages:
+        if msg.get("role") not in {"user", "assistant"}:
+            continue
+        content = msg.get("content")
+        if isinstance(content, str) and content.strip():
+            return True
+    return False
+
+
+def _read_memory_facts(memory_file: Path) -> list[dict]:
+    if not memory_file.exists():
+        return []
+
+    try:
+        facts = json.loads(memory_file.read_text(encoding="utf-8"))
+        return facts if isinstance(facts, list) else []
+    except (json.JSONDecodeError, OSError):
+        return []
+
+
+def _normalize_fact_value(value: str) -> str:
+    normalized = re.sub(r"\s+", " ", value).strip().lower()
+    return normalized.strip(" \t\r\n.,;:!?，。；：！？")
+
+
+def _sanitize_fact(fact: dict, default_timestamp: str) -> dict | None:
+    if not isinstance(fact, dict):
+        return None
+
+    raw_content = fact.get("content", fact.get("fact", ""))
+    if not isinstance(raw_content, str) or not raw_content.strip():
+        return None
+
+    sanitized = dict(fact)
+    sanitized["content"] = raw_content.strip()[:500]
+    sanitized.setdefault("timestamp", default_timestamp)
+    return sanitized
+
+
+def _fact_identity(fact: dict) -> str | None:
+    for key in ("memory_key", "key", "subject", "entity", "topic"):
+        value = fact.get(key)
+        if isinstance(value, str) and value.strip():
+            return f"{key}:{_normalize_fact_value(value)}"
+
+    content = fact.get("content", "")
+    if isinstance(content, str) and content.strip():
+        return f"content:{_normalize_fact_value(content)}"
+    return None
+
+
+def _merge_memory_facts(
+    existing_facts: list[dict],
+    new_facts: list[dict],
+    *,
+    max_facts: int = 50,
+) -> list[dict]:
+    from datetime import datetime, timezone
+
+    timestamp = datetime.now(timezone.utc).isoformat()
+    merged: list[dict] = []
+    identities: dict[str, int] = {}
+
+    for raw_fact in [*existing_facts, *new_facts]:
+        fact = _sanitize_fact(raw_fact, timestamp)
+        if not fact:
+            continue
+
+        identity = _fact_identity(fact)
+        if not identity:
+            continue
+
+        if identity in identities:
+            old_index = identities.pop(identity)
+            merged.pop(old_index)
+            for known_identity, known_index in list(identities.items()):
+                if known_index > old_index:
+                    identities[known_identity] = known_index - 1
+
+        identities[identity] = len(merged)
+        merged.append(fact)
+
+    return merged[-max_facts:]
 
 
 def _safe_split(old: list[dict], recent: list[dict]) -> tuple[list[dict], list[dict]]:

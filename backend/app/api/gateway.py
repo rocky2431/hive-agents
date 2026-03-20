@@ -398,13 +398,18 @@ async def _send_to_agent_background(
             )
             hist_msgs = list(reversed(hist_result.scalars().all()))
 
+            memory_messages: list[dict] = []
             messages = [{"role": "system", "content": system_prompt}]
             for h in hist_msgs:
-                messages.append({"role": h.role, "content": h.content or ""})
+                history_entry = {"role": h.role, "content": h.content or ""}
+                messages.append(history_entry)
+                memory_messages.append(history_entry)
 
             # Add the new message
             user_msg = f"[Message from agent: {source_agent_name}]\n{content}"
-            messages.append({"role": "user", "content": user_msg})
+            user_entry = {"role": "user", "content": user_msg}
+            messages.append(user_entry)
+            memory_messages.append(user_entry)
 
             # Save user message to conversation
             db.add(ChatMessage(
@@ -429,6 +434,8 @@ async def _send_to_agent_background(
             agent_id=target_agent_id,
             user_id=target_creator_id,
             on_chunk=on_chunk,
+            session_id=conv_id,
+            memory_messages=memory_messages,
         )
         final_reply = reply or "".join(collected)
 

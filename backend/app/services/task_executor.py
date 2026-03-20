@@ -110,6 +110,7 @@ async def execute_task(task_id: uuid.UUID, agent_id: uuid.UUID) -> None:
         task_description,
         supervision_target,
     )
+    runtime_messages = [{"role": "user", "content": user_prompt}]
 
     # Step 4: Call unified runtime
     try:
@@ -117,7 +118,8 @@ async def execute_task(task_id: uuid.UUID, agent_id: uuid.UUID) -> None:
         result = await invoke_agent(
             AgentInvocationRequest(
                 model=model,
-                messages=[{"role": "user", "content": user_prompt}],
+                messages=runtime_messages,
+                memory_messages=runtime_messages,
                 agent_name=agent_name,
                 role_description=agent.role_description or "",
                 agent_id=agent_id,

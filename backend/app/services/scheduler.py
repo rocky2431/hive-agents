@@ -64,10 +64,12 @@ async def _execute_schedule(schedule_id: uuid.UUID, agent_id: uuid.UUID, instruc
                 return
 
             try:
+                runtime_messages = [{"role": "user", "content": f"[自动调度任务] {instruction}"}]
                 result = await invoke_agent(
                     AgentInvocationRequest(
                         model=model,
-                        messages=[{"role": "user", "content": f"[自动调度任务] {instruction}"}],
+                        messages=runtime_messages,
+                        memory_messages=runtime_messages,
                         agent_name=agent.name,
                         role_description=agent.role_description or "",
                         agent_id=agent_id,

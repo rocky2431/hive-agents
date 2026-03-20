@@ -98,6 +98,8 @@ async def call_llm(
     on_thinking=None,
     on_event=None,
     supports_vision=False,
+    session_id: str | None = None,
+    memory_messages: list[dict] | None = None,
     memory_context: str = "",
 ) -> str:
     """Call LLM via the unified agent runtime."""
@@ -114,6 +116,8 @@ async def call_llm(
             on_thinking=on_thinking,
             on_event=on_event,
             supports_vision=supports_vision,
+            memory_session_id=session_id,
+            memory_messages=memory_messages,
             memory_context=memory_context,
         )
     )
@@ -273,14 +277,6 @@ async def websocket_chat(
         manager.active_connections[agent_id_str] = []
     manager.active_connections[agent_id_str].append((websocket, conv_id))
     logger.info(f"[WS] Ready! Agent={agent_name}")
-
-    # Load memory context (previous summary + agent memory) for injection into system prompt
-    _memory_context = ""
-    try:
-        from app.services.memory_service import on_conversation_start
-        _memory_context = await on_conversation_start(agent_id, conv_id, agent.tenant_id)
-    except Exception as _mem_err:
-        logger.debug("[WS] Memory context load failed (non-fatal): %s", _mem_err)
 
     # Build conversation context from history
     # IMPORTANT: Include tool_call messages so the LLM maintains tool-calling behavior.
@@ -527,7 +523,8 @@ async def websocket_chat(
                         on_thinking=thinking_to_ws,
                         on_event=runtime_event_to_ws,
                         supports_vision=getattr(llm_model, 'supports_vision', False),
-                        memory_context=_memory_context,
+                        session_id=conv_id,
+                        memory_messages=conversation,
                     ))
 
                     # Listen for abort while LLM is running
@@ -609,7 +606,8 @@ async def websocket_chat(
                                 on_thinking=thinking_to_ws,
                                 on_event=runtime_event_to_ws,
                                 supports_vision=getattr(fallback_llm_model, 'supports_vision', False),
-                                memory_context=_memory_context,
+                                session_id=conv_id,
+                                memory_messages=conversation,
                             )
                             logger.info(f"[WS] Fallback LLM response: {assistant_response[:80]}")
                         except Exception as e2:
@@ -678,21 +676,6 @@ async def websocket_chat(
     except WebSocketDisconnect:
         logger.info(f"[WS] Client disconnected: {agent_name}")
         manager.disconnect(agent_id_str, websocket)
-        # Background knowledge extraction (fire-and-forget, non-blocking)
-        if conversation and len(conversation) >= 4:
-            import asyncio as _aio_dc
-            from app.services.memory_service import on_conversation_end
-
-            def _mem_task_done(t):
-                try:
-                    t.result()
-                except Exception as _e:
-                    logger.warning("[WS] Memory extraction failed: %s", _e)
-
-            _mem_task = _aio_dc.create_task(on_conversation_end(
-                agent_id, conv_id, agent.tenant_id, conversation
-            ))
-            _mem_task.add_done_callback(_mem_task_done)
     except Exception as e:
         logger.error(f"[WS] Error in message loop: {type(e).__name__}: {e}")
         import traceback

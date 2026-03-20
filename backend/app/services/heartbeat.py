@@ -234,11 +234,13 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
                 recent_context = ""
 
             full_instruction = _load_heartbeat_instruction(agent_id) + recent_context
+            runtime_messages = [{"role": "user", "content": full_instruction}]
 
             result = await invoke_agent(
                 AgentInvocationRequest(
                     model=model,
-                    messages=[{"role": "user", "content": full_instruction}],
+                    messages=runtime_messages,
+                    memory_messages=runtime_messages,
                     agent_name=agent.name,
                     role_description=agent.role_description or "",
                     agent_id=agent_id,

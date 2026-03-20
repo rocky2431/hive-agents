@@ -655,7 +655,7 @@ async def process_feishu_event(agent_id: uuid.UUID, body: dict, db: AsyncSession
             # Call LLM with history and streaming callback
             reply_text = await _call_agent_llm(
                 db, agent_id, llm_user_text, history=history, user_id=platform_user_id,
-                on_chunk=_ws_on_chunk, on_thinking=_ws_on_thinking,
+                on_chunk=_ws_on_chunk, on_thinking=_ws_on_thinking, session_id=session_conv_id,
             )
             _cfs.reset(_cfs_token)
             _cfso.reset(_cfso_token)
@@ -939,7 +939,7 @@ async def _handle_feishu_file(db, agent_id, config, message, sender_open_id, cha
         async with _async_session() as _db_img:
             reply_text = await _call_agent_llm(
                 _db_img, agent_id, user_msg_content, history=_history,
-                user_id=platform_user_id, on_chunk=_img_on_chunk,
+                user_id=platform_user_id, on_chunk=_img_on_chunk, session_id=session_conv_id,
             )
 
         logger.info(f"[Feishu] Image LLM reply: {reply_text[:100]}")
@@ -1020,7 +1020,16 @@ async def _download_post_images(agent_id, config, message_id, image_keys):
                 logger.error(f"[Feishu] Failed to download post image {ik}: {e}")
 
 
-async def _call_agent_llm(db: AsyncSession, agent_id: uuid.UUID, user_text: str, history: list[dict] | None = None, user_id=None, on_chunk=None, on_thinking=None) -> str:
+async def _call_agent_llm(
+    db: AsyncSession,
+    agent_id: uuid.UUID,
+    user_text: str,
+    history: list[dict] | None = None,
+    user_id=None,
+    on_chunk=None,
+    on_thinking=None,
+    session_id: str | None = None,
+) -> str:
     """Call the agent's configured LLM model with conversation history.
     
     Reuses the same call_llm function as the WebSocket chat endpoint so that
@@ -1080,6 +1089,8 @@ async def _call_agent_llm(db: AsyncSession, agent_id: uuid.UUID, user_text: str,
             supports_vision=getattr(model, 'supports_vision', False),
             on_chunk=on_chunk,
             on_thinking=on_thinking,
+            session_id=session_id,
+            memory_messages=messages,
         )
         return reply
     except Exception as e:
@@ -1101,11 +1112,11 @@ async def _call_agent_llm(db: AsyncSession, agent_id: uuid.UUID, user_text: str,
                     supports_vision=getattr(fallback_model, 'supports_vision', False),
                     on_chunk=on_chunk,
                     on_thinking=on_thinking,
+                    session_id=session_id,
+                    memory_messages=messages,
                 )
                 return reply
             except Exception as e2:
                 traceback.print_exc()
                 return f"⚠️ 调用模型出错: Primary: {str(e)[:80]} | Fallback: {str(e2)[:80]}"
         return f"⚠️ 调用模型出错: {error_msg[:150]}"
-
-

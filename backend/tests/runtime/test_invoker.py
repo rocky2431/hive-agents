@@ -312,3 +312,91 @@ async def test_invoke_agent_forwards_permission_events(monkeypatch):
         "message": "This action requires approval.",
         "approval_id": "approval-123",
     }]
+
+
+@pytest.mark.asyncio
+async def test_invoke_agent_loads_and_persists_runtime_memory(monkeypatch):
+    from app.runtime.invoker import AgentInvocationRequest, invoke_agent
+
+    agent_id = uuid4()
+    tenant_id = uuid4()
+    user_id = uuid4()
+    model = SimpleNamespace(
+        provider="openai",
+        model="gpt-4.1",
+        api_key="test-key",
+        base_url=None,
+        max_output_tokens=None,
+    )
+
+    fake_client = _FakeClient([
+        SimpleNamespace(
+            content="done",
+            tool_calls=[],
+            reasoning_content=None,
+            usage={"total_tokens": 5},
+        ),
+    ])
+    captured = {}
+
+    async def fake_resolve_runtime_config(_agent_id):
+        return SimpleNamespace(tenant_id=tenant_id, max_tool_rounds=50, quota_message=None)
+
+    async def fake_build_agent_context(*args, **kwargs):
+        return "BASE_PROMPT"
+
+    async def fake_fetch_relevant_knowledge(*args, **kwargs):
+        return ""
+
+    async def fake_build_memory_context(_agent_id, _tenant_id, session_id=None):
+        captured["loaded"] = (_agent_id, _tenant_id, session_id)
+        return "RUNTIME_MEMORY"
+
+    async def fake_persist_runtime_memory(*, agent_id, session_id, tenant_id, messages):
+        captured["persisted"] = {
+            "agent_id": agent_id,
+            "session_id": session_id,
+            "tenant_id": tenant_id,
+            "messages": messages,
+        }
+
+    async def fake_compress(messages, **kwargs):
+        return messages
+
+    monkeypatch.setattr("app.runtime.invoker._resolve_runtime_config", fake_resolve_runtime_config)
+    monkeypatch.setattr("app.runtime.invoker.build_agent_context", fake_build_agent_context)
+    monkeypatch.setattr("app.runtime.invoker.fetch_relevant_knowledge", fake_fetch_relevant_knowledge)
+    monkeypatch.setattr("app.runtime.invoker.build_memory_context", fake_build_memory_context)
+    monkeypatch.setattr("app.runtime.invoker.persist_runtime_memory", fake_persist_runtime_memory)
+    monkeypatch.setattr("app.runtime.invoker.maybe_compress_messages", fake_compress)
+    monkeypatch.setattr("app.runtime.invoker.get_agent_tools_for_llm", lambda *args, **kwargs: [])
+    monkeypatch.setattr("app.runtime.invoker.create_llm_client", lambda **kwargs: fake_client)
+    monkeypatch.setattr("app.runtime.invoker.record_token_usage", lambda *args, **kwargs: None)
+    monkeypatch.setattr("app.runtime.invoker.get_max_tokens", lambda *args, **kwargs: 2048)
+
+    result = await invoke_agent(
+        AgentInvocationRequest(
+            model=model,
+            messages=[{"role": "user", "content": "hello"}],
+            memory_messages=[{"role": "user", "content": "hello"}],
+            memory_session_id="session-1",
+            agent_name="Analyst",
+            role_description="Policy analyst",
+            agent_id=agent_id,
+            user_id=user_id,
+            memory_context="MANUAL_MEMORY",
+        )
+    )
+
+    assert result.content == "done"
+    assert captured["loaded"] == (agent_id, tenant_id, "session-1")
+    assert fake_client.calls[0]["messages"][0].content == "BASE_PROMPT\n\nRUNTIME_MEMORY\n\nMANUAL_MEMORY"
+    assert captured["persisted"] == {
+        "agent_id": agent_id,
+        "session_id": "session-1",
+        "tenant_id": tenant_id,
+        "messages": [
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "done"},
+        ],
+    }

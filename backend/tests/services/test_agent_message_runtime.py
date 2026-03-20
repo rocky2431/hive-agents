@@ -58,6 +58,8 @@ async def test_invoke_agent_message_runtime_delegates_to_runtime(monkeypatch):
     assert request.agent_id == target_id
     assert request.user_id == owner_id
     assert request.messages == conversation_messages
+    assert request.memory_messages == conversation_messages
+    assert request.memory_session_id == "session-1"
     assert request.tool_executor is tool_executor
     assert request.core_tools_only is False
     assert request.max_tool_rounds == 9

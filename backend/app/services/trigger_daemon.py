@@ -437,9 +437,10 @@ async def _invoke_agent_for_triggers(agent_id: uuid.UUID, triggers: list[AgentTr
             system_prompt = await build_agent_context(agent_id, agent.name, agent.role_description or "")
 
             # Messages: system + trigger context
+            memory_messages = [{"role": "user", "content": trigger_context}]
             messages = [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": trigger_context},
+                memory_messages[0],
             ]
 
             # Store trigger context as a message in the session
@@ -497,6 +498,8 @@ async def _invoke_agent_for_triggers(agent_id: uuid.UUID, triggers: list[AgentTr
             user_id=agent.creator_id,
             on_chunk=on_chunk,
             on_tool_call=on_tool_call,
+            session_id=str(session_id),
+            memory_messages=memory_messages,
         )
 
         # Save assistant reply to Reflection session

@@ -2749,6 +2749,8 @@ async def _invoke_agent_message_runtime(
         AgentInvocationRequest(
             model=target_model,
             messages=conversation_messages,
+            memory_messages=conversation_messages,
+            memory_session_id=session_id,
             agent_name=target.name,
             role_description=target.role_description or "",
             agent_id=target.id,
