@@ -11,6 +11,7 @@ from app.models.agent import Agent
 from app.models.llm import LLMModel
 from app.models.task import Task, TaskLog
 from app.runtime.invoker import AgentInvocationRequest, invoke_agent
+from app.runtime.session import SessionContext
 
 
 TASK_EXECUTION_ADDENDUM = """## Task Execution Mode
@@ -18,10 +19,9 @@ TASK_EXECUTION_ADDENDUM = """## Task Execution Mode
 You are now in TASK EXECUTION MODE (not a conversation). A task has been assigned to you.
 - Focus on completing the task as thoroughly as possible.
 - Break down complex tasks into steps and execute each step.
-- Use your tools actively to gather information, send messages, read/write files, etc.
+- Start with the minimal kernel tools. When you need more capability, first use `load_skill` or `tool_search` to activate the right toolset.
 - Provide a detailed execution report at the end.
-- If the task involves contacting someone, use `send_feishu_message` to reach them.
-- If the task requires data or information, use your tools to fetch it.
+- If the task involves contacting someone or searching external systems, load the matching skill before attempting those actions.
 - Do NOT ask the user follow-up questions — take initiative and complete the task autonomously.
 """
 
@@ -125,7 +125,15 @@ async def execute_task(task_id: uuid.UUID, agent_id: uuid.UUID) -> None:
                 agent_id=agent_id,
                 user_id=creator_id,
                 system_prompt_suffix=TASK_EXECUTION_ADDENDUM,
-                core_tools_only=False,
+                session_context=SessionContext(
+                    source="task",
+                    channel="task",
+                    metadata={
+                        "task_id": str(task_id),
+                        "task_type": task_type,
+                    },
+                ),
+                core_tools_only=True,
                 max_tool_rounds=getattr(agent, "max_tool_rounds", None),
             )
         )

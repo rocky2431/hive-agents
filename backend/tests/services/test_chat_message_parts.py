@@ -86,6 +86,7 @@ def test_split_inline_tools_creates_structured_parts():
 
 def test_stream_event_builders_include_structured_parts():
     from app.services.chat_message_parts import (
+        build_active_packs_event,
         build_chunk_event,
         build_compaction_event,
         build_done_event,
@@ -175,3 +176,61 @@ def test_stream_event_builders_include_structured_parts():
             "kept_message_count": 8,
         },
     }
+    assert build_active_packs_event({
+        "packs": [{
+            "name": "web_pack",
+            "summary": "网页搜索与抓取能力",
+            "tools": ["web_search", "jina_read"],
+        }],
+        "message": "Activated web_pack",
+        "status": "info",
+    }) == {
+        "type": "pack_activation",
+        "packs": [{
+            "name": "web_pack",
+            "summary": "网页搜索与抓取能力",
+            "tools": ["web_search", "jina_read"],
+        }],
+        "message": "Activated web_pack",
+        "status": "info",
+        "part": {
+            "type": "event",
+            "event_type": "pack_activation",
+            "title": "Capability Packs Activated",
+            "text": "Activated web_pack",
+            "status": "info",
+            "packs": [{
+                "name": "web_pack",
+                "summary": "网页搜索与抓取能力",
+                "tools": ["web_search", "jina_read"],
+            }],
+        },
+    }
+
+
+def test_serialize_pack_activation_system_message_as_event():
+    from app.services.chat_message_parts import serialize_chat_message
+
+    message = SimpleNamespace(
+        role="system",
+        content='{"event_type":"pack_activation","message":"Activated web_pack","status":"info","packs":[{"name":"web_pack","summary":"网页搜索与抓取能力","tools":["web_search"]}]}',
+        created_at=datetime.now(timezone.utc),
+        thinking=None,
+    )
+
+    entry = serialize_chat_message(message)
+
+    assert entry["role"] == "event"
+    assert entry["eventType"] == "pack_activation"
+    assert entry["parts"] == [{
+        "type": "event",
+        "event_type": "pack_activation",
+        "title": "Capability Packs Activated",
+        "text": "Activated web_pack",
+        "status": "info",
+        "packs": [{
+            "name": "web_pack",
+            "summary": "网页搜索与抓取能力",
+            "tools": ["web_search"],
+        }],
+    }]

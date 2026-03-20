@@ -19,6 +19,7 @@ from pathlib import Path
 
 from app.config import get_settings
 from app.database import async_session
+from app.memory import FileBackedMemoryStore
 from app.models.chat_session import ChatSession
 from app.models.llm import LLMModel
 from app.models.tenant_setting import TenantSetting
@@ -50,30 +51,13 @@ async def build_memory_context(
     session_id: str | None = None,
 ) -> str:
     """Build a self-consistent memory context for any runtime entrypoint."""
-    del tenant_id  # Reserved for future tenant-scoped memory backends.
-
-    parts: list[str] = []
-
-    if session_id:
-        try:
-            current_summary = await _load_session_summary(agent_id, session_id)
-            if current_summary:
-                parts.append(f"[Previous conversation summary]\n{current_summary}")
-            else:
-                previous_summary = await _load_previous_session_summary(agent_id, session_id)
-                if previous_summary:
-                    parts.append(f"[Previous conversation summary]\n{previous_summary}")
-        except Exception as exc:
-            logger.debug("Failed to load session summary for %s: %s", agent_id, exc)
-
-    try:
-        memory_text = _load_agent_memory(agent_id)
-        if memory_text:
-            parts.append(f"[Agent memory]\n{memory_text}")
-    except Exception as exc:
-        logger.debug("Failed to load agent memory for %s: %s", agent_id, exc)
-
-    return "\n\n".join(parts)
+    store = FileBackedMemoryStore(
+        data_root=Path(get_settings().AGENT_DATA_DIR),
+        load_session_summary=_load_session_summary,
+        load_previous_session_summary=_load_previous_session_summary,
+        load_agent_memory=_load_agent_memory,
+    )
+    return await store.build_context(agent_id=agent_id, tenant_id=tenant_id, session_id=session_id)
 
 
 async def maybe_compress_messages(

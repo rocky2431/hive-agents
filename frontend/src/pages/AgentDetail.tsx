@@ -23,6 +23,28 @@ const formatTokens = (n: number) => {
     return String(n);
 };
 
+const getTimelineEventPresentation = (msg: TimelineMessage) => {
+    if (msg.eventType === 'permission') {
+        return {
+            icon: '🔒',
+            title: msg.eventTitle || 'Permission Gate',
+            background: 'rgba(245,158,11,0.10)',
+        };
+    }
+    if (msg.eventType === 'pack_activation') {
+        return {
+            icon: '🧰',
+            title: msg.eventTitle || 'Capability Packs Activated',
+            background: 'rgba(59,130,246,0.10)',
+        };
+    }
+    return {
+        icon: '🗜️',
+        title: msg.eventTitle || 'Context Compacted',
+        background: 'var(--bg-secondary)',
+    };
+};
+
 const getCategoryLabels = (t: any): Record<string, string> => ({
     file: t('agent.toolCategories.file'),
     task: t('agent.toolCategories.task'),
@@ -3055,23 +3077,39 @@ function AgentDetailInner() {
                                             </div>
                                             {historyMsgs.map((m: any, i: number) => {
                                                 if (m.role === 'event') {
+                                                    const eventUi = getTimelineEventPresentation(m);
                                                     return (
                                                         <div key={i} style={{ display: 'flex', gap: '8px', marginBottom: '6px', paddingLeft: '36px', minWidth: 0 }}>
                                                             <div style={{
                                                                 flex: 1,
                                                                 minWidth: 0,
                                                                 borderRadius: '8px',
-                                                                background: m.eventType === 'permission' ? 'rgba(245,158,11,0.10)' : 'var(--bg-secondary)',
+                                                                background: eventUi.background,
                                                                 border: '1px solid var(--border-subtle)',
                                                                 padding: '10px 12px',
                                                             }}>
                                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                                                                    <span style={{ fontSize: '13px' }}>{m.eventType === 'permission' ? '🔒' : '🗜️'}</span>
-                                                                    <span style={{ fontSize: '12px', fontWeight: 600 }}>{m.eventTitle || (m.eventType === 'permission' ? 'Permission Gate' : 'Context Compacted')}</span>
+                                                                    <span style={{ fontSize: '13px' }}>{eventUi.icon}</span>
+                                                                    <span style={{ fontSize: '12px', fontWeight: 600 }}>{eventUi.title}</span>
                                                                     {m.eventStatus && <span style={{ marginLeft: 'auto', fontSize: '10px', color: 'var(--text-tertiary)', textTransform: 'uppercase' }}>{String(m.eventStatus).replace(/_/g, ' ')}</span>}
                                                                 </div>
                                                                 {m.eventToolName && <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '4px', fontFamily: 'var(--font-mono)' }}>{m.eventToolName}</div>}
                                                                 <div style={{ fontSize: '12px', lineHeight: '1.6', color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{m.content}</div>
+                                                                {m.eventPacks && m.eventPacks.length > 0 && (
+                                                                    <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                                                        {m.eventPacks.map((pack: any, packIndex: number) => (
+                                                                            <div key={packIndex} style={{ fontSize: '11px', color: 'var(--text-secondary)', borderTop: '1px solid var(--border-subtle)', paddingTop: '6px' }}>
+                                                                                <div style={{ fontWeight: 600 }}>{String(pack.name || 'unknown_pack')}</div>
+                                                                                {pack.summary && <div style={{ marginTop: '2px' }}>{String(pack.summary)}</div>}
+                                                                                {Array.isArray(pack.tools) && pack.tools.length > 0 && (
+                                                                                    <div style={{ marginTop: '4px', fontFamily: 'var(--font-mono)', color: 'var(--text-tertiary)' }}>
+                                                                                        {pack.tools.join(', ')}
+                                                                                    </div>
+                                                                                )}
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                )}
                                                                 {m.eventApprovalId && <div style={{ marginTop: '6px', fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>Approval ID: {m.eventApprovalId}</div>}
                                                                 {(m.timestamp || m.created_at) && <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginTop: '6px', opacity: 0.6 }}>{formatChatTimestamp(m.timestamp || m.created_at)}</div>}
                                                             </div>
@@ -3192,23 +3230,39 @@ function AgentDetailInner() {
                                             )}
                                             {chatMessages.map((msg, i) => {
                                                 if (msg.role === 'event') {
+                                                    const eventUi = getTimelineEventPresentation(msg);
                                                     return (
                                                         <div key={i} style={{ display: 'flex', gap: '8px', marginBottom: '6px', paddingLeft: '36px', minWidth: 0 }}>
                                                             <div style={{
                                                                 flex: 1,
                                                                 minWidth: 0,
                                                                 borderRadius: '8px',
-                                                                background: msg.eventType === 'permission' ? 'rgba(245,158,11,0.10)' : 'var(--bg-secondary)',
+                                                                background: eventUi.background,
                                                                 border: '1px solid var(--border-subtle)',
                                                                 padding: '10px 12px',
                                                             }}>
                                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                                                                    <span style={{ fontSize: '13px' }}>{msg.eventType === 'permission' ? '🔒' : '🗜️'}</span>
-                                                                    <span style={{ fontSize: '12px', fontWeight: 600 }}>{msg.eventTitle || (msg.eventType === 'permission' ? 'Permission Gate' : 'Context Compacted')}</span>
+                                                                    <span style={{ fontSize: '13px' }}>{eventUi.icon}</span>
+                                                                    <span style={{ fontSize: '12px', fontWeight: 600 }}>{eventUi.title}</span>
                                                                     {msg.eventStatus && <span style={{ marginLeft: 'auto', fontSize: '10px', color: 'var(--text-tertiary)', textTransform: 'uppercase' }}>{String(msg.eventStatus).replace(/_/g, ' ')}</span>}
                                                                 </div>
                                                                 {msg.eventToolName && <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '4px', fontFamily: 'var(--font-mono)' }}>{msg.eventToolName}</div>}
                                                                 <div style={{ fontSize: '12px', lineHeight: '1.6', color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{msg.content}</div>
+                                                                {msg.eventPacks && msg.eventPacks.length > 0 && (
+                                                                    <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                                                        {msg.eventPacks.map((pack: any, packIndex: number) => (
+                                                                            <div key={packIndex} style={{ fontSize: '11px', color: 'var(--text-secondary)', borderTop: '1px solid var(--border-subtle)', paddingTop: '6px' }}>
+                                                                                <div style={{ fontWeight: 600 }}>{String(pack.name || 'unknown_pack')}</div>
+                                                                                {pack.summary && <div style={{ marginTop: '2px' }}>{String(pack.summary)}</div>}
+                                                                                {Array.isArray(pack.tools) && pack.tools.length > 0 && (
+                                                                                    <div style={{ marginTop: '4px', fontFamily: 'var(--font-mono)', color: 'var(--text-tertiary)' }}>
+                                                                                        {pack.tools.join(', ')}
+                                                                                    </div>
+                                                                                )}
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                )}
                                                                 {msg.eventApprovalId && <div style={{ marginTop: '6px', fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>Approval ID: {msg.eventApprovalId}</div>}
                                                                 {msg.timestamp && <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginTop: '6px', opacity: 0.6 }}>{formatChatTimestamp(msg.timestamp)}</div>}
                                                             </div>

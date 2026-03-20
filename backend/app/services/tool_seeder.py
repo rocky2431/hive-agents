@@ -63,6 +63,79 @@ BUILTIN_TOOLS = [
         "config_schema": {},
     },
     {
+        "name": "edit_file",
+        "display_name": "Edit File",
+        "description": "Edit an existing text file by replacing a specific snippet. Use this for precise local changes instead of rewriting the full file.",
+        "category": "file",
+        "icon": "🪄",
+        "is_default": True,
+        "parameters_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "File path to edit"},
+                "old_text": {"type": "string", "description": "The exact text to replace"},
+                "new_text": {"type": "string", "description": "Replacement text"},
+                "replace_all": {"type": "boolean", "description": "Replace all matches instead of one"},
+            },
+            "required": ["path", "old_text", "new_text"],
+        },
+        "config": {},
+        "config_schema": {},
+    },
+    {
+        "name": "glob_search",
+        "display_name": "Glob Search",
+        "description": "Find files by filename or path pattern within the workspace.",
+        "category": "file",
+        "icon": "🧭",
+        "is_default": True,
+        "parameters_schema": {
+            "type": "object",
+            "properties": {
+                "pattern": {"type": "string", "description": "Glob pattern such as **/*.md"},
+                "root": {"type": "string", "description": "Optional workspace-relative root path"},
+            },
+            "required": ["pattern"],
+        },
+        "config": {},
+        "config_schema": {},
+    },
+    {
+        "name": "grep_search",
+        "display_name": "Grep Search",
+        "description": "Search file contents for a text pattern within the workspace.",
+        "category": "file",
+        "icon": "🔎",
+        "is_default": True,
+        "parameters_schema": {
+            "type": "object",
+            "properties": {
+                "pattern": {"type": "string", "description": "Text or regex pattern to search for"},
+                "root": {"type": "string", "description": "Optional workspace-relative root path"},
+                "max_results": {"type": "integer", "description": "Maximum number of matches to return"},
+            },
+            "required": ["pattern"],
+        },
+        "config": {},
+        "config_schema": {},
+    },
+    {
+        "name": "tool_search",
+        "display_name": "Tool Search",
+        "description": "Discover delayed capability packs and skills without auto-loading them.",
+        "category": "discovery",
+        "icon": "🧰",
+        "is_default": True,
+        "parameters_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Optional search query such as feishu, email, or web research"},
+            },
+        },
+        "config": {},
+        "config_schema": {},
+    },
+    {
         "name": "delete_file",
         "display_name": "Delete File",
         "description": "Delete a file from the workspace. Cannot delete soul.md or tasks.json.",
@@ -1047,4 +1120,3 @@ async def get_atlassian_api_key() -> str:
         if tool and tool.config:
             return tool.config.get("api_key", "")
     return ""
-

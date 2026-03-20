@@ -21,7 +21,7 @@ export interface ToolCallPart {
 
 export interface EventPart {
     type: 'event';
-    event_type: 'permission' | 'session_compact';
+    event_type: 'permission' | 'session_compact' | 'pack_activation';
     title: string;
     text: string;
     status?: string;
@@ -29,6 +29,9 @@ export interface EventPart {
     approval_id?: string;
     original_message_count?: number;
     kept_message_count?: number;
+    packs?: Array<Record<string, unknown>>;
+    skill_name?: string;
+    trigger_tool?: string;
 }
 
 export type MessagePart = TextPart | ReasoningPart | ToolCallPart | EventPart;
@@ -43,11 +46,12 @@ export interface TimelineMessage {
     toolArgs?: unknown;
     toolStatus?: 'running' | 'done';
     toolResult?: string;
-    eventType?: 'permission' | 'session_compact';
+    eventType?: 'permission' | 'session_compact' | 'pack_activation';
     eventTitle?: string;
     eventStatus?: string;
     eventToolName?: string;
     eventApprovalId?: string;
+    eventPacks?: Array<Record<string, unknown>>;
     parts?: MessagePart[];
     timestamp?: string;
     _streaming?: boolean;
@@ -127,11 +131,12 @@ export function normalizeTimelineMessage(input: Record<string, unknown>): Timeli
         return {
             role: 'event',
             content: (eventPart?.text || input.content || '') as string,
-            eventType: (eventPart?.event_type || input.eventType) as 'permission' | 'session_compact' | undefined,
+            eventType: (eventPart?.event_type || input.eventType) as 'permission' | 'session_compact' | 'pack_activation' | undefined,
             eventTitle: (eventPart?.title || input.eventTitle || '') as string,
             eventStatus: (eventPart?.status || input.eventStatus || 'info') as string,
             eventToolName: (eventPart?.tool_name || input.eventToolName || input.tool_name) as string | undefined,
             eventApprovalId: (eventPart?.approval_id || input.eventApprovalId || input.approval_id) as string | undefined,
+            eventPacks: (eventPart?.packs || input.eventPacks || input.packs) as Array<Record<string, unknown>> | undefined,
             parts,
             timestamp,
             sender_name: senderName,
@@ -346,7 +351,7 @@ export function applyStreamEvent(
         return [...next, { ...assistantMessage, _streaming: false }];
     }
 
-    if (event.type === 'permission' || event.type === 'session_compact') {
+    if (event.type === 'permission' || event.type === 'session_compact' || event.type === 'pack_activation') {
         return [...next, normalizeTimelineMessage({
             role: 'event',
             content: event.message || event.summary || '',
@@ -354,6 +359,7 @@ export function applyStreamEvent(
             eventStatus: event.status,
             eventToolName: event.tool_name,
             eventApprovalId: event.approval_id,
+            eventPacks: event.packs as Array<Record<string, unknown>> | undefined,
             parts: event.part ? [event.part as MessagePart] : undefined,
             created_at: timestamp,
         })];

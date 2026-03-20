@@ -112,3 +112,8 @@ async def test_execute_heartbeat_passes_memory_messages_to_runtime(monkeypatch):
     request = captured["request"]
     assert request.messages == [{"role": "user", "content": "HB"}]
     assert request.memory_messages == request.messages
+    assert request.core_tools_only is True
+    assert request.session_context is not None
+    assert request.session_context.source == "heartbeat"
+    assert request.session_context.channel == "heartbeat"
+    assert request.session_context.metadata["agent_id"] == str(agent_id)

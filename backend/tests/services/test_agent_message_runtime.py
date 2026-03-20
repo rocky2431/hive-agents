@@ -30,17 +30,17 @@ async def test_invoke_agent_message_runtime_delegates_to_runtime(monkeypatch):
     conversation_messages = [{"role": "user", "content": "[From Source] hello"}]
 
     captured = {}
-    tool_executor = object()
+    orchestrator_executor = object()
 
-    async def fake_invoke_agent(request):
-        captured["request"] = request
-        return SimpleNamespace(content="target reply")
+    async def fake_delegate(**kwargs):
+        captured["kwargs"] = kwargs
+        return "target reply"
 
-    monkeypatch.setattr("app.runtime.invoker.invoke_agent", fake_invoke_agent)
     monkeypatch.setattr(
         "app.services.agent_tools._build_agent_message_tool_executor",
-        lambda *args, **kwargs: tool_executor,
+        lambda *args, **kwargs: orchestrator_executor,
     )
+    monkeypatch.setattr("app.agents.orchestrator.delegate_to_agent", fake_delegate)
 
     reply = await _invoke_agent_message_runtime(
         target=target,
@@ -52,18 +52,15 @@ async def test_invoke_agent_message_runtime_delegates_to_runtime(monkeypatch):
         participant_id=participant_id,
     )
 
-    request = captured["request"]
     assert reply == "target reply"
-    assert request.model is target_model
-    assert request.agent_id == target_id
-    assert request.user_id == owner_id
-    assert request.messages == conversation_messages
-    assert request.memory_messages == conversation_messages
-    assert request.memory_session_id == "session-1"
-    assert request.tool_executor is tool_executor
-    assert request.core_tools_only is False
-    assert request.max_tool_rounds == 9
-    assert "Agent-to-Agent Message" in request.system_prompt_suffix
+    assert captured["kwargs"]["target"] is target
+    assert captured["kwargs"]["target_model"] is target_model
+    assert captured["kwargs"]["conversation_messages"] == conversation_messages
+    assert captured["kwargs"]["owner_id"] == owner_id
+    assert captured["kwargs"]["session_id"] == "session-1"
+    assert captured["kwargs"]["tool_executor"] is orchestrator_executor
+    assert captured["kwargs"]["max_tool_rounds"] == 9
+    assert "Agent-to-Agent Message" in captured["kwargs"]["system_prompt_suffix"]
 
 
 @pytest.mark.asyncio

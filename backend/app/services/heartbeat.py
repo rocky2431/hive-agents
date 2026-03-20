@@ -15,6 +15,7 @@ from loguru import logger
 from sqlalchemy import select
 
 from app.runtime.invoker import AgentInvocationRequest, invoke_agent
+from app.runtime.session import SessionContext
 from app.services.agent_tools import execute_tool
 
 # Default heartbeat instruction used when HEARTBEAT.md doesn't exist
@@ -38,9 +39,10 @@ Do NOT search for generic or obvious topics just to fill time. Quality over quan
 
 Only if you identified genuine interest points in Phase 1:
 
-1. Use `web_search` to investigate (maximum 5 searches per heartbeat)
-2. Keep searches **tightly scoped** to your role and recent work topics
-3. For each discovery worth keeping:
+1. If you need internet research, first use `load_skill` or `tool_search` to activate the web research capability pack
+2. Then use the available web tools to investigate (maximum 5 searches per heartbeat)
+3. Keep searches **tightly scoped** to your role and recent work topics
+4. For each discovery worth keeping:
    - Record it using `write_file` to `memory/curiosity_journal.md`
    - Include the **source URL** and a brief note on **why it matters to your work**
    - Rate its relevance (high/medium/low) to your current responsibilities
@@ -249,8 +251,13 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
                     role_description=agent.role_description or "",
                     agent_id=agent_id,
                     user_id=agent.creator_id,
+                    session_context=SessionContext(
+                        source="heartbeat",
+                        channel="heartbeat",
+                        metadata={"agent_id": str(agent_id)},
+                    ),
                     tool_executor=_build_heartbeat_tool_executor(agent_id, agent.creator_id),
-                    core_tools_only=False,
+                    core_tools_only=True,
                     max_tool_rounds=20,
                 )
             )

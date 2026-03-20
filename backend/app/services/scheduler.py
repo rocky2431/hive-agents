@@ -14,6 +14,7 @@ from sqlalchemy import select, update
 
 from app.database import async_session
 from app.runtime.invoker import AgentInvocationRequest, invoke_agent
+from app.runtime.session import SessionContext
 
 
 def compute_next_run(cron_expr: str, after: datetime | None = None) -> datetime | None:
@@ -74,7 +75,12 @@ async def _execute_schedule(schedule_id: uuid.UUID, agent_id: uuid.UUID, instruc
                         role_description=agent.role_description or "",
                         agent_id=agent_id,
                         user_id=agent.creator_id,
-                        core_tools_only=False,
+                        session_context=SessionContext(
+                            source="schedule",
+                            channel="schedule",
+                            metadata={"schedule_id": str(schedule_id)},
+                        ),
+                        core_tools_only=True,
                         max_tool_rounds=getattr(agent, "max_tool_rounds", None),
                     )
                 )

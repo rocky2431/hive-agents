@@ -16,6 +16,8 @@ import asyncio
 import json
 import logging
 import os
+import shutil
+import subprocess
 import uuid
 from contextvars import ContextVar
 from datetime import datetime, timezone
@@ -27,10 +29,26 @@ from loguru import logger
 from sqlalchemy import select
 
 from app.database import async_session
+from app.skills import SkillRegistry, WorkspaceSkillLoader
+from app.tools import (
+    CoreToolDependencies,
+    ExtendedToolDependencies,
+    IntegrationToolDependencies,
+    ToolExecutionRegistry,
+    ToolGovernanceResolver,
+    ToolRegistry,
+    ToolRuntimeService,
+    ensure_workspace,
+    register_core_tool_executors,
+    register_extended_tool_executors,
+    register_integration_tool_executors,
+    run_tool_governance,
+)
+from app.tools.packs import iter_tool_packs
 
 logger = logging.getLogger(__name__)
-from app.models.task import Task
 from app.config import get_settings
+from app.models.task import Task
 
 _settings = get_settings()
 WORKSPACE_ROOT = Path(_settings.AGENT_DATA_DIR)
@@ -116,6 +134,97 @@ AGENT_TOOLS = [
                     },
                 },
                 "required": ["path", "content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "edit_file",
+            "description": "Edit an existing text file by replacing a specific snippet. Use this for precise changes instead of rewriting the full file.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "File path to edit, e.g. workspace/report.md or focus.md",
+                    },
+                    "old_text": {
+                        "type": "string",
+                        "description": "The exact text to replace",
+                    },
+                    "new_text": {
+                        "type": "string",
+                        "description": "Replacement text",
+                    },
+                    "replace_all": {
+                        "type": "boolean",
+                        "description": "When true, replace all occurrences instead of exactly one",
+                    },
+                },
+                "required": ["path", "old_text", "new_text"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "glob_search",
+            "description": "Find files by path pattern inside the workspace. Use this to discover candidate files before reading them.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pattern": {
+                        "type": "string",
+                        "description": "Glob pattern such as '**/*.md' or 'skills/*/SKILL.md'",
+                    },
+                    "root": {
+                        "type": "string",
+                        "description": "Optional workspace-relative root path to search from",
+                    },
+                },
+                "required": ["pattern"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "grep_search",
+            "description": "Search file contents for a text pattern inside the workspace. Prefer this before opening many files one by one.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pattern": {
+                        "type": "string",
+                        "description": "The text or regex pattern to search for",
+                    },
+                    "root": {
+                        "type": "string",
+                        "description": "Optional workspace-relative root path to search from",
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum number of matches to return",
+                    },
+                },
+                "required": ["pattern"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "tool_search",
+            "description": "Search for delayed capability packs and skills that can be activated on demand. This only returns summaries and does not auto-load tools.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Optional query like 'feishu', 'web research', or 'email'",
+                    },
+                },
             },
         },
     },
@@ -888,13 +997,142 @@ AGENT_TOOLS = [
     },
 ]
 
+_LEGACY_TOOL_REGISTRY = ToolRegistry.from_openai_tools(AGENT_TOOLS)
+_TOOL_EXECUTION_REGISTRY = ToolExecutionRegistry()
+_TOOL_EXECUTION_REGISTRY_INITIALIZED = False
+_TOOL_RUNTIME_SERVICE: ToolRuntimeService | None = None
+
+
+def _ensure_tool_execution_registry() -> None:
+    global _TOOL_EXECUTION_REGISTRY_INITIALIZED
+    if _TOOL_EXECUTION_REGISTRY_INITIALIZED:
+        return
+    register_core_tool_executors(
+        _TOOL_EXECUTION_REGISTRY,
+        CoreToolDependencies(
+            list_files=_list_files,
+            read_file=_read_file,
+            load_skill=_load_skill,
+            write_file=_write_file,
+            edit_file=_edit_file,
+            glob_search=_glob_search,
+            grep_search=_grep_search,
+            tool_search=_tool_search,
+            execute_code=_execute_code,
+            set_trigger=_handle_set_trigger,
+            send_feishu_message=_send_feishu_message,
+            send_web_message=_send_web_message,
+            send_message_to_agent=_send_message_to_agent,
+        ),
+    )
+    register_extended_tool_executors(
+        _TOOL_EXECUTION_REGISTRY,
+        ExtendedToolDependencies(
+            read_document=_read_document,
+            delete_file=_delete_file,
+            update_trigger=_handle_update_trigger,
+            cancel_trigger=_handle_cancel_trigger,
+            list_triggers=_handle_list_triggers,
+            web_search=_web_search,
+            jina_search=_jina_search,
+            jina_read=_jina_read,
+            send_channel_file=_send_channel_file,
+            upload_image=_upload_image,
+            discover_resources=_discover_resources,
+            import_mcp_server=_import_mcp_server,
+        ),
+    )
+    register_integration_tool_executors(
+        _TOOL_EXECUTION_REGISTRY,
+        IntegrationToolDependencies(
+            manage_tasks=_manage_tasks,
+            plaza_get_new_posts=_plaza_get_new_posts,
+            plaza_create_post=_plaza_create_post,
+            plaza_add_comment=_plaza_add_comment,
+            feishu_wiki_list=_feishu_wiki_list,
+            feishu_doc_read=_feishu_doc_read,
+            feishu_doc_create=_feishu_doc_create,
+            feishu_doc_append=_feishu_doc_append,
+            feishu_doc_share=_feishu_doc_share,
+            feishu_user_search=_feishu_user_search,
+            feishu_calendar_list=_feishu_calendar_list,
+            feishu_calendar_create=_feishu_calendar_create,
+            feishu_calendar_update=_feishu_calendar_update,
+            feishu_calendar_delete=_feishu_calendar_delete,
+            handle_email_tool=_handle_email_tool,
+            execute_mcp_tool=_execute_mcp_tool,
+        ),
+    )
+    _TOOL_EXECUTION_REGISTRY_INITIALIZED = True
+
+
+def _get_tool_runtime_service() -> ToolRuntimeService:
+    global _TOOL_RUNTIME_SERVICE
+    if _TOOL_RUNTIME_SERVICE is not None:
+        return _TOOL_RUNTIME_SERVICE
+
+    from app.tools.resolver import ToolRuntimeResolver
+
+    async def _fallback_execute(tool_name: str, arguments: dict, context) -> str:
+        return await _execute_mcp_tool(tool_name, arguments, agent_id=context.agent_id)
+
+    async def _direct_fallback_execute(tool_name: str, arguments: dict, context) -> str:
+        ws = context.workspace
+        if tool_name == "delete_file":
+            return _delete_file(ws, arguments.get("path", ""))
+        if tool_name == "write_file":
+            path = arguments.get("path")
+            content = arguments.get("content", "")
+            if not path:
+                return "Missing path"
+            return _write_file(ws, path, content)
+        if tool_name == "execute_code":
+            return await _execute_code(ws, arguments)
+        if tool_name == "web_search":
+            return await _web_search(arguments)
+        if tool_name == "jina_search":
+            return await _jina_search(arguments)
+        if tool_name == "send_feishu_message":
+            return await _send_feishu_message(context.agent_id, arguments)
+        if tool_name == "send_message_to_agent":
+            return await _send_message_to_agent(context.agent_id, arguments)
+        return f"Tool {tool_name} does not support post-approval execution"
+
+    async def _log_activity(*args, **kwargs) -> None:
+        from app.services.activity_logger import log_activity
+        await log_activity(*args, **kwargs)
+
+    _TOOL_RUNTIME_SERVICE = ToolRuntimeService(
+        runtime_resolver=ToolRuntimeResolver(),
+        governance_resolver=ToolGovernanceResolver(),
+        registry=_TOOL_EXECUTION_REGISTRY,
+        ensure_registry=_ensure_tool_execution_registry,
+        governance_runner=run_tool_governance,
+        fallback_executor=_fallback_execute,
+        direct_fallback_executor=_direct_fallback_execute,
+        activity_logger=_log_activity,
+    )
+    return _TOOL_RUNTIME_SERVICE
+
+
+# Minimal-by-default kernel tools. Everything else should be introduced
+# explicitly via skills, channel capabilities, or MCP-linked expansion.
+CORE_TOOL_NAMES = {
+    "read_file",
+    "write_file",
+    "edit_file",
+    "glob_search",
+    "grep_search",
+    "load_skill",
+    "set_trigger",
+    "send_message_to_agent",
+    "send_channel_file",
+    "tool_search",
+}
 
 # Core tools that should always be available to agents regardless of
 # DB configuration.
-_ALWAYS_INCLUDE_CORE = {
-    "send_channel_file",
-    "write_file",
-}
+_ALWAYS_INCLUDE_CORE = set(CORE_TOOL_NAMES)
 # Feishu tools are ONLY included when the agent has a configured Feishu channel,
 # to avoid exposing unnecessary tools to non-Feishu agents (reduces hallucination risk).
 _FEISHU_TOOL_NAMES = {
@@ -933,24 +1171,19 @@ async def _agent_has_feishu(agent_id: uuid.UUID) -> bool:
 
 # ─── Dynamic Tool Loading from DB ──────────────────────────────
 
-CORE_TOOL_NAMES = {
-    "list_files", "read_file", "load_skill", "write_file", "delete_file",
-    "jina_search", "jina_read", "web_search",
-    "send_message_to_agent", "send_web_message", "send_channel_file",
-    "set_trigger", "list_triggers",
-    "read_document",
-    "discover_resources", "import_mcp_server",
-    "execute_code",
-}
-
-
-async def get_agent_tools_for_llm(agent_id: uuid.UUID, core_only: bool = False) -> list[dict]:
+async def get_agent_tools_for_llm(
+    agent_id: uuid.UUID,
+    core_only: bool = False,
+    requested_names: list[str] | None = None,
+) -> list[dict]:
     """Load enabled tools for an agent from DB (OpenAI function-calling format).
 
     Args:
         agent_id: The agent to load tools for.
         core_only: When True, only return tools in CORE_TOOL_NAMES
                    (progressive loading — full set loaded later when agent reads a skill).
+        requested_names: When provided, return kernel tools plus only the requested
+                   non-kernel tools that are available to the agent.
 
     Falls back to hardcoded AGENT_TOOLS if DB not ready.
     Always includes core system tools (send_channel_file, write_file).
@@ -958,6 +1191,9 @@ async def get_agent_tools_for_llm(agent_id: uuid.UUID, core_only: bool = False) 
     """
     has_feishu = await _agent_has_feishu(agent_id)
     _always_tools = _always_core_tools + (_feishu_tools if has_feishu else [])
+    requested_set = set(requested_names or [])
+    if requested_set:
+        requested_set |= CORE_TOOL_NAMES
 
     try:
         from app.models.tool import Tool, AgentTool
@@ -1003,113 +1239,22 @@ async def get_agent_tools_for_llm(agent_id: uuid.UUID, core_only: bool = False) 
                         result.append(t)
                 if core_only:
                     result = [t for t in result if t["function"]["name"] in CORE_TOOL_NAMES]
-                return result
+                elif requested_set:
+                    result = [t for t in result if t["function"]["name"] in requested_set]
+                return ToolRegistry.from_openai_tools(result).to_openai_tools()
     except Exception as e:
         logger.error(f"[Tools] DB load failed, using fallback: {e}")
 
     # Fallback to hardcoded tools
-    fallback = AGENT_TOOLS
+    fallback = _LEGACY_TOOL_REGISTRY.to_openai_tools()
     if core_only:
         fallback = [t for t in fallback if t["function"]["name"] in CORE_TOOL_NAMES]
+    elif requested_set:
+        fallback = [t for t in fallback if t["function"]["name"] in requested_set]
     return fallback
 
 
-# ─── Workspace initialization ──────────────────────────────────
-
-async def ensure_workspace(agent_id: uuid.UUID, tenant_id: str | None = None) -> Path:
-    """Initialize agent workspace with standard structure."""
-    ws = WORKSPACE_ROOT / str(agent_id)
-    ws.mkdir(parents=True, exist_ok=True)
-
-    # Create standard directories
-    (ws / "skills").mkdir(exist_ok=True)
-    (ws / "workspace").mkdir(exist_ok=True)
-    (ws / "workspace" / "knowledge_base").mkdir(exist_ok=True)
-    (ws / "memory").mkdir(exist_ok=True)
-
-    # Ensure tenant-scoped enterprise_info directory exists
-    if tenant_id:
-        enterprise_dir = WORKSPACE_ROOT / f"enterprise_info_{tenant_id}"
-    else:
-        enterprise_dir = WORKSPACE_ROOT / "enterprise_info"
-    enterprise_dir.mkdir(parents=True, exist_ok=True)
-    (enterprise_dir / "knowledge_base").mkdir(exist_ok=True)
-    # Create default company profile if missing
-    profile_path = enterprise_dir / "company_profile.md"
-    if not profile_path.exists():
-        profile_path.write_text("# Company Profile\n\n_Edit company information here. All digital employees can access this._\n\n## Basic Info\n- Company Name:\n- Industry:\n- Founded:\n\n## Business Overview\n\n## Organization Structure\n\n## Company Culture\n", encoding="utf-8")
-
-    # Migrate: move root-level memory.md into memory/ directory
-    if (ws / "memory.md").exists() and not (ws / "memory" / "memory.md").exists():
-        import shutil
-        shutil.move(str(ws / "memory.md"), str(ws / "memory" / "memory.md"))
-
-    # Create default memory file if missing
-    if not (ws / "memory" / "memory.md").exists():
-        (ws / "memory" / "memory.md").write_text("# Memory\n\n_Record important information and knowledge here._\n", encoding="utf-8")
-
-    if not (ws / "soul.md").exists():
-        # Try to load from DB
-        try:
-            from app.models.agent import Agent
-            async with async_session() as db:
-                r = await db.execute(select(Agent).where(Agent.id == agent_id))
-                agent = r.scalar_one_or_none()
-                if agent and agent.role_description:
-                    (ws / "soul.md").write_text(
-                        f"# Personality\n\n{agent.role_description}\n",
-                        encoding="utf-8",
-                    )
-                else:
-                    (ws / "soul.md").write_text("# Personality\n\n_Describe your role and responsibilities._\n", encoding="utf-8")
-        except Exception:
-            (ws / "soul.md").write_text("# Personality\n\n_Describe your role and responsibilities._\n", encoding="utf-8")
-
-    # Always sync tasks from DB
-    await _sync_tasks_to_file(agent_id, ws)
-
-    return ws
-
-
-async def _sync_tasks_to_file(agent_id: uuid.UUID, ws: Path):
-    """Sync tasks from DB to tasks.json in workspace."""
-    try:
-        async with async_session() as db:
-            result = await db.execute(
-                select(Task).where(Task.agent_id == agent_id).order_by(Task.created_at.desc())
-            )
-            tasks = result.scalars().all()
-
-        task_list = []
-        for t in tasks:
-            task_list.append({
-                "title": t.title,
-                "status": t.status,
-                "priority": t.priority,
-                "description": t.description or "",
-                "created_at": t.created_at.isoformat() if t.created_at else "",
-                "completed_at": t.completed_at.isoformat() if t.completed_at else "",
-            })
-
-        (ws / "tasks.json").write_text(
-            json.dumps(task_list, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-    except Exception as e:
-        logger.error(f"[AgentTools] Failed to sync tasks: {e}")
-
-
 # ─── Tool Executors ─────────────────────────────────────────────
-
-# Mapping from tool_name to autonomy action_type
-_TOOL_AUTONOMY_MAP = {
-    "write_file": "write_workspace_files",
-    "delete_file": "delete_files",
-    "send_feishu_message": "send_feishu_message",
-    "send_message_to_agent": "send_feishu_message",
-    "web_search": "web_search",
-    "execute_code": "execute_code",
-}
 
 
 async def _execute_tool_direct(
@@ -1122,30 +1267,11 @@ async def _execute_tool_direct(
     Used by the approval post-processing hook after an action
     has been approved and needs to actually run.
     """
-    ws = await ensure_workspace(agent_id)
-    try:
-        if tool_name == "delete_file":
-            return _delete_file(ws, arguments.get("path", ""))
-        elif tool_name == "write_file":
-            path = arguments.get("path")
-            content = arguments.get("content", "")
-            if not path:
-                return "Missing path"
-            return _write_file(ws, path, content)
-        elif tool_name == "execute_code":
-            return await _execute_code(ws, arguments)
-        elif tool_name == "web_search":
-            return await _web_search(arguments)
-        elif tool_name == "jina_search":
-            return await _jina_search(arguments)
-        elif tool_name == "send_feishu_message":
-            return await _send_feishu_message(agent_id, arguments)
-        elif tool_name == "send_message_to_agent":
-            return await _send_message_to_agent(agent_id, arguments)
-        else:
-            return f"Tool {tool_name} does not support post-approval execution"
-    except Exception as e:
-        return f"Error executing {tool_name}: {e}"
+    return await _get_tool_runtime_service().execute_direct(
+        tool_name,
+        arguments,
+        agent_id=agent_id,
+    )
 
 
 async def execute_tool(
@@ -1156,315 +1282,26 @@ async def execute_tool(
     event_callback: ToolEventCallback | None = None,
 ) -> str:
     """Execute a tool call and return the result as a string."""
-    # Look up agent's tenant_id for tenant-scoped operations
-    _agent_tenant_id = None
-    try:
-        from app.models.agent import Agent as _Ag
-        from app.database import async_session as _ases
-        from sqlalchemy import select as _ssel
-        async with _ases() as _tdb:
-            _ag = await _tdb.execute(_ssel(_Ag.tenant_id).where(_Ag.id == agent_id))
-            _tid = _ag.scalar_one_or_none()
-            if _tid:
-                _agent_tenant_id = str(_tid)
-    except Exception as e:
-        logger.debug("Failed to resolve tenant_id for tool execution: %s", e)
-
-    ws = await ensure_workspace(agent_id, tenant_id=_agent_tenant_id)
-
-    # ── Security zone enforcement (fail closed: default to most restrictive on error) ──
-    _SENSITIVE_TOOLS = {"send_feishu_message", "send_email", "delete_file", "write_file", "reply_email"}
-    _SAFE_TOOLS = {"list_files", "read_file", "load_skill", "jina_search", "jina_read", "web_search", "read_document", "list_tasks", "get_task"}
-    try:
-        from app.models.agent import Agent as _AgentModel
-        async with async_session() as _szdb:
-            _sz_r = await _szdb.execute(select(_AgentModel.security_zone).where(_AgentModel.id == agent_id))
-            _zone = _sz_r.scalar_one_or_none() or "standard"
-
-        if _zone == "public" and tool_name not in _SAFE_TOOLS:
-            message = f"🔒 Tool '{tool_name}' is blocked — this agent is in the 'public' security zone and can only use safe read-only tools."
-            if event_callback:
-                maybe_result = event_callback({
-                    "type": "permission",
-                    "tool_name": tool_name,
-                    "status": "blocked",
-                    "message": message,
-                    "security_zone": _zone,
-                })
-                if maybe_result is not None:
-                    await maybe_result
-            return message
-        if _zone == "restricted" and tool_name in _SENSITIVE_TOOLS:
-            message = f"🔒 Tool '{tool_name}' requires approval — this agent is in the 'restricted' security zone. Please ask an admin to approve this action."
-            if event_callback:
-                maybe_result = event_callback({
-                    "type": "permission",
-                    "tool_name": tool_name,
-                    "status": "approval_required",
-                    "message": message,
-                    "security_zone": _zone,
-                })
-                if maybe_result is not None:
-                    await maybe_result
-            return message
-    except Exception as e:
-        logger.warning("Security zone check failed for agent %s — blocking sensitive tool %s: %s", agent_id, tool_name, e)
-        if tool_name in _SENSITIVE_TOOLS:
-            message = f"🔒 Tool '{tool_name}' blocked — security zone check failed. Please retry or contact admin."
-            if event_callback:
-                maybe_result = event_callback({
-                    "type": "permission",
-                    "tool_name": tool_name,
-                    "status": "blocked",
-                    "message": message,
-                })
-                if maybe_result is not None:
-                    await maybe_result
-            return message
-
-    # ── Capability gate check (Block D) ──
-    if _agent_tenant_id:
-        try:
-            from app.services.capability_gate import check_capability
-            async with async_session() as _capdb:
-                cap_result = await check_capability(
-                    _capdb, uuid.UUID(_agent_tenant_id), agent_id, tool_name
-                )
-            if cap_result.denied:
-                message = f"🚫 Capability denied: {cap_result.reason}"
-                # Audit the denial
-                try:
-                    from app.core.policy import write_audit_event
-                    async with async_session() as _audb:
-                        await write_audit_event(
-                            _audb, event_type="capability.denied", severity="warn",
-                            actor_type="agent", actor_id=agent_id,
-                            tenant_id=uuid.UUID(_agent_tenant_id),
-                            action="capability_denied",
-                            resource_type="tool", resource_id=None,
-                            details={"tool": tool_name, "capability": cap_result.capability},
-                        )
-                        await _audb.commit()
-                except Exception:
-                    logger.warning("Audit write failed for capability.denied", exc_info=True)
-                if event_callback:
-                    maybe_result = event_callback({
-                        "type": "permission",
-                        "tool_name": tool_name,
-                        "status": "capability_denied",
-                        "message": message,
-                        "capability": cap_result.capability,
-                    })
-                    if maybe_result is not None:
-                        await maybe_result
-                return message
-            if cap_result.escalate_to_l3:
-                # Force L3 approval via autonomy service
-                try:
-                    from app.core.policy import write_audit_event
-                    async with async_session() as _audb:
-                        await write_audit_event(
-                            _audb, event_type="capability.escalated", severity="warn",
-                            actor_type="agent", actor_id=agent_id,
-                            tenant_id=uuid.UUID(_agent_tenant_id),
-                            action="capability_escalated",
-                            resource_type="tool", resource_id=None,
-                            details={"tool": tool_name, "capability": cap_result.capability},
-                        )
-                        await _audb.commit()
-                except Exception:
-                    logger.warning("Audit write failed for capability.escalated", exc_info=True)
-                # Fall through to autonomy check below — will be forced to L3
-        except Exception as e:
-            logger.warning("Capability gate check failed for tool %s: %s", tool_name, e)
-
-    # ── Autonomy boundary check ──
-    action_type = _TOOL_AUTONOMY_MAP.get(tool_name)
-    if action_type:
-        try:
-            from app.services.autonomy_service import autonomy_service
-            from app.models.agent import Agent as AgentModel
-            async with async_session() as _adb:
-                _ar = await _adb.execute(select(AgentModel).where(AgentModel.id == agent_id))
-                _agent = _ar.scalar_one_or_none()
-                if _agent:
-                    result_check = await autonomy_service.check_and_enforce(
-                        _adb, _agent, action_type, {"tool": tool_name, "args": str(arguments)[:200], "requested_by": str(user_id)}
-                    )
-                    await _adb.commit()
-                    if not result_check.get("allowed"):
-                        level = result_check.get("level", "L3")
-                        if level == "L3":
-                            message = f"⏳ This action requires approval. An approval request has been sent. Please wait for approval before retrying. (Approval ID: {result_check.get('approval_id', 'N/A')})"
-                            if event_callback:
-                                maybe_result = event_callback({
-                                    "type": "permission",
-                                    "tool_name": tool_name,
-                                    "status": "approval_required",
-                                    "message": message,
-                                    "approval_id": result_check.get("approval_id"),
-                                    "autonomy_level": level,
-                                })
-                                if maybe_result is not None:
-                                    await maybe_result
-                            return message
-                        message = f"❌ Action denied: {result_check.get('message', 'unknown reason')}"
-                        if event_callback:
-                            maybe_result = event_callback({
-                                "type": "permission",
-                                "tool_name": tool_name,
-                                "status": "blocked",
-                                "message": message,
-                                "autonomy_level": level,
-                            })
-                            if maybe_result is not None:
-                                await maybe_result
-                        return message
-        except Exception as e:
-            logger.error(f"[Autonomy] Check failed — blocking as safety measure: {e}")
-            message = f"⚠️ Autonomy check failed ({e}). Operation blocked for safety. Please retry or contact admin."
-            if event_callback:
-                maybe_result = event_callback({
-                    "type": "permission",
-                    "tool_name": tool_name,
-                    "status": "blocked",
-                    "message": message,
-                })
-                if maybe_result is not None:
-                    await maybe_result
-            return message
-
-    # Timeout: 60s for code execution, 30s for everything else
-    _tool_timeout = 60.0 if tool_name == "execute_code" else 30.0
-    try:
-        result = await asyncio.wait_for(
-            _execute_tool_inner(tool_name, arguments, agent_id, user_id, ws, _agent_tenant_id),
-            timeout=_tool_timeout,
-        )
-
-        # Log tool call activity (skip noisy read operations)
-        if tool_name not in ("list_files", "read_file", "read_document"):
-            from app.services.activity_logger import log_activity
-            await log_activity(
-                agent_id, "tool_call",
-                f"Called tool {tool_name}: {result[:80]}",
-                detail={"tool": tool_name, "args": {k: str(v)[:100] for k, v in arguments.items()}, "result": result[:300]},
-            )
-        return result
-    except asyncio.TimeoutError:
-        logger.warning("[Tool] %s timed out after %.0fs for agent %s", tool_name, _tool_timeout, agent_id)
-        return f"[Tool Timeout] {tool_name} exceeded {int(_tool_timeout)} second time limit. Try a simpler operation."
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return f"Tool execution error ({tool_name}): {type(e).__name__}: {str(e)[:200]}"
+    return await _get_tool_runtime_service().execute(
+        tool_name,
+        arguments,
+        agent_id=agent_id,
+        user_id=user_id,
+        event_callback=event_callback,
+    )
 
 
 async def _execute_tool_inner(
-    tool_name: str, arguments: dict, agent_id: uuid.UUID, user_id: uuid.UUID,
-    ws: str, _agent_tenant_id: str | None,
+    tool_name: str,
+    arguments: dict,
+    context,
 ) -> str:
     """Inner tool dispatch — called with timeout wrapper from execute_tool()."""
-    if tool_name == "list_files":
-        result = _list_files(ws, arguments.get("path", ""), tenant_id=_agent_tenant_id)
-    elif tool_name == "read_file":
-        path = arguments.get("path")
-        if not path:
-            return "❌ Missing required argument 'path' for read_file"
-        result = _read_file(ws, path, tenant_id=_agent_tenant_id)
-    elif tool_name == "load_skill":
-        skill_name = arguments.get("name")
-        if not skill_name:
-            return "❌ Missing required argument 'name' for load_skill"
-        result = _load_skill(ws, skill_name)
-    elif tool_name == "read_document":
-        path = arguments.get("path")
-        if not path:
-            return "❌ Missing required argument 'path' for read_document"
-        max_chars = min(int(arguments.get("max_chars", 8000)), 20000)
-        result = await _read_document(ws, path, max_chars=max_chars, tenant_id=_agent_tenant_id)
-    elif tool_name == "write_file":
-        path = arguments.get("path")
-        content = arguments.get("content")
-        if not path:
-            return "❌ Missing required argument 'path' for write_file. Please provide a file path like 'skills/my-skill/SKILL.md'"
-        if content is None:
-            return "❌ Missing required argument 'content' for write_file"
-        result = _write_file(ws, path, content)
-    elif tool_name == "delete_file":
-        result = _delete_file(ws, arguments.get("path", ""))
-    elif tool_name == "manage_tasks":
-        result = await _manage_tasks(agent_id, user_id, ws, arguments)
-    elif tool_name == "set_trigger":
-        result = await _handle_set_trigger(agent_id, arguments)
-    elif tool_name == "update_trigger":
-        result = await _handle_update_trigger(agent_id, arguments)
-    elif tool_name == "cancel_trigger":
-        result = await _handle_cancel_trigger(agent_id, arguments)
-    elif tool_name == "list_triggers":
-        result = await _handle_list_triggers(agent_id)
-    elif tool_name == "send_feishu_message":
-        result = await _send_feishu_message(agent_id, arguments)
-    elif tool_name == "send_web_message":
-        result = await _send_web_message(agent_id, arguments)
-    elif tool_name == "send_message_to_agent":
-        result = await _send_message_to_agent(agent_id, arguments)
-    elif tool_name == "send_channel_file":
-        result = await _send_channel_file(agent_id, ws, arguments)
-    elif tool_name == "web_search":
-        result = await _web_search(arguments)
-    elif tool_name == "jina_search":
-        result = await _jina_search(arguments)
-    elif tool_name == "bing_search":
-        result = await _jina_search(arguments)  # redirect legacy to jina
-    elif tool_name == "jina_read":
-        result = await _jina_read(arguments)
-    elif tool_name == "read_webpage":
-        result = await _jina_read(arguments)  # redirect legacy to jina
-    elif tool_name == "plaza_get_new_posts":
-        result = await _plaza_get_new_posts(agent_id, arguments)
-    elif tool_name == "plaza_create_post":
-        result = await _plaza_create_post(agent_id, arguments)
-    elif tool_name == "plaza_add_comment":
-        result = await _plaza_add_comment(agent_id, arguments)
-    elif tool_name == "execute_code":
-        result = await _execute_code(ws, arguments)
-    elif tool_name == "upload_image":
-        result = await _upload_image(agent_id, ws, arguments)
-    elif tool_name == "discover_resources":
-        result = await _discover_resources(arguments)
-    elif tool_name == "import_mcp_server":
-        result = await _import_mcp_server(agent_id, arguments)
-    # ── Feishu Document Tools ──
-    elif tool_name == "feishu_wiki_list":
-        result = await _feishu_wiki_list(agent_id, arguments)
-    elif tool_name == "feishu_doc_read":
-        result = await _feishu_doc_read(agent_id, arguments)
-    elif tool_name == "feishu_doc_create":
-        result = await _feishu_doc_create(agent_id, arguments)
-    elif tool_name == "feishu_doc_append":
-        result = await _feishu_doc_append(agent_id, arguments)
-    # ── Feishu Calendar Tools ──
-    elif tool_name == "feishu_doc_share":
-        result = await _feishu_doc_share(agent_id, arguments)
-    elif tool_name == "feishu_user_search":
-        result = await _feishu_user_search(agent_id, arguments)
-    elif tool_name == "feishu_calendar_list":
-        result = await _feishu_calendar_list(agent_id, arguments)
-    elif tool_name == "feishu_calendar_create":
-        result = await _feishu_calendar_create(agent_id, arguments)
-    elif tool_name == "feishu_calendar_update":
-        result = await _feishu_calendar_update(agent_id, arguments)
-    elif tool_name == "feishu_calendar_delete":
-        result = await _feishu_calendar_delete(agent_id, arguments)
-    # ── Email Tools ──
-    elif tool_name in ("send_email", "read_emails", "reply_email"):
-        result = await _handle_email_tool(tool_name, agent_id, ws, arguments)
-    else:
-        # Try MCP tool execution
-        result = await _execute_mcp_tool(tool_name, arguments, agent_id=agent_id)
-
-    return result
+    return await _get_tool_runtime_service().execute_with_context(
+        tool_name,
+        arguments,
+        context,
+    )
 
 
 async def _web_search(arguments: dict) -> str:
@@ -2109,9 +1946,6 @@ def _load_skill(ws: Path, skill_name: str) -> str:
     if not skills_dir.exists():
         return "Skill not found: skills directory does not exist"
 
-    def _normalize(name: str) -> str:
-        return name.strip().lower().replace("_", "-").replace(" ", "-")
-
     def _read_skill_file(path: Path) -> str:
         if not str(path).startswith(str(skills_dir)):
             return "Access denied for this skill path"
@@ -2126,25 +1960,21 @@ def _load_skill(ws: Path, skill_name: str) -> str:
     if explicit_path.is_file():
         return _read_skill_file(explicit_path)
 
-    normalized = _normalize(requested)
+    registry = _build_skill_registry(ws)
 
-    for entry in sorted(skills_dir.iterdir()):
-        if entry.name.startswith("."):
-            continue
-
-        if entry.is_dir():
-            if _normalize(entry.name) != normalized:
-                continue
-            for filename in ("SKILL.md", "skill.md"):
-                skill_file = entry / filename
-                if skill_file.exists():
-                    return _read_skill_file(skill_file.resolve())
-
-        elif entry.is_file() and entry.suffix == ".md":
-            if _normalize(entry.stem) == normalized:
-                return _read_skill_file(entry.resolve())
+    try:
+        return registry.load_body(requested)
+    except KeyError:
+        pass
 
     return f"Skill not found: {skill_name}"
+
+
+def _build_skill_registry(ws: Path) -> SkillRegistry:
+    loader = WorkspaceSkillLoader()
+    registry = SkillRegistry()
+    registry.register_many(loader.load_from_workspace(ws))
+    return registry
 
 
 async def _read_document(ws: Path, rel_path: str, max_chars: int = 8000, tenant_id: str | None = None) -> str:
@@ -2289,6 +2119,155 @@ def _write_file(ws: Path, rel_path: str, content: str) -> str:
         return f"✅ Written to {rel_path} ({len(content)} chars)"
     except Exception as e:
         return f"Write failed: {e}"
+
+
+def _edit_file(ws: Path, rel_path: str, old_text: str, new_text: str, replace_all: bool = False) -> str:
+    file_path = (ws / rel_path).resolve()
+    if not str(file_path).startswith(str(ws.resolve())):
+        return "Access denied for this path"
+    if not file_path.exists():
+        return f"File not found: {rel_path}"
+
+    try:
+        original = file_path.read_text(encoding="utf-8", errors="replace")
+        occurrences = original.count(old_text)
+        if occurrences == 0:
+            return f"❌ Could not find the target text in {rel_path}"
+        if not replace_all and occurrences != 1:
+            return (
+                f"❌ Found {occurrences} matches in {rel_path}. "
+                "Refine old_text or set replace_all=true."
+            )
+        updated = original.replace(old_text, new_text, -1 if replace_all else 1)
+        file_path.write_text(updated, encoding="utf-8")
+        replaced = occurrences if replace_all else 1
+        return f"✅ Updated {rel_path} ({replaced} replacement{'s' if replaced != 1 else ''})"
+    except Exception as e:
+        return f"Edit failed: {e}"
+
+
+def _glob_search(ws: Path, pattern: str, root: str = "") -> str:
+    search_root = (ws / root).resolve() if root else ws.resolve()
+    if not str(search_root).startswith(str(ws.resolve())):
+        return "Access denied for this path"
+    if not search_root.exists():
+        return f"Directory not found: {root or '/'}"
+
+    matches: list[str] = []
+    try:
+        for path in sorted(search_root.glob(pattern)):
+            resolved = path.resolve()
+            if not str(resolved).startswith(str(ws.resolve())):
+                continue
+            matches.append(resolved.relative_to(ws).as_posix())
+            if len(matches) >= 100:
+                break
+    except Exception as e:
+        return f"Glob search failed: {e}"
+
+    if not matches:
+        return f"🔎 No files matched pattern '{pattern}'"
+    lines = [f"🔎 Glob results for '{pattern}' ({len(matches)} match(es)):"]
+    lines.extend(f"- {match}" for match in matches)
+    return "\n".join(lines)
+
+
+def _grep_search(ws: Path, pattern: str, root: str = "", max_results: int = 50) -> str:
+    search_root = (ws / root).resolve() if root else ws.resolve()
+    if not str(search_root).startswith(str(ws.resolve())):
+        return "Access denied for this path"
+    if not search_root.exists():
+        return f"Directory not found: {root or '/'}"
+
+    max_results = max(1, min(int(max_results), 200))
+    matches: list[str] = []
+
+    if shutil.which("rg"):
+        try:
+            proc = subprocess.run(
+                [
+                    "rg",
+                    "--line-number",
+                    "--color",
+                    "never",
+                    "--max-count",
+                    str(max_results),
+                    pattern,
+                    str(search_root),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if proc.stdout.strip():
+                for line in proc.stdout.splitlines():
+                    normalized = line.replace(str(ws.resolve()) + os.sep, "")
+                    matches.append(normalized)
+            elif proc.returncode not in (0, 1):
+                return f"Grep search failed: {proc.stderr.strip()[:200]}"
+        except Exception as e:
+            return f"Grep search failed: {e}"
+    else:
+        try:
+            for path in sorted(search_root.rglob("*")):
+                if len(matches) >= max_results:
+                    break
+                if not path.is_file():
+                    continue
+                try:
+                    with path.open("r", encoding="utf-8", errors="replace") as handle:
+                        for idx, line in enumerate(handle, start=1):
+                            if pattern in line:
+                                matches.append(f"{path.relative_to(ws).as_posix()}:{idx}:{line.strip()}")
+                                if len(matches) >= max_results:
+                                    break
+                except Exception:
+                    continue
+        except Exception as e:
+            return f"Grep search failed: {e}"
+
+    if not matches:
+        return f"🔎 No matches for '{pattern}'"
+    lines = [f"🔎 Grep results for '{pattern}' ({len(matches)} match(es)):"]
+    lines.extend(f"- {match}" for match in matches[:max_results])
+    return "\n".join(lines)
+
+
+def _tool_search(ws: Path, query: str = "") -> str:
+    packs = iter_tool_packs(query)
+    registry = _build_skill_registry(ws)
+    normalized = query.strip().lower()
+    matching_skills = [
+        skill
+        for skill in (registry.resolve(name) for name in registry.names())
+        if not normalized
+        or normalized in skill.metadata.name.lower()
+        or normalized in skill.metadata.description.lower()
+        or any(normalized in tool.lower() for tool in skill.metadata.declared_tools)
+    ]
+
+    lines = [
+        "Tool search only returns delayed capability summaries. It does not auto-load tools.",
+    ]
+    if packs:
+        lines.append("")
+        lines.append("Available packs:")
+        for pack in packs:
+            tools = ", ".join(pack.tools)
+            lines.append(
+                f"- {pack.name}: {pack.summary} | tools: {tools} | activation: {pack.activation_mode}"
+            )
+    if matching_skills:
+        lines.append("")
+        lines.append("Matching skills:")
+        for skill in matching_skills[:20]:
+            declared = ", ".join(skill.metadata.declared_tools) if skill.metadata.declared_tools else "no declared tools"
+            lines.append(
+                f"- {skill.metadata.name}: {skill.metadata.description} | declared tools: {declared}"
+            )
+    if len(lines) == 1:
+        return f"🔎 No delayed tools or skills matched '{query}'"
+    return "\n".join(lines)
 
 
 def _delete_file(ws: Path, rel_path: str) -> str:
@@ -2801,31 +2780,24 @@ async def _invoke_agent_message_runtime(
     participant_id: uuid.UUID | None,
 ) -> str:
     """Run the target agent reply through the shared runtime kernel."""
-    from app.runtime.invoker import AgentInvocationRequest, invoke_agent
+    from app.agents.orchestrator import delegate_to_agent
 
-    result = await invoke_agent(
-        AgentInvocationRequest(
-            model=target_model,
-            messages=conversation_messages,
-            memory_messages=conversation_messages,
-            memory_session_id=session_id,
-            agent_name=target.name,
-            role_description=target.role_description or "",
-            agent_id=target.id,
-            user_id=owner_id,
-            system_prompt_suffix=A2A_SYSTEM_PROMPT_SUFFIX,
-            tool_executor=_build_agent_message_tool_executor(
-                target_agent_id=target.id,
-                owner_id=owner_id,
-                session_agent_id=session_agent_id,
-                session_id=session_id,
-                participant_id=participant_id,
-            ),
-            core_tools_only=False,
-            max_tool_rounds=getattr(target, "max_tool_rounds", None) or 50,
-        )
+    return await delegate_to_agent(
+        target=target,
+        target_model=target_model,
+        conversation_messages=conversation_messages,
+        owner_id=owner_id,
+        session_id=session_id,
+        tool_executor=_build_agent_message_tool_executor(
+            target_agent_id=target.id,
+            owner_id=owner_id,
+            session_agent_id=session_agent_id,
+            session_id=session_id,
+            participant_id=participant_id,
+        ),
+        system_prompt_suffix=A2A_SYSTEM_PROMPT_SUFFIX,
+        max_tool_rounds=getattr(target, "max_tool_rounds", None) or 50,
     )
-    return result.content or ""
 
 
 async def _send_message_to_agent(from_agent_id: uuid.UUID, args: dict) -> str:

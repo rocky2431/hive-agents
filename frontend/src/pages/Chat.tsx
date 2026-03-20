@@ -46,6 +46,28 @@ const Icons = {
     ),
 };
 
+function getEventPresentation(msg: TimelineMessage) {
+    if (msg.eventType === 'permission') {
+        return {
+            icon: '🔒',
+            title: msg.eventTitle || 'Permission Gate',
+            background: 'rgba(245, 158, 11, 0.10)',
+        };
+    }
+    if (msg.eventType === 'pack_activation') {
+        return {
+            icon: '🧰',
+            title: msg.eventTitle || 'Capability Packs Activated',
+            background: 'rgba(59, 130, 246, 0.10)',
+        };
+    }
+    return {
+        icon: '🗜️',
+        title: msg.eventTitle || 'Context Compacted',
+        background: 'var(--bg-secondary)',
+    };
+}
+
 export default function Chat() {
     const { t } = useTranslation();
     const { id } = useParams<{ id: string }>();
@@ -297,16 +319,19 @@ export default function Chat() {
                             </div>
                             <div className="chat-bubble">
                                 {msg.role === 'event' && (
+                                    (() => {
+                                        const eventUi = getEventPresentation(msg);
+                                        return (
                                     <div style={{
                                         marginBottom: '8px',
                                         borderRadius: '8px',
                                         border: '1px solid var(--border-subtle)',
-                                        background: msg.eventType === 'permission' ? 'rgba(245, 158, 11, 0.10)' : 'var(--bg-secondary)',
+                                        background: eventUi.background,
                                         padding: '10px 12px',
                                     }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                                            <span style={{ fontSize: '13px' }}>{msg.eventType === 'permission' ? '🔒' : '🗜️'}</span>
-                                            <span style={{ fontSize: '12px', fontWeight: 600 }}>{msg.eventTitle || (msg.eventType === 'permission' ? 'Permission Gate' : 'Context Compacted')}</span>
+                                            <span style={{ fontSize: '13px' }}>{eventUi.icon}</span>
+                                            <span style={{ fontSize: '12px', fontWeight: 600 }}>{eventUi.title}</span>
                                             {msg.eventStatus && (
                                                 <span style={{ marginLeft: 'auto', fontSize: '10px', color: 'var(--text-tertiary)', textTransform: 'uppercase' }}>
                                                     {msg.eventStatus.replace(/_/g, ' ')}
@@ -321,12 +346,34 @@ export default function Chat() {
                                         <div style={{ fontSize: '12px', lineHeight: '1.6', color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                                             {msg.content}
                                         </div>
+                                        {msg.eventPacks && msg.eventPacks.length > 0 && (
+                                            <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                                {msg.eventPacks.map((pack, packIndex) => {
+                                                    const packName = typeof pack.name === 'string' ? pack.name : 'unknown_pack';
+                                                    const packSummary = typeof pack.summary === 'string' ? pack.summary : '';
+                                                    const packTools = Array.isArray(pack.tools) ? pack.tools.map((tool) => String(tool)).join(', ') : '';
+                                                    return (
+                                                        <div key={packIndex} style={{ fontSize: '11px', color: 'var(--text-secondary)', borderTop: '1px solid var(--border-subtle)', paddingTop: '6px' }}>
+                                                            <div style={{ fontWeight: 600 }}>{packName}</div>
+                                                            {packSummary && <div style={{ marginTop: '2px' }}>{packSummary}</div>}
+                                                            {packTools && (
+                                                                <div style={{ marginTop: '4px', fontFamily: 'var(--font-mono)', color: 'var(--text-tertiary)' }}>
+                                                                    {packTools}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
                                         {msg.eventApprovalId && (
                                             <div style={{ marginTop: '6px', fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>
                                                 Approval ID: {msg.eventApprovalId}
                                             </div>
                                         )}
                                     </div>
+                                        );
+                                    })()
                                 )}
                                 {msg.fileName && (() => {
                                     const fe = msg.fileName!.split('.').pop()?.toLowerCase() ?? '';

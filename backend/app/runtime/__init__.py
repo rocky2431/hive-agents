@@ -1,9 +1,7 @@
-"""Unified agent runtime entrypoints."""
+"""Unified agent runtime package.
 
-from app.runtime.invoker import AgentInvocationRequest, AgentInvocationResult, invoke_agent
+Keep package imports side-effect free to avoid circular imports between
+runtime, tools, and agent orchestration modules.
+"""
 
-__all__ = [
-    "AgentInvocationRequest",
-    "AgentInvocationResult",
-    "invoke_agent",
-]
+__all__: list[str] = []

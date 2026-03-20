@@ -16,6 +16,7 @@ from app.models.agent import Agent
 from app.models.audit import ChatMessage
 from app.models.llm import LLMModel
 from app.runtime.invoker import AgentInvocationRequest, invoke_agent
+from app.runtime.session import SessionContext
 from app.models.user import User
 
 logger = logging.getLogger(__name__)
@@ -119,6 +120,11 @@ async def call_llm(
             memory_session_id=session_id,
             memory_messages=memory_messages,
             memory_context=memory_context,
+            session_context=SessionContext(
+                session_id=session_id,
+                source="websocket",
+                channel="web",
+            ),
         )
     )
     return result.content
@@ -482,6 +488,7 @@ async def websocket_chat(
 
                     async def runtime_event_to_ws(data: dict):
                         from app.services.chat_message_parts import (
+                            build_active_packs_event,
                             build_compaction_event,
                             build_permission_event,
                         )
@@ -490,10 +497,12 @@ async def websocket_chat(
                             event_payload = build_permission_event(data)
                         elif data.get("type") == "session_compact":
                             event_payload = build_compaction_event(data)
+                        elif data.get("type") == "pack_activation":
+                            event_payload = build_active_packs_event(data)
                         else:
                             event_payload = data
                         await websocket.send_json(event_payload)
-                        if data.get("type") in {"permission", "session_compact"}:
+                        if data.get("type") in {"permission", "session_compact", "pack_activation"}:
                             try:
                                 async with async_session() as _event_db:
                                     event_msg = ChatMessage(

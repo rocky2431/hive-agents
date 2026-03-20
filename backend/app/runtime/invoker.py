@@ -7,7 +7,6 @@ heartbeat, scheduler, and agent-to-agent flows can share the same runtime.
 from __future__ import annotations
 
 import inspect
-import json
 import logging
 import re
 import uuid
@@ -17,12 +16,17 @@ from typing import Any, Awaitable, Callable
 from sqlalchemy import select
 
 from app.database import async_session
+from app.kernel import AgentKernel, ExecutionIdentityRef, InvocationRequest, KernelDependencies, RuntimeConfig, ToolExpansionResult
 from app.models.agent import Agent
 from app.models.user import User
+from app.runtime.context import RuntimeContext
+from app.runtime.prompt_builder import build_runtime_prompt
+from app.runtime.session import SessionContext
+from app.skills import SkillParser, SkillRegistry, WorkspaceSkillLoader
 from app.services.agent_context import build_agent_context
 from app.services.agent_tools import AGENT_TOOLS, execute_tool, get_agent_tools_for_llm
 from app.services.knowledge_inject import fetch_relevant_knowledge
-from app.services.llm_utils import LLMError, LLMMessage, create_llm_client, get_max_tokens
+from app.services.llm_utils import LLMMessage, create_llm_client, get_max_tokens
 from app.services.memory_service import (
     build_memory_context,
     maybe_compress_messages,
@@ -33,6 +37,8 @@ from app.services.token_tracker import (
     extract_usage_tokens,
     record_token_usage,
 )
+from app.tools import ensure_workspace
+from app.tools.packs import TOOL_PACKS
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +57,7 @@ class AgentInvocationRequest:
     role_description: str
     agent_id: uuid.UUID | None = None
     user_id: uuid.UUID | None = None
+    execution_identity: ExecutionIdentityRef | None = None
     on_chunk: ChunkCallback | None = None
     on_tool_call: ToolCallback | None = None
     on_thinking: ThinkingCallback | None = None
@@ -59,6 +66,7 @@ class AgentInvocationRequest:
     memory_context: str = ""
     memory_session_id: str | None = None
     memory_messages: list[dict] | None = None
+    session_context: SessionContext | None = None
     system_prompt_suffix: str = ""
     tool_executor: ToolExecutor | None = None
     initial_tools: list[dict] | None = None
@@ -72,13 +80,7 @@ class AgentInvocationResult:
     content: str
     tokens_used: int = 0
     final_tools: list[dict] | None = None
-
-
-@dataclass(slots=True)
-class _RuntimeConfig:
-    tenant_id: uuid.UUID | None
-    max_tool_rounds: int
-    quota_message: str | None = None
+    parts: list[dict] | None = None
 
 
 async def _maybe_await(value: Any) -> Any:
@@ -87,16 +89,16 @@ async def _maybe_await(value: Any) -> Any:
     return value
 
 
-async def _resolve_runtime_config(agent_id: uuid.UUID | None) -> _RuntimeConfig:
+async def _resolve_runtime_config(agent_id: uuid.UUID | None) -> RuntimeConfig:
     if not agent_id:
-        return _RuntimeConfig(tenant_id=None, max_tool_rounds=50)
+        return RuntimeConfig(tenant_id=None, max_tool_rounds=50)
 
     try:
         async with async_session() as db:
             result = await db.execute(select(Agent).where(Agent.id == agent_id))
             agent = result.scalar_one_or_none()
             if not agent:
-                return _RuntimeConfig(tenant_id=None, max_tool_rounds=50)
+                return RuntimeConfig(tenant_id=None, max_tool_rounds=50)
 
             quota_message = None
             if agent.max_tokens_per_day and agent.tokens_used_today >= agent.max_tokens_per_day:
@@ -112,14 +114,14 @@ async def _resolve_runtime_config(agent_id: uuid.UUID | None) -> _RuntimeConfig:
                     "Please ask admin to increase the limit."
                 )
 
-            return _RuntimeConfig(
+            return RuntimeConfig(
                 tenant_id=agent.tenant_id,
                 max_tool_rounds=agent.max_tool_rounds or 50,
                 quota_message=quota_message,
             )
     except Exception as exc:
         logger.warning("Failed to resolve runtime config for agent %s: %s", agent_id, exc)
-        return _RuntimeConfig(tenant_id=None, max_tool_rounds=50)
+        return RuntimeConfig(tenant_id=None, max_tool_rounds=50)
 
 
 async def _resolve_current_user_name(user_id: uuid.UUID | None) -> str | None:
@@ -171,31 +173,27 @@ async def _build_system_prompt(
     request: AgentInvocationRequest,
     tenant_id: uuid.UUID | None,
     resolved_memory_context: str,
+    current_user_name: str | None = None,
 ) -> str:
-    current_user_name = await _resolve_current_user_name(request.user_id)
-    system_prompt = await build_agent_context(
-        request.agent_id,
-        request.agent_name,
-        request.role_description,
+    if current_user_name is None:
+        current_user_name = await _resolve_current_user_name(request.user_id)
+    runtime_context = RuntimeContext(
+        session=request.session_context or SessionContext(),
+        tenant_id=tenant_id,
+    )
+    return await build_runtime_prompt(
+        agent_id=request.agent_id,
+        agent_name=request.agent_name,
+        role_description=request.role_description,
+        messages=request.messages,
+        tenant_id=tenant_id,
         current_user_name=current_user_name,
+        memory_context=resolved_memory_context,
+        system_prompt_suffix=request.system_prompt_suffix,
+        runtime_context=runtime_context,
+        build_agent_context_fn=build_agent_context,
+        fetch_relevant_knowledge_fn=fetch_relevant_knowledge,
     )
-
-    last_user_msg = next(
-        (m["content"] for m in reversed(request.messages) if m.get("role") == "user" and isinstance(m.get("content"), str)),
-        None,
-    )
-    if request.agent_id and last_user_msg:
-        knowledge = await _maybe_await(fetch_relevant_knowledge(last_user_msg, tenant_id=tenant_id))
-        if knowledge:
-            system_prompt += "\n\n" + knowledge
-
-    if resolved_memory_context:
-        system_prompt += "\n\n" + resolved_memory_context
-
-    if request.system_prompt_suffix:
-        system_prompt += "\n\n" + request.system_prompt_suffix
-
-    return system_prompt
 
 
 async def _resolve_memory_context(
@@ -203,12 +201,15 @@ async def _resolve_memory_context(
     tenant_id: uuid.UUID | None,
 ) -> str:
     parts: list[str] = []
+    session_id = request.memory_session_id
+    if not session_id and request.session_context:
+        session_id = request.session_context.session_id
 
     if request.agent_id and tenant_id:
         runtime_memory_context = await build_memory_context(
             request.agent_id,
             tenant_id,
-            session_id=request.memory_session_id,
+            session_id=session_id,
         )
         if runtime_memory_context:
             parts.append(runtime_memory_context)
@@ -219,272 +220,275 @@ async def _resolve_memory_context(
     return "\n\n".join(parts)
 
 
-def _build_persisted_memory_messages(
+def _build_skill_registry_for_workspace(workspace: Any) -> SkillRegistry:
+    loader = WorkspaceSkillLoader()
+    registry = SkillRegistry()
+    registry.register_many(loader.load_from_workspace(workspace))
+    return registry
+
+
+def _serialize_pack(pack) -> dict[str, Any]:
+    return {
+        "name": pack.name,
+        "summary": pack.summary,
+        "source": pack.source,
+        "activation_mode": pack.activation_mode,
+        "tools": list(pack.tools),
+    }
+
+
+def _infer_active_packs(tool_names: list[str], *, skill_name: str | None = None) -> list[dict[str, Any]]:
+    requested = set(tool_names)
+    packs = [
+        _serialize_pack(pack)
+        for pack in TOOL_PACKS
+        if requested.intersection(pack.tools)
+    ]
+    if packs or not requested:
+        return packs
+    synthetic_name = f"skill:{(skill_name or 'custom').strip().lower().replace(' ', '_')}"
+    return [{
+        "name": synthetic_name,
+        "summary": f"Tools activated by skill {skill_name or 'custom skill'}",
+        "source": "skill",
+        "activation_mode": "通过 load_skill 激活",
+        "tools": sorted(requested),
+        "skill_name": skill_name,
+    }]
+
+
+async def _resolve_tool_expansion(
     request: AgentInvocationRequest,
-    final_content: str,
-) -> list[dict]:
-    base_messages = list(request.memory_messages or request.messages)
-    if final_content and not final_content.startswith("[LLM") and not final_content.startswith("[Error]"):
-        base_messages.append({"role": "assistant", "content": final_content})
-    return base_messages
+    tool_name: str,
+    args: dict[str, Any],
+) -> ToolExpansionResult | list[dict] | None:
+    if not request.agent_id:
+        return None
 
-
-async def _default_tool_executor_factory(request: AgentInvocationRequest) -> ToolExecutor:
-    async def _emit_event(data: dict[str, Any]) -> None:
-        if request.on_event:
-            await _maybe_await(request.on_event(data))
-
-    async def _executor(tool_name: str, args: dict) -> str:
-        execute_kwargs: dict[str, Any] = {
-            "agent_id": request.agent_id,
-            "user_id": request.user_id or request.agent_id,
-        }
-        if "event_callback" in inspect.signature(execute_tool).parameters:
-            execute_kwargs["event_callback"] = _emit_event
-        return await execute_tool(
-            tool_name,
-            args,
-            **execute_kwargs,
+    if tool_name in {"discover_resources", "import_mcp_server"}:
+        tools = await get_agent_tools_for_llm(
+            request.agent_id,
+            core_only=False,
+            requested_names=[
+                "discover_resources",
+                "import_mcp_server",
+                "list_mcp_resources",
+                "read_mcp_resource",
+            ],
+        )
+        packs = _infer_active_packs(["discover_resources", "import_mcp_server", "list_mcp_resources", "read_mcp_resource"])
+        return ToolExpansionResult(
+            tools=tools,
+            active_packs=packs,
+            event_payload={
+                "type": "pack_activation",
+                "packs": packs,
+                "message": "Activated MCP capability pack.",
+                "status": "info",
+                "trigger_tool": tool_name,
+            },
         )
 
-    return _executor
+    try:
+        workspace = await ensure_workspace(request.agent_id)
+        registry = _build_skill_registry_for_workspace(workspace)
+    except Exception:
+        return await get_agent_tools_for_llm(request.agent_id, core_only=False)
+
+    if tool_name == "load_skill":
+        requested = str(args.get("name", "") or "").strip()
+        if not requested:
+            return None
+        try:
+            skill = registry.resolve(requested)
+        except KeyError:
+            return None
+        if not skill.metadata.declared_tools:
+            return None
+        tools = await get_agent_tools_for_llm(
+            request.agent_id,
+            core_only=False,
+            requested_names=list(skill.metadata.declared_tools),
+        )
+        packs = _infer_active_packs(list(skill.metadata.declared_tools), skill_name=skill.metadata.name)
+        return ToolExpansionResult(
+            tools=tools,
+            active_packs=packs,
+            event_payload={
+                "type": "pack_activation",
+                "packs": packs,
+                "message": f"Activated capability packs after loading skill: {skill.metadata.name}",
+                "status": "info",
+                "skill_name": skill.metadata.name,
+                "trigger_tool": tool_name,
+            },
+        )
+
+    if tool_name == "read_file":
+        skill_path_arg = str(args.get("path", "") or "").strip()
+        if "SKILL.md" not in skill_path_arg:
+            return None
+        skill_path = (workspace / skill_path_arg).resolve()
+        skills_root = (workspace / "skills").resolve()
+        if not skill_path.is_file() or not str(skill_path).startswith(str(skills_root)):
+            return None
+        parsed = SkillParser().parse_file(
+            skill_path,
+            relative_path=skill_path.relative_to(workspace).as_posix(),
+            default_name=skill_path.parent.name if skill_path.name.lower() == "skill.md" else skill_path.stem,
+        )
+        if not parsed.metadata.declared_tools:
+            return None
+        tools = await get_agent_tools_for_llm(
+            request.agent_id,
+            core_only=False,
+            requested_names=list(parsed.metadata.declared_tools),
+        )
+        packs = _infer_active_packs(list(parsed.metadata.declared_tools), skill_name=parsed.metadata.name)
+        return ToolExpansionResult(
+            tools=tools,
+            active_packs=packs,
+            event_payload={
+                "type": "pack_activation",
+                "packs": packs,
+                "message": f"Activated capability packs from skill file: {parsed.metadata.name}",
+                "status": "info",
+                "skill_name": parsed.metadata.name,
+                "trigger_tool": tool_name,
+            },
+        )
+
+    return None
+
+
+async def _execute_tool_with_request(
+    tool_name: str,
+    args: dict,
+    request: AgentInvocationRequest,
+    emit_event: Callable[[dict], Any],
+) -> str:
+    if request.tool_executor:
+        return await _maybe_await(request.tool_executor(tool_name, args))
+
+    execute_kwargs: dict[str, Any] = {
+        "agent_id": request.agent_id,
+        "user_id": request.user_id or request.agent_id,
+    }
+    if "event_callback" in inspect.signature(execute_tool).parameters:
+        execute_kwargs["event_callback"] = emit_event
+    return await execute_tool(
+        tool_name,
+        args,
+        **execute_kwargs,
+    )
+
+
+def get_agent_kernel() -> AgentKernel:
+    async def _kernel_build_system_prompt(
+        request: InvocationRequest,
+        tenant_id: uuid.UUID | None,
+        resolved_memory_context: str,
+        current_user_name: str | None,
+    ) -> str:
+        return await _build_system_prompt(
+            request,  # type: ignore[arg-type]
+            tenant_id,
+            resolved_memory_context,
+            current_user_name=current_user_name,
+        )
+
+    async def _kernel_resolve_memory_context(
+        request: InvocationRequest,
+        tenant_id: uuid.UUID | None,
+    ) -> str:
+        return await _resolve_memory_context(request, tenant_id)  # type: ignore[arg-type]
+
+    async def _kernel_get_tools(agent_id: uuid.UUID, core_only: bool) -> list[dict]:
+        return await _maybe_await(get_agent_tools_for_llm(agent_id, core_only=core_only))
+
+    def _kernel_create_client(model: Any):
+        return create_llm_client(
+            provider=model.provider,
+            api_key=model.api_key,
+            model=model.model,
+            base_url=model.base_url,
+            timeout=120.0,
+        )
+
+    async def _kernel_execute_tool(
+        tool_name: str,
+        args: dict,
+        request: InvocationRequest,
+        emit_event: Callable[[dict], Any],
+    ) -> str:
+        return await _execute_tool_with_request(tool_name, args, request, emit_event)  # type: ignore[arg-type]
+
+    return AgentKernel(
+        KernelDependencies(
+            resolve_runtime_config=_resolve_runtime_config,
+            resolve_current_user_name=_resolve_current_user_name,
+            build_system_prompt=_kernel_build_system_prompt,
+            resolve_memory_context=_kernel_resolve_memory_context,
+            get_tools=_kernel_get_tools,
+            resolve_tool_expansion=_resolve_tool_expansion,
+            maybe_compress_messages=maybe_compress_messages,
+            create_client=_kernel_create_client,
+            execute_tool=_kernel_execute_tool,
+            persist_memory=persist_runtime_memory,
+            record_token_usage=record_token_usage,
+            get_max_tokens=get_max_tokens,
+            extract_usage_tokens=extract_usage_tokens,
+            estimate_tokens_from_chars=estimate_tokens_from_chars,
+            apply_vision_transform=_apply_vision_transform,
+        )
+    )
 
 
 async def invoke_agent(request: AgentInvocationRequest) -> AgentInvocationResult:
-    runtime_config = await _resolve_runtime_config(request.agent_id)
-    if runtime_config.quota_message:
-        return AgentInvocationResult(content=runtime_config.quota_message)
+    execution_identity = request.execution_identity
+    if execution_identity is None:
+        try:
+            from app.core.execution_context import get_execution_identity
 
-    resolved_memory_context = await _resolve_memory_context(request, runtime_config.tenant_id)
-    system_prompt = await _build_system_prompt(request, runtime_config.tenant_id, resolved_memory_context)
+            current_identity = get_execution_identity()
+            if current_identity:
+                execution_identity = ExecutionIdentityRef(
+                    identity_type=current_identity.identity_type,
+                    identity_id=current_identity.identity_id,
+                    label=current_identity.label,
+                )
+        except Exception:
+            execution_identity = None
 
-    tools_for_llm = request.initial_tools
-    if tools_for_llm is None:
-        if request.agent_id:
-            tools_for_llm = await _maybe_await(
-                get_agent_tools_for_llm(request.agent_id, core_only=request.core_tools_only)
-            )
-        else:
-            tools_for_llm = AGENT_TOOLS
-
-    async def _emit_compaction_event(data: dict[str, Any]) -> None:
-        if request.on_event:
-            await _maybe_await(request.on_event({
-                "type": "session_compact",
-                **data,
-            }))
-
-    messages = await maybe_compress_messages(
-        request.messages,
-        model_provider=request.model.provider,
-        model_name=request.model.model,
-        max_input_tokens_override=getattr(request.model, "max_input_tokens", None),
-        tenant_id=runtime_config.tenant_id,
-        on_compaction=_emit_compaction_event if request.on_event else None,
+    kernel_request = InvocationRequest(
+        model=request.model,
+        messages=request.messages,
+        agent_name=request.agent_name,
+        role_description=request.role_description,
+        agent_id=request.agent_id,
+        user_id=request.user_id,
+        execution_identity=execution_identity,
+        on_chunk=request.on_chunk,
+        on_tool_call=request.on_tool_call,
+        on_thinking=request.on_thinking,
+        on_event=request.on_event,
+        supports_vision=request.supports_vision,
+        memory_context=request.memory_context,
+        memory_session_id=request.memory_session_id,
+        memory_messages=request.memory_messages,
+        session_context=request.session_context,
+        system_prompt_suffix=request.system_prompt_suffix,
+        tool_executor=request.tool_executor,
+        initial_tools=request.initial_tools or (AGENT_TOOLS if request.agent_id is None else None),
+        core_tools_only=request.core_tools_only,
+        expand_tools=request.expand_tools,
+        max_tool_rounds=request.max_tool_rounds,
     )
 
-    api_messages = [LLMMessage(role="system", content=system_prompt)]
-    for msg in messages:
-        api_messages.append(
-            LLMMessage(
-                role=msg.get("role", "user"),
-                content=msg.get("content"),
-                tool_calls=msg.get("tool_calls"),
-                tool_call_id=msg.get("tool_call_id"),
-                reasoning_content=msg.get("reasoning_content"),
-            )
-        )
-    api_messages = _apply_vision_transform(api_messages, request.supports_vision)
-
-    try:
-        client = create_llm_client(
-            provider=request.model.provider,
-            api_key=request.model.api_key,
-            model=request.model.model,
-            base_url=request.model.base_url,
-            timeout=120.0,
-        )
-    except Exception as exc:
-        return AgentInvocationResult(content=f"[Error] Failed to create LLM client: {exc}")
-
-    max_rounds = request.max_tool_rounds or runtime_config.max_tool_rounds
-    max_tokens = get_max_tokens(
-        request.model.provider,
-        request.model.model,
-        getattr(request.model, "max_output_tokens", None),
+    result = await get_agent_kernel().handle(kernel_request)
+    return AgentInvocationResult(
+        content=result.content,
+        tokens_used=result.tokens_used,
+        final_tools=result.final_tools,
+        parts=result.parts,
     )
-    accumulated_tokens = 0
-    full_toolset = None
-    tool_executor = request.tool_executor or await _default_tool_executor_factory(request)
-
-    try:
-        for round_i in range(max_rounds):
-            warn_threshold_80 = int(max_rounds * 0.8)
-            warn_threshold_96 = max_rounds - 2
-            if round_i == warn_threshold_80:
-                api_messages.append(
-                    LLMMessage(
-                        role="system",
-                        content=(
-                            f"⚠️ 你已使用 {round_i}/{max_rounds} 轮工具调用。"
-                            "如果当前任务尚未完成，请尽快保存进度到 focus.md，"
-                            "并使用 set_trigger 设置续接触发器，在剩余轮次中做好收尾。"
-                        ),
-                    )
-                )
-            elif round_i == warn_threshold_96:
-                api_messages.append(
-                    LLMMessage(
-                        role="system",
-                        content="🚨 仅剩 2 轮工具调用。请立即保存进度到 focus.md 并设置续接触发器。",
-                    )
-                )
-
-            try:
-                response = await client.stream(
-                    messages=api_messages,
-                    tools=tools_for_llm if tools_for_llm else None,
-                    temperature=0.7,
-                    max_tokens=max_tokens,
-                    on_chunk=request.on_chunk,
-                    on_thinking=request.on_thinking,
-                )
-            except LLMError as exc:
-                logger.error(
-                    "[Runtime] LLMError provider=%s model=%s round=%s: %s",
-                    getattr(request.model, "provider", "?"),
-                    getattr(request.model, "model", "?"),
-                    round_i + 1,
-                    exc,
-                )
-                if request.agent_id and accumulated_tokens > 0:
-                    await _maybe_await(record_token_usage(request.agent_id, accumulated_tokens))
-                return AgentInvocationResult(content=f"[LLM Error] {exc}", tokens_used=accumulated_tokens)
-            except Exception as exc:
-                logger.error(
-                    "[Runtime] Unexpected error provider=%s model=%s round=%s: %s: %s",
-                    getattr(request.model, "provider", "?"),
-                    getattr(request.model, "model", "?"),
-                    round_i + 1,
-                    type(exc).__name__,
-                    str(exc)[:300],
-                )
-                if request.agent_id and accumulated_tokens > 0:
-                    await _maybe_await(record_token_usage(request.agent_id, accumulated_tokens))
-                return AgentInvocationResult(
-                    content=f"[LLM call error] {type(exc).__name__}: {str(exc)[:200]}",
-                    tokens_used=accumulated_tokens,
-                )
-
-            real_tokens = extract_usage_tokens(response.usage)
-            if real_tokens:
-                accumulated_tokens += real_tokens
-            else:
-                round_chars = (
-                    sum(len(m.content or "") if isinstance(m.content, str) else 0 for m in api_messages)
-                    + len(response.content or "")
-                )
-                accumulated_tokens += estimate_tokens_from_chars(round_chars)
-
-            if not response.tool_calls:
-                final_content = response.content or "[LLM returned empty content]"
-                if request.agent_id and runtime_config.tenant_id:
-                    try:
-                        await persist_runtime_memory(
-                            agent_id=request.agent_id,
-                            session_id=request.memory_session_id,
-                            tenant_id=runtime_config.tenant_id,
-                            messages=_build_persisted_memory_messages(request, final_content),
-                        )
-                    except Exception as exc:
-                        logger.warning(
-                            "[Runtime] Failed to persist memory for agent %s: %s",
-                            request.agent_id,
-                            exc,
-                        )
-                if request.agent_id and accumulated_tokens > 0:
-                    await _maybe_await(record_token_usage(request.agent_id, accumulated_tokens))
-                return AgentInvocationResult(
-                    content=final_content,
-                    tokens_used=accumulated_tokens,
-                    final_tools=tools_for_llm,
-                )
-
-            api_messages.append(
-                LLMMessage(
-                    role="assistant",
-                    content=response.content or None,
-                    tool_calls=[{
-                        "id": tc["id"],
-                        "type": "function",
-                        "function": tc["function"],
-                    } for tc in response.tool_calls],
-                    reasoning_content=response.reasoning_content,
-                )
-            )
-
-            full_reasoning_content = response.reasoning_content or ""
-
-            for tc in response.tool_calls:
-                fn = tc["function"]
-                tool_name = fn["name"]
-                raw_args = fn.get("arguments", "{}")
-                try:
-                    args = json.loads(raw_args) if raw_args else {}
-                except json.JSONDecodeError:
-                    args = {}
-
-                if request.on_tool_call:
-                    await _maybe_await(
-                        request.on_tool_call(
-                            {
-                                "name": tool_name,
-                                "args": args,
-                                "status": "running",
-                                "reasoning_content": full_reasoning_content,
-                            }
-                        )
-                    )
-
-                result = await _maybe_await(tool_executor(tool_name, args))
-
-                if request.expand_tools and request.agent_id and full_toolset is None:
-                    should_expand = (
-                        tool_name == "read_file" and "SKILL.md" in str(args.get("path", ""))
-                    ) or round_i >= 2
-                    if should_expand:
-                        full_toolset = await _maybe_await(
-                            get_agent_tools_for_llm(request.agent_id, core_only=False)
-                        )
-                        tools_for_llm = full_toolset
-
-                if request.on_tool_call:
-                    await _maybe_await(
-                        request.on_tool_call(
-                            {
-                                "name": tool_name,
-                                "args": args,
-                                "status": "done",
-                                "result": result,
-                                "reasoning_content": full_reasoning_content,
-                            }
-                        )
-                    )
-
-                api_messages.append(
-                    LLMMessage(
-                        role="tool",
-                        tool_call_id=tc["id"],
-                        content=str(result),
-                    )
-                )
-
-        if request.agent_id and accumulated_tokens > 0:
-            await _maybe_await(record_token_usage(request.agent_id, accumulated_tokens))
-        return AgentInvocationResult(
-            content="[Error] Too many tool call rounds",
-            tokens_used=accumulated_tokens,
-            final_tools=tools_for_llm,
-        )
-    finally:
-        await client.close()

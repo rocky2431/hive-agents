@@ -10,6 +10,7 @@ from pathlib import Path
 from loguru import logger
 
 from app.config import get_settings
+from app.skills import SkillRegistry, WorkspaceSkillLoader
 
 settings = get_settings()
 
@@ -86,67 +87,13 @@ def _load_skills_index(agent_id: uuid.UUID) -> str:
     prompt. The model is instructed to call read_file to load full content
     when a skill is relevant.
     """
-    skills: list[tuple[str, str, str]] = []  # (name, description, path_relative_to_skills)
+    loader = WorkspaceSkillLoader()
+    registry = SkillRegistry()
+
     for ws_root in [TOOL_WORKSPACE / str(agent_id), PERSISTENT_DATA / str(agent_id)]:
-        skills_dir = ws_root / "skills"
-        if not skills_dir.exists():
-            continue
-        for entry in sorted(skills_dir.iterdir()):
-            if entry.name.startswith("."):
-                continue
+        registry.register_many(loader.load_from_workspace(ws_root))
 
-            # Case 1: Folder-based skill — skills/<folder>/SKILL.md
-            if entry.is_dir():
-                skill_md = entry / "SKILL.md"
-                if not skill_md.exists():
-                    # Also try lowercase skill.md
-                    skill_md = entry / "skill.md"
-                if skill_md.exists():
-                    try:
-                        content = skill_md.read_text(encoding="utf-8", errors="replace").strip()
-                        name, desc = _parse_skill_frontmatter(content, entry.name)
-                        skills.append((name, desc, f"{entry.name}/SKILL.md"))
-                    except Exception:
-                        skills.append((entry.name, "", f"{entry.name}/SKILL.md"))
-
-            # Case 2: Flat file — skills/<name>.md
-            elif entry.suffix == ".md" and entry.is_file():
-                try:
-                    content = entry.read_text(encoding="utf-8", errors="replace").strip()
-                    name, desc = _parse_skill_frontmatter(content, entry.stem)
-                    skills.append((name, desc, entry.name))
-                except Exception:
-                    skills.append((entry.stem, "", entry.name))
-
-    # Deduplicate by name
-    seen: set[str] = set()
-    unique: list[tuple[str, str, str]] = []
-    for s in skills:
-        if s[0] not in seen:
-            seen.add(s[0])
-            unique.append(s)
-
-    if not unique:
-        return ""
-
-    # Build index table
-    lines = [
-        "You have the following skills available. Each skill defines specific instructions for a task domain.",
-        "",
-        "| Skill | Description | File |",
-        "|-------|-------------|------|",
-    ]
-    for name, desc, rel_path in unique:
-        lines.append(f"| {name} | {desc} | skills/{rel_path} |")
-
-    lines.append("")
-    lines.append("⚠️ SKILL USAGE RULES:")
-    lines.append("1. When a user request matches a skill, FIRST call `load_skill` with the Skill name above to load the full instructions.")
-    lines.append("2. Follow the loaded instructions to complete the task.")
-    lines.append("3. Do NOT guess what the skill contains — always read it first.")
-    lines.append("4. Folder-based skills may contain auxiliary files (scripts/, references/, examples/). Use `list_files` on the skill folder to discover them.")
-
-    return "\n".join(lines)
+    return registry.render_catalog()
 
 
 async def build_agent_context(agent_id: uuid.UUID, agent_name: str, role_description: str = "", current_user_name: str = None) -> str:

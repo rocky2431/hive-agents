@@ -77,7 +77,11 @@ async def test_execute_schedule_delegates_to_runtime_invoker(monkeypatch):
     assert request.model is model
     assert request.agent_id == agent_id
     assert request.user_id == creator_id
-    assert request.core_tools_only is False
+    assert request.core_tools_only is True
     assert request.messages == [{"role": "user", "content": "[自动调度任务] 生成日报"}]
     assert request.memory_messages == request.messages
+    assert request.session_context is not None
+    assert request.session_context.source == "schedule"
+    assert request.session_context.channel == "schedule"
+    assert request.session_context.metadata["schedule_id"] == str(schedule_id)
     assert activity_calls

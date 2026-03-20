@@ -212,3 +212,48 @@ test('applyStreamEvent appends permission and compaction events', () => {
     assert.equal(messages[1].role, 'event');
     assert.equal(messages[1].eventType, 'session_compact');
 });
+
+test('normalizeTimelineMessage and applyStreamEvent support pack activation events', () => {
+    const message = normalizeTimelineMessage({
+        role: 'event',
+        content: 'Activated web_pack',
+        parts: [{
+            type: 'event',
+            event_type: 'pack_activation',
+            title: 'Capability Packs Activated',
+            text: 'Activated web_pack',
+            status: 'info',
+            packs: [{
+                name: 'web_pack',
+                summary: '网页搜索与抓取能力',
+                tools: ['web_search'],
+            }],
+        }],
+        created_at: '2026-03-20T00:00:00Z',
+    });
+
+    assert.equal(message.role, 'event');
+    assert.equal(message.eventType, 'pack_activation');
+
+    const streamed = applyStreamEvent([], {
+        type: 'pack_activation',
+        message: 'Activated web_pack',
+        status: 'info',
+        part: {
+            type: 'event',
+            event_type: 'pack_activation',
+            title: 'Capability Packs Activated',
+            text: 'Activated web_pack',
+            status: 'info',
+            packs: [{
+                name: 'web_pack',
+                summary: '网页搜索与抓取能力',
+                tools: ['web_search'],
+            }],
+        },
+    }, '2026-03-20T00:00:01Z');
+
+    assert.equal(streamed.length, 1);
+    assert.equal(streamed[0].eventType, 'pack_activation');
+    assert.equal(streamed[0].eventTitle, 'Capability Packs Activated');
+});

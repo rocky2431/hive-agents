@@ -76,17 +76,18 @@ def serialize_chat_message(message, sender_name: str | None = None) -> dict[str,
             data = json.loads(message.content or "{}")
         except Exception:
             data = {}
-        if data.get("event_type") in {"permission", "session_compact"}:
+        event_type = data.get("event_type") or data.get("type")
+        if event_type in {"permission", "session_compact", "pack_activation"}:
             entry["role"] = "event"
             entry["content"] = data.get("message") or data.get("summary") or message.content
-            entry["eventType"] = data["event_type"]
+            entry["eventType"] = event_type
             entry["eventTitle"] = data.get("title")
             entry["eventStatus"] = data.get("status", "info")
             if data.get("tool_name"):
                 entry["eventToolName"] = data["tool_name"]
             if data.get("approval_id"):
                 entry["eventApprovalId"] = data["approval_id"]
-            if data["event_type"] == "permission":
+            if event_type == "permission":
                 entry["parts"] = [_build_event_part(
                     "permission",
                     data.get("title", "Permission Gate"),
@@ -95,7 +96,7 @@ def serialize_chat_message(message, sender_name: str | None = None) -> dict[str,
                     tool_name=data.get("tool_name"),
                     approval_id=data.get("approval_id"),
                 )]
-            else:
+            elif event_type == "session_compact":
                 entry["parts"] = [_build_event_part(
                     "session_compact",
                     data.get("title", "Context Compacted"),
@@ -103,6 +104,16 @@ def serialize_chat_message(message, sender_name: str | None = None) -> dict[str,
                     status=data.get("status", "info"),
                     original_message_count=data.get("original_message_count"),
                     kept_message_count=data.get("kept_message_count"),
+                )]
+            else:
+                entry["parts"] = [_build_event_part(
+                    "pack_activation",
+                    data.get("title", "Capability Packs Activated"),
+                    data.get("message", message.content or ""),
+                    status=data.get("status", "info"),
+                    packs=data.get("packs"),
+                    skill_name=data.get("skill_name"),
+                    trigger_tool=data.get("trigger_tool"),
                 )]
         else:
             entry["parts"] = _build_text_parts(message.content or "", thinking)
@@ -235,6 +246,20 @@ def build_compaction_event(data: dict[str, Any]) -> dict[str, Any]:
         status="info",
         original_message_count=data.get("original_message_count"),
         kept_message_count=data.get("kept_message_count"),
+    )
+    return event
+
+
+def build_active_packs_event(data: dict[str, Any]) -> dict[str, Any]:
+    event = {"type": "pack_activation", **data}
+    event["part"] = _build_event_part(
+        "pack_activation",
+        "Capability Packs Activated",
+        data.get("message", ""),
+        status=data.get("status", "info"),
+        packs=data.get("packs"),
+        skill_name=data.get("skill_name"),
+        trigger_tool=data.get("trigger_tool"),
     )
     return event
 
