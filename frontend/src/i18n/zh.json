@@ -809,7 +809,12 @@
       "title": "部署进度",
       "description": "完成以下步骤以启用所有企业功能。",
       "completed": "已完成 {{completed}}/{{total}}",
-      "allDone": "全部完成"
+      "allDone": "全部完成",
+      "step_sso": "配置 SSO 单点登录",
+      "step_llm": "添加 LLM 模型",
+      "step_agent": "创建第一个 Agent",
+      "step_channel": "配置通信渠道",
+      "step_org": "同步组织架构"
     },
     "notificationBar": {
       "title": "顶部通知条",

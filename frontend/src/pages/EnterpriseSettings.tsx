@@ -2233,7 +2233,7 @@ export default function EnterpriseSettings() {
                                                 {item.completed ? '\u2713' : (idx + 1)}
                                             </span>
                                             <span style={{ fontSize: '13px', color: item.completed ? 'var(--text-tertiary)' : 'var(--text-primary)', textDecoration: item.completed ? 'line-through' : 'none' }}>
-                                                {item.label || item.name}
+                                                {t(`enterprise.onboarding.step_${item.key}`, item.title || item.key) as string}
                                             </span>
                                             {(item.link || item.tab) && !item.completed && (
                                                 <span style={{ marginLeft: 'auto', fontSize: '11px', color: 'var(--accent-primary, #6366f1)' }}>&rarr;</span>

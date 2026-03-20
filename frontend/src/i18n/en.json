@@ -798,7 +798,12 @@
       "title": "Setup Progress",
       "description": "Complete the following steps to enable all enterprise features.",
       "completed": "{{completed}}/{{total}} completed",
-      "allDone": "All done"
+      "allDone": "All done",
+      "step_sso": "Configure SSO",
+      "step_llm": "Add LLM Model",
+      "step_agent": "Create First Agent",
+      "step_channel": "Configure Channel",
+      "step_org": "Sync Org Structure"
     },
     "packs": {
       "title": "Pack Catalog",
