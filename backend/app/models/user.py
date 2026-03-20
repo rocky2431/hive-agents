@@ -35,6 +35,10 @@ class User(Base):
     feishu_union_id: Mapped[str | None] = mapped_column(String(255))
     feishu_user_id: Mapped[str | None] = mapped_column(String(255))
 
+    # OIDC SSO
+    oidc_sub: Mapped[str | None] = mapped_column(String(255), unique=True, index=True)
+    oidc_issuer: Mapped[str | None] = mapped_column(String(500))
+
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

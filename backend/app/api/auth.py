@@ -116,6 +116,19 @@ async def login(data: UserLogin, db: AsyncSession = Depends(get_db)):
     user = result.scalar_one_or_none()
 
     if not user or not verify_password(data.password, user.password_hash):
+        # Audit: login failed
+        try:
+            from app.core.policy import write_audit_event
+            if user:
+                await write_audit_event(
+                    db, event_type="auth.login_failed", severity="warn",
+                    actor_type="user", actor_id=user.id,
+                    tenant_id=user.tenant_id or uuid.UUID(int=0),
+                    action="login_failed", details={"username": data.username},
+                )
+                await db.commit()
+        except Exception:
+            logger.warning("Audit write failed for auth.login_failed", exc_info=True)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
     if not user.is_active:
@@ -131,6 +144,18 @@ async def login(data: UserLogin, db: AsyncSession = Depends(get_db)):
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Your company has been disabled. Please contact the platform administrator.",
             )
+
+    # Audit: login success
+    try:
+        from app.core.policy import write_audit_event
+        await write_audit_event(
+            db, event_type="auth.login", severity="info",
+            actor_type="user", actor_id=user.id,
+            tenant_id=user.tenant_id or uuid.UUID(int=0),
+            action="login", details={"username": data.username},
+        )
+    except Exception:
+        logger.warning("Audit write failed for auth.login", exc_info=True)
 
     needs_setup = user.tenant_id is None
     token = create_access_token(str(user.id), user.role, tenant_id=str(user.tenant_id) if user.tenant_id else None)

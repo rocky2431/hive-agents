@@ -208,6 +208,10 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
             if not agent:
                 return
 
+            # Set execution identity — autonomous heartbeat action
+            from app.core.execution_context import set_agent_bot_identity
+            set_agent_bot_identity(agent_id, agent.name, source="heartbeat")
+
             model_id = agent.primary_model_id or agent.fallback_model_id
             if not model_id:
                 return

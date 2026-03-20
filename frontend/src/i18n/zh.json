@@ -607,7 +607,10 @@
       "users": "用户",
       "flags": "功能开关",
       "invites": "邀请码",
-      "memory": "记忆"
+      "memory": "记忆",
+      "sso": "SSO 登录",
+      "capabilities": "能力策略",
+      "onboarding": "引导"
     },
     "memory": {
       "title": "记忆与摘要",
@@ -743,7 +746,57 @@
       "filterAll": "全部",
       "filterBackground": "后台服务",
       "filterActions": "用户操作",
-      "records": "{{count}} 条记录"
+      "records": "{{count}} 条记录",
+      "search": "搜索审计事件...",
+      "export": "导出 CSV",
+      "severity": "严重程度",
+      "eventType": "事件类型",
+      "dateRange": "日期范围",
+      "chain": "验证哈希链",
+      "chainValid": "哈希链完整",
+      "chainInvalid": "哈希链已损坏",
+      "identity": "执行身份",
+      "identityBot": "Agent 自主",
+      "identityUser": "用户委托"
+    },
+    "sso": {
+      "title": "SSO 单点登录",
+      "description": "为组织配置 OIDC 单点登录。支持 Okta、Azure AD、Keycloak、Authing 等标准 OIDC 提供商。",
+      "issuerUrl": "Issuer URL",
+      "issuerUrlPlaceholder": "https://your-idp.example.com",
+      "clientId": "Client ID",
+      "clientIdPlaceholder": "输入 OIDC Client ID",
+      "clientSecret": "Client Secret",
+      "clientSecretPlaceholder": "输入 OIDC Client Secret",
+      "scopes": "Scopes",
+      "scopesPlaceholder": "openid profile email",
+      "autoProvision": "自动创建新用户",
+      "autoProvisionDesc": "SSO 登录的新用户自动创建账号",
+      "displayName": "SSO 按钮文案",
+      "displayNamePlaceholder": "例：使用 Okta 登录",
+      "save": "保存 SSO 配置",
+      "saved": "SSO 配置已保存",
+      "notConfigured": "SSO 未配置",
+      "configured": "SSO 已配置",
+      "loginWithSSO": "SSO 登录"
+    },
+    "capabilities": {
+      "title": "能力策略",
+      "description": "配置高风险工具的访问权限。未配置的能力默认允许（兼容现有行为）。",
+      "capability": "能力",
+      "tools": "关联工具",
+      "allowed": "允许",
+      "denied": "禁止",
+      "requiresApproval": "需要审批",
+      "noPolicy": "未配置（默认允许）",
+      "save": "保存",
+      "delete": "删除策略"
+    },
+    "onboarding": {
+      "title": "部署进度",
+      "description": "完成以下步骤以启用所有企业功能。",
+      "completed": "已完成 {{completed}}/{{total}}",
+      "allDone": "全部完成"
     },
     "notificationBar": {
       "title": "顶部通知条",

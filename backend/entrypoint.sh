@@ -83,6 +83,17 @@ async def main():
         # Invitation codes: tenant scoping
         "ALTER TABLE invitation_codes ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenants(id)",
         "ALTER TABLE invitation_codes ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES users(id)",
+        # OIDC SSO
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS oidc_sub VARCHAR(255) UNIQUE",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS oidc_issuer VARCHAR(500)",
+        # Execution Identity (Block C)
+        "ALTER TABLE security_audit_events ADD COLUMN IF NOT EXISTS execution_identity_type VARCHAR(20)",
+        "ALTER TABLE security_audit_events ADD COLUMN IF NOT EXISTS execution_identity_id UUID",
+        "ALTER TABLE security_audit_events ADD COLUMN IF NOT EXISTS execution_identity_label VARCHAR(200)",
+        # Indexes for audit query (Block B)
+        "CREATE INDEX IF NOT EXISTS ix_sec_audit_tenant_type_created ON security_audit_events (tenant_id, event_type, created_at)",
+        "CREATE INDEX IF NOT EXISTS ix_sec_audit_actor ON security_audit_events (actor_id)",
+        "CREATE INDEX IF NOT EXISTS ix_sec_audit_resource ON security_audit_events (resource_type, resource_id)",
     ]
 
     from sqlalchemy import text

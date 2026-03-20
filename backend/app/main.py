@@ -112,6 +112,7 @@ async def lifespan(app: FastAPI):
         import app.models.gateway_message # noqa
         import app.models.feature_flag    # noqa
         import app.models.security_audit  # noqa
+        import app.models.capability_policy  # noqa
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
             # Add 'atlassian' to channel_type_enum if it doesn't exist yet (idempotent)
@@ -307,6 +308,9 @@ from app.api.config_history import router as config_history_router
 from app.api.feature_flags import router as feature_flags_router
 from app.api.admin import router as admin_router
 from app.api.memory import router as memory_router
+from app.api.oidc import router as oidc_router
+from app.api.capabilities import router as capabilities_router
+from app.api.onboarding import router as onboarding_router
 
 # All API routers — mounted under both /api (backward compat) and /api/v1
 _api_routers = [
@@ -318,6 +322,7 @@ _api_routers = [
     wecom_router, teams_router, atlassian_router, notification_router,
     gateway_router, config_history_router, feature_flags_router, admin_router,
     chat_sessions_router, plaza_router, triggers_router, memory_router,
+    oidc_router, capabilities_router, onboarding_router,
 ]
 
 for _r in _api_routers:

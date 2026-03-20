@@ -3,6 +3,7 @@
 import logging
 import uuid
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import select, func
@@ -10,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
-from app.core.security import get_current_admin, get_current_user, require_role
+from app.core.security import get_current_admin, get_current_user
 from app.database import get_db
 from app.services.secrets_provider import get_secrets_provider
 from app.models.agent import Agent
@@ -18,8 +19,14 @@ from app.models.audit import ApprovalRequest, AuditLog, EnterpriseInfo
 from app.models.llm import LLMModel
 from app.models.user import User
 from app.schemas.schemas import (
-    ApprovalAction, ApprovalRequestOut, AuditLogOut, EnterpriseInfoOut,
-    EnterpriseInfoUpdate, LLMModelCreate, LLMModelOut, LLMModelUpdate
+    ApprovalAction,
+    ApprovalRequestOut,
+    AuditLogOut,
+    EnterpriseInfoOut,
+    EnterpriseInfoUpdate,
+    LLMModelCreate,
+    LLMModelOut,
+    LLMModelUpdate,
 )
 from app.services.autonomy_service import autonomy_service
 from app.services.enterprise_sync import enterprise_sync_service
@@ -29,6 +36,7 @@ router = APIRouter(prefix="/enterprise", tags=["enterprise"])
 
 
 # ─── LLM Model Pool ────────────────────────────────────
+
 
 @router.get("/llm-providers")
 async def list_llm_providers(
@@ -57,7 +65,7 @@ async def test_llm_model(
     from app.services.llm_client import create_llm_client
 
     # Resolve API key: use provided key, or look up from stored model
-    api_key = data.api_key if data.api_key and not data.api_key.startswith('****') else None
+    api_key = data.api_key if data.api_key and not data.api_key.startswith("****") else None
     if not api_key and data.model_id:
         result = await db.execute(select(LLMModel).where(LLMModel.id == data.model_id))
         existing = result.scalar_one_or_none()
@@ -76,6 +84,7 @@ async def test_llm_model(
         )
         # Simple test: ask model to say "ok"
         from app.services.llm_client import LLMMessage
+
         response = await client.complete(
             messages=[LLMMessage(role="user", content="Say 'ok' and nothing else.")],
             max_tokens=16,
@@ -86,7 +95,6 @@ async def test_llm_model(
     except Exception as e:
         latency_ms = int((time.time() - start) * 1000)
         return {"success": False, "latency_ms": latency_ms, "error": str(e)[:500]}
-
 
 
 @router.get("/llm-models", response_model=list[LLMModelOut])
@@ -138,10 +146,19 @@ async def add_llm_model(
 
     try:
         from app.core.policy import write_audit_event
-        await write_audit_event(db, event_type="llm_model.created", severity="info",
-            actor_type="user", actor_id=current_user.id, tenant_id=current_user.tenant_id,
-            action="create_llm_model", resource_type="llm_model", resource_id=model.id,
-            details={"provider": model.provider, "model": model.model, "label": model.label})
+
+        await write_audit_event(
+            db,
+            event_type="llm_model.created",
+            severity="info",
+            actor_type="user",
+            actor_id=current_user.id,
+            tenant_id=current_user.tenant_id,
+            action="create_llm_model",
+            resource_type="llm_model",
+            resource_id=model.id,
+            details={"provider": model.provider, "model": model.model, "label": model.label},
+        )
     except Exception:
         logger.warning("Audit write failed for llm_model.created", exc_info=True)
 
@@ -163,10 +180,9 @@ async def remove_llm_model(
 
     # Check if any agents reference this model
     from sqlalchemy import or_, update
+
     ref_result = await db.execute(
-        select(Agent.name).where(
-            or_(Agent.primary_model_id == model_id, Agent.fallback_model_id == model_id)
-        )
+        select(Agent.name).where(or_(Agent.primary_model_id == model_id, Agent.fallback_model_id == model_id))
     )
     agent_names = [row[0] for row in ref_result.all()]
 
@@ -181,18 +197,23 @@ async def remove_llm_model(
 
     # Nullify FK references in agents before deleting
     if agent_names:
-        await db.execute(
-            update(Agent).where(Agent.primary_model_id == model_id).values(primary_model_id=None)
-        )
-        await db.execute(
-            update(Agent).where(Agent.fallback_model_id == model_id).values(fallback_model_id=None)
-        )
+        await db.execute(update(Agent).where(Agent.primary_model_id == model_id).values(primary_model_id=None))
+        await db.execute(update(Agent).where(Agent.fallback_model_id == model_id).values(fallback_model_id=None))
     try:
         from app.core.policy import write_audit_event
-        await write_audit_event(db, event_type="llm_model.deleted", severity="warn",
-            actor_type="user", actor_id=current_user.id, tenant_id=current_user.tenant_id,
-            action="delete_llm_model", resource_type="llm_model", resource_id=model.id,
-            details={"provider": model.provider, "model": model.model, "force": force})
+
+        await write_audit_event(
+            db,
+            event_type="llm_model.deleted",
+            severity="warn",
+            actor_type="user",
+            actor_id=current_user.id,
+            tenant_id=current_user.tenant_id,
+            action="delete_llm_model",
+            resource_type="llm_model",
+            resource_id=model.id,
+            details={"provider": model.provider, "model": model.model, "force": force},
+        )
     except Exception:
         logger.warning("Audit write failed for llm_model.deleted", exc_info=True)
 
@@ -220,27 +241,36 @@ async def update_llm_model(
             model.model = data.model
         if data.label is not None:
             model.label = data.label
-        if hasattr(data, 'base_url') and data.base_url is not None:
+        if hasattr(data, "base_url") and data.base_url is not None:
             model.base_url = data.base_url
-        if data.api_key and data.api_key.strip() and not data.api_key.startswith('****'):  # Skip masked values
+        if data.api_key and data.api_key.strip() and not data.api_key.startswith("****"):  # Skip masked values
             model.api_key_encrypted = get_secrets_provider().encrypt(data.api_key.strip())
         if data.max_tokens_per_day is not None:
             model.max_tokens_per_day = data.max_tokens_per_day
         if data.enabled is not None:
             model.enabled = data.enabled
-        if hasattr(data, 'supports_vision') and data.supports_vision is not None:
+        if hasattr(data, "supports_vision") and data.supports_vision is not None:
             model.supports_vision = data.supports_vision
-        if hasattr(data, 'max_output_tokens') and data.max_output_tokens is not None:
+        if hasattr(data, "max_output_tokens") and data.max_output_tokens is not None:
             model.max_output_tokens = data.max_output_tokens
-        if hasattr(data, 'max_input_tokens') and data.max_input_tokens is not None:
+        if hasattr(data, "max_input_tokens") and data.max_input_tokens is not None:
             model.max_input_tokens = data.max_input_tokens
 
         try:
             from app.core.policy import write_audit_event
-            await write_audit_event(db, event_type="llm_model.updated", severity="info",
-                actor_type="user", actor_id=current_user.id, tenant_id=current_user.tenant_id,
-                action="update_llm_model", resource_type="llm_model", resource_id=model.id,
-                details={"provider": model.provider, "model": model.model})
+
+            await write_audit_event(
+                db,
+                event_type="llm_model.updated",
+                severity="info",
+                actor_type="user",
+                actor_id=current_user.id,
+                tenant_id=current_user.tenant_id,
+                action="update_llm_model",
+                resource_type="llm_model",
+                resource_id=model.id,
+                details={"provider": model.provider, "model": model.model},
+            )
         except Exception:
             logger.warning("Audit write failed for llm_model.updated", exc_info=True)
 
@@ -252,6 +282,7 @@ async def update_llm_model(
     except Exception as e:
         await db.rollback()
         from sqlalchemy.exc import IntegrityError
+
         if isinstance(e, IntegrityError):
             raise HTTPException(status_code=409, detail="Conflict: model with these settings already exists")
         logger.error("Failed to update LLM model %s: %s", model_id, e)
@@ -259,6 +290,7 @@ async def update_llm_model(
 
 
 # ─── Enterprise Info ────────────────────────────────────
+
 
 @router.get("/info", response_model=list[EnterpriseInfoOut])
 async def list_enterprise_info(
@@ -288,6 +320,7 @@ async def update_enterprise_info(
 
 # ─── Approvals ──────────────────────────────────────────
 
+
 @router.get("/approvals", response_model=list[ApprovalRequestOut])
 async def list_approvals(
     tenant_id: str | None = None,
@@ -304,9 +337,7 @@ async def list_approvals(
         query = query.where(ApprovalRequest.agent_id.in_(tenant_agent_ids))
     # Non-admins further restricted to their own agents
     if current_user.role != "platform_admin":
-        query = query.where(ApprovalRequest.agent_id.in_(
-            select(Agent.id).where(Agent.creator_id == current_user.id)
-        ))
+        query = query.where(ApprovalRequest.agent_id.in_(select(Agent.id).where(Agent.creator_id == current_user.id)))
     if status_filter:
         query = query.where(ApprovalRequest.status == status_filter)
     query = query.order_by(ApprovalRequest.created_at.desc())
@@ -338,15 +369,14 @@ async def resolve_approval(
 ):
     """Approve or reject a pending approval request."""
     try:
-        approval = await autonomy_service.resolve_approval(
-            db, approval_id, current_user, data.action
-        )
+        approval = await autonomy_service.resolve_approval(db, approval_id, current_user, data.action)
         return ApprovalRequestOut.model_validate(approval)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
 # ─── Audit Logs ─────────────────────────────────────────
+
 
 @router.get("/audit-logs", response_model=list[AuditLogOut])
 async def list_audit_logs(
@@ -369,7 +399,109 @@ async def list_audit_logs(
     return [AuditLogOut.model_validate(log) for log in result.scalars().all()]
 
 
+# ─── Security Audit (SecurityAuditEvent table) ─────────
+
+
+@router.get("/audit")
+async def query_audit_events(
+    event_type: str | None = None,
+    severity: str | None = None,
+    actor_id: uuid.UUID | None = None,
+    resource_type: str | None = None,
+    resource_id: uuid.UUID | None = None,
+    search: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    page: int = 1,
+    page_size: int = 50,
+    current_user: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Unified audit query over SecurityAuditEvent table (admin only)."""
+    from datetime import datetime as dt
+
+    from app.schemas.audit_schemas import AuditEventOut, AuditQueryParams
+    from app.services.audit_query_service import query_events
+
+    params = AuditQueryParams(
+        event_type=event_type,
+        severity=severity,
+        actor_id=actor_id,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        search=search,
+        date_from=dt.fromisoformat(date_from) if date_from else None,
+        date_to=dt.fromisoformat(date_to) if date_to else None,
+        page=page,
+        page_size=page_size,
+    )
+
+    events, total = await query_events(db, current_user.tenant_id, params)
+    return {
+        "items": [AuditEventOut.model_validate(e) for e in events],
+        "total": total,
+        "page": params.page,
+        "page_size": params.page_size,
+    }
+
+
+@router.get("/audit/export")
+async def export_audit_csv(
+    event_type: str | None = None,
+    severity: str | None = None,
+    actor_id: uuid.UUID | None = None,
+    resource_type: str | None = None,
+    resource_id: uuid.UUID | None = None,
+    search: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    current_user: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Export filtered audit events as CSV (admin only)."""
+    from datetime import datetime as dt
+
+    from fastapi.responses import StreamingResponse
+
+    from app.schemas.audit_schemas import AuditQueryParams
+    from app.services.audit_query_service import export_csv
+
+    params = AuditQueryParams(
+        event_type=event_type,
+        severity=severity,
+        actor_id=actor_id,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        search=search,
+        date_from=dt.fromisoformat(date_from) if date_from else None,
+        date_to=dt.fromisoformat(date_to) if date_to else None,
+    )
+
+    csv_data = await export_csv(db, current_user.tenant_id, params)
+    return StreamingResponse(
+        iter([csv_data]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=audit_events.csv"},
+    )
+
+
+@router.get("/audit/{event_id}/chain")
+async def verify_audit_chain(
+    event_id: uuid.UUID,
+    current_user: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Verify hash-chain integrity for a single audit event (admin only, tenant-scoped)."""
+    from app.services.audit_query_service import verify_chain
+
+    if not current_user.tenant_id:
+        return {"valid": False, "event_hash": "", "computed_hash": "", "predecessor_id": None}
+
+    return await verify_chain(db, event_id, current_user.tenant_id)
+
+
 # ─── Dashboard Stats ────────────────────────────────────
+
 
 @router.get("/stats")
 async def get_enterprise_stats(
@@ -381,15 +513,11 @@ async def get_enterprise_stats(
     # Determine which tenant to filter by
     tid = tenant_id or str(current_user.tenant_id)
 
-    total_agents = await db.execute(
-        select(func.count(Agent.id)).where(Agent.tenant_id == tid)
-    )
+    total_agents = await db.execute(select(func.count(Agent.id)).where(Agent.tenant_id == tid))
     running_agents = await db.execute(
         select(func.count(Agent.id)).where(Agent.tenant_id == tid, Agent.status == "running")
     )
-    total_users = await db.execute(
-        select(func.count(User.id)).where(User.tenant_id == tid, User.is_active == True)
-    )
+    total_users = await db.execute(select(func.count(User.id)).where(User.tenant_id == tid, User.is_active == True))
     tenant_agent_ids = select(Agent.id).where(Agent.tenant_id == tid)
     pending_approvals = await db.execute(
         select(func.count(ApprovalRequest.id)).where(
@@ -479,9 +607,8 @@ async def update_tenant_quotas(
     if data.min_heartbeat_interval_minutes is not None:
         tenant.min_heartbeat_interval_minutes = data.min_heartbeat_interval_minutes
         from app.services.quota_guard import enforce_heartbeat_floor
-        adjusted_count = await enforce_heartbeat_floor(
-            tenant.id, floor=data.min_heartbeat_interval_minutes, db=db
-        )
+
+        adjusted_count = await enforce_heartbeat_floor(tenant.id, floor=data.min_heartbeat_interval_minutes, db=db)
 
     # Handle trigger limit fields
     if data.default_max_triggers is not None:
@@ -493,10 +620,19 @@ async def update_tenant_quotas(
 
     try:
         from app.core.policy import write_audit_event
-        await write_audit_event(db, event_type="quotas.updated", severity="info",
-            actor_type="user", actor_id=current_user.id, tenant_id=current_user.tenant_id,
-            action="update_tenant_quotas", resource_type="tenant", resource_id=current_user.tenant_id,
-            details=data.model_dump(exclude_unset=True))
+
+        await write_audit_event(
+            db,
+            event_type="quotas.updated",
+            severity="info",
+            actor_type="user",
+            actor_id=current_user.id,
+            tenant_id=current_user.tenant_id,
+            action="update_tenant_quotas",
+            resource_type="tenant",
+            resource_id=current_user.tenant_id,
+            details=data.model_dump(exclude_unset=True),
+        )
     except Exception:
         logger.warning("Audit write failed for quotas.updated", exc_info=True)
 
@@ -516,14 +652,133 @@ class SettingUpdate(BaseModel):
     value: dict
 
 
+# ─── OIDC Configuration ──────────────────────────────
+
+
+class OIDCConfigUpdate(BaseModel):
+    issuer_url: str
+    client_id: str
+    client_secret: str
+    scopes: str = "openid profile email"
+    auto_provision: bool = True
+    display_name: str = "SSO"
+
+
+@router.get("/oidc-config")
+async def get_oidc_config(
+    current_user: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get OIDC SSO configuration for the current tenant (admin only)."""
+    if not current_user.tenant_id:
+        return {"configured": False}
+
+    from app.models.tenant_setting import TenantSetting
+
+    result = await db.execute(
+        select(TenantSetting).where(
+            TenantSetting.tenant_id == current_user.tenant_id,
+            TenantSetting.key == "oidc_config",
+        )
+    )
+    setting = result.scalar_one_or_none()
+    if not setting or not setting.value:
+        return {"configured": False}
+
+    cfg = setting.value
+    return {
+        "configured": bool(cfg.get("issuer_url") and cfg.get("client_id")),
+        "issuer_url": cfg.get("issuer_url", ""),
+        "client_id": cfg.get("client_id", ""),
+        "client_secret_set": bool(cfg.get("client_secret")),
+        "scopes": cfg.get("scopes", "openid profile email"),
+        "auto_provision": cfg.get("auto_provision", True),
+        "display_name": cfg.get("display_name", "SSO"),
+    }
+
+
+@router.put("/oidc-config")
+async def update_oidc_config(
+    data: OIDCConfigUpdate,
+    current_user: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Set or update OIDC SSO configuration for the current tenant (admin only)."""
+    if not current_user.tenant_id:
+        raise HTTPException(status_code=400, detail="No tenant assigned")
+
+    # Validate issuer URL by attempting discovery
+    from app.services.oidc_service import discover_oidc
+
+    try:
+        metadata = await discover_oidc(data.issuer_url)
+        if "authorization_endpoint" not in metadata:
+            raise HTTPException(status_code=400, detail="Invalid OIDC issuer: missing authorization_endpoint")
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=400, detail=f"Cannot reach OIDC issuer: {e}")
+
+    from app.models.tenant_setting import TenantSetting
+
+    result = await db.execute(
+        select(TenantSetting).where(
+            TenantSetting.tenant_id == current_user.tenant_id,
+            TenantSetting.key == "oidc_config",
+        )
+    )
+    setting = result.scalar_one_or_none()
+
+    config_value = {
+        "issuer_url": data.issuer_url,
+        "client_id": data.client_id,
+        "client_secret": data.client_secret,
+        "scopes": data.scopes,
+        "auto_provision": data.auto_provision,
+        "display_name": data.display_name,
+    }
+
+    if setting:
+        # If client_secret looks masked, keep existing
+        if data.client_secret.startswith("****") and setting.value.get("client_secret"):
+            config_value["client_secret"] = setting.value["client_secret"]
+        setting.value = config_value
+    else:
+        db.add(
+            TenantSetting(
+                tenant_id=current_user.tenant_id,
+                key="oidc_config",
+                value=config_value,
+            )
+        )
+
+    try:
+        from app.core.policy import write_audit_event
+
+        await write_audit_event(
+            db,
+            event_type="oidc.config_updated",
+            severity="warn",
+            actor_type="user",
+            actor_id=current_user.id,
+            tenant_id=current_user.tenant_id,
+            action="update_oidc_config",
+            details={"issuer_url": data.issuer_url, "client_id": data.client_id},
+        )
+    except Exception:
+        logger.warning("Audit write failed for oidc.config_updated", exc_info=True)
+
+    await db.commit()
+    return {"status": "ok", "issuer_url": data.issuer_url}
+
+
+# ─── System Settings ───────────────────────────────────
+
+
 @router.get("/system-settings/notification_bar/public")
 async def get_notification_bar_public(
     db: AsyncSession = Depends(get_db),
 ):
     """Public (no auth) endpoint to read the notification bar config."""
-    result = await db.execute(
-        select(SystemSetting).where(SystemSetting.key == "notification_bar")
-    )
+    result = await db.execute(select(SystemSetting).where(SystemSetting.key == "notification_bar"))
     setting = result.scalar_one_or_none()
     if not setting or not setting.value:
         return {"enabled": False, "text": ""}
@@ -544,7 +799,11 @@ async def get_system_setting(
     setting = result.scalar_one_or_none()
     if not setting:
         return {"key": key, "value": {}}
-    return {"key": setting.key, "value": setting.value, "updated_at": setting.updated_at.isoformat() if setting.updated_at else None}
+    return {
+        "key": setting.key,
+        "value": setting.value,
+        "updated_at": setting.updated_at.isoformat() if setting.updated_at else None,
+    }
 
 
 @router.put("/system-settings/{key}")
@@ -634,6 +893,7 @@ async def trigger_org_sync(
 ):
     """Manually trigger org structure sync from Feishu."""
     from app.services.org_sync_service import org_sync_service
+
     result = await org_sync_service.full_sync()
     return result
 
@@ -644,8 +904,8 @@ from app.models.invitation_code import InvitationCode
 
 
 class InvitationCodeCreate(BaseModel):
-    count: int = 1       # how many codes to generate
-    max_uses: int = 1    # max registrations per code
+    count: int = 1  # how many codes to generate
+    max_uses: int = 1  # max registrations per code
 
 
 def _require_tenant_admin(current_user: User) -> None:
@@ -669,7 +929,7 @@ async def create_invitation_codes(
 
     codes_created = []
     for _ in range(min(data.count, 100)):  # cap at 100 per batch
-        code_str = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+        code_str = "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
         code = InvitationCode(
             code=code_str,
             tenant_id=current_user.tenant_id,
@@ -707,9 +967,7 @@ async def list_invitation_codes(
     total = total_result.scalar() or 0
 
     offset = (max(page, 1) - 1) * page_size
-    result = await db.execute(
-        stmt.order_by(InvitationCode.created_at.desc()).offset(offset).limit(page_size)
-    )
+    result = await db.execute(stmt.order_by(InvitationCode.created_at.desc()).offset(offset).limit(page_size))
     codes = result.scalars().all()
     return {
         "items": [
@@ -727,7 +985,6 @@ async def list_invitation_codes(
         "page": page,
         "page_size": page_size,
     }
-
 
 
 @router.get("/invitation-codes/export")
@@ -752,13 +1009,15 @@ async def export_invitation_codes_csv(
     writer = csv.writer(output)
     writer.writerow(["Code", "Max Uses", "Used Count", "Active", "Created At"])
     for c in codes:
-        writer.writerow([
-            c.code,
-            c.max_uses,
-            c.used_count,
-            "Yes" if c.is_active else "No",
-            c.created_at.strftime("%Y-%m-%d %H:%M:%S") if c.created_at else "",
-        ])
+        writer.writerow(
+            [
+                c.code,
+                c.max_uses,
+                c.used_count,
+                "Yes" if c.is_active else "No",
+                c.created_at.strftime("%Y-%m-%d %H:%M:%S") if c.created_at else "",
+            ]
+        )
 
     output.seek(0)
     return StreamingResponse(
@@ -777,6 +1036,7 @@ async def deactivate_invitation_code(
     """Deactivate an invitation code (must belong to current user's company)."""
     _require_tenant_admin(current_user)
     import uuid as _uuid
+
     result = await db.execute(
         select(InvitationCode).where(
             InvitationCode.id == _uuid.UUID(code_id),

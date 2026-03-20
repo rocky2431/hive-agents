@@ -378,6 +378,10 @@ async def _invoke_agent_for_triggers(agent_id: uuid.UUID, triggers: list[AgentTr
             if not agent or agent.is_expired:
                 return
 
+            # Set execution identity — autonomous agent action
+            from app.core.execution_context import set_agent_bot_identity
+            set_agent_bot_identity(agent_id, agent.name, source="trigger")
+
             # Load LLM model
             if not agent.primary_model_id:
                 logger.warning(f"Agent {agent.name} has no LLM model, skipping trigger invocation")

@@ -259,26 +259,60 @@ class FeishuService:
 
     async def send_approval_card(self, app_id: str, app_secret: str,
                                   creator_open_id: str, agent_name: str,
-                                  action_type: str, details: str, approval_id: str) -> dict:
-        """Send an interactive approval card to the agent creator via Feishu."""
+                                  action_type: str, details: str, approval_id: str,
+                                  callback_url: str = "") -> dict:
+        """Send an interactive approval card with approve/reject buttons to the agent creator via Feishu.
+
+        The card includes action buttons that POST back to the card-callback endpoint.
+        """
         import json
-        card_content = json.dumps({
-            "type": "template",
-            "data": {
-                "template_id": "",  # Use custom card
-                "template_variable": {
-                    "agent_name": agent_name,
-                    "action_type": action_type,
-                    "details": details,
-                    "approval_id": approval_id,
-                }
-            }
-        })
-        # Simplified — in production, use Feishu interactive card JSON
-        text_content = json.dumps({
-            "text": f"🔴 [{agent_name}] 请求审批\n操作: {action_type}\n详情: {details}\n\n请在 Clawith 平台审批。"
-        })
-        return await self.send_message(app_id, app_secret, creator_open_id, "text", text_content)
+
+        # Truncate details for display
+        display_details = details[:300] + ("..." if len(details) > 300 else "")
+
+        card_json = {
+            "config": {"wide_screen_mode": True},
+            "header": {
+                "template": "orange",
+                "title": {"tag": "plain_text", "content": f"🔴 [{agent_name}] 请求审批"},
+            },
+            "elements": [
+                {
+                    "tag": "div",
+                    "fields": [
+                        {"is_short": True, "text": {"tag": "lark_md", "content": f"**操作类型**\n{action_type}"}},
+                        {"is_short": True, "text": {"tag": "lark_md", "content": f"**审批 ID**\n{approval_id[:8]}..."}},
+                    ],
+                },
+                {
+                    "tag": "div",
+                    "text": {"tag": "lark_md", "content": f"**详情**\n{display_details}"},
+                },
+                {"tag": "hr"},
+                {
+                    "tag": "action",
+                    "actions": [
+                        {
+                            "tag": "button",
+                            "text": {"tag": "plain_text", "content": "✅ 批准"},
+                            "type": "primary",
+                            "value": json.dumps({"action": "approve", "approval_id": approval_id}),
+                        },
+                        {
+                            "tag": "button",
+                            "text": {"tag": "plain_text", "content": "❌ 拒绝"},
+                            "type": "danger",
+                            "value": json.dumps({"action": "reject", "approval_id": approval_id}),
+                        },
+                    ],
+                },
+            ],
+        }
+
+        content = json.dumps(card_json)
+        return await self.send_message(
+            app_id, app_secret, creator_open_id, "interactive", content,
+        )
 
     async def download_message_resource(self, app_id: str, app_secret: str,
                                          message_id: str, file_key: str,

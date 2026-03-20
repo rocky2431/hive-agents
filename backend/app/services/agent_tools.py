@@ -1222,6 +1222,62 @@ async def execute_tool(
                     await maybe_result
             return message
 
+    # ── Capability gate check (Block D) ──
+    if _agent_tenant_id:
+        try:
+            from app.services.capability_gate import check_capability
+            async with async_session() as _capdb:
+                cap_result = await check_capability(
+                    _capdb, uuid.UUID(_agent_tenant_id), agent_id, tool_name
+                )
+            if cap_result.denied:
+                message = f"🚫 Capability denied: {cap_result.reason}"
+                # Audit the denial
+                try:
+                    from app.core.policy import write_audit_event
+                    async with async_session() as _audb:
+                        await write_audit_event(
+                            _audb, event_type="capability.denied", severity="warn",
+                            actor_type="agent", actor_id=agent_id,
+                            tenant_id=uuid.UUID(_agent_tenant_id),
+                            action="capability_denied",
+                            resource_type="tool", resource_id=None,
+                            details={"tool": tool_name, "capability": cap_result.capability},
+                        )
+                        await _audb.commit()
+                except Exception:
+                    logger.warning("Audit write failed for capability.denied", exc_info=True)
+                if event_callback:
+                    maybe_result = event_callback({
+                        "type": "permission",
+                        "tool_name": tool_name,
+                        "status": "capability_denied",
+                        "message": message,
+                        "capability": cap_result.capability,
+                    })
+                    if maybe_result is not None:
+                        await maybe_result
+                return message
+            if cap_result.escalate_to_l3:
+                # Force L3 approval via autonomy service
+                try:
+                    from app.core.policy import write_audit_event
+                    async with async_session() as _audb:
+                        await write_audit_event(
+                            _audb, event_type="capability.escalated", severity="warn",
+                            actor_type="agent", actor_id=agent_id,
+                            tenant_id=uuid.UUID(_agent_tenant_id),
+                            action="capability_escalated",
+                            resource_type="tool", resource_id=None,
+                            details={"tool": tool_name, "capability": cap_result.capability},
+                        )
+                        await _audb.commit()
+                except Exception:
+                    logger.warning("Audit write failed for capability.escalated", exc_info=True)
+                # Fall through to autonomy check below — will be forced to L3
+        except Exception as e:
+            logger.warning("Capability gate check failed for tool %s: %s", tool_name, e)
+
     # ── Autonomy boundary check ──
     action_type = _TOOL_AUTONOMY_MAP.get(tool_name)
     if action_type:

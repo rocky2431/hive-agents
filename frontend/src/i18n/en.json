@@ -36,7 +36,8 @@
     "invitationHint": "Token consumption is significant, so invitation codes are required. We recommend deploying your own instance and configuring leading models for the best experience.",
     "usernamePlaceholder": "Enter username",
     "passwordPlaceholder": "Enter password",
-    "emailPlaceholder": "you@example.com"
+    "emailPlaceholder": "you@example.com",
+    "loginWithSSO": "Login with SSO"
   },
   "roles": {
     "platformAdmin": "Platform Admin",
@@ -594,7 +595,10 @@
       "quotas": "Quotas",
       "users": "Users",
       "flags": "Feature Flags",
-      "memory": "Memory"
+      "memory": "Memory",
+      "sso": "SSO",
+      "capabilities": "Capabilities",
+      "onboarding": "Onboarding"
     },
     "memory": {
       "title": "Memory & Summarization",
@@ -730,7 +734,58 @@
       "filterAll": "All",
       "filterBackground": "Background",
       "filterActions": "User Actions",
-      "records": "{{count}} records"
+      "records": "{{count}} records",
+      "search": "Search audit events...",
+      "export": "Export CSV",
+      "severity": "Severity",
+      "eventType": "Event Type",
+      "dateRange": "Date Range",
+      "chain": "Verify Hash Chain",
+      "chainValid": "Hash chain intact",
+      "chainInvalid": "Hash chain broken",
+      "identity": "Execution Identity",
+      "identityBot": "Agent Autonomous",
+      "identityUser": "Delegated User"
+    },
+    "sso": {
+      "title": "SSO Configuration",
+      "description": "Configure OIDC Single Sign-On for your organization. Supports Okta, Azure AD, Keycloak, Authing, and any standard OIDC provider.",
+      "issuerUrl": "Issuer URL",
+      "issuerUrlPlaceholder": "https://your-idp.example.com",
+      "clientId": "Client ID",
+      "clientIdPlaceholder": "Enter OIDC client ID",
+      "clientSecret": "Client Secret",
+      "clientSecretPlaceholder": "Enter OIDC client secret",
+      "scopes": "Scopes",
+      "scopesPlaceholder": "openid profile email",
+      "autoProvision": "Auto-provision new users",
+      "autoProvisionDesc": "Automatically create accounts for new SSO users",
+      "displayName": "SSO Button Label",
+      "displayNamePlaceholder": "e.g., Login with Okta",
+      "save": "Save SSO Config",
+      "saved": "SSO configuration saved",
+      "notConfigured": "SSO not configured",
+      "configured": "SSO configured",
+      "testConnection": "Test Connection",
+      "loginWithSSO": "Login with SSO"
+    },
+    "capabilities": {
+      "title": "Capability Policies",
+      "description": "Configure access policies for high-risk tools. Unconfigured capabilities default to allowed (backward compatible).",
+      "capability": "Capability",
+      "tools": "Related Tools",
+      "allowed": "Allowed",
+      "denied": "Denied",
+      "requiresApproval": "Requires Approval",
+      "noPolicy": "Not configured (default allow)",
+      "save": "Save",
+      "delete": "Delete Policy"
+    },
+    "onboarding": {
+      "title": "Setup Progress",
+      "description": "Complete the following steps to enable all enterprise features.",
+      "completed": "{{completed}}/{{total}} completed",
+      "allDone": "All done"
     },
     "notificationBar": {
       "title": "Notification Bar",

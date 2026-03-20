@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { enterpriseApi, skillApi, featureFlagApi } from '../services/api';
+import { enterpriseApi, skillApi, featureFlagApi, auditApi, capabilityApi, onboardingApi, oidcApi } from '../services/api';
 import PromptModal from '../components/PromptModal';
 import FileBrowser from '../components/FileBrowser';
 import type { FileBrowserApi } from '../components/FileBrowser';
@@ -1318,7 +1318,7 @@ function MemoryTab({ models }: { models: LLMModel[] }) {
 export default function EnterpriseSettings() {
     const { t } = useTranslation();
     const qc = useQueryClient();
-    const [activeTab, setActiveTab] = useState<'llm' | 'org' | 'info' | 'approvals' | 'audit' | 'tools' | 'skills' | 'quotas' | 'users' | 'flags' | 'invites' | 'memory'>('info');
+    const [activeTab, setActiveTab] = useState<'llm' | 'org' | 'info' | 'approvals' | 'audit' | 'tools' | 'skills' | 'quotas' | 'users' | 'flags' | 'invites' | 'memory' | 'sso' | 'capabilities'>('info');
 
     // OpenViking status for KB tab
     const { data: vikingStatus } = useQuery({
@@ -1398,6 +1398,25 @@ export default function EnterpriseSettings() {
         setCompanyIntroSaving(false);
     };
     const [auditFilter, setAuditFilter] = useState<'all' | 'background' | 'actions'>('all');
+    // ─── New Audit state (rich search/filter/pagination)
+    const [auditSearch, setAuditSearch] = useState('');
+    const [auditEventType, setAuditEventType] = useState('');
+    const [auditSeverity, setAuditSeverity] = useState('');
+    const [auditDateFrom, setAuditDateFrom] = useState('');
+    const [auditDateTo, setAuditDateTo] = useState('');
+    const [auditPage, setAuditPage] = useState(1);
+    const [auditPageSize] = useState(20);
+    const [auditChainResult, setAuditChainResult] = useState<Record<string, { valid: boolean; event_hash: string; computed_hash: string } | null>>({});
+
+    // ─── SSO state
+    const [ssoForm, setSsoForm] = useState({ issuer_url: '', client_id: '', client_secret: '', scopes: 'openid profile email', auto_provision: false, display_name: '' });
+    const [ssoSaving, setSsoSaving] = useState(false);
+    const [ssoSaved, setSsoSaved] = useState(false);
+    const [ssoLoaded, setSsoLoaded] = useState(false);
+
+    // ─── Capabilities state
+    const [capSaving, setCapSaving] = useState<string | null>(null);
+
     const [infoRefresh, setInfoRefresh] = useState(0);
     const [kbPromptModal, setKbPromptModal] = useState(false);
     const [kbToast, setKbToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -1536,17 +1555,121 @@ export default function EnterpriseSettings() {
         onSuccess: () => qc.invalidateQueries({ queryKey: ['approvals', selectedTenantId] }),
     });
 
-    // ─── Audit Logs
-    const BG_ACTIONS = ['supervision_tick', 'supervision_fire', 'supervision_error', 'schedule_tick', 'schedule_fire', 'schedule_error', 'heartbeat_tick', 'heartbeat_fire', 'heartbeat_error', 'server_startup'];
-    const { data: auditLogs = [] } = useQuery({
-        queryKey: ['audit-logs', selectedTenantId],
-        queryFn: () => fetchJson<any[]>(`/enterprise/audit-logs?limit=200${selectedTenantId ? `&tenant_id=${selectedTenantId}` : ''}`),
+    // ─── Audit Logs (rich query via auditApi)
+    const auditQueryParams = {
+        search: auditSearch || undefined,
+        event_type: auditEventType || undefined,
+        severity: auditSeverity || undefined,
+        date_from: auditDateFrom || undefined,
+        date_to: auditDateTo || undefined,
+        page: auditPage,
+        page_size: auditPageSize,
+    };
+    const { data: auditData } = useQuery({
+        queryKey: ['audit-events', auditSearch, auditEventType, auditSeverity, auditDateFrom, auditDateTo, auditPage, auditPageSize],
+        queryFn: () => auditApi.query(auditQueryParams),
         enabled: activeTab === 'audit',
     });
-    const filteredAuditLogs = auditLogs.filter((log: any) => {
-        if (auditFilter === 'background') return BG_ACTIONS.includes(log.action);
-        if (auditFilter === 'actions') return !BG_ACTIONS.includes(log.action);
-        return true;
+    const auditEvents = auditData?.items || [];
+    const auditTotal = auditData?.total || 0;
+    const auditTotalPages = Math.max(1, Math.ceil(auditTotal / auditPageSize));
+
+    const handleAuditExport = async () => {
+        const res = await auditApi.exportCsv({
+            search: auditSearch || undefined,
+            event_type: auditEventType || undefined,
+            severity: auditSeverity || undefined,
+            date_from: auditDateFrom || undefined,
+            date_to: auditDateTo || undefined,
+        });
+        if (!res.ok) return;
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `audit-export-${new Date().toISOString().slice(0, 10)}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+    };
+
+    const handleVerifyChain = async (eventId: string) => {
+        try {
+            const result = await auditApi.verifyChain(eventId);
+            setAuditChainResult(prev => ({ ...prev, [eventId]: result }));
+        } catch {
+            setAuditChainResult(prev => ({ ...prev, [eventId]: null }));
+        }
+    };
+
+    // ─── SSO Config
+    useEffect(() => {
+        if (activeTab === 'sso' && !ssoLoaded) {
+            oidcApi.getConfig().then((cfg: any) => {
+                if (cfg) {
+                    setSsoForm(f => ({
+                        ...f,
+                        issuer_url: cfg.issuer_url || '',
+                        client_id: cfg.client_id || '',
+                        client_secret: '',
+                        scopes: cfg.scopes || 'openid profile email',
+                        auto_provision: cfg.auto_provision ?? false,
+                        display_name: cfg.display_name || '',
+                    }));
+                }
+                setSsoLoaded(true);
+            }).catch(() => { setSsoLoaded(true); });
+        }
+    }, [activeTab, ssoLoaded]);
+
+    const saveSsoConfig = async () => {
+        setSsoSaving(true);
+        try {
+            await oidcApi.updateConfig(ssoForm);
+            setSsoSaved(true);
+            setTimeout(() => setSsoSaved(false), 2000);
+        } catch {
+            // error handling
+        }
+        setSsoSaving(false);
+    };
+
+    // ─── Capabilities
+    const { data: capDefinitions = [] } = useQuery({
+        queryKey: ['cap-definitions'],
+        queryFn: () => capabilityApi.definitions(),
+        enabled: activeTab === 'capabilities',
+    });
+    const { data: capPolicies = [] } = useQuery({
+        queryKey: ['cap-policies'],
+        queryFn: () => capabilityApi.list(),
+        enabled: activeTab === 'capabilities',
+    });
+
+    const handleCapUpsert = async (capability: string, allowed: boolean, requiresApproval: boolean) => {
+        setCapSaving(capability);
+        try {
+            await capabilityApi.upsert({ capability, allowed, requires_approval: requiresApproval });
+            qc.invalidateQueries({ queryKey: ['cap-policies'] });
+        } catch {
+            // error handling
+        }
+        setCapSaving(null);
+    };
+
+    const handleCapDelete = async (policyId: string) => {
+        try {
+            await capabilityApi.delete(policyId);
+            qc.invalidateQueries({ queryKey: ['cap-policies'] });
+        } catch {
+            // error handling
+        }
+    };
+
+    // ─── Onboarding
+    const { data: onboardingData } = useQuery({
+        queryKey: ['onboarding-status'],
+        queryFn: () => onboardingApi.status(),
+        enabled: activeTab === 'info',
     });
 
     return (
@@ -1566,7 +1689,7 @@ export default function EnterpriseSettings() {
                 </div>
 
                 <div className="tabs">
-                    {(['info', 'llm', 'tools', 'skills', 'memory', 'invites', 'quotas', 'users', 'org', 'approvals', 'audit', 'flags'] as const).map(tab => (
+                    {(['info', 'llm', 'tools', 'skills', 'memory', 'invites', 'quotas', 'users', 'org', 'approvals', 'audit', 'sso', 'capabilities', 'flags'] as const).map(tab => (
                         <div key={tab} className={`tab ${activeTab === tab ? 'active' : ''}`} onClick={() => setActiveTab(tab)}>
                             {tab === 'quotas' ? t('enterprise.tabs.quotas', 'Quotas') : tab === 'users' ? t('enterprise.tabs.users', 'Users') : tab === 'invites' ? t('enterprise.tabs.invites', 'Invitations') : t(`enterprise.tabs.${tab}`, tab)}
                         </div>
@@ -1839,66 +1962,342 @@ export default function EnterpriseSettings() {
                     </div>
                 )}
 
-                {/* ── Audit Logs ── */}
+                {/* ── Audit Logs (Rich) ── */}
                 {activeTab === 'audit' && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                        {/* Sub-filter pills */}
-                        <div style={{ display: 'flex', gap: '8px', padding: '8px 12px', borderBottom: '1px solid var(--border-color)' }}>
-                            {([
-                                ['all', t('enterprise.audit.filterAll')],
-                                ['background', t('enterprise.audit.filterBackground')],
-                                ['actions', t('enterprise.audit.filterActions')],
-                            ] as const).map(([key, label]) => (
-                                <button key={key}
-                                    onClick={() => setAuditFilter(key as any)}
-                                    style={{
-                                        padding: '4px 14px', borderRadius: '12px', fontSize: '12px', fontWeight: 500,
-                                        border: auditFilter === key ? '1px solid var(--accent-primary)' : '1px solid var(--border-subtle)',
-                                        background: auditFilter === key ? 'var(--accent-primary)' : 'transparent',
-                                        color: auditFilter === key ? '#fff' : 'var(--text-secondary)',
-                                        cursor: 'pointer', transition: 'all 0.15s',
-                                    }}
-                                >{label}</button>
-                            ))}
-                            <span style={{ marginLeft: 'auto', fontSize: '11px', color: 'var(--text-tertiary)', alignSelf: 'center' }}>
-                                {t('enterprise.audit.records', { count: filteredAuditLogs.length })}
+                    <div>
+                        {/* Search & Filters */}
+                        <div className="card" style={{ padding: '16px', marginBottom: '16px' }}>
+                            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                                <div style={{ flex: '2 1 200px' }}>
+                                    <label style={{ fontSize: '12px', fontWeight: 500, display: 'block', marginBottom: '4px' }}>{t('enterprise.audit.search')}</label>
+                                    <input className="input" value={auditSearch} onChange={e => { setAuditSearch(e.target.value); setAuditPage(1); }} placeholder={t('enterprise.audit.search')} style={{ fontSize: '13px' }} />
+                                </div>
+                                <div style={{ flex: '1 1 160px' }}>
+                                    <label style={{ fontSize: '12px', fontWeight: 500, display: 'block', marginBottom: '4px' }}>{t('enterprise.audit.eventType')}</label>
+                                    <select className="input" value={auditEventType} onChange={e => { setAuditEventType(e.target.value); setAuditPage(1); }} style={{ fontSize: '13px' }}>
+                                        <option value="">{t('enterprise.audit.filterAll')}</option>
+                                        {['auth.login', 'auth.login_failed', 'auth.oidc_login', 'agent.created', 'agent.deleted', 'agent.started', 'agent.stopped', 'approval.resolved', 'capability.denied', 'tool.installed', 'tool.removed', 'model.created', 'model.deleted', 'settings.updated'].map(et => (
+                                            <option key={et} value={et}>{et}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div style={{ flex: '1 1 120px' }}>
+                                    <label style={{ fontSize: '12px', fontWeight: 500, display: 'block', marginBottom: '4px' }}>{t('enterprise.audit.severity')}</label>
+                                    <select className="input" value={auditSeverity} onChange={e => { setAuditSeverity(e.target.value); setAuditPage(1); }} style={{ fontSize: '13px' }}>
+                                        <option value="">{t('enterprise.audit.filterAll')}</option>
+                                        <option value="info">Info</option>
+                                        <option value="warn">Warn</option>
+                                        <option value="error">Error</option>
+                                    </select>
+                                </div>
+                                <div style={{ flex: '1 1 140px' }}>
+                                    <label style={{ fontSize: '12px', fontWeight: 500, display: 'block', marginBottom: '4px' }}>{t('enterprise.audit.dateRange')}</label>
+                                    <input type="date" className="input" value={auditDateFrom} onChange={e => { setAuditDateFrom(e.target.value); setAuditPage(1); }} style={{ fontSize: '13px' }} />
+                                </div>
+                                <div style={{ flex: '1 1 140px' }}>
+                                    <label style={{ fontSize: '12px', fontWeight: 500, display: 'block', marginBottom: '4px' }}>&nbsp;</label>
+                                    <input type="date" className="input" value={auditDateTo} onChange={e => { setAuditDateTo(e.target.value); setAuditPage(1); }} style={{ fontSize: '13px' }} />
+                                </div>
+                                <button className="btn btn-secondary" onClick={handleAuditExport} style={{ fontSize: '13px', whiteSpace: 'nowrap' }}>
+                                    {t('enterprise.audit.export')}
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Results count */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                            <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                                {t('enterprise.audit.records', { count: auditTotal })}
                             </span>
                         </div>
-                        {/* Log entries */}
-                        {filteredAuditLogs.map((log: any) => {
-                            const isBg = BG_ACTIONS.includes(log.action);
-                            const details = log.details && typeof log.details === 'object' && Object.keys(log.details).length > 0 ? log.details : null;
-                            return (
-                                <div key={log.id} style={{ borderBottom: '1px solid var(--border-subtle)', padding: '6px 12px' }}>
-                                    <div style={{ display: 'flex', gap: '12px', fontSize: '13px', alignItems: 'center' }}>
-                                        <span style={{ color: 'var(--text-tertiary)', whiteSpace: 'nowrap', fontFamily: 'var(--font-mono)', fontSize: '11px' }}>
-                                            {new Date(log.created_at).toLocaleString()}
-                                        </span>
-                                        <span style={{
-                                            padding: '1px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 500,
-                                            background: isBg ? 'rgba(99,102,241,0.12)' : 'rgba(34,197,94,0.12)',
-                                            color: isBg ? 'var(--accent-color)' : 'rgb(34,197,94)',
-                                        }}>{isBg ? '⚙️' : '👤'}</span>
-                                        <span style={{ flex: 1, fontWeight: 500 }}>{log.action}</span>
-                                        <span style={{ color: 'var(--text-tertiary)', fontSize: '11px' }}>{log.agent_id?.slice(0, 8) || '-'}</span>
-                                    </div>
-                                    {details && (
-                                        <div style={{ marginLeft: '100px', marginTop: '2px', fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>
-                                            {Object.entries(details).map(([k, v]) => (
-                                                <span key={k} style={{ marginRight: '12px' }}>{k}={typeof v === 'string' ? v : JSON.stringify(v)}</span>
-                                            ))}
-                                        </div>
-                                    )}
+
+                        {/* Table */}
+                        <div style={{ overflowX: 'auto' }}>
+                            <table className="table" style={{ width: '100%', fontSize: '13px' }}>
+                                <thead>
+                                    <tr>
+                                        <th style={{ whiteSpace: 'nowrap' }}>{t('enterprise.audit.time')}</th>
+                                        <th>{t('enterprise.audit.eventType')}</th>
+                                        <th>{t('enterprise.audit.severity')}</th>
+                                        <th>{t('enterprise.audit.user')}</th>
+                                        <th>{t('enterprise.audit.action')}</th>
+                                        <th>{t('enterprise.audit.identity')}</th>
+                                        <th>{t('enterprise.audit.target')}</th>
+                                        <th style={{ width: '80px' }}>{t('enterprise.audit.chain')}</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {auditEvents.map((ev: any) => {
+                                        const severityColors: Record<string, { bg: string; color: string }> = {
+                                            info: { bg: 'rgba(99,102,241,0.12)', color: 'var(--accent-color, #6366f1)' },
+                                            warn: { bg: 'rgba(255,159,10,0.12)', color: 'var(--warning, #ff9f0a)' },
+                                            error: { bg: 'rgba(255,59,48,0.12)', color: 'var(--error, #ff3b30)' },
+                                        };
+                                        const sc = severityColors[ev.severity] || severityColors.info;
+                                        const chainRes = auditChainResult[ev.id];
+                                        const isBot = ev.execution_identity === 'bot' || ev.execution_identity === 'agent';
+                                        return (
+                                            <tr key={ev.id}>
+                                                <td style={{ whiteSpace: 'nowrap', fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                                                    {new Date(ev.created_at || ev.timestamp).toLocaleString()}
+                                                </td>
+                                                <td>
+                                                    <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 500, background: 'var(--bg-tertiary, rgba(255,255,255,0.05))' }}>
+                                                        {ev.event_type || ev.action || '-'}
+                                                    </span>
+                                                </td>
+                                                <td>
+                                                    <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 500, background: sc.bg, color: sc.color }}>
+                                                        {ev.severity || 'info'}
+                                                    </span>
+                                                </td>
+                                                <td style={{ fontSize: '12px' }}>{ev.actor || ev.user_email || '-'}</td>
+                                                <td style={{ fontSize: '12px', fontWeight: 500 }}>{ev.action || ev.event_type || '-'}</td>
+                                                <td>
+                                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                                                        <span>{isBot ? '\u{1F916}' : '\u{1F464}'}</span>
+                                                        {isBot ? t('enterprise.audit.identityBot') : t('enterprise.audit.identityUser')}
+                                                    </span>
+                                                </td>
+                                                <td style={{ fontSize: '11px', color: 'var(--text-tertiary)', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                    {ev.details ? (typeof ev.details === 'string' ? ev.details.slice(0, 80) : JSON.stringify(ev.details).slice(0, 80)) : '-'}
+                                                </td>
+                                                <td>
+                                                    {chainRes === undefined ? (
+                                                        <button className="btn btn-ghost" style={{ fontSize: '11px', padding: '2px 6px' }} onClick={() => handleVerifyChain(ev.id)}>
+                                                            {t('enterprise.audit.chain')}
+                                                        </button>
+                                                    ) : chainRes === null ? (
+                                                        <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>-</span>
+                                                    ) : (
+                                                        <span style={{ fontSize: '11px', color: chainRes.valid ? 'var(--success, #34c759)' : 'var(--error, #ff3b30)' }}>
+                                                            {chainRes.valid ? t('enterprise.audit.chainValid') : t('enterprise.audit.chainInvalid')}
+                                                        </span>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                        {auditEvents.length === 0 && <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-tertiary)' }}>{t('common.noData')}</div>}
+
+                        {/* Pagination */}
+                        {auditTotalPages > 1 && (
+                            <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginTop: '16px', alignItems: 'center' }}>
+                                <button className="btn btn-ghost" disabled={auditPage <= 1} onClick={() => setAuditPage(p => p - 1)} style={{ fontSize: '12px' }}>
+                                    &laquo;
+                                </button>
+                                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{auditPage} / {auditTotalPages}</span>
+                                <button className="btn btn-ghost" disabled={auditPage >= auditTotalPages} onClick={() => setAuditPage(p => p + 1)} style={{ fontSize: '12px' }}>
+                                    &raquo;
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* ── SSO Tab ── */}
+                {activeTab === 'sso' && (
+                    <div>
+                        <h3 style={{ marginBottom: '4px' }}>{t('enterprise.sso.title')}</h3>
+                        <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '16px' }}>
+                            {t('enterprise.sso.description')}
+                        </p>
+                        <div className="card" style={{ padding: '16px' }}>
+                            {/* Status indicator */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+                                <span style={{
+                                    width: 8, height: 8, borderRadius: '50%',
+                                    background: ssoLoaded && ssoForm.issuer_url ? 'var(--success, #34c759)' : 'var(--text-tertiary)',
+                                }} />
+                                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                                    {ssoLoaded && ssoForm.issuer_url ? t('enterprise.sso.configured') : t('enterprise.sso.notConfigured')}
+                                </span>
+                            </div>
+
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                <div className="form-group">
+                                    <label className="form-label">{t('enterprise.sso.issuerUrl')}</label>
+                                    <input className="form-input" value={ssoForm.issuer_url} onChange={e => setSsoForm(f => ({ ...f, issuer_url: e.target.value }))} placeholder={t('enterprise.sso.issuerUrlPlaceholder')} />
                                 </div>
-                            );
-                        })}
-                        {filteredAuditLogs.length === 0 && <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-tertiary)' }}>{t('common.noData')}</div>}
+                                <div style={{ display: 'flex', gap: '12px' }}>
+                                    <div className="form-group" style={{ flex: 1 }}>
+                                        <label className="form-label">{t('enterprise.sso.clientId')}</label>
+                                        <input className="form-input" value={ssoForm.client_id} onChange={e => setSsoForm(f => ({ ...f, client_id: e.target.value }))} placeholder={t('enterprise.sso.clientIdPlaceholder')} />
+                                    </div>
+                                    <div className="form-group" style={{ flex: 1 }}>
+                                        <label className="form-label">{t('enterprise.sso.clientSecret')}</label>
+                                        <input className="form-input" type="password" value={ssoForm.client_secret} onChange={e => setSsoForm(f => ({ ...f, client_secret: e.target.value }))} placeholder={t('enterprise.sso.clientSecretPlaceholder')} />
+                                    </div>
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">{t('enterprise.sso.scopes')}</label>
+                                    <input className="form-input" value={ssoForm.scopes} onChange={e => setSsoForm(f => ({ ...f, scopes: e.target.value }))} placeholder={t('enterprise.sso.scopesPlaceholder')} />
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">{t('enterprise.sso.displayName')}</label>
+                                    <input className="form-input" value={ssoForm.display_name} onChange={e => setSsoForm(f => ({ ...f, display_name: e.target.value }))} placeholder={t('enterprise.sso.displayNamePlaceholder')} />
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <input type="checkbox" id="sso-auto-provision" checked={ssoForm.auto_provision} onChange={e => setSsoForm(f => ({ ...f, auto_provision: e.target.checked }))} />
+                                    <label htmlFor="sso-auto-provision" style={{ fontSize: '13px', cursor: 'pointer' }}>{t('enterprise.sso.autoProvision')}</label>
+                                    <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{t('enterprise.sso.autoProvisionDesc')}</span>
+                                </div>
+                            </div>
+                            <div style={{ marginTop: '16px', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                <button className="btn btn-primary" onClick={saveSsoConfig} disabled={ssoSaving || !ssoForm.issuer_url || !ssoForm.client_id}>
+                                    {ssoSaving ? t('common.loading') : t('enterprise.sso.save')}
+                                </button>
+                                {ssoSaved && <span style={{ color: 'var(--success)', fontSize: '12px' }}>{t('enterprise.sso.saved')}</span>}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* ── Capabilities Tab ── */}
+                {activeTab === 'capabilities' && (
+                    <div>
+                        <h3 style={{ marginBottom: '4px' }}>{t('enterprise.capabilities.title')}</h3>
+                        <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '16px' }}>
+                            {t('enterprise.capabilities.description')}
+                        </p>
+                        <div style={{ overflowX: 'auto' }}>
+                            <table className="table" style={{ width: '100%', fontSize: '13px' }}>
+                                <thead>
+                                    <tr>
+                                        <th>{t('enterprise.capabilities.capability')}</th>
+                                        <th>{t('enterprise.capabilities.tools')}</th>
+                                        <th style={{ width: '120px' }}>{t('enterprise.audit.severity')}</th>
+                                        <th style={{ width: '140px' }}>{t('enterprise.capabilities.requiresApproval')}</th>
+                                        <th style={{ width: '100px' }}></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {capDefinitions.map((def: any) => {
+                                        const policy = capPolicies.find((p: any) => p.capability === def.capability);
+                                        const isAllowed = policy ? policy.allowed : true;
+                                        const requiresApproval = policy?.requires_approval ?? false;
+                                        const isSaving = capSaving === def.capability;
+                                        return (
+                                            <tr key={def.capability}>
+                                                <td style={{ fontWeight: 500 }}>{def.capability}</td>
+                                                <td style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                                                    {def.tools?.join(', ') || '-'}
+                                                </td>
+                                                <td>
+                                                    <button
+                                                        className="btn btn-ghost"
+                                                        disabled={isSaving}
+                                                        onClick={() => handleCapUpsert(def.capability, !isAllowed, requiresApproval)}
+                                                        style={{
+                                                            fontSize: '11px', padding: '2px 10px', borderRadius: '4px',
+                                                            background: isAllowed ? 'rgba(34,197,94,0.12)' : 'rgba(255,59,48,0.12)',
+                                                            color: isAllowed ? 'var(--success, #34c759)' : 'var(--error, #ff3b30)',
+                                                            border: 'none', cursor: 'pointer',
+                                                        }}
+                                                    >
+                                                        {isAllowed ? t('enterprise.capabilities.allowed') : t('enterprise.capabilities.denied')}
+                                                    </button>
+                                                </td>
+                                                <td>
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={requiresApproval}
+                                                        disabled={isSaving}
+                                                        onChange={e => handleCapUpsert(def.capability, isAllowed, e.target.checked)}
+                                                    />
+                                                </td>
+                                                <td>
+                                                    {policy && (
+                                                        <button className="btn btn-ghost" onClick={() => handleCapDelete(policy.id)} style={{ fontSize: '11px', color: 'var(--text-tertiary)', padding: '2px 6px' }}>
+                                                            {t('enterprise.capabilities.delete')}
+                                                        </button>
+                                                    )}
+                                                    {!policy && (
+                                                        <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{t('enterprise.capabilities.noPolicy')}</span>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                        {capDefinitions.length === 0 && <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-tertiary)' }}>{t('common.noData')}</div>}
                     </div>
                 )}
 
                 {/* ── Company Management ── */}
                 {activeTab === 'info' && (
                     <div>
+
+                        {/* ── Onboarding Progress ── */}
+                        {onboardingData && onboardingData.total > 0 && (
+                            <div className="card" style={{ padding: '16px', marginBottom: '24px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                                    <h4 style={{ margin: 0 }}>{t('enterprise.onboarding.title')}</h4>
+                                    <span style={{ fontSize: '12px', color: onboardingData.completed === onboardingData.total ? 'var(--success, #34c759)' : 'var(--text-secondary)' }}>
+                                        {onboardingData.completed === onboardingData.total
+                                            ? t('enterprise.onboarding.allDone')
+                                            : t('enterprise.onboarding.completed', { completed: onboardingData.completed, total: onboardingData.total })}
+                                    </span>
+                                </div>
+                                <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
+                                    {t('enterprise.onboarding.description')}
+                                </p>
+                                {/* Progress bar */}
+                                <div style={{ height: '8px', borderRadius: '4px', background: 'var(--bg-tertiary, rgba(255,255,255,0.06))', marginBottom: '12px', overflow: 'hidden' }}>
+                                    <div style={{
+                                        height: '100%', borderRadius: '4px',
+                                        width: `${(onboardingData.completed / onboardingData.total) * 100}%`,
+                                        background: onboardingData.completed === onboardingData.total ? 'var(--success, #34c759)' : 'var(--accent-primary, #6366f1)',
+                                        transition: 'width 0.3s ease',
+                                    }} />
+                                </div>
+                                {/* Onboarding items */}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                    {onboardingData.items.map((item: any, idx: number) => (
+                                        <div
+                                            key={idx}
+                                            onClick={() => {
+                                                if (item.link) {
+                                                    if (item.link.startsWith('/')) {
+                                                        window.location.href = item.link;
+                                                    } else if (item.tab) {
+                                                        setActiveTab(item.tab);
+                                                    }
+                                                }
+                                            }}
+                                            style={{
+                                                display: 'flex', alignItems: 'center', gap: '10px',
+                                                padding: '8px 12px', borderRadius: '6px',
+                                                background: item.completed ? 'rgba(34,197,94,0.06)' : 'transparent',
+                                                border: '1px solid var(--border-subtle)',
+                                                cursor: item.link || item.tab ? 'pointer' : 'default',
+                                                transition: 'background 0.15s',
+                                            }}
+                                        >
+                                            <span style={{
+                                                width: 20, height: 20, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                fontSize: '12px', flexShrink: 0,
+                                                background: item.completed ? 'rgba(34,197,94,0.15)' : 'var(--bg-tertiary, rgba(255,255,255,0.06))',
+                                                color: item.completed ? 'var(--success, #34c759)' : 'var(--text-tertiary)',
+                                            }}>
+                                                {item.completed ? '\u2713' : (idx + 1)}
+                                            </span>
+                                            <span style={{ fontSize: '13px', color: item.completed ? 'var(--text-tertiary)' : 'var(--text-primary)', textDecoration: item.completed ? 'line-through' : 'none' }}>
+                                                {item.label || item.name}
+                                            </span>
+                                            {(item.link || item.tab) && !item.completed && (
+                                                <span style={{ marginLeft: 'auto', fontSize: '11px', color: 'var(--accent-primary, #6366f1)' }}>&rarr;</span>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
 
                         {/* ── 0. Company Name ── */}
                         <h3 style={{ marginBottom: '8px' }}>{t('enterprise.companyName.title', 'Company Name')}</h3>

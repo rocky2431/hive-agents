@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../stores';
-import { authApi } from '../services/api';
+import { authApi, oidcApi } from '../services/api';
 
 export default function Login() {
     const { t, i18n } = useTranslation();
@@ -11,6 +11,8 @@ export default function Login() {
     const [isRegister, setIsRegister] = useState(false);
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
+
+    const [ssoConfig, setSsoConfig] = useState<any>(null);
 
     const [form, setForm] = useState({
         username: '',
@@ -22,6 +24,45 @@ export default function Login() {
     useEffect(() => {
         document.documentElement.setAttribute('data-theme', 'dark');
     }, []);
+
+    // Fetch SSO config on mount
+    useEffect(() => {
+        oidcApi.config().then(cfg => {
+            if (cfg.configured) setSsoConfig(cfg);
+        }).catch(() => {});
+    }, []);
+
+    // Handle OIDC callback — check URL for ?code= parameter with CSRF state verification
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        const code = params.get('code');
+        if (code && ssoConfig) {
+            // Verify OIDC state parameter to prevent CSRF
+            const returnedState = params.get('state');
+            const savedState = sessionStorage.getItem('oidc_state');
+            if (!savedState || returnedState !== savedState) {
+                setError('Invalid SSO state parameter — possible CSRF attack. Please try again.');
+                window.history.replaceState({}, '', '/login');
+                return;
+            }
+            sessionStorage.removeItem('oidc_state');
+
+            setLoading(true);
+            oidcApi.callback({
+                code,
+                redirect_uri: window.location.origin + '/login',
+                tenant_id: ssoConfig.tenant_id,
+            }).then(res => {
+                setAuth(res.user, res.access_token);
+                navigate(res.needs_company_setup ? '/setup-company' : '/');
+            }).catch(err => {
+                setError(err.message || t('auth.loginFailed'));
+            }).finally(() => {
+                setLoading(false);
+                window.history.replaceState({}, '', '/login');
+            });
+        }
+    }, [ssoConfig]);
 
     const toggleLang = () => {
         i18n.changeLanguage(i18n.language === 'zh' ? 'en' : 'zh');
@@ -195,6 +236,38 @@ export default function Login() {
                             )}
                         </button>
                     </form>
+
+                    {ssoConfig && (
+                        <div style={{ marginTop: '16px' }}>
+                            <div style={{
+                                display: 'flex', alignItems: 'center', gap: '12px',
+                                margin: '16px 0', color: 'var(--text-tertiary)', fontSize: '13px',
+                            }}>
+                                <div style={{ flex: 1, height: '1px', background: 'var(--border-subtle)' }} />
+                                {t('auth.or')}
+                                <div style={{ flex: 1, height: '1px', background: 'var(--border-subtle)' }} />
+                            </div>
+                            <button
+                                type="button"
+                                className="login-submit"
+                                style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
+                                onClick={() => {
+                                    const state = crypto.randomUUID();
+                                    sessionStorage.setItem('oidc_state', state);
+                                    const params = new URLSearchParams({
+                                        client_id: ssoConfig.client_id,
+                                        response_type: 'code',
+                                        redirect_uri: window.location.origin + '/login',
+                                        scope: ssoConfig.scopes || 'openid profile email',
+                                        state,
+                                    });
+                                    window.location.href = `${ssoConfig.authorization_endpoint}?${params}`;
+                                }}
+                            >
+                                {ssoConfig.display_name || t('enterprise.sso.loginWithSSO')}
+                            </button>
+                        </div>
+                    )}
 
                     <div className="login-switch">
                         {isRegister ? t('auth.hasAccount') : t('auth.noAccount')}{' '}

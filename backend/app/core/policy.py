@@ -147,6 +147,20 @@ async def write_audit_event(
     }, sort_keys=True)
     event_hash = hashlib.sha256(hash_input.encode()).hexdigest()
 
+    # Read execution identity from ContextVar (set by channel handlers / trigger daemon)
+    exec_identity_type = None
+    exec_identity_id = None
+    exec_identity_label = None
+    try:
+        from app.core.execution_context import get_execution_identity
+        identity = get_execution_identity()
+        if identity:
+            exec_identity_type = identity.identity_type
+            exec_identity_id = identity.identity_id
+            exec_identity_label = identity.label
+    except Exception:
+        pass  # execution_context not available — safe to skip
+
     event = SecurityAuditEvent(
         event_type=event_type,
         severity=severity,
@@ -161,6 +175,9 @@ async def write_audit_event(
         request_id=request_id,
         prev_hash=prev_hash,
         event_hash=event_hash,
+        execution_identity_type=exec_identity_type,
+        execution_identity_id=exec_identity_id,
+        execution_identity_label=exec_identity_label,
     )
     db.add(event)
     await db.flush()

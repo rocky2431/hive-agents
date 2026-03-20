@@ -139,6 +139,23 @@ export const authApi = {
         request<User>('/auth/me', { method: 'PATCH', body: JSON.stringify(data) }),
 };
 
+// ─── OIDC SSO ────────────────────────────────────────
+export const oidcApi = {
+    config: (tenantSlug?: string) =>
+        request<any>(`/auth/oidc/config${tenantSlug ? `?tenant_slug=${tenantSlug}` : ''}`),
+
+    callback: (data: { code: string; redirect_uri: string; tenant_id?: string }) =>
+        request<TokenResponse>('/auth/oidc/callback', { method: 'POST', body: JSON.stringify(data) }),
+
+    bind: (data: { code: string; redirect_uri: string }) =>
+        request<any>('/auth/oidc/bind', { method: 'POST', body: JSON.stringify(data) }),
+
+    getConfig: () => request<any>('/enterprise/oidc-config'),
+
+    updateConfig: (data: { issuer_url: string; client_id: string; client_secret: string; scopes?: string; auto_provision?: boolean; display_name?: string }) =>
+        request<any>('/enterprise/oidc-config', { method: 'PUT', body: JSON.stringify(data) }),
+};
+
 // ─── Tenants ──────────────────────────────────────────
 export const tenantApi = {
     selfCreate: (data: { name: string }) =>
@@ -440,4 +457,52 @@ export const triggerApi = {
 
     delete: (agentId: string, triggerId: string) =>
         request<void>(`/agents/${agentId}/triggers/${triggerId}`, { method: 'DELETE' }),
+};
+
+// ─── Audit (SecurityAuditEvent) ──────────────────────
+export const auditApi = {
+    query: (params: Record<string, string | number | undefined>) => {
+        const qs = new URLSearchParams();
+        for (const [k, v] of Object.entries(params)) {
+            if (v !== undefined && v !== '') qs.set(k, String(v));
+        }
+        return request<{ items: any[]; total: number; page: number; page_size: number }>(
+            `/enterprise/audit?${qs}`,
+        );
+    },
+
+    exportCsv: (params: Record<string, string | undefined>) => {
+        const qs = new URLSearchParams();
+        for (const [k, v] of Object.entries(params)) {
+            if (v !== undefined && v !== '') qs.set(k, String(v));
+        }
+        const token = localStorage.getItem('token');
+        return fetch(`${API_BASE}/enterprise/audit/export?${qs}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+    },
+
+    verifyChain: (eventId: string) =>
+        request<{ valid: boolean; event_hash: string; computed_hash: string; predecessor_id: string | null }>(
+            `/enterprise/audit/${eventId}/chain`,
+        ),
+};
+
+// ─── Capability Policies ─────────────────────────────
+export const capabilityApi = {
+    definitions: () => request<any[]>('/enterprise/capabilities/definitions'),
+
+    list: (agentId?: string) =>
+        request<any[]>(`/enterprise/capabilities${agentId ? `?agent_id=${agentId}` : ''}`),
+
+    upsert: (data: { capability: string; agent_id?: string; allowed: boolean; requires_approval: boolean }) =>
+        request<any>('/enterprise/capabilities', { method: 'PUT', body: JSON.stringify(data) }),
+
+    delete: (policyId: string) =>
+        request<void>(`/enterprise/capabilities/${policyId}`, { method: 'DELETE' }),
+};
+
+// ─── Onboarding ──────────────────────────────────────
+export const onboardingApi = {
+    status: () => request<{ items: any[]; completed: number; total: number }>('/enterprise/onboarding-status'),
 };
