@@ -90,6 +90,9 @@ class Agent(Base):
     # Timezone (IANA format, e.g. "Asia/Shanghai"). None = inherit from tenant.
     timezone: Mapped[str | None] = mapped_column(String(50), default=None, nullable=True)
 
+    # Autonomy policy (L1/L2/L3 per action type)
+    autonomy_policy: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
