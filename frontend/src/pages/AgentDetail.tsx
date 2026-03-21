@@ -14,7 +14,7 @@ import { activityApi, agentApi, capabilityApi, channelApi, enterpriseApi, fileAp
 import CapabilityPackCard from '../components/CapabilityPackCard';
 import { useAuthStore } from '../stores';
 
-const TABS = ['status', 'aware', 'mind', 'capabilities', 'skills', 'relationships', 'workspace', 'chat', 'activityLog', 'approvals', 'settings'] as const;
+const TABS = ['chat', 'overview', 'skills', 'activity', 'settings'] as const;
 
 // Format large token numbers with K/M suffixes
 const formatTokens = (n: number) => {
@@ -928,9 +928,9 @@ function AgentDetailInner() {
             ? (location.state as any).bootstrapChannelFailures
             : [],
     );
-    const validTabs = ['status', 'aware', 'mind', 'capabilities', 'skills', 'relationships', 'workspace', 'chat', 'activityLog', 'approvals', 'settings'];
+    const validTabs = ['chat', 'overview', 'skills', 'activity', 'settings'];
     const hashTab = location.hash?.replace('#', '');
-    const [activeTab, setActiveTabRaw] = useState<string>(hashTab && validTabs.includes(hashTab) ? hashTab : 'status');
+    const [activeTab, setActiveTabRaw] = useState<string>(hashTab && validTabs.includes(hashTab) ? hashTab : 'chat');
 
     // Sync URL hash when tab changes
     const setActiveTab = (tab: string) => {
@@ -948,22 +948,22 @@ function AgentDetailInner() {
     const { data: awareTriggers = [], refetch: refetchTriggers } = useQuery({
         queryKey: ['triggers', id],
         queryFn: () => triggerApi.list(id!),
-        enabled: !!id && activeTab === 'aware',
-        refetchInterval: activeTab === 'aware' ? 5000 : false,
+        enabled: !!id && activeTab === 'overview',
+        refetchInterval: activeTab === 'overview' ? 5000 : false,
     });
 
     // ── Aware tab data: focus.md ──
     const { data: focusFile } = useQuery({
         queryKey: ['file', id, 'focus.md'],
         queryFn: () => fileApi.read(id!, 'focus.md').catch(() => null),
-        enabled: !!id && activeTab === 'aware',
+        enabled: !!id && activeTab === 'overview',
     });
 
     // ── Aware tab data: task_history.md ──
     const { data: taskHistoryFile } = useQuery({
         queryKey: ['file', id, 'task_history.md'],
         queryFn: () => fileApi.read(id!, 'task_history.md').catch(() => null),
-        enabled: !!id && activeTab === 'aware',
+        enabled: !!id && activeTab === 'overview',
     });
 
     // ── Aware tab data: reflection sessions (trigger monologues) ──
@@ -976,8 +976,8 @@ function AgentDetailInner() {
             const all = await res.json();
             return all.filter((s: any) => s.source_channel === 'trigger');
         },
-        enabled: !!id && activeTab === 'aware',
-        refetchInterval: activeTab === 'aware' ? 10000 : false,
+        enabled: !!id && activeTab === 'overview',
+        refetchInterval: activeTab === 'overview' ? 10000 : false,
     });
 
     // ── Aware tab state ──
@@ -995,13 +995,13 @@ function AgentDetailInner() {
     const { data: soulContent } = useQuery({
         queryKey: ['file', id, 'soul.md'],
         queryFn: () => fileApi.read(id!, 'soul.md'),
-        enabled: !!id && activeTab === 'mind',
+        enabled: !!id && activeTab === 'skills',
     });
 
     const { data: memoryFiles = [] } = useQuery({
         queryKey: ['files', id, 'memory'],
         queryFn: () => fileApi.list(id!, 'memory'),
-        enabled: !!id && activeTab === 'mind',
+        enabled: !!id && activeTab === 'skills',
     });
     const [expandedMemory, setExpandedMemory] = useState<string | null>(null);
     const { data: memoryFileContent } = useQuery({
@@ -1020,14 +1020,14 @@ function AgentDetailInner() {
     const { data: workspaceFiles = [] } = useQuery({
         queryKey: ['files', id, workspacePath],
         queryFn: () => fileApi.list(id!, workspacePath),
-        enabled: !!id && activeTab === 'workspace',
+        enabled: !!id && activeTab === 'skills',
     });
 
     const { data: activityLogs = [] } = useQuery({
         queryKey: ['activity', id],
         queryFn: () => activityApi.list(id!, 100),
-        enabled: !!id && (activeTab === 'activityLog' || activeTab === 'status'),
-        refetchInterval: activeTab === 'activityLog' ? 10000 : false,
+        enabled: !!id && (activeTab === 'activity' || activeTab === 'overview'),
+        refetchInterval: activeTab === 'activity' ? 10000 : false,
     });
 
     // Chat history
@@ -1595,7 +1595,7 @@ function AgentDetailInner() {
     const { data: schedules = [] } = useQuery({
         queryKey: ['schedules', id],
         queryFn: () => scheduleApi.list(id!),
-        enabled: !!id && activeTab === 'tasks',
+        enabled: !!id && activeTab === 'overview',
     });
 
     // Schedule form state
@@ -1650,7 +1650,7 @@ function AgentDetailInner() {
     const { data: metrics } = useQuery({
         queryKey: ['metrics', id],
         queryFn: () => agentApi.metrics(id!).catch(() => null),
-        enabled: !!id && activeTab === 'status',
+        enabled: !!id && activeTab === 'overview',
         retry: false,
     });
 
@@ -1669,7 +1669,7 @@ function AgentDetailInner() {
     const { data: llmModels = [] } = useQuery({
         queryKey: ['llm-models'],
         queryFn: () => enterpriseApi.llmModels(),
-        enabled: activeTab === 'settings' || activeTab === 'status' || activeTab === 'chat',
+        enabled: activeTab === 'settings' || activeTab === 'overview' || activeTab === 'chat',
     });
 
     const supportsVision = !!agent?.primary_model_id && llmModels.some(
@@ -1940,13 +1940,13 @@ function AgentDetailInner() {
                 {/* Tabs */}
                 <div className="tabs">
                     {TABS.filter(tab => {
-                        // 'use' access: hide settings and approvals tabs
+                        // 'use' access: hide settings tab
                         if ((agent as any)?.access_level === 'use') {
-                            if (tab === 'settings' || tab === 'approvals') return false;
+                            if (tab === 'settings') return false;
                         }
-                        // OpenClaw agents: only show status, chat, activityLog, settings
+                        // OpenClaw agents: only show chat, overview, activity, settings
                         if ((agent as any)?.agent_type === 'openclaw') {
-                            return ['status', 'relationships', 'chat', 'activityLog', 'settings'].includes(tab);
+                            return ['chat', 'overview', 'activity', 'settings'].includes(tab);
                         }
                         return true;
                     }).map((tab) => (
@@ -1956,8 +1956,8 @@ function AgentDetailInner() {
                     ))}
                 </div>
 
-                {/* ── Enhanced Status Tab ── */}
-                {activeTab === 'status' && (() => {
+                {/* ── Overview Tab (merged: status + aware + relationships) ── */}
+                {activeTab === 'overview' && (() => {
                     // Format date helper
                     const formatDate = (d: string) => {
                         try { return new Date(d).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }); } catch { return d; }
@@ -1967,12 +1967,42 @@ function AgentDetailInner() {
                     const modelLabel = primaryModel ? (primaryModel.label || primaryModel.model) : '—';
                     const modelProvider = primaryModel ? primaryModel.provider : '—';
 
+                    // ── Focus parsing (from aware tab) ──
+                    const raw = focusFile?.content || '';
+                    const lines = raw.split('\n');
+                    const focusItems: { id: string; name: string; description: string; done: boolean; inProgress: boolean }[] = [];
+                    let currentItem: any = null;
+                    for (const line of lines) {
+                        const match = line.match(/^\s*-\s*\[([ x/])\]\s*(.+)/i);
+                        if (match) {
+                            if (currentItem) focusItems.push(currentItem);
+                            const marker = match[1];
+                            const fullText = match[2].trim();
+                            const colonIdx = fullText.indexOf(':');
+                            const itemName = colonIdx > 0 ? fullText.substring(0, colonIdx).trim() : fullText;
+                            const itemDesc = colonIdx > 0 ? fullText.substring(colonIdx + 1).trim() : '';
+                            currentItem = {
+                                id: itemName,
+                                name: itemName,
+                                description: itemDesc,
+                                done: marker.toLowerCase() === 'x',
+                                inProgress: marker === '/',
+                            };
+                        } else if (currentItem && line.trim() && /^\s{2,}/.test(line)) {
+                            currentItem.description = currentItem.description
+                                ? currentItem.description + ' ' + line.trim()
+                                : line.trim();
+                        }
+                    }
+                    if (currentItem) focusItems.push(currentItem);
+                    const activeFocusItems = focusItems.filter(f => !f.done);
+
                     return (
                         <div>
-                            {/* Metric cards */}
+                            {/* Section 1: Status cards row */}
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '24px' }}>
                                 <div className="card">
-                                    <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '6px' }}>{t('agent.tabs.status')}</div>
+                                    <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '6px' }}>{t('agent.tabs.status', 'Status')}</div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                         <span className={`status-dot ${statusKey}`} />
                                         <span style={{ fontSize: '16px', fontWeight: 500 }}>{t(`agent.status.${statusKey}`)}</span>
@@ -2115,12 +2145,33 @@ function AgentDetailInner() {
                                 )}
                             </div>
 
-                            {/* Recent Activity */}
+                            {/* Section 2: Working On (focus.md) */}
+                            {(agent as any)?.agent_type !== 'openclaw' && activeFocusItems.length > 0 && (
+                                <div className="card" style={{ marginBottom: '24px' }}>
+                                    <h3 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px' }}>{t('agent.aware.focus')}</h3>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                        {activeFocusItems.slice(0, 5).map((item) => (
+                                            <div key={item.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '8px 0', borderBottom: '1px solid var(--border-subtle)' }}>
+                                                <div style={{
+                                                    width: '8px', height: '8px', borderRadius: '50%', marginTop: '5px', flexShrink: 0,
+                                                    background: item.inProgress ? 'var(--accent-primary)' : 'var(--border-subtle)',
+                                                }} />
+                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                    <div style={{ fontSize: '13px', fontWeight: 500 }}>{item.description || item.name}</div>
+                                                    {item.description && <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'monospace', marginTop: '2px' }}>{item.name}</div>}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Section 3: Recent Activity (last 5) */}
                             {activityLogs && activityLogs.length > 0 && (
-                                <div className="card">
+                                <div className="card" style={{ marginBottom: '24px' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                        <h3 style={{ fontSize: '14px', fontWeight: 600 }}>📊 Recent Activity</h3>
-                                        <button className="btn btn-ghost" style={{ fontSize: '12px' }} onClick={() => setActiveTab('activityLog')}>View All →</button>
+                                        <h3 style={{ fontSize: '14px', fontWeight: 600 }}>{t('agent.activityLog.title')}</h3>
+                                        <button className="btn btn-ghost" style={{ fontSize: '12px' }} onClick={() => setActiveTab('activity')}>View All →</button>
                                     </div>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                         {activityLogs.slice(0, 5).map((log: any, i: number) => (
@@ -2135,741 +2186,21 @@ function AgentDetailInner() {
                                 </div>
                             )}
 
-                            {/* Quick Actions */}
-                            <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
-                                <button className="btn btn-secondary" onClick={() => setActiveTab('chat')}>{t('agent.actions.chat')}</button>
-                                {(agent as any)?.agent_type !== 'openclaw' && <button className="btn btn-secondary" onClick={() => setActiveTab('aware')}>Aware</button>}
-                                <button className="btn btn-secondary" onClick={() => setActiveTab('settings')}>{t('agent.tabs.settings')}</button>
-                            </div>
+                            {/* Section 4: Team Connections (collapsible) */}
+                            <details className="card">
+                                <summary style={{ cursor: 'pointer', fontWeight: 600, fontSize: '14px', listStyle: 'none', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <span style={{ transition: 'transform 0.15s', display: 'inline-block', fontSize: '12px' }}>&#x25B6;</span>
+                                    {t('agent.tabs.relationships', 'Team Connections')}
+                                </summary>
+                                <div style={{ marginTop: '12px' }}>
+                                    <RelationshipEditor agentId={id!} readOnly={(agent as any)?.access_level === 'use'} />
+                                </div>
+                            </details>
                         </div>
                     );
                 })()}
 
-                {/* ── Aware Tab ── */}
-                {activeTab === 'aware' && (() => {
-                    // Parse focus.md into focus items with multi-line descriptions
-                    const raw = focusFile?.content || '';
-                    const lines = raw.split('\n');
-                    const focusItems: { id: string; name: string; description: string; done: boolean; inProgress: boolean }[] = [];
-                    let currentItem: any = null;
-                    for (const line of lines) {
-                        const match = line.match(/^\s*-\s*\[([ x/])\]\s*(.+)/i);
-                        if (match) {
-                            if (currentItem) focusItems.push(currentItem);
-                            const marker = match[1];
-                            const fullText = match[2].trim();
-                            // Split on first colon: "identifier: description"
-                            const colonIdx = fullText.indexOf(':');
-                            const itemName = colonIdx > 0 ? fullText.substring(0, colonIdx).trim() : fullText;
-                            const itemDesc = colonIdx > 0 ? fullText.substring(colonIdx + 1).trim() : '';
-                            currentItem = {
-                                id: itemName,
-                                name: itemName,
-                                description: itemDesc,
-                                done: marker.toLowerCase() === 'x',
-                                inProgress: marker === '/',
-                            };
-                        } else if (currentItem && line.trim() && /^\s{2,}/.test(line)) {
-                            // Indented continuation line = description
-                            currentItem.description = currentItem.description
-                                ? currentItem.description + ' ' + line.trim()
-                                : line.trim();
-                        }
-                    }
-                    if (currentItem) focusItems.push(currentItem);
-
-                    // Helper: convert trigger config to natural language
-                    const triggerToHuman = (trig: any): string => {
-                        if (trig.type === 'cron' && trig.config?.expr) {
-                            const expr = trig.config.expr;
-                            const parts = expr.split(' ');
-                            if (parts.length >= 5) {
-                                const [min, hour, , , dow] = parts;
-                                const timeStr = `${hour.padStart(2, '0')}:${min.padStart(2, '0')}`;
-                                if (dow === '*' && min !== '*' && hour !== '*') return `Every day at ${timeStr}`;
-                                if (dow === '1-5' && min !== '*' && hour !== '*') return `Weekdays at ${timeStr}`;
-                                if (dow === '0' || dow === '7') return `Sundays at ${timeStr}`;
-                                if (hour === '*' && min === '0') {
-                                    if (dow === '1-5') return 'Every hour on weekdays';
-                                    return 'Every hour';
-                                }
-                                if (hour === '*' && min !== '*') return `Every hour at :${min.padStart(2, '0')}`;
-                            }
-                            return `Cron: ${expr}`;
-                        }
-                        if (trig.type === 'once' && trig.config?.at) {
-                            try {
-                                return `Once at ${new Date(trig.config.at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`;
-                            } catch { return `Once at ${trig.config.at}`; }
-                        }
-                        if (trig.type === 'interval' && trig.config?.minutes) {
-                            const m = trig.config.minutes;
-                            return m >= 60 ? `Every ${m / 60}h` : `Every ${m} min`;
-                        }
-                        if (trig.type === 'poll') return `Poll: ${trig.config?.url?.substring(0, 40) || 'URL'}`;
-                        if (trig.type === 'on_message') {
-                            return `On message from ${trig.config?.from_agent_name || trig.config?.from_user_name || 'unknown'}`;
-                        }
-                        if (trig.type === 'webhook') {
-                            return `Webhook${trig.config?.token ? ` (${trig.config.token.substring(0, 6)}...)` : ''}`;
-                        }
-                        return trig.type;
-                    };
-
-                    // Group triggers by focus_ref
-                    const triggersByFocus: Record<string, any[]> = {};
-                    const standaloneTriggers: any[] = [];
-                    for (const trig of awareTriggers) {
-                        if (trig.focus_ref && focusItems.some(f => f.name === trig.focus_ref)) {
-                            if (!triggersByFocus[trig.focus_ref]) triggersByFocus[trig.focus_ref] = [];
-                            triggersByFocus[trig.focus_ref].push(trig);
-                        } else {
-                            standaloneTriggers.push(trig);
-                        }
-                    }
-
-                    // Group activity logs by trigger name -> focus_ref
-                    const triggerLogsByFocus: Record<string, any[]> = {};
-                    const triggerNameToFocus: Record<string, string> = {};
-                    for (const trig of awareTriggers) {
-                        if (trig.focus_ref) triggerNameToFocus[trig.name] = trig.focus_ref;
-                    }
-                    const triggerRelatedLogs = activityLogs.filter((log: any) =>
-                        log.action_type === 'trigger_fired' || log.action_type === 'trigger_created' ||
-                        log.action_type === 'trigger_updated' || log.action_type === 'trigger_cancelled' ||
-                        log.summary?.includes('trigger')
-                    );
-                    for (const log of triggerRelatedLogs) {
-                        // Try to match log to a focus item via trigger name in the summary
-                        let matched = false;
-                        for (const [trigName, focusName] of Object.entries(triggerNameToFocus)) {
-                            if (log.summary?.includes(trigName) || log.detail?.tool === trigName) {
-                                if (!triggerLogsByFocus[focusName]) triggerLogsByFocus[focusName] = [];
-                                triggerLogsByFocus[focusName].push(log);
-                                matched = true;
-                                break;
-                            }
-                        }
-                        if (!matched) {
-                            if (!triggerLogsByFocus['__unmatched__']) triggerLogsByFocus['__unmatched__'] = [];
-                            triggerLogsByFocus['__unmatched__'].push(log);
-                        }
-                    }
-
-                    const hasFocusItems = focusItems.length > 0;
-                    const hasStandalone = standaloneTriggers.length > 0;
-
-                    // Split focus items: active first, completed separately
-                    const activeFocusItems = focusItems.filter(f => !f.done);
-                    const completedFocusItems = focusItems.filter(f => f.done);
-                    const visibleActiveFocus = showAllFocus ? activeFocusItems : activeFocusItems.slice(0, SECTION_PAGE_SIZE);
-                    const hiddenActiveCount = activeFocusItems.length - visibleActiveFocus.length;
-
-                    // Render a focus item row
-                    const renderFocusItem = (item: typeof focusItems[0]) => {
-                        const isExpanded = expandedFocus === item.id;
-                        const itemTriggers = triggersByFocus[item.name] || [];
-                        const itemLogs = triggerLogsByFocus[item.name] || [];
-                        const displayTitle = item.description || item.name;
-                        const displaySubtitle = item.description ? item.name : null;
-
-                        return (
-                            <div key={item.id} style={{
-                                borderRadius: '8px',
-                                border: '1px solid var(--border-subtle)',
-                                overflow: 'hidden',
-                                marginBottom: '6px',
-                                background: 'var(--bg-primary)',
-                            }}>
-                                {/* Focus Item Header */}
-                                <div
-                                    onClick={() => setExpandedFocus(isExpanded ? null : item.id)}
-                                    style={{
-                                        padding: '12px 16px',
-                                        display: 'flex',
-                                        alignItems: 'flex-start',
-                                        gap: '12px',
-                                        cursor: 'pointer',
-                                        transition: 'background 0.15s',
-                                    }}
-                                    onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-secondary)')}
-                                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                                >
-                                    {/* Status indicator */}
-                                    <div style={{
-                                        width: '8px', height: '8px', borderRadius: '50%', marginTop: '5px', flexShrink: 0,
-                                        background: item.done ? 'var(--success, #10b981)' : item.inProgress ? 'var(--accent-primary)' : 'var(--border-subtle)',
-                                    }} />
-                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                        <div style={{
-                                            fontSize: '13px', fontWeight: 500, lineHeight: '20px',
-                                            textDecoration: item.done ? 'line-through' : 'none',
-                                            color: item.done ? 'var(--text-tertiary)' : 'var(--text-primary)',
-                                        }}>{displayTitle}</div>
-                                        {displaySubtitle && (
-                                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'monospace', marginTop: '2px' }}>
-                                                {displaySubtitle}
-                                            </div>
-                                        )}
-                                    </div>
-                                    {/* Trigger count badge */}
-                                    {itemTriggers.length > 0 && (
-                                        <span style={{
-                                            fontSize: '11px', color: 'var(--text-tertiary)',
-                                            padding: '2px 8px', borderRadius: '10px',
-                                            background: 'var(--bg-secondary)',
-                                            whiteSpace: 'nowrap',
-                                        }}>
-                                            {itemTriggers.length} trigger{itemTriggers.length > 1 ? 's' : ''}
-                                        </span>
-                                    )}
-                                    {/* Expand arrow */}
-                                    <span style={{
-                                        fontSize: '11px', color: 'var(--text-tertiary)',
-                                        transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
-                                        transition: 'transform 0.15s',
-                                        marginTop: '4px',
-                                    }}>&#9654;</span>
-                                </div>
-
-                                {/* Expanded content */}
-                                {isExpanded && (
-                                    <div style={{ padding: '0 16px 12px 36px', borderTop: '1px solid var(--border-subtle)' }}>
-                                        {/* Nested Triggers */}
-                                        {itemTriggers.length > 0 && (
-                                            <div style={{ marginTop: '12px' }}>
-                                                {itemTriggers.map((trig: any) => (
-                                                    <div key={trig.id} style={{
-                                                        display: 'flex', alignItems: 'center', gap: '10px',
-                                                        padding: '8px 12px', marginBottom: '4px',
-                                                        borderRadius: '6px', background: 'var(--bg-secondary)',
-                                                        opacity: trig.is_enabled ? 1 : 0.5,
-                                                    }}>
-                                                        <div style={{ flex: 1 }}>
-                                                            <div style={{ fontSize: '12px', fontWeight: 500, color: 'var(--text-primary)' }}>
-                                                                {triggerToHuman(trig)}
-                                                            </div>
-                                                            {trig.reason && <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '2px' }}>{trig.reason}</div>}
-                                                            <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginTop: '2px', fontFamily: 'monospace' }}>
-                                                                {trig.type === 'cron' ? trig.config?.expr : ''}{' '}
-                                                            </div>
-                                                        </div>
-                                                        <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>
-                                                            {t('agent.aware.fired', { count: trig.fire_count })}
-                                                        </span>
-                                                        {!trig.is_enabled && (
-                                                            <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>{t('agent.aware.disabled')}</span>
-                                                        )}
-                                                        <div style={{ display: 'flex', gap: '4px' }}>
-                                                            <button className="btn btn-ghost" style={{ padding: '2px 6px', fontSize: '11px' }}
-                                                                onClick={async (e) => {
-                                                                    e.stopPropagation();
-                                                                    await triggerApi.update(id!, trig.id, { is_enabled: !trig.is_enabled });
-                                                                    refetchTriggers();
-                                                                }}>
-                                                                {trig.is_enabled ? t('agent.aware.disable') : t('agent.aware.enable')}
-                                                            </button>
-                                                            <button className="btn btn-ghost" style={{ padding: '2px 6px', fontSize: '11px', color: 'var(--error)' }}
-                                                                onClick={async (e) => {
-                                                                    e.stopPropagation();
-                                                                    if (confirm(t('agent.aware.deleteTriggerConfirm', { name: trig.name }))) {
-                                                                        await triggerApi.delete(id!, trig.id);
-                                                                        refetchTriggers();
-                                                                    }
-                                                                }}>
-                                                                {t('common.delete', 'Delete')}
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-
-                                        {/* Activity Logs for this focus */}
-                                        {itemLogs.length > 0 && (
-                                            <div style={{ marginTop: '12px' }}>
-                                                <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-tertiary)', marginBottom: '6px' }}>
-                                                    {t('agent.aware.reflections')}
-                                                </div>
-                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                                    {itemLogs.slice(0, 10).map((log: any) => (
-                                                        <div key={log.id} style={{
-                                                            padding: '6px 12px', borderRadius: '6px',
-                                                            background: 'var(--bg-secondary)',
-                                                            borderLeft: '2px solid var(--border-subtle)',
-                                                        }}>
-                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
-                                                                <span style={{
-                                                                    fontSize: '10px', padding: '1px 5px', borderRadius: '3px',
-                                                                    background: log.action_type === 'trigger_fired' ? 'rgba(var(--accent-primary-rgb, 99,102,241), 0.1)' : 'var(--bg-tertiary, #e5e7eb)',
-                                                                    color: log.action_type === 'trigger_fired' ? 'var(--accent-primary)' : 'var(--text-tertiary)',
-                                                                    fontWeight: 500,
-                                                                }}>{log.action_type?.replace('trigger_', '')}</span>
-                                                                <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>
-                                                                    {new Date(log.created_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                                                                </span>
-                                                            </div>
-                                                            <div style={{ fontSize: '12px', color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>{log.summary}</div>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        {itemTriggers.length === 0 && itemLogs.length === 0 && (
-                                            <div style={{ padding: '12px 0', fontSize: '12px', color: 'var(--text-tertiary)' }}>
-                                                {t('agent.aware.noTriggers')}
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-                            </div>
-                        );
-                    };
-
-                    return (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                            {/* ── Focus Section ── */}
-                            <div className="card" style={{ marginBottom: '16px', padding: '16px' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                    <div>
-                                        <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 600 }}>{t('agent.aware.focus')}</h4>
-                                        <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{t('agent.aware.focusDesc')}</span>
-                                    </div>
-                                    {hasFocusItems && (
-                                        <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
-                                            {activeFocusItems.length} active{completedFocusItems.length > 0 ? ` · ${completedFocusItems.length} done` : ''}
-                                        </span>
-                                    )}
-                                </div>
-
-                                {/* Active Focus Items */}
-                                {visibleActiveFocus.map(renderFocusItem)}
-
-                                {/* Show more active items */}
-                                {hiddenActiveCount > 0 && (
-                                    <button
-                                        onClick={() => setShowAllFocus(true)}
-                                        className="btn btn-ghost"
-                                        style={{ width: '100%', fontSize: '12px', color: 'var(--text-tertiary)', padding: '8px', marginTop: '4px' }}
-                                    >
-                                        {t('agentDetail.showMore', { count: hiddenActiveCount })}
-                                    </button>
-                                )}
-                                {showAllFocus && activeFocusItems.length > SECTION_PAGE_SIZE && (
-                                    <button
-                                        onClick={(e) => { setShowAllFocus(false); e.currentTarget.closest('.card')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}
-                                        className="btn btn-ghost"
-                                        style={{ width: '100%', fontSize: '12px', color: 'var(--text-tertiary)', padding: '8px', marginTop: '4px' }}
-                                    >
-                                        {t('agentDetail.showLess')}
-                                    </button>
-                                )}
-
-                                {/* Completed Focus Items — auto-collapsed */}
-                                {completedFocusItems.length > 0 && (
-                                    <>
-                                        <button
-                                            onClick={() => setShowCompletedFocus(!showCompletedFocus)}
-                                            className="btn btn-ghost"
-                                            style={{
-                                                width: '100%', fontSize: '12px', color: 'var(--text-tertiary)',
-                                                padding: '8px', marginTop: '8px',
-                                                borderTop: '1px solid var(--border-subtle)',
-                                                borderRadius: 0,
-                                            }}
-                                        >
-                                            {showCompletedFocus
-                                                ? t('agentDetail.hideCompleted')
-                                                : t('agentDetail.showCompleted', { count: completedFocusItems.length })
-                                            }
-                                        </button>
-                                        {showCompletedFocus && completedFocusItems.map(renderFocusItem)}
-                                    </>
-                                )}
-
-                                {/* Empty state */}
-                                {!hasFocusItems && (
-                                    <div style={{
-                                        padding: '24px', textAlign: 'center', color: 'var(--text-tertiary)',
-                                        border: '1px dashed var(--border-subtle)', borderRadius: '8px',
-                                    }}>
-                                        {t('agent.aware.focusEmpty')}
-                                    </div>
-                                )}
-                            </div>
-                            {/* ── Standalone Triggers Card ── */}
-                            {hasStandalone && (
-                                <div className="card" style={{ marginBottom: '16px', padding: '16px' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                        <div>
-                                            <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 600 }}>{t('agent.aware.standaloneTriggers')}</h4>
-                                        </div>
-                                        <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
-                                            {standaloneTriggers.length} trigger{standaloneTriggers.length > 1 ? 's' : ''}
-                                        </span>
-                                    </div>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                        {[...standaloneTriggers].sort((a: any, b: any) => (b.is_enabled ? 1 : 0) - (a.is_enabled ? 1 : 0)).slice(0, showAllTriggers ? undefined : SECTION_PAGE_SIZE).map((trig: any) => (
-                                            <div key={trig.id} style={{
-                                                padding: '10px 14px', borderRadius: '8px',
-                                                border: '1px solid var(--border-subtle)',
-                                                display: 'flex', alignItems: 'center', gap: '10px',
-                                                opacity: trig.is_enabled ? 1 : 0.5,
-                                                background: 'var(--bg-primary)',
-                                            }}>
-                                                <div style={{ flex: 1 }}>
-                                                    <div style={{ fontSize: '13px', fontWeight: 500 }}>{triggerToHuman(trig)}</div>
-                                                    {trig.reason && <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '2px' }}>{trig.reason}</div>}
-                                                    <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', fontFamily: 'monospace', marginTop: '2px' }}>
-                                                        {trig.name}{trig.type === 'cron' ? ` · ${trig.config?.expr}` : ''}
-                                                    </div>
-                                                </div>
-                                                <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>
-                                                    {t('agent.aware.fired', { count: trig.fire_count })}
-                                                </span>
-                                                {!trig.is_enabled && (
-                                                    <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>{t('agent.aware.disabled')}</span>
-                                                )}
-                                                <div style={{ display: 'flex', gap: '4px' }}>
-                                                    <button className="btn btn-ghost" style={{ padding: '2px 6px', fontSize: '11px' }}
-                                                        onClick={async () => {
-                                                            await triggerApi.update(id!, trig.id, { is_enabled: !trig.is_enabled });
-                                                            refetchTriggers();
-                                                        }}>
-                                                        {trig.is_enabled ? t('agent.aware.disable') : t('agent.aware.enable')}
-                                                    </button>
-                                                    <button className="btn btn-ghost" style={{ padding: '2px 6px', fontSize: '11px', color: 'var(--error)' }}
-                                                        onClick={async () => {
-                                                            if (confirm(t('agent.aware.deleteTriggerConfirm', { name: trig.name }))) {
-                                                                await triggerApi.delete(id!, trig.id);
-                                                                refetchTriggers();
-                                                            }
-                                                        }}>
-                                                        {t('common.delete', 'Delete')}
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                    {standaloneTriggers.length > SECTION_PAGE_SIZE && (
-                                        <button
-                                            onClick={(e) => { const collapse = showAllTriggers; setShowAllTriggers(!showAllTriggers); if (collapse) e.currentTarget.closest('.card')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}
-                                            className="btn btn-ghost"
-                                            style={{ width: '100%', fontSize: '12px', color: 'var(--text-tertiary)', padding: '8px', marginTop: '4px' }}
-                                        >
-                                            {showAllTriggers
-                                                ? (t('agentDetail.showLess'))
-                                                : t('agentDetail.showMore', { count: standaloneTriggers.length - SECTION_PAGE_SIZE })
-                                            }
-                                        </button>
-                                    )}
-                                </div>
-                            )}
-
-                            {/* Raw markdown toggle */}
-                            {raw && (
-                                <details style={{ marginTop: '4px', marginBottom: '16px' }}>
-                                    <summary style={{ fontSize: '11px', color: 'var(--text-tertiary)', cursor: 'pointer' }}>{t('agent.aware.viewRawMarkdown')}</summary>
-                                    <pre style={{ fontSize: '11px', marginTop: '8px', padding: '12px', background: 'var(--bg-secondary)', borderRadius: '6px', whiteSpace: 'pre-wrap', maxHeight: '300px', overflow: 'auto' }}>{raw}</pre>
-                                </details>
-                            )}
-
-                            {reflectionSessions.length > 0 && (() => {
-                                const totalPages = Math.ceil(reflectionSessions.length / REFLECTIONS_PAGE_SIZE);
-                                const pageStart = reflectionPage * REFLECTIONS_PAGE_SIZE;
-                                const visibleSessions = reflectionSessions.slice(pageStart, pageStart + REFLECTIONS_PAGE_SIZE);
-                                return (
-                                    <div className="card" style={{ padding: '16px' }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                            <div>
-                                                <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 600 }}>{t('agent.aware.reflections')}</h4>
-                                                <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{t('agent.aware.reflectionsDesc')}</span>
-                                            </div>
-                                            <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
-                                                {reflectionSessions.length} session{reflectionSessions.length > 1 ? 's' : ''}
-                                            </span>
-                                        </div>
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                            {visibleSessions.map((session: any) => {
-                                                const isExpanded = expandedReflection === session.id;
-                                                const msgs = reflectionMessages[session.id] || [];
-                                                return (
-                                                    <div key={session.id} style={{
-                                                        borderRadius: '8px',
-                                                        border: '1px solid var(--border-subtle)',
-                                                        overflow: 'hidden',
-                                                        background: 'var(--bg-primary)',
-                                                    }}>
-                                                        <div
-                                                            onClick={async () => {
-                                                                if (isExpanded) {
-                                                                    setExpandedReflection(null);
-                                                                    return;
-                                                                }
-                                                                setExpandedReflection(session.id);
-                                                                if (!reflectionMessages[session.id]) {
-                                                                    try {
-                                                                        const tkn = localStorage.getItem('token');
-                                                                        const res = await fetch(`/api/v1/agents/${id}/sessions/${session.id}/messages`, {
-                                                                            headers: { Authorization: `Bearer ${tkn}` },
-                                                                        });
-                                                                        if (res.ok) {
-                                                                            const data = await res.json();
-                                                                            setReflectionMessages(prev => ({ ...prev, [session.id]: data }));
-                                                                        }
-                                                                    } catch { /* ignore */ }
-                                                                }
-                                                            }}
-                                                            style={{
-                                                                padding: '10px 16px',
-                                                                display: 'flex', alignItems: 'center', gap: '10px',
-                                                                cursor: 'pointer', transition: 'background 0.15s',
-                                                            }}
-                                                            onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-secondary)')}
-                                                            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                                                        >
-                                                            <div style={{
-                                                                width: '6px', height: '6px', borderRadius: '50%',
-                                                                background: 'var(--accent-primary)', flexShrink: 0,
-                                                            }} />
-                                                            <div style={{ flex: 1, minWidth: 0 }}>
-                                                                <div style={{ fontSize: '12px', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                                    {(session.title || 'Trigger execution').replace(/^🤖\s*/, '')}
-                                                                </div>
-                                                                <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginTop: '1px' }}>
-                                                                    {new Date(session.created_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                                                                    {session.message_count > 0 && ` · ${session.message_count} msg`}
-                                                                </div>
-                                                            </div>
-                                                            <span style={{
-                                                                fontSize: '11px', color: 'var(--text-tertiary)',
-                                                                transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
-                                                                transition: 'transform 0.15s',
-                                                            }}>&#9654;</span>
-                                                        </div>
-                                                        {isExpanded && (
-                                                            <div style={{ padding: '0 16px 12px', borderTop: '1px solid var(--border-subtle)' }}>
-                                                                {msgs.length === 0 ? (
-                                                                    <div style={{ padding: '12px 0', fontSize: '12px', color: 'var(--text-tertiary)' }}>Loading...</div>
-                                                                ) : (
-                                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '8px' }}>
-                                                                        {msgs.map((msg: any, mi: number) => {
-                                                                            if (msg.role === 'tool_call') {
-                                                                                const tName = msg.toolName || (() => { try { return JSON.parse(msg.content || '{}').name; } catch { return ''; } })() || 'tool';
-                                                                                const tArgs = msg.toolArgs || (() => { try { return JSON.parse(msg.content || '{}').args; } catch { return {}; } })();
-                                                                                const tResult = msg.toolResult || '';
-                                                                                const argsStr = typeof tArgs === 'string' ? tArgs : JSON.stringify(tArgs || {}, null, 2);
-                                                                                const resultStr = typeof tResult === 'string' ? tResult : JSON.stringify(tResult, null, 2);
-                                                                                const hasDetail = argsStr.length > 60 || resultStr;
-                                                                                const Tag = hasDetail ? 'details' : 'div';
-                                                                                const HeaderTag = hasDetail ? 'summary' : 'div';
-                                                                                return (
-                                                                                    <Tag key={mi} style={{ borderRadius: '6px', background: 'var(--bg-secondary)', overflow: 'hidden' }}>
-                                                                                        <HeaderTag style={{
-                                                                                            padding: '5px 10px',
-                                                                                            fontSize: '11px', cursor: hasDetail ? 'pointer' : 'default',
-                                                                                            display: 'flex', alignItems: 'center', gap: '8px',
-                                                                                            listStyle: 'none',
-                                                                                            WebkitAppearance: 'none',
-                                                                                        } as any}>
-                                                                                            {hasDetail && <span style={{ fontSize: '8px', color: 'var(--text-tertiary)', flexShrink: 0 }}>&#9654;</span>}
-                                                                                            <span style={{
-                                                                                                fontWeight: 600, fontSize: '10px', color: 'var(--text-primary)',
-                                                                                                padding: '1px 6px', borderRadius: '3px',
-                                                                                                background: 'var(--bg-tertiary, rgba(0,0,0,0.06))',
-                                                                                                flexShrink: 0, fontFamily: 'monospace',
-                                                                                            }}>{tName}</span>
-                                                                                            <span style={{
-                                                                                                color: 'var(--text-tertiary)', fontFamily: 'monospace', fontSize: '10px',
-                                                                                                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                                                                                            }}>
-                                                                                                {argsStr.replace(/\n/g, ' ').substring(0, 60)}{argsStr.length > 60 ? '...' : ''}
-                                                                                            </span>
-                                                                                        </HeaderTag>
-                                                                                        {hasDetail && (
-                                                                                            <div style={{
-                                                                                                padding: '8px 10px', borderTop: '1px solid var(--border-subtle)',
-                                                                                                fontFamily: 'monospace', fontSize: '10px', lineHeight: 1.5,
-                                                                                                whiteSpace: 'pre-wrap', maxHeight: '200px', overflow: 'auto',
-                                                                                                color: 'var(--text-secondary)',
-                                                                                            }}>
-                                                                                                {argsStr}
-                                                                                                {resultStr && (
-                                                                                                    <>
-                                                                                                        <div style={{ borderTop: '1px dashed var(--border-subtle)', margin: '6px 0', opacity: 0.5 }} />
-                                                                                                        <span style={{ color: 'var(--text-tertiary)' }}>→ </span>{resultStr.substring(0, 500)}
-                                                                                                    </>
-                                                                                                )}
-                                                                                            </div>
-                                                                                        )}
-                                                                                    </Tag>
-                                                                                );
-                                                                            }
-                                                                            if (msg.role === 'tool_result') {
-                                                                                const tName = msg.toolName || (() => { try { return JSON.parse(msg.content || '{}').name; } catch { return ''; } })() || 'result';
-                                                                                const tResult = msg.toolResult || msg.content || '';
-                                                                                const resultStr = typeof tResult === 'string' ? tResult : JSON.stringify(tResult, null, 2);
-                                                                                if (!resultStr) return null;
-                                                                                return (
-                                                                                    <details key={mi} style={{ borderRadius: '6px', background: 'var(--bg-secondary)', overflow: 'hidden' }}>
-                                                                                        <summary style={{
-                                                                                            padding: '5px 10px',
-                                                                                            fontSize: '11px', cursor: 'pointer',
-                                                                                            display: 'flex', alignItems: 'center', gap: '8px',
-                                                                                            listStyle: 'none',
-                                                                                            WebkitAppearance: 'none',
-                                                                                        } as any}>
-                                                                                            <span style={{ fontSize: '8px', color: 'var(--text-tertiary)', flexShrink: 0 }}>&#9654;</span>
-                                                                                            <span style={{
-                                                                                                fontWeight: 600, fontSize: '10px', color: 'var(--text-primary)',
-                                                                                                padding: '1px 6px', borderRadius: '3px',
-                                                                                                background: 'var(--bg-tertiary, rgba(0,0,0,0.06))',
-                                                                                                flexShrink: 0, fontFamily: 'monospace',
-                                                                                            }}>{tName}</span>
-                                                                                            <span style={{
-                                                                                                color: 'var(--text-tertiary)', fontFamily: 'monospace', fontSize: '10px',
-                                                                                                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                                                                                            }}>
-                                                                                                → {resultStr.replace(/\n/g, ' ').substring(0, 80)}
-                                                                                            </span>
-                                                                                        </summary>
-                                                                                        <div style={{
-                                                                                            padding: '8px 10px', borderTop: '1px solid var(--border-subtle)',
-                                                                                            fontFamily: 'monospace', fontSize: '10px', lineHeight: 1.5,
-                                                                                            whiteSpace: 'pre-wrap', maxHeight: '200px', overflow: 'auto',
-                                                                                            color: 'var(--text-secondary)',
-                                                                                        }}>
-                                                                                            {resultStr.substring(0, 1000)}
-                                                                                        </div>
-                                                                                    </details>
-                                                                                );
-                                                                            }
-                                                                            if (msg.role === 'assistant') {
-                                                                                return (
-                                                                                    <div key={mi} style={{
-                                                                                        padding: '8px 10px', borderRadius: '6px',
-                                                                                        background: 'var(--bg-secondary)',
-                                                                                        fontSize: '12px', color: 'var(--text-primary)',
-                                                                                        whiteSpace: 'pre-wrap', lineHeight: '1.5',
-                                                                                        maxHeight: '200px', overflow: 'auto',
-                                                                                    }}>
-                                                                                        {msg.content}
-                                                                                    </div>
-                                                                                );
-                                                                            }
-                                                                            if (msg.role === 'user') {
-                                                                                return (
-                                                                                    <div key={mi} style={{
-                                                                                        padding: '6px 10px', borderRadius: '6px',
-                                                                                        background: 'var(--bg-secondary)',
-                                                                                        borderLeft: '2px solid var(--border-subtle)',
-                                                                                        fontSize: '11px', color: 'var(--text-secondary)',
-                                                                                        whiteSpace: 'pre-wrap', maxHeight: '100px', overflow: 'auto',
-                                                                                    }}>
-                                                                                        {(msg.content || '').substring(0, 300)}
-                                                                                    </div>
-                                                                                );
-                                                                            }
-                                                                            return null;
-                                                                        })}
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                        {/* Pagination controls */}
-                                        {totalPages > 1 && (
-                                            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', marginTop: '12px', paddingTop: '8px', borderTop: '1px solid var(--border-subtle)' }}>
-                                                <button
-                                                    onClick={() => { setReflectionPage(p => Math.max(0, p - 1)); setExpandedReflection(null); }}
-                                                    disabled={reflectionPage === 0}
-                                                    className="btn btn-ghost"
-                                                    style={{ fontSize: '12px', padding: '4px 10px', opacity: reflectionPage === 0 ? 0.3 : 1 }}
-                                                >
-                                                    {i18n.language?.startsWith('zh') ? '上一页' : 'Prev'}
-                                                </button>
-                                                <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontVariantNumeric: 'tabular-nums' }}>
-                                                    {reflectionPage + 1} / {totalPages}
-                                                </span>
-                                                <button
-                                                    onClick={() => { setReflectionPage(p => Math.min(totalPages - 1, p + 1)); setExpandedReflection(null); }}
-                                                    disabled={reflectionPage >= totalPages - 1}
-                                                    className="btn btn-ghost"
-                                                    style={{ fontSize: '12px', padding: '4px 10px', opacity: reflectionPage >= totalPages - 1 ? 0.3 : 1 }}
-                                                >
-                                                    {i18n.language?.startsWith('zh') ? '下一页' : 'Next'}
-                                                </button>
-                                            </div>
-                                        )}
-                                    </div>
-                                );
-                            })()}
-                        </div>
-                    );
-                })()}
-
-
-                {/* ── Mind Tab (Soul + Memory + Heartbeat) ── */}
-                {
-                    activeTab === 'mind' && (() => {
-                        const adapter: FileBrowserApi = {
-                            list: (p) => fileApi.list(id!, p),
-                            read: (p) => fileApi.read(id!, p),
-                            write: (p, c) => fileApi.write(id!, p, c),
-                            delete: (p) => fileApi.delete(id!, p),
-                            downloadUrl: (p) => fileApi.downloadUrl(id!, p),
-                        };
-                        return (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                                {/* Soul Section */}
-                                <div>
-                                    <h3 style={{ marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        🧬 {t('agent.soul.title')}
-                                    </h3>
-                                    <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
-                                        {t('agent.mind.soulDesc', 'Core identity, personality, and behavior boundaries.')}
-                                    </p>
-                                    <FileBrowser api={adapter} singleFile="soul.md" title="" features={{ edit: (agent as any)?.access_level !== 'use' }} />
-                                </div>
-
-                                {/* Memory Section */}
-                                <div>
-                                    <h3 style={{ marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        🧠 {t('agent.memory.title')}
-                                    </h3>
-                                    <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
-                                        {t('agent.mind.memoryDesc', 'Persistent memory accumulated through conversations and experiences.')}
-                                    </p>
-                                    <FileBrowser api={adapter} rootPath="memory" readOnly features={{}} />
-                                </div>
-
-                                {/* Heartbeat Section */}
-                                <div>
-                                    <h3 style={{ marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        💓 {t('agent.mind.heartbeatTitle', 'Heartbeat')}
-                                    </h3>
-                                    <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
-                                        {t('agent.mind.heartbeatDesc', 'Instructions for periodic awareness checks. The agent reads this file during each heartbeat.')}
-                                    </p>
-                                    <FileBrowser api={adapter} singleFile="HEARTBEAT.md" title="" features={{ edit: (agent as any)?.access_level !== 'use' }} />
-                                </div>
-                            </div>
-                        );
-                    })()
-                }
-
-                {/* ── Capabilities Tab ── */}
-                {
-                    activeTab === 'capabilities' && (
-                        <CapabilitiesView agentId={id!} canManage={canManage} />
-                    )
-                }
-
-                {/* ── Skills Tab ── */}
+                {/* ── Skills Tab (merged: skills + capabilities + mind + workspace) ── */}
                 {
                     activeTab === 'skills' && (() => {
                         const adapter: FileBrowserApi = {
@@ -3105,30 +2436,75 @@ function AgentDetailInner() {
                                         </div>
                                     </div>
                                 )}
+                                {/* Section 2: External tools (capabilities) */}
+                                <div style={{ marginTop: '32px' }}>
+                                    <h3 style={{ marginBottom: '12px', fontSize: '14px' }}>{t('agent.tabs.capabilities', 'External Tools')}</h3>
+                                    <CapabilitiesView agentId={id!} canManage={canManage} />
+                                </div>
+
+                                {/* Section 3: Personality & Memory (collapsible) */}
+                                {(() => {
+                                    const mindAdapter: FileBrowserApi = {
+                                        list: (p) => fileApi.list(id!, p),
+                                        read: (p) => fileApi.read(id!, p),
+                                        write: (p, c) => fileApi.write(id!, p, c),
+                                        delete: (p) => fileApi.delete(id!, p),
+                                        downloadUrl: (p) => fileApi.downloadUrl(id!, p),
+                                    };
+                                    return (
+                                        <details className="card" style={{ marginTop: '32px' }}>
+                                            <summary style={{ cursor: 'pointer', fontWeight: 600, fontSize: '14px', listStyle: 'none', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <span style={{ transition: 'transform 0.15s', display: 'inline-block', fontSize: '12px' }}>&#x25B6;</span>
+                                                {t('agent.mind.personalityMemory', 'Personality & Memory')}
+                                            </summary>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', marginTop: '16px' }}>
+                                                <div>
+                                                    <h4 style={{ marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
+                                                        {t('agent.soul.title')}
+                                                    </h4>
+                                                    <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
+                                                        {t('agent.mind.soulDesc', 'Core identity, personality, and behavior boundaries.')}
+                                                    </p>
+                                                    <FileBrowser api={mindAdapter} singleFile="soul.md" title="" features={{ edit: (agent as any)?.access_level !== 'use' }} />
+                                                </div>
+                                                <div>
+                                                    <h4 style={{ marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
+                                                        {t('agent.memory.title')}
+                                                    </h4>
+                                                    <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
+                                                        {t('agent.mind.memoryDesc', 'Persistent memory accumulated through conversations and experiences.')}
+                                                    </p>
+                                                    <FileBrowser api={mindAdapter} rootPath="memory" readOnly features={{}} />
+                                                </div>
+                                            </div>
+                                        </details>
+                                    );
+                                })()}
+
+                                {/* Section 4: Files (collapsible) */}
+                                {(() => {
+                                    const wsAdapter: FileBrowserApi = {
+                                        list: (p) => fileApi.list(id!, p),
+                                        read: (p) => fileApi.read(id!, p),
+                                        write: (p, c) => fileApi.write(id!, p, c),
+                                        delete: (p) => fileApi.delete(id!, p),
+                                        upload: (file, path, onProgress) => fileApi.upload(id!, file, path + '/', onProgress),
+                                        downloadUrl: (p) => fileApi.downloadUrl(id!, p),
+                                    };
+                                    return (
+                                        <details className="card" style={{ marginTop: '16px' }}>
+                                            <summary style={{ cursor: 'pointer', fontWeight: 600, fontSize: '14px', listStyle: 'none', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <span style={{ transition: 'transform 0.15s', display: 'inline-block', fontSize: '12px' }}>&#x25B6;</span>
+                                                {t('agent.tabs.workspace', 'Files')}
+                                            </summary>
+                                            <div style={{ marginTop: '12px' }}>
+                                                <FileBrowser api={wsAdapter} rootPath="workspace" features={{ upload: true, newFile: true, newFolder: true, edit: true, delete: true, directoryNavigation: true }} />
+                                            </div>
+                                        </details>
+                                    );
+                                })()}
                             </div>
                         );
-                    })()
-                }
-
-                {/* ── Relationships Tab ── */}
-                {
-                    activeTab === 'relationships' && (
-                        <RelationshipEditor agentId={id!} readOnly={(agent as any)?.access_level === 'use'} />
-                    )
-                }
-
-                {/* ── Workspace Tab ── */}
-                {
-                    activeTab === 'workspace' && (() => {
-                        const adapter: FileBrowserApi = {
-                            list: (p) => fileApi.list(id!, p),
-                            read: (p) => fileApi.read(id!, p),
-                            write: (p, c) => fileApi.write(id!, p, c),
-                            delete: (p) => fileApi.delete(id!, p),
-                            upload: (file, path, onProgress) => fileApi.upload(id!, file, path + '/', onProgress),
-                            downloadUrl: (p) => fileApi.downloadUrl(id!, p),
-                        };
-                        return <FileBrowser api={adapter} rootPath="workspace" features={{ upload: true, newFile: true, newFolder: true, edit: true, delete: true, directoryNavigation: true }} />;
                     })()
                 }
 
@@ -3663,7 +3039,7 @@ function AgentDetailInner() {
                 }
 
                 {
-                    activeTab === 'activityLog' && (() => {
+                    activeTab === 'activity' && (() => {
                         // Category definitions
                         const userActionTypes = ['chat_reply', 'tool_call', 'task_created', 'task_updated', 'file_written', 'error'];
                         const heartbeatTypes = ['heartbeat', 'plaza_post'];
@@ -3704,8 +3080,118 @@ function AgentDetailInner() {
                             </button>
                         );
 
+                        const ApprovalsSection = () => {
+                            const { data: approvals = [], refetch: refetchApprovals } = useQuery({
+                                queryKey: ['agent-approvals', id],
+                                queryFn: () => fetchAuth<any[]>(`/agents/${id}/approvals`),
+                                enabled: !!id,
+                                refetchInterval: 15000,
+                            });
+                            const resolveMut = useMutation({
+                                mutationFn: async ({ approvalId, action }: { approvalId: string; action: string }) => {
+                                    const token = localStorage.getItem('token');
+                                    return fetch(`/api/v1/agents/${id}/approvals/${approvalId}/resolve`, {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+                                        body: JSON.stringify({ action }),
+                                    });
+                                },
+                                onSuccess: () => {
+                                    refetchApprovals();
+                                    queryClient.invalidateQueries({ queryKey: ['notifications-unread'] });
+                                },
+                            });
+                            const pending = (approvals as any[]).filter((a: any) => a.status === 'pending');
+                            const resolved = (approvals as any[]).filter((a: any) => a.status !== 'pending');
+                            const statusStyle = (s: string) => ({
+                                padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600,
+                                background: s === 'approved' ? 'rgba(0,180,120,0.12)' : s === 'rejected' ? 'rgba(255,80,80,0.12)' : 'rgba(255,180,0,0.12)',
+                                color: s === 'approved' ? 'var(--success)' : s === 'rejected' ? 'var(--error)' : 'var(--warning)',
+                            });
+                            if (pending.length === 0 && resolved.length === 0) return null;
+                            return (
+                                <div style={{ marginBottom: '24px' }}>
+                                    {/* Pending approvals at top */}
+                                    {pending.length > 0 && (
+                                        <>
+                                            <h4 style={{ margin: '0 0 12px', fontSize: '13px', color: 'var(--warning)' }}>
+                                                {t('agentDetail.pendingApprovals', { count: pending.length })}
+                                            </h4>
+                                            {pending.map((a: any) => (
+                                                <div key={a.id} style={{
+                                                    padding: '14px 16px', marginBottom: '8px', borderRadius: '8px',
+                                                    background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)',
+                                                }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                                                        <span style={statusStyle(a.status)}>{a.status}</span>
+                                                        <span style={{ fontSize: '13px', fontWeight: 500 }}>{a.action_type}</span>
+                                                        <span style={{ flex: 1 }} />
+                                                        <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                                                            {a.created_at ? new Date(a.created_at).toLocaleString() : ''}
+                                                        </span>
+                                                    </div>
+                                                    {a.details && (
+                                                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '10px', lineHeight: '1.5', maxHeight: '80px', overflow: 'hidden' }}>
+                                                            {typeof a.details === 'string' ? a.details : JSON.stringify(a.details, null, 2)}
+                                                        </div>
+                                                    )}
+                                                    <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                                                        <button
+                                                            className="btn btn-primary"
+                                                            style={{ padding: '6px 16px', fontSize: '12px' }}
+                                                            onClick={() => resolveMut.mutate({ approvalId: a.id, action: 'approve' })}
+                                                            disabled={resolveMut.isPending}
+                                                        >
+                                                            {t('agentDetail.approve')}
+                                                        </button>
+                                                        <button
+                                                            className="btn btn-danger"
+                                                            style={{ padding: '6px 16px', fontSize: '12px' }}
+                                                            onClick={() => resolveMut.mutate({ approvalId: a.id, action: 'reject' })}
+                                                            disabled={resolveMut.isPending}
+                                                        >
+                                                            {t('agentDetail.reject')}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                            <div style={{ borderTop: '1px solid var(--border-subtle)', margin: '16px 0' }} />
+                                        </>
+                                    )}
+                                    {/* Approval history (collapsible) */}
+                                    {resolved.length > 0 && (
+                                        <details>
+                                            <summary style={{ cursor: 'pointer', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                                                {t('agentDetail.approvalHistory')} ({resolved.length})
+                                            </summary>
+                                            {resolved.map((a: any) => (
+                                                <div key={a.id} style={{
+                                                    padding: '12px 16px', marginBottom: '6px', borderRadius: '8px',
+                                                    background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)',
+                                                    opacity: 0.7,
+                                                }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                        <span style={statusStyle(a.status)}>{a.status}</span>
+                                                        <span style={{ fontSize: '12px' }}>{a.action_type}</span>
+                                                        <span style={{ flex: 1 }} />
+                                                        <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>
+                                                            {a.resolved_at ? new Date(a.resolved_at).toLocaleString() : ''}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </details>
+                                    )}
+                                </div>
+                            );
+                        };
+
                         return (
                             <div>
+                                {/* Section 1: Pending approvals */}
+                                {(agent as any)?.access_level !== 'use' && <ApprovalsSection />}
+
+                                {/* Section 2: Activity stream */}
                                 <h3 style={{ marginBottom: '12px' }}>{t('agent.activityLog.title')}</h3>
 
                                 {/* Filter tabs */}
@@ -3782,119 +3268,6 @@ function AgentDetailInner() {
                         );
                     })()
                 }
-
-                {/* ── Feishu Channel Tab ── */}
-
-                {/* ── Approvals Tab ── */}
-                {
-                    activeTab === 'approvals' && (() => {
-                        const ApprovalsTab = () => {
-                            const { data: approvals = [], refetch: refetchApprovals } = useQuery({
-                                queryKey: ['agent-approvals', id],
-                                queryFn: () => fetchAuth<any[]>(`/agents/${id}/approvals`),
-                                enabled: !!id,
-                                refetchInterval: 15000,
-                            });
-                            const resolveMut = useMutation({
-                                mutationFn: async ({ approvalId, action }: { approvalId: string; action: string }) => {
-                                    const token = localStorage.getItem('token');
-                                    return fetch(`/api/v1/agents/${id}/approvals/${approvalId}/resolve`, {
-                                        method: 'POST',
-                                        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-                                        body: JSON.stringify({ action }),
-                                    });
-                                },
-                                onSuccess: () => {
-                                    refetchApprovals();
-                                    queryClient.invalidateQueries({ queryKey: ['notifications-unread'] });
-                                },
-                            });
-                            const pending = (approvals as any[]).filter((a: any) => a.status === 'pending');
-                            const resolved = (approvals as any[]).filter((a: any) => a.status !== 'pending');
-                            const statusStyle = (s: string) => ({
-                                padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600,
-                                background: s === 'approved' ? 'rgba(0,180,120,0.12)' : s === 'rejected' ? 'rgba(255,80,80,0.12)' : 'rgba(255,180,0,0.12)',
-                                color: s === 'approved' ? 'var(--success)' : s === 'rejected' ? 'var(--error)' : 'var(--warning)',
-                            });
-                            return (
-                                <div style={{ padding: '20px 24px' }}>
-                                    {/* Pending */}
-                                    {pending.length > 0 && (
-                                        <>
-                                            <h4 style={{ margin: '0 0 12px', fontSize: '13px', color: 'var(--warning)' }}>
-                                                {t('agentDetail.pendingApprovals', { count: pending.length })}
-                                            </h4>
-                                            {pending.map((a: any) => (
-                                                <div key={a.id} style={{
-                                                    padding: '14px 16px', marginBottom: '8px', borderRadius: '8px',
-                                                    background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)',
-                                                }}>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                                                        <span style={statusStyle(a.status)}>{a.status}</span>
-                                                        <span style={{ fontSize: '13px', fontWeight: 500 }}>{a.action_type}</span>
-                                                        <span style={{ flex: 1 }} />
-                                                        <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
-                                                            {a.created_at ? new Date(a.created_at).toLocaleString() : ''}
-                                                        </span>
-                                                    </div>
-                                                    {a.details && (
-                                                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '10px', lineHeight: '1.5', maxHeight: '80px', overflow: 'hidden' }}>
-                                                            {typeof a.details === 'string' ? a.details : JSON.stringify(a.details, null, 2)}
-                                                        </div>
-                                                    )}
-                                                    <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                                                        <button
-                                                            className="btn btn-primary"
-                                                            style={{ padding: '6px 16px', fontSize: '12px' }}
-                                                            onClick={() => resolveMut.mutate({ approvalId: a.id, action: 'approve' })}
-                                                            disabled={resolveMut.isPending}
-                                                        >
-                                                            {t('agentDetail.approve')}
-                                                        </button>
-                                                        <button
-                                                            className="btn btn-danger"
-                                                            style={{ padding: '6px 16px', fontSize: '12px' }}
-                                                            onClick={() => resolveMut.mutate({ approvalId: a.id, action: 'reject' })}
-                                                            disabled={resolveMut.isPending}
-                                                        >
-                                                            {t('agentDetail.reject')}
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                            <div style={{ borderTop: '1px solid var(--border-subtle)', margin: '16px 0' }} />
-                                        </>
-                                    )}
-                                    {/* History */}
-                                    <h4 style={{ margin: '0 0 12px', fontSize: '13px', color: 'var(--text-secondary)' }}>
-                                        {t('agentDetail.approvalHistory')}
-                                    </h4>
-                                    {resolved.length === 0 && pending.length === 0 && (
-                                        <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-tertiary)', fontSize: '13px' }}>
-                                            {t('agentDetail.noApprovalRecords')}
-                                        </div>
-                                    )}
-                                    {resolved.map((a: any) => (
-                                        <div key={a.id} style={{
-                                            padding: '12px 16px', marginBottom: '6px', borderRadius: '8px',
-                                            background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)',
-                                            opacity: 0.7,
-                                        }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                <span style={statusStyle(a.status)}>{a.status}</span>
-                                                <span style={{ fontSize: '12px' }}>{a.action_type}</span>
-                                                <span style={{ flex: 1 }} />
-                                                <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>
-                                                    {a.resolved_at ? new Date(a.resolved_at).toLocaleString() : ''}
-                                                </span>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            );
-                        };
-                        return <ApprovalsTab />;
-                    })()}
 
                 {/* ── Settings Tab ── */}
                 {

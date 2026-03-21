@@ -146,18 +146,15 @@
       "disconnected": "Disconnected"
     },
     "tabs": {
-      "status": "Status",
-      "tasks": "Tasks",
-      "aware": "Aware",
-      "mind": "Mind",
-      "capabilities": "Capabilities",
-      "skills": "Skills",
-      "relationships": "Relationships",
-      "workspace": "Workspace",
       "chat": "Chat",
-      "activityLog": "Activity Log",
-      "approvals": "Approvals",
-      "settings": "Settings"
+      "overview": "Overview",
+      "skills": "Skills",
+      "activity": "Activity",
+      "settings": "Settings",
+      "status": "Status",
+      "capabilities": "External Tools",
+      "relationships": "Team Connections",
+      "workspace": "Files"
     },
     "fields": {
       "name": "Name",
@@ -628,23 +625,23 @@
   "enterprise": {
     "title": "Company Settings",
     "tabs": {
-      "llm": "Model Pool",
-      "org": "Org Structure",
-      "info": "Company Info",
-      "audit": "Audit Log",
-      "config": "Platform Config",
-      "kb": "Company KB",
-      "approvals": "Approvals",
-      "skills": "Skills",
-      "quotas": "Quotas",
-      "users": "Users",
-      "flags": "Feature Flags",
-      "memory": "Memory",
+      "llm": "AI Models",
+      "org": "Departments",
+      "info": "Overview",
+      "audit": "Activity Log",
+      "config": "General",
+      "kb": "Knowledge Base",
+      "approvals": "Pending Approvals",
+      "skills": "Skill Templates",
+      "quotas": "Default Limits",
+      "users": "Members",
+      "flags": "Labs",
+      "memory": "Conversation Memory",
       "sso": "SSO",
-      "capabilities": "Capabilities",
+      "capabilities": "Action Permissions",
       "onboarding": "Onboarding",
-      "packs": "Packs",
-      "mcp": "MCP Registry"
+      "packs": "Tool Kits",
+      "mcp": "Imported Tools"
     },
     "memory": {
       "title": "Memory & Summarization",
@@ -660,12 +657,12 @@
       "saved": "Memory configuration saved"
     },
     "flags": {
-      "title": "Feature Flags",
+      "title": "Labs",
       "key": "Key",
       "description": "Description",
       "type": "Type",
       "enabled": "Enabled",
-      "create": "Create Flag",
+      "create": "Create",
       "noFlags": "No feature flags configured",
       "confirmDelete": "Delete this feature flag?"
     },
@@ -784,9 +781,9 @@
       "loginWithSSO": "Login with SSO"
     },
     "capabilities": {
-      "title": "Capability Policies",
-      "description": "Configure access policies for high-risk tools. Unconfigured capabilities default to allowed (backward compatible).",
-      "capability": "Capability",
+      "title": "Action Permissions",
+      "description": "Configure which actions your digital employees can perform. Unconfigured actions are allowed by default.",
+      "capability": "Action Type",
       "tools": "Related Tools",
       "allowed": "Allowed",
       "denied": "Denied",
@@ -807,11 +804,11 @@
       "step_org": "Sync Org Structure"
     },
     "packs": {
-      "title": "Pack Catalog",
-      "description": "Agents activate capability packs on demand via skills or channel configuration. Inactive packs do not appear in the agent's tool list.",
-      "kernel": "Kernel Tools",
-      "kernelDesc": "Always-available base primitives, no configuration needed.",
-      "capabilityPacks": "Capability Packs",
+      "title": "Tool Kits",
+      "description": "Your digital employees gain abilities through skills and channel connections. Inactive tool kits do not appear in their toolbox.",
+      "kernel": "Built-in Tools",
+      "kernelDesc": "Always available, no configuration needed.",
+      "capabilityPacks": "Tool Kits",
       "installed": "Installed Extensions",
       "sessionActivations": "Session Activations",
       "skillDeclaredPacks": "Skill-declared Packs",
