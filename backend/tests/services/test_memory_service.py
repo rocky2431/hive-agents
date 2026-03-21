@@ -138,6 +138,7 @@ async def test_persist_runtime_memory_updates_short_session_and_agent_memory(mon
 @pytest.mark.asyncio
 async def test_update_agent_memory_dedupes_and_replaces_latest_fact(monkeypatch, tmp_path):
     from app.services.memory_service import _update_agent_memory
+    from app.memory.store import PersistentMemoryStore
 
     agent_id = uuid4()
     tenant_id = uuid4()
@@ -179,8 +180,13 @@ async def test_update_agent_memory_dedupes_and_replaces_latest_fact(monkeypatch,
     )
 
     facts = json.loads(memory_file.read_text(encoding="utf-8"))
+    persisted_facts = PersistentMemoryStore(data_root=tmp_path).load_semantic_facts(agent_id)
 
     assert [fact["content"] for fact in facts] == [
+        "Alice prefers coffee",
+        "Works on Project X",
+    ]
+    assert [fact["content"] for fact in persisted_facts] == [
         "Alice prefers coffee",
         "Works on Project X",
     ]

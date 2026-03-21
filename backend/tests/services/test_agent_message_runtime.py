@@ -10,6 +10,7 @@ import pytest
 async def test_invoke_agent_message_runtime_delegates_to_runtime(monkeypatch):
     from app.services.agent_tools import _invoke_agent_message_runtime
 
+    source_agent_id = uuid4()
     target_id = uuid4()
     owner_id = uuid4()
     session_agent_id = uuid4()
@@ -46,6 +47,7 @@ async def test_invoke_agent_message_runtime_delegates_to_runtime(monkeypatch):
         target=target,
         target_model=target_model,
         conversation_messages=conversation_messages,
+        from_agent_id=source_agent_id,
         owner_id=owner_id,
         session_id="session-1",
         session_agent_id=session_agent_id,
@@ -58,6 +60,8 @@ async def test_invoke_agent_message_runtime_delegates_to_runtime(monkeypatch):
     assert captured["kwargs"]["conversation_messages"] == conversation_messages
     assert captured["kwargs"]["owner_id"] == owner_id
     assert captured["kwargs"]["session_id"] == "session-1"
+    assert captured["kwargs"]["parent_agent_id"] == source_agent_id
+    assert captured["kwargs"]["parent_session_id"] == "session-1"
     assert captured["kwargs"]["tool_executor"] is orchestrator_executor
     assert captured["kwargs"]["max_tool_rounds"] == 9
     assert "Agent-to-Agent Message" in captured["kwargs"]["system_prompt_suffix"]

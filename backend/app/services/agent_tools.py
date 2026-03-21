@@ -16,7 +16,6 @@ import asyncio
 import json
 import logging
 import os
-import shutil
 import subprocess
 import uuid
 from contextvars import ContextVar
@@ -30,7 +29,6 @@ from sqlalchemy import select
 
 from app.database import async_session
 from app.models.agent import Agent
-from app.skills import SkillRegistry, WorkspaceSkillLoader
 from app.services.pack_policy_service import get_tenant_pack_policies, is_pack_enabled
 from app.tools import (
     CoreToolDependencies,
@@ -46,7 +44,7 @@ from app.tools import (
     register_integration_tool_executors,
     run_tool_governance,
 )
-from app.tools.packs import iter_tool_packs, make_mcp_server_pack_name, static_pack_names_for_tool
+from app.tools.packs import make_mcp_server_pack_name, static_pack_names_for_tool
 
 logger = logging.getLogger(__name__)
 from app.config import get_settings
@@ -1316,259 +1314,7 @@ async def _execute_tool_inner(
     )
 
 
-async def _web_search(arguments: dict) -> str:
-    """Search the web using a configurable search engine (reads config from DB)."""
-    import httpx
-    import re
-
-    query = arguments.get("query", "")
-    if not query:
-        return "❌ Please provide search keywords"
-
-    # Load config from DB
-    config = {}
-    try:
-        from app.models.tool import Tool
-        async with async_session() as db:
-            r = await db.execute(select(Tool).where(Tool.name == "web_search"))
-            tool = r.scalar_one_or_none()
-            if tool and tool.config:
-                config = tool.config
-    except Exception as e:
-        logger.debug("web_search config load failed: %s", e)
-
-    engine = config.get("search_engine", "duckduckgo")
-    api_key = config.get("api_key", "")
-    max_results = min(arguments.get("max_results", config.get("max_results", 5)), 10)
-    language = config.get("language", "zh-CN")
-
-    try:
-        if engine == "tavily" and api_key:
-            return await _search_tavily(query, api_key, max_results)
-        elif engine == "google" and api_key:
-            return await _search_google(query, api_key, max_results, language)
-        elif engine == "bing" and api_key:
-            return await _search_bing(query, api_key, max_results, language)
-        else:
-            return await _search_duckduckgo(query, max_results)
-    except Exception as e:
-        return f"❌ Search error ({engine}): {str(e)[:200]}"
-
-
-async def _search_duckduckgo(query: str, max_results: int) -> str:
-    """Search via DuckDuckGo HTML (free, no API key)."""
-    import httpx, re
-
-    async with httpx.AsyncClient(follow_redirects=True) as client:
-        resp = await client.get(
-            "https://html.duckduckgo.com/html/",
-            params={"q": query},
-            headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"},
-            timeout=10,
-        )
-
-    results = []
-    blocks = re.findall(
-        r'<a[^>]*class="result__a"[^>]*href="([^"]*)"[^>]*>(.*?)</a>.*?'
-        r'<a[^>]*class="result__snippet"[^>]*>(.*?)</a>',
-        resp.text, re.DOTALL,
-    )
-    for url, title, snippet in blocks[:max_results]:
-        title = re.sub(r'<[^>]+>', '', title).strip()
-        snippet = re.sub(r'<[^>]+>', '', snippet).strip()
-        if "uddg=" in url:
-            from urllib.parse import unquote, parse_qs, urlparse
-            parsed = parse_qs(urlparse(url).query)
-            url = unquote(parsed.get("uddg", [url])[0])
-        results.append(f"**{title}**\n{url}\n{snippet}")
-
-    if not results:
-        return f'🔍 No results found for "{query}"'
-    return f'🔍 DuckDuckGo results for "{query}" ({len(results)} items):\n\n' + "\n\n---\n\n".join(results)
-
-async def _get_jina_api_key() -> str:
-    """Read Jina API key from DB system_settings first, then fall back to env."""
-    try:
-        from app.database import async_session
-        from app.models.system_settings import SystemSetting
-        from sqlalchemy import select
-        async with async_session() as db:
-            result = await db.execute(select(SystemSetting).where(SystemSetting.key == "jina_api_key"))
-            setting = result.scalar_one_or_none()
-            if setting and setting.value.get("api_key"):
-                return setting.value["api_key"]
-    except Exception as e:
-        logger.debug("Suppressed: %s", e)
-    from app.config import get_settings
-    return get_settings().JINA_API_KEY
-
-
-async def _jina_search(arguments: dict) -> str:
-    """Search via Jina AI Search API (s.jina.ai). Returns full content per result, not just snippets."""
-    import httpx
-
-    query = arguments.get("query", "").strip()
-    if not query:
-        return "❌ Please provide search keywords"
-
-    max_results = min(arguments.get("max_results", 5), 10)
-    api_key = await _get_jina_api_key()
-
-    headers: dict = {
-        "Accept": "application/json",
-        "X-Respond-With": "no-content",  # return snippets/descriptions, not full pages (faster)
-        "X-Return-Format": "markdown",
-    }
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-
-    try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
-            resp = await client.get(
-                f"https://s.jina.ai/{__import__('urllib.parse', fromlist=['quote']).quote(query)}",
-                headers=headers,
-            )
-
-        if resp.status_code != 200:
-            return f"❌ Jina Search error HTTP {resp.status_code}: {resp.text[:200]}"
-
-        data = resp.json()
-        items = data.get("data", [])[:max_results]
-
-        if not items:
-            return f'🔍 No results found for "{query}"'
-
-        parts = []
-        for i, item in enumerate(items, 1):
-            title = item.get("title", "Untitled")
-            url = item.get("url", "")
-            description = item.get("description", "") or item.get("content", "")[:500]
-            parts.append(f"**{i}. {title}**\n{url}\n{description}")
-
-        return f'🔍 Jina Search results for "{query}" ({len(items)} items):\n\n' + "\n\n---\n\n".join(parts)
-
-    except Exception as e:
-        return f"❌ Jina Search error: {str(e)[:300]}"
-
-
-async def _jina_read(arguments: dict) -> str:
-    """Read web page via Jina AI Reader API (r.jina.ai). Returns clean structured markdown."""
-    import httpx
-    from app.config import get_settings
-
-    url = arguments.get("url", "").strip()
-    if not url:
-        return "❌ Please provide a URL"
-    if not url.startswith("http"):
-        url = "https://" + url
-
-    max_chars = min(arguments.get("max_chars", 8000), 20000)
-    api_key = await _get_jina_api_key()
-
-    headers: dict = {
-        "Accept": "text/plain, text/markdown, */*",
-        "X-Return-Format": "markdown",
-        "X-Remove-Selector": "header, footer, nav, aside, .ads, .advertisement",
-    }
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-
-    try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
-            resp = await client.get(
-                f"https://r.jina.ai/{url}",
-                headers=headers,
-            )
-
-        if resp.status_code != 200:
-            return f"❌ Jina Reader error HTTP {resp.status_code}: {resp.text[:200]}"
-
-        text = resp.text.strip()
-        if not text or len(text) < 100:
-            return f"❌ Jina Reader returned empty content for {url}"
-
-        if len(text) > max_chars:
-            text = text[:max_chars] + f"\n\n[... truncated at {max_chars} chars]"
-
-        return f"📄 **Content from: {url}**\n\n{text}"
-
-    except Exception as e:
-        return f"❌ Jina Reader error: {str(e)[:300]}"
-
-
-
-async def _search_tavily(query: str, api_key: str, max_results: int) -> str:
-    """Search via Tavily API (AI-optimized search)."""
-    import httpx
-
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            "https://api.tavily.com/search",
-            json={"query": query, "max_results": max_results, "search_depth": "basic"},
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            timeout=15,
-        )
-        data = resp.json()
-
-    if "results" not in data:
-        return f"❌ Tavily search failed: {data.get('error', str(data)[:200])}"
-
-    results = []
-    for r in data["results"][:max_results]:
-        results.append(f"**{r.get('title', '')}**\n{r.get('url', '')}\n{r.get('content', '')[:200]}")
-
-    if not results:
-        return f'🔍 No results found for "{query}"'
-    return f'🔍 Tavily search for "{query}" ({len(results)} items):\n\n' + "\n\n---\n\n".join(results)
-
-
-async def _search_google(query: str, api_key: str, max_results: int, language: str) -> str:
-    """Search via Google Custom Search JSON API."""
-    import httpx
-
-    # api_key format: "API_KEY:CX_ID"
-    parts = api_key.split(":", 1)
-    if len(parts) != 2:
-        return "❌ Google search requires API key in format 'API_KEY:SEARCH_ENGINE_ID'"
-
-    gapi_key, cx = parts
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            "https://www.googleapis.com/customsearch/v1",
-            params={"key": gapi_key, "cx": cx, "q": query, "num": max_results, "lr": f"lang_{language[:2]}"},
-            timeout=10,
-        )
-        data = resp.json()
-
-    results = []
-    for item in data.get("items", [])[:max_results]:
-        results.append(f"**{item.get('title', '')}**\n{item.get('link', '')}\n{item.get('snippet', '')}")
-
-    if not results:
-        return f'🔍 No results found for "{query}"'
-    return f'🔍 Google search for "{query}" ({len(results)} items):\n\n' + "\n\n---\n\n".join(results)
-
-
-async def _search_bing(query: str, api_key: str, max_results: int, language: str) -> str:
-    """Search via Bing Web Search API."""
-    import httpx
-
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            "https://api.bing.microsoft.com/v7.0/search",
-            params={"q": query, "count": max_results, "mkt": language},
-            headers={"Ocp-Apim-Subscription-Key": api_key},
-            timeout=10,
-        )
-        data = resp.json()
-
-    results = []
-    for item in data.get("webPages", {}).get("value", [])[:max_results]:
-        results.append(f"**{item.get('name', '')}**\n{item.get('url', '')}\n{item.get('snippet', '')}")
-
-    if not results:
-        return f'🔍 No results found for "{query}"'
-    return f'🔍 Bing search for "{query}" ({len(results)} items):\n\n' + "\n\n---\n\n".join(results)
+# Search and MCP implementations were moved to app.services.agent_tool_domains.web_mcp.
 
 
 async def _send_channel_file(agent_id: uuid.UUID, ws: Path, arguments: dict) -> str:
@@ -1615,694 +1361,27 @@ async def _send_channel_file(agent_id: uuid.UUID, ws: Path, arguments: dict) -> 
         return msg
 
 
-async def _execute_mcp_tool(tool_name: str, arguments: dict, agent_id=None) -> str:
-    """Execute a tool via MCP if it exists in the DB as an MCP tool."""
-    try:
-        from app.models.tool import Tool, AgentTool
-        from app.services.mcp_client import MCPClient
-
-        async with async_session() as db:
-            result = await db.execute(select(Tool).where(Tool.name == tool_name, Tool.type == "mcp"))
-            tool = result.scalar_one_or_none()
-            # Load per-agent config override
-            agent_config = {}
-            if tool and agent_id:
-                at_r = await db.execute(
-                    select(AgentTool).where(
-                        AgentTool.agent_id == agent_id,
-                        AgentTool.tool_id == tool.id,
-                    )
-                )
-                at = at_r.scalar_one_or_none()
-                agent_config = (at.config or {}) if at else {}
-
-        if not tool:
-            return f"Unknown tool: {tool_name}"
-
-        if not tool.mcp_server_url:
-            return f"❌ MCP tool {tool_name} has no server URL configured"
-
-        # Merge global config + agent override
-        merged_config = {**(tool.config or {}), **agent_config}
-
-        mcp_url = tool.mcp_server_url
-        mcp_name = tool.mcp_tool_name or tool_name
-
-        # Detect Smithery-hosted MCP servers (*.run.tools URLs)
-        # These need Smithery Connect to route tool calls
-        if ".run.tools" in mcp_url and merged_config:
-            return await _execute_via_smithery_connect(mcp_url, mcp_name, arguments, merged_config, agent_id=agent_id)
-
-        # Direct MCP call for non-Smithery servers
-        # Priority for API key:
-        # 1. Per-agent tool config (api_key / atlassian_api_key)
-        # 2. Agent's Atlassian channel config (for atlassian_* tools)
-        direct_api_key = merged_config.get("api_key") or merged_config.get("atlassian_api_key")
-        if not direct_api_key and tool.mcp_server_name == "Atlassian Rovo":
-            try:
-                from app.api.atlassian import get_atlassian_api_key_for_agent
-                direct_api_key = await get_atlassian_api_key_for_agent(agent_id)
-            except Exception as e:
-                logger.debug("Suppressed: %s", e)
-        client = MCPClient(mcp_url, api_key=direct_api_key)
-        return await client.call_tool(mcp_name, arguments)
-
-    except Exception as e:
-        return f"❌ MCP tool execution error: {str(e)[:200]}"
-
-
-async def _execute_via_smithery_connect(mcp_url: str, tool_name: str, arguments: dict, config: dict, agent_id=None) -> str:
-    """Execute an MCP tool via Smithery Connect API.
-
-    Uses stored namespace/connection or falls back to creating one.
-    Smithery Connect returns SSE-format responses that need special parsing.
-    """
-    import httpx
-    import json as json_mod
-
-    # Get Smithery API key centrally (from discover_resources/import_mcp_server AgentTool config)
-    from app.services.resource_discovery import _get_smithery_api_key
-    api_key = await _get_smithery_api_key(agent_id)
-    if not api_key:
-        return (
-            "❌ Smithery API key not configured.\n\n"
-            "请提供你的 Smithery API Key，你可以通过以下步骤获取：\n"
-            "1. 注册/登录 https://smithery.ai\n"
-            "2. 前往 https://smithery.ai/account/api-keys 创建 API Key\n"
-            "3. 将 Key 提供给我，我会帮你配置"
-        )
-
-    # Get namespace + connection from tool config, or use defaults
-    namespace = config.pop("smithery_namespace", None)
-    connection_id = config.pop("smithery_connection_id", None)
-
-    if not namespace or not connection_id:
-        # Fallback: try to get from Smithery settings
-        try:
-            from app.models.tool import Tool
-            async with async_session() as db:
-                r = await db.execute(select(Tool).where(Tool.name == "discover_resources"))
-                disc_tool = r.scalar_one_or_none()
-                if disc_tool and disc_tool.config:
-                    namespace = namespace or disc_tool.config.get("smithery_namespace")
-                    connection_id = connection_id or disc_tool.config.get("smithery_connection_id")
-        except Exception as e:
-            logger.debug("Suppressed: %s", e)
-
-    if not namespace or not connection_id:
-        return (
-            "❌ Smithery Connect namespace/connection not configured. "
-            "Please set smithery_namespace and smithery_connection_id in the tool configuration."
-        )
-
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-
-    try:
-        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
-            # Call the tool via the existing connection
-            tool_resp = await client.post(
-                f"https://api.smithery.ai/connect/{namespace}/{connection_id}/mcp",
-                json={
-                    "jsonrpc": "2.0",
-                    "id": 1,
-                    "method": "tools/call",
-                    "params": {
-                        "name": tool_name,
-                        "arguments": arguments,
-                    },
-                },
-                headers=headers,
-            )
-
-            # Detect auth/connection failures and attempt auto-recovery
-            if tool_resp.status_code in (401, 403, 404):
-                recovery_result = await _smithery_auto_recover(
-                    api_key, mcp_url, namespace, connection_id, agent_id
-                )
-                if recovery_result:
-                    return recovery_result
-                # If recovery returned None, fall through to normal parsing
-
-            # Smithery Connect returns SSE format: "event: message\ndata: {...}\n"
-            raw = tool_resp.text
-            data = None
-
-            # Parse SSE response
-            for line in raw.split("\n"):
-                line = line.strip()
-                if line.startswith("data: "):
-                    try:
-                        data = json_mod.loads(line[6:])
-                        break
-                    except json_mod.JSONDecodeError:
-                        pass
-
-            # Fallback: try parsing as plain JSON
-            if data is None:
-                try:
-                    data = json_mod.loads(raw)
-                except json_mod.JSONDecodeError:
-                    return f"❌ Unexpected response from Smithery: {raw[:300]}"
-
-            if "error" in data:
-                err = data["error"]
-                msg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
-                # Check if error indicates auth/connection issue
-                auth_keywords = ["auth", "unauthorized", "forbidden", "expired", "not found", "connection"]
-                if any(kw in msg.lower() for kw in auth_keywords):
-                    recovery_result = await _smithery_auto_recover(
-                        api_key, mcp_url, namespace, connection_id, agent_id
-                    )
-                    if recovery_result:
-                        return recovery_result
-                return f"❌ MCP tool error: {msg[:300]}"
-
-            result = data.get("result", {})
-            if isinstance(result, str):
-                return result
-
-            content_blocks = result.get("content", []) if isinstance(result, dict) else []
-            texts = []
-            for block in content_blocks:
-                if isinstance(block, str):
-                    texts.append(block)
-                elif isinstance(block, dict):
-                    if block.get("type") == "text":
-                        texts.append(block.get("text", ""))
-                    elif block.get("type") == "image":
-                        texts.append(f"[Image: {block.get('mimeType', 'image')}]")
-                    else:
-                        texts.append(str(block))
-                else:
-                    texts.append(str(block))
-
-            return "\n".join(texts) if texts else str(result)
-
-    except Exception as e:
-        return f"❌ Smithery Connect error: {str(e)[:200]}"
-
-
-async def _smithery_auto_recover(api_key: str, mcp_url: str, namespace: str, connection_id: str, agent_id=None) -> str | None:
-    """Attempt to auto-recover a failed Smithery connection.
-
-    Re-creates the Smithery Connect connection. If OAuth is needed,
-    returns the auth URL for the user. Returns None if recovery fails silently.
-    """
-    try:
-        from app.services.resource_discovery import _ensure_smithery_connection
-        display_name = connection_id.replace("-", " ").title() if connection_id else "MCP Server"
-
-        conn_result = await _ensure_smithery_connection(api_key, mcp_url, display_name)
-        if "error" in conn_result:
-            return (
-                f"❌ MCP tool connection expired and auto-recovery failed: {conn_result['error']}\n\n"
-                f"💡 Please re-authorize by telling me: `import_mcp_server(server_id=\"...\", reauthorize=true)`"
-            )
-
-        # Update stored config with new connection info
-        new_config = {
-            "smithery_namespace": conn_result["namespace"],
-            "smithery_connection_id": conn_result["connection_id"],
-        }
-        if agent_id:
-            try:
-                from app.models.tool import Tool, AgentTool
-                async with async_session() as db:
-                    # Update all MCP tools for this server URL
-                    r = await db.execute(
-                        select(Tool).where(Tool.mcp_server_url == mcp_url, Tool.type == "mcp")
-                    )
-                    for tool in r.scalars().all():
-                        at_r = await db.execute(
-                            select(AgentTool).where(
-                                AgentTool.agent_id == agent_id,
-                                AgentTool.tool_id == tool.id,
-                            )
-                        )
-                        at = at_r.scalar_one_or_none()
-                        if at:
-                            at.config = {**(at.config or {}), **new_config}
-                    await db.commit()
-            except Exception as e:
-                logger.debug("Suppressed: %s", e)
-
-        if conn_result.get("auth_url"):
-            return (
-                f"🔐 MCP tool connection expired. Re-authorization needed.\n\n"
-                f"Please visit the following URL to re-authorize:\n"
-                f"{conn_result['auth_url']}\n\n"
-                f"After completing authorization, the tools will work again automatically."
-            )
-
-        # Connection re-created without OAuth — should work now
-        return None  # Signal caller to retry (but we don't retry here to avoid loops)
-
-    except Exception as e:
-        return f"❌ Auto-recovery failed: {str(e)[:200]}"
-
-
-def _list_files(ws: Path, rel_path: str, tenant_id: str | None = None) -> str:
-    # Handle enterprise_info/ as shared directory (tenant-scoped)
-    if rel_path and rel_path.startswith("enterprise_info"):
-        if tenant_id:
-            enterprise_root = (WORKSPACE_ROOT / f"enterprise_info_{tenant_id}").resolve()
-        else:
-            enterprise_root = (WORKSPACE_ROOT / "enterprise_info").resolve()
-        # Remap: enterprise_info/... → enterprise_info_{tenant_id}/...
-        sub = rel_path[len("enterprise_info"):].lstrip("/")
-        target = (enterprise_root / sub).resolve() if sub else enterprise_root
-        if not str(target).startswith(str(enterprise_root)):
-            return "Access denied for this path"
-    else:
-        target = (ws / rel_path) if rel_path else ws
-        target = target.resolve()
-        if not str(target).startswith(str(ws.resolve())):
-            return "Access denied for this path"
-
-    if not target.exists():
-        return f"Directory not found: {rel_path or '/'}"
-
-    items = []
-    # If listing root, also show enterprise_info entry
-    if not rel_path:
-        if tenant_id:
-            enterprise_dir = WORKSPACE_ROOT / f"enterprise_info_{tenant_id}"
-        else:
-            enterprise_dir = WORKSPACE_ROOT / "enterprise_info"
-        if enterprise_dir.exists():
-            items.append("  📁 enterprise_info/ (shared company info)")
-
-    dir_count = 0
-    file_count = 0
-    for p in sorted(target.iterdir()):
-        if p.name.startswith("."):
-            continue
-        if p.is_dir():
-            dir_count += 1
-            child_count = len([c for c in p.iterdir() if not c.name.startswith(".")])
-            items.append(f"  📁 {p.name}/ ({child_count} items)")
-        elif p.is_file():
-            file_count += 1
-            size_bytes = p.stat().st_size
-            if size_bytes < 1024:
-                size_str = f"{size_bytes}B"
-            else:
-                size_str = f"{size_bytes/1024:.1f}KB"
-            items.append(f"  📄 {p.name} ({size_str})")
-
-    if not items:
-        return f"📂 {rel_path or 'root'}: Empty directory (0 files, 0 folders)"
-
-    header = f"📂 {rel_path or 'root'}: {dir_count} folder(s), {file_count} file(s)\n"
-    return header + "\n".join(items)
-
-
-def _read_file(ws: Path, rel_path: str, tenant_id: str | None = None) -> str:
-    # Handle enterprise_info/ as shared directory (tenant-scoped)
-    if rel_path and rel_path.startswith("enterprise_info"):
-        if tenant_id:
-            enterprise_root = (WORKSPACE_ROOT / f"enterprise_info_{tenant_id}").resolve()
-        else:
-            enterprise_root = (WORKSPACE_ROOT / "enterprise_info").resolve()
-        sub = rel_path[len("enterprise_info"):].lstrip("/")
-        file_path = (enterprise_root / sub).resolve() if sub else enterprise_root
-        if not str(file_path).startswith(str(enterprise_root)):
-            return "Access denied for this path"
-    else:
-        file_path = (ws / rel_path).resolve()
-        if not str(file_path).startswith(str(ws.resolve())):
-            return "Access denied for this path"
-
-    if not file_path.exists():
-        return f"File not found: {rel_path}"
-
-    try:
-        content = file_path.read_text(encoding="utf-8", errors="replace")
-        if len(content) > 6000:
-            content = content[:6000] + f"\n\n...[truncated, {len(content)} chars total]"
-        return content
-    except Exception as e:
-        return f"Read failed: {e}"
-
-
-def _load_skill(ws: Path, skill_name: str) -> str:
-    """Load a skill by friendly name or explicit skills/ path."""
-    requested = (skill_name or "").strip()
-    if not requested:
-        return "❌ Skill name cannot be empty"
-
-    skills_dir = (ws / "skills").resolve()
-    if not skills_dir.exists():
-        return "Skill not found: skills directory does not exist"
-
-    def _read_skill_file(path: Path) -> str:
-        if not str(path).startswith(str(skills_dir)):
-            return "Access denied for this skill path"
-        rel_path = path.relative_to(ws).as_posix()
-        return _read_file(ws, rel_path)
-
-    # Explicit path support: skills/foo/SKILL.md or foo/SKILL.md
-    requested_path = requested
-    if requested_path.startswith("skills/"):
-        requested_path = requested_path[len("skills/"):]
-    explicit_path = (skills_dir / requested_path).resolve()
-    if explicit_path.is_file():
-        return _read_skill_file(explicit_path)
-
-    registry = _build_skill_registry(ws)
-
-    try:
-        return registry.load_body(requested)
-    except KeyError:
-        pass
-
-    return f"Skill not found: {skill_name}"
-
-
-def _build_skill_registry(ws: Path) -> SkillRegistry:
-    loader = WorkspaceSkillLoader()
-    registry = SkillRegistry()
-    registry.register_many(loader.load_from_workspace(ws))
-    return registry
-
-
-async def _read_document(ws: Path, rel_path: str, max_chars: int = 8000, tenant_id: str | None = None) -> str:
-    """Read content from office documents (PDF, DOCX, XLSX, PPTX)."""
-    # Handle enterprise_info/ as shared directory (tenant-scoped)
-    if rel_path and rel_path.startswith("enterprise_info"):
-        if tenant_id:
-            enterprise_root = (WORKSPACE_ROOT / f"enterprise_info_{tenant_id}").resolve()
-        else:
-            enterprise_root = (WORKSPACE_ROOT / "enterprise_info").resolve()
-        sub = rel_path[len("enterprise_info"):].lstrip("/")
-        file_path = (enterprise_root / sub).resolve() if sub else enterprise_root
-        if not str(file_path).startswith(str(enterprise_root)):
-            return "Access denied for this path"
-    else:
-        file_path = (ws / rel_path).resolve()
-        if not str(file_path).startswith(str(ws.resolve())):
-            return "Access denied for this path"
-
-    if not file_path.exists():
-        return f"File not found: {rel_path}"
-
-    ext = file_path.suffix.lower()
-    try:
-        if ext == ".pdf":
-            import pdfplumber
-            text_parts = []
-            with pdfplumber.open(str(file_path)) as pdf:
-                for i, page in enumerate(pdf.pages[:50]):  # Limit to 50 pages
-                    page_text = page.extract_text() or ""
-                    if page_text:
-                        text_parts.append(f"--- Page {i+1} ---\n{page_text}")
-            content = "\n\n".join(text_parts) if text_parts else "(PDF is empty or text extraction failed)"
-
-        elif ext == ".docx":
-            from docx import Document
-            from docx.oxml.ns import qn
-            doc = Document(str(file_path))
-            lines: list[str] = []
-
-            def _extract_para_text(para) -> str:
-                return para.text.strip()
-
-            def _extract_table(table) -> str:
-                """Flatten a table into readable text."""
-                rows = []
-                for row in table.rows:
-                    cells = [cell.text.strip() for cell in row.cells]
-                    # Remove duplicate adjacent cells (merged cells repeat)
-                    deduped = [cells[0]] + [c for i, c in enumerate(cells[1:]) if c != cells[i]]
-                    row_str = " | ".join(c for c in deduped if c)
-                    if row_str:
-                        rows.append(row_str)
-                return "\n".join(rows)
-
-            # 1. Main paragraphs
-            for para in doc.paragraphs:
-                t = _extract_para_text(para)
-                if t:
-                    lines.append(t)
-
-            # 2. Tables in main body
-            for table in doc.tables:
-                t = _extract_table(table)
-                if t:
-                    lines.append(t)
-
-            # 3. Text boxes / drawing shapes (wmf/shapes in body XML)
-            for shape in doc.element.body.iter(qn("w:txbxContent")):
-                for child in shape.iter(qn("w:t")):
-                    if child.text and child.text.strip():
-                        lines.append(child.text.strip())
-
-            # 4. Headers and footers
-            for section in doc.sections:
-                for hf in [section.header, section.footer]:
-                    if hf and hf.is_linked_to_previous is False:
-                        for para in hf.paragraphs:
-                            t = para.text.strip()
-                            if t:
-                                lines.append(t)
-
-            content = "\n".join(lines) if lines else "(Document is empty or uses unsupported formatting)"
-
-        elif ext == ".xlsx":
-            from openpyxl import load_workbook
-            wb = load_workbook(str(file_path), read_only=True, data_only=True)
-            sheets = []
-            for ws_name in wb.sheetnames[:10]:  # Limit to 10 sheets
-                sheet = wb[ws_name]
-                rows = []
-                for row in sheet.iter_rows(max_row=200, values_only=True):
-                    row_str = "\t".join(str(c) if c is not None else "" for c in row)
-                    if row_str.strip():
-                        rows.append(row_str)
-                if rows:
-                    sheets.append(f"=== Sheet: {ws_name} ===\n" + "\n".join(rows))
-            wb.close()
-            content = "\n\n".join(sheets) if sheets else "(Excel is empty)"
-
-        elif ext == ".pptx":
-            from pptx import Presentation
-            prs = Presentation(str(file_path))
-            slides = []
-            for i, slide in enumerate(prs.slides[:50]):
-                texts = []
-                for shape in slide.shapes:
-                    if hasattr(shape, "text") and shape.text.strip():
-                        texts.append(shape.text)
-                if texts:
-                    slides.append(f"--- Slide {i+1} ---\n" + "\n".join(texts))
-            content = "\n\n".join(slides) if slides else "(PPT is empty)"
-
-        elif ext in (".txt", ".md", ".json", ".csv", ".log"):
-            content = file_path.read_text(encoding="utf-8", errors="replace")
-
-        else:
-            return f"Unsupported file format: {ext}. Supported: PDF, DOCX, XLSX, PPTX, TXT, MD, CSV"
-
-        if len(content) > max_chars:
-            content = content[:max_chars] + f"\n\n...[truncated, {len(content)} chars total]"
-        return content
-
-    except ImportError as e:
-        return f"Missing dependency: {e}. Install: pip install pdfplumber python-docx openpyxl python-pptx"
-    except Exception as e:
-        return f"Document read failed: {str(e)[:200]}"
-
-
-def _write_file(ws: Path, rel_path: str, content: str) -> str:
-    # Protect tasks.json from direct writes
-    if rel_path.strip("/") == "tasks.json":
-        return "tasks.json is read-only. Use manage_tasks tool to manage tasks."
-
-    file_path = (ws / rel_path).resolve()
-    if not str(file_path).startswith(str(ws.resolve())):
-        return "Access denied for this path"
-
-    try:
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-        file_path.write_text(content, encoding="utf-8")
-        return f"✅ Written to {rel_path} ({len(content)} chars)"
-    except Exception as e:
-        return f"Write failed: {e}"
-
-
-def _edit_file(ws: Path, rel_path: str, old_text: str, new_text: str, replace_all: bool = False) -> str:
-    file_path = (ws / rel_path).resolve()
-    if not str(file_path).startswith(str(ws.resolve())):
-        return "Access denied for this path"
-    if not file_path.exists():
-        return f"File not found: {rel_path}"
-
-    try:
-        original = file_path.read_text(encoding="utf-8", errors="replace")
-        occurrences = original.count(old_text)
-        if occurrences == 0:
-            return f"❌ Could not find the target text in {rel_path}"
-        if not replace_all and occurrences != 1:
-            return (
-                f"❌ Found {occurrences} matches in {rel_path}. "
-                "Refine old_text or set replace_all=true."
-            )
-        updated = original.replace(old_text, new_text, -1 if replace_all else 1)
-        file_path.write_text(updated, encoding="utf-8")
-        replaced = occurrences if replace_all else 1
-        return f"✅ Updated {rel_path} ({replaced} replacement{'s' if replaced != 1 else ''})"
-    except Exception as e:
-        return f"Edit failed: {e}"
-
-
-def _glob_search(ws: Path, pattern: str, root: str = "") -> str:
-    search_root = (ws / root).resolve() if root else ws.resolve()
-    if not str(search_root).startswith(str(ws.resolve())):
-        return "Access denied for this path"
-    if not search_root.exists():
-        return f"Directory not found: {root or '/'}"
-
-    matches: list[str] = []
-    try:
-        for path in sorted(search_root.glob(pattern)):
-            resolved = path.resolve()
-            if not str(resolved).startswith(str(ws.resolve())):
-                continue
-            matches.append(resolved.relative_to(ws).as_posix())
-            if len(matches) >= 100:
-                break
-    except Exception as e:
-        return f"Glob search failed: {e}"
-
-    if not matches:
-        return f"🔎 No files matched pattern '{pattern}'"
-    lines = [f"🔎 Glob results for '{pattern}' ({len(matches)} match(es)):"]
-    lines.extend(f"- {match}" for match in matches)
-    return "\n".join(lines)
-
-
-def _grep_search(ws: Path, pattern: str, root: str = "", max_results: int = 50) -> str:
-    search_root = (ws / root).resolve() if root else ws.resolve()
-    if not str(search_root).startswith(str(ws.resolve())):
-        return "Access denied for this path"
-    if not search_root.exists():
-        return f"Directory not found: {root or '/'}"
-
-    max_results = max(1, min(int(max_results), 200))
-    matches: list[str] = []
-
-    if shutil.which("rg"):
-        try:
-            proc = subprocess.run(
-                [
-                    "rg",
-                    "--line-number",
-                    "--color",
-                    "never",
-                    "--max-count",
-                    str(max_results),
-                    pattern,
-                    str(search_root),
-                ],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            if proc.stdout.strip():
-                for line in proc.stdout.splitlines():
-                    normalized = line.replace(str(ws.resolve()) + os.sep, "")
-                    matches.append(normalized)
-            elif proc.returncode not in (0, 1):
-                return f"Grep search failed: {proc.stderr.strip()[:200]}"
-        except Exception as e:
-            return f"Grep search failed: {e}"
-    else:
-        try:
-            for path in sorted(search_root.rglob("*")):
-                if len(matches) >= max_results:
-                    break
-                if not path.is_file():
-                    continue
-                try:
-                    with path.open("r", encoding="utf-8", errors="replace") as handle:
-                        for idx, line in enumerate(handle, start=1):
-                            if pattern in line:
-                                matches.append(f"{path.relative_to(ws).as_posix()}:{idx}:{line.strip()}")
-                                if len(matches) >= max_results:
-                                    break
-                except Exception:
-                    continue
-        except Exception as e:
-            return f"Grep search failed: {e}"
-
-    if not matches:
-        return f"🔎 No matches for '{pattern}'"
-    lines = [f"🔎 Grep results for '{pattern}' ({len(matches)} match(es)):"]
-    lines.extend(f"- {match}" for match in matches[:max_results])
-    return "\n".join(lines)
-
-
-def _tool_search(ws: Path, query: str = "") -> str:
-    packs = iter_tool_packs(query)
-    registry = _build_skill_registry(ws)
-    normalized = query.strip().lower()
-    matching_skills = [
-        skill
-        for skill in (registry.resolve(name) for name in registry.names())
-        if not normalized
-        or normalized in skill.metadata.name.lower()
-        or normalized in skill.metadata.description.lower()
-        or any(normalized in tool.lower() for tool in skill.metadata.declared_tools)
-    ]
-
-    lines = [
-        "Tool search only returns delayed capability summaries. It does not auto-load tools.",
-    ]
-    if packs:
-        lines.append("")
-        lines.append("Available packs:")
-        for pack in packs:
-            tools = ", ".join(pack.tools)
-            lines.append(
-                f"- {pack.name}: {pack.summary} | tools: {tools} | activation: {pack.activation_mode}"
-            )
-    if matching_skills:
-        lines.append("")
-        lines.append("Matching skills:")
-        for skill in matching_skills[:20]:
-            declared = ", ".join(skill.metadata.declared_tools) if skill.metadata.declared_tools else "no declared tools"
-            lines.append(
-                f"- {skill.metadata.name}: {skill.metadata.description} | declared tools: {declared}"
-            )
-    if len(lines) == 1:
-        return f"🔎 No delayed tools or skills matched '{query}'"
-    return "\n".join(lines)
-
-
-def _delete_file(ws: Path, rel_path: str) -> str:
-    protected = {"tasks.json", "soul.md"}
-    if rel_path.strip("/") in protected:
-        return f"{rel_path} cannot be deleted (protected)"
-
-    file_path = (ws / rel_path).resolve()
-    if not str(file_path).startswith(str(ws.resolve())):
-        return "Access denied for this path"
-    if not file_path.exists():
-        return f"File not found: {rel_path}"
-
-    try:
-        if file_path.is_dir():
-            import shutil
-            shutil.rmtree(file_path)
-            return f"✅ Deleted directory {rel_path}"
-        else:
-            file_path.unlink()
-            return f"✅ Deleted {rel_path}"
-    except Exception as e:
-        return f"Delete failed: {e}"
+# MCP transport implementations were moved to app.services.agent_tool_domains.web_mcp.
+
+
+# Workspace/file/document implementations were moved to app.services.agent_tool_domains.workspace.
+
+
+# Domain aliases: concrete workspace and web/MCP implementations live outside
+# the tool runtime facade so agent_tools.py stays focused on wiring.
+from app.services.agent_tool_domains.workspace import (  # noqa: E402
+    _build_skill_registry as _build_skill_registry,
+    _delete_file as _delete_file,
+    _edit_file as _edit_file,
+    _glob_search as _glob_search,
+    _grep_search as _grep_search,
+    _list_files as _list_files,
+    _load_skill as _load_skill,
+    _read_document as _read_document,
+    _read_file as _read_file,
+    _tool_search as _tool_search,
+    _write_file as _write_file,
+)
 
 
 async def _manage_tasks(
@@ -2786,6 +1865,7 @@ async def _invoke_agent_message_runtime(
     target,
     target_model,
     conversation_messages: list[dict],
+    from_agent_id: uuid.UUID,
     owner_id: uuid.UUID,
     session_id: str,
     session_agent_id: uuid.UUID,
@@ -2800,6 +1880,9 @@ async def _invoke_agent_message_runtime(
         conversation_messages=conversation_messages,
         owner_id=owner_id,
         session_id=session_id,
+        parent_agent_id=from_agent_id,
+        parent_session_id=session_id,
+        trace_id=f"a2a:{session_id}:{from_agent_id}:{target.id}",
         tool_executor=_build_agent_message_tool_executor(
             target_agent_id=target.id,
             owner_id=owner_id,
@@ -2954,6 +2037,7 @@ async def _send_message_to_agent(from_agent_id: uuid.UUID, args: dict) -> str:
                 target=target,
                 target_model=target_model,
                 conversation_messages=conversation_messages,
+                from_agent_id=from_agent_id,
                 owner_id=owner_id,
                 session_id=session_id,
                 session_agent_id=session_agent_id,
@@ -3262,37 +2346,7 @@ async def _execute_code(ws: Path, arguments: dict) -> str:
         except Exception as e:
             logger.debug("Suppressed: %s", e)
 
-async def _discover_resources(arguments: dict) -> str:
-    """Search Smithery registry for MCP servers."""
-    query = arguments.get("query", "")
-    if not query:
-        return "❌ Please provide a search query describing the capability you need."
-    max_results = min(arguments.get("max_results", 5), 10)
-
-    from app.services.resource_discovery import search_smithery
-    return await search_smithery(query, max_results)
-
-
-async def _import_mcp_server(agent_id: uuid.UUID, arguments: dict) -> str:
-    """Import an MCP server — either from Smithery or by direct URL."""
-    config = arguments.get("config") or {}
-    reauthorize = arguments.get("reauthorize", False)
-    mcp_url = config.pop("mcp_url", None) if isinstance(config, dict) else None
-
-    if mcp_url:
-        # Direct URL import — bypass Smithery
-        from app.services.resource_discovery import import_mcp_direct
-        server_name = arguments.get("server_id") or config.pop("server_name", None)
-        api_key = config.pop("api_key", None)
-        return await import_mcp_direct(mcp_url, agent_id, server_name, api_key)
-
-    # Smithery import
-    server_id = arguments.get("server_id", "")
-    if not server_id:
-        return "❌ Please provide a server_id (e.g. 'github'). Use discover_resources first to find available servers."
-
-    from app.services.resource_discovery import import_mcp_from_smithery
-    return await import_mcp_from_smithery(server_id, agent_id, config or None, reauthorize=reauthorize)
+# MCP discovery/import implementations were moved to app.services.agent_tool_domains.web_mcp.
 
 
 # ─── Trigger Management Handlers (Aware Engine) ────────────────────
@@ -4953,3 +4007,22 @@ async def _handle_email_tool(tool_name: str, agent_id: uuid.UUID, ws: Path, argu
             return f"❌ Unknown email tool: {tool_name}"
     except Exception as e:
         return f"❌ Email tool error: {str(e)[:200]}"
+
+
+# Final alias pass for later-defined web/MCP helpers. Keeping this at the end
+# ensures the domain modules remain the runtime source of truth.
+from app.services.agent_tool_domains.web_mcp import (  # noqa: E402
+    _discover_resources as _discover_resources,
+    _execute_mcp_tool as _execute_mcp_tool,
+    _execute_via_smithery_connect as _execute_via_smithery_connect,
+    _get_jina_api_key as _get_jina_api_key,
+    _import_mcp_server as _import_mcp_server,
+    _jina_read as _jina_read,
+    _jina_search as _jina_search,
+    _search_bing as _search_bing,
+    _search_duckduckgo as _search_duckduckgo,
+    _search_google as _search_google,
+    _search_tavily as _search_tavily,
+    _smithery_auto_recover as _smithery_auto_recover,
+    _web_search as _web_search,
+)

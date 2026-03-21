@@ -12,6 +12,7 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
+from app.memory.store import PersistentMemoryStore
 from app.memory.types import MemoryItem, MemoryKind
 
 logger = logging.getLogger(__name__)
@@ -68,6 +69,7 @@ class MemoryRetriever:
 
     def __init__(self, *, data_root: Path) -> None:
         self.data_root = Path(data_root)
+        self._persistent_store = PersistentMemoryStore(data_root=self.data_root)
 
     async def retrieve(
         self,
@@ -168,14 +170,10 @@ class MemoryRetriever:
     # -- Semantic layer: memory.json facts scored by relevance --
 
     def _retrieve_semantic(self, agent_id: uuid.UUID, query: str, *, limit: int = 20) -> list[MemoryItem]:
-        memory_file = self.data_root / str(agent_id) / "memory" / "memory.json"
-        if not memory_file.exists():
-            return []
-
         try:
-            facts = json.loads(memory_file.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            logger.debug("Failed to read memory.json for agent %s", agent_id)
+            facts = self._persistent_store.load_semantic_facts(agent_id)
+        except Exception as exc:
+            logger.debug("Failed to read semantic store for agent %s: %s", agent_id, exc)
             return []
 
         if not isinstance(facts, list) or not facts:
@@ -195,7 +193,7 @@ class MemoryRetriever:
                     kind=MemoryKind.SEMANTIC,
                     content=content,
                     score=score,
-                    source="memory.json",
+                    source="memory.sqlite3",
                     metadata={k: v for k, v in fact.items() if k not in ("content", "fact")},
                 )
             )

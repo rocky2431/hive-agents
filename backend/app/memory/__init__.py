@@ -2,7 +2,7 @@
 
 from .assembler import MemoryAssembler
 from .retriever import MemoryRetriever
-from .store import FileBackedMemoryStore
+from .store import FileBackedMemoryStore, PersistentMemoryStore
 from .types import EpisodicMemory, ExternalMemoryRef, MemoryItem, MemoryKind, SemanticMemory, WorkingMemory
 
 __all__ = [
@@ -13,6 +13,7 @@ __all__ = [
     "MemoryItem",
     "MemoryKind",
     "MemoryRetriever",
+    "PersistentMemoryStore",
     "SemanticMemory",
     "WorkingMemory",
 ]

@@ -19,7 +19,7 @@ from pathlib import Path
 
 from app.config import get_settings
 from app.database import async_session
-from app.memory import FileBackedMemoryStore, MemoryAssembler, MemoryRetriever
+from app.memory import FileBackedMemoryStore, MemoryAssembler, MemoryRetriever, PersistentMemoryStore
 from app.models.chat_session import ChatSession
 from app.models.llm import LLMModel
 from app.models.tenant_setting import TenantSetting
@@ -300,13 +300,12 @@ async def _generate_session_summary(messages: list[dict], tenant_id: uuid.UUID) 
 
 
 async def _update_agent_memory(agent_id: uuid.UUID, messages: list[dict], tenant_id: uuid.UUID) -> None:
-    """Extract facts from conversation and update agent's memory.json."""
+    """Extract facts from conversation and update the persistent semantic store."""
     settings = get_settings()
-    agent_dir = Path(settings.AGENT_DATA_DIR) / str(agent_id)
-    memory_file = agent_dir / "memory" / "memory.json"
+    semantic_store = PersistentMemoryStore(data_root=Path(settings.AGENT_DATA_DIR))
 
-    # Load existing memory
-    existing_facts = _read_memory_facts(memory_file)
+    # Load existing memory from the canonical store
+    existing_facts = semantic_store.load_semantic_facts(agent_id)
 
     # Try LLM-powered fact extraction
     summary_model = await _get_summary_model_config(tenant_id)
@@ -325,34 +324,17 @@ async def _update_agent_memory(agent_id: uuid.UUID, messages: list[dict], tenant
         return
 
     all_facts = _merge_memory_facts(existing_facts, new_facts)
-
-    memory_file.parent.mkdir(parents=True, exist_ok=True)
-    memory_file.write_text(json.dumps(all_facts, ensure_ascii=False, indent=2), encoding="utf-8")
-    logger.info("Updated memory.json for agent %s: %d facts", agent_id, len(all_facts))
+    semantic_store.replace_semantic_facts(agent_id, all_facts)
+    logger.info("Updated semantic memory store for agent %s: %d facts", agent_id, len(all_facts))
 
 
 def _load_agent_memory(agent_id: uuid.UUID) -> str:
-    """Load agent's structured memory from memory.json."""
+    """Load agent's structured memory from the canonical semantic store."""
     settings = get_settings()
-    memory_file = Path(settings.AGENT_DATA_DIR) / str(agent_id) / "memory" / "memory.json"
-
-    if not memory_file.exists():
-        return ""
-
     try:
-        facts = json.loads(memory_file.read_text(encoding="utf-8"))
-        if not isinstance(facts, list) or not facts:
-            return ""
-
-        # Format recent facts for context
-        lines = []
-        for fact in facts[-15:]:  # Show at most 15 recent facts
-            content = fact.get("content", fact.get("fact", ""))
-            if content:
-                lines.append(f"- {content}")
-
-        return "\n".join(lines)
-    except (json.JSONDecodeError, OSError):
+        store = PersistentMemoryStore(data_root=Path(settings.AGENT_DATA_DIR))
+        return store.render_semantic_lines(agent_id)
+    except Exception:
         return ""
 
 
