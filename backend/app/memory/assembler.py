@@ -46,6 +46,9 @@ class MemoryAssembler:
         for item in unique_items:
             groups.setdefault(item.kind, []).append(item)
 
+        for kind_items in groups.values():
+            kind_items.sort(key=lambda item: item.score, reverse=True)
+
         # Build output in priority order
         sections: list[str] = []
         total_chars = 0

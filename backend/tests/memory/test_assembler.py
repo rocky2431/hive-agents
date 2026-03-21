@@ -70,6 +70,16 @@ class TestAssembleGroupsByKind:
         assert "Current focus: ship feature" in result
         assert "- Current focus" not in result
 
+    def test_higher_score_items_render_first_within_section(self) -> None:
+        items = [
+            _make_item(MemoryKind.SEMANTIC, "low score fact", score=0.2),
+            _make_item(MemoryKind.SEMANTIC, "high score fact", score=0.9),
+        ]
+        assembler = MemoryAssembler()
+        result = assembler.assemble(items)
+
+        assert result.index("high score fact") < result.index("low score fact")
+
 
 class TestAssembleBudgetTrim:
     """Output respects budget_chars limit."""
@@ -102,6 +112,17 @@ class TestAssembleBudgetTrim:
         assert "[Working Memory]" in result
         # External may be trimmed out due to budget
         assert "B" * 100 not in result
+
+    def test_budget_keeps_highest_scored_items_first(self) -> None:
+        items = [
+            _make_item(MemoryKind.SEMANTIC, "very long but high score " + ("A" * 80), score=0.95),
+            _make_item(MemoryKind.SEMANTIC, "very long but low score " + ("B" * 80), score=0.10),
+        ]
+        assembler = MemoryAssembler()
+        result = assembler.assemble(items, budget_chars=120)
+
+        assert "very long but high score" in result
+        assert "very long but low score" not in result
 
 
 class TestAssembleDedup:

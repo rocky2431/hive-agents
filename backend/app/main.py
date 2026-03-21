@@ -112,7 +112,6 @@ async def lifespan(app: FastAPI):
         import app.models.feature_flag    # noqa
         import app.models.security_audit  # noqa
         import app.models.capability_policy  # noqa
-        import app.models.memory_item  # noqa
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
             # Add 'atlassian' to channel_type_enum if it doesn't exist yet (idempotent)

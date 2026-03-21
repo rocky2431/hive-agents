@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import inspect
 import json
 import logging
@@ -25,6 +26,7 @@ from app.services.chat_message_parts import (
     build_tool_call_event,
 )
 from app.services.llm_utils import LLMError, LLMMessage
+from app.tools.registry import is_parallel_safe_tool
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +35,7 @@ ResolveRuntimeConfig = Callable[[Any], Awaitable[RuntimeConfig] | RuntimeConfig]
 ResolveCurrentUserName = Callable[[Any], Awaitable[str | None] | str | None]
 BuildSystemPrompt = Callable[[InvocationRequest, Any, str, str | None], Awaitable[str] | str]
 ResolveMemoryContext = Callable[[InvocationRequest, Any], Awaitable[str] | str]
+ResolveRetrievalContext = Callable[[InvocationRequest, Any], Awaitable[str] | str]
 GetTools = Callable[[Any, bool], Awaitable[list[dict]] | list[dict]]
 ResolveToolExpansion = Callable[
     [InvocationRequest, str, dict[str, Any]],
@@ -66,6 +69,7 @@ class KernelDependencies:
     extract_usage_tokens: ExtractUsageTokens
     estimate_tokens_from_chars: EstimateTokensFromChars
     resolve_tool_expansion: ResolveToolExpansion | None = None
+    resolve_retrieval_context: ResolveRetrievalContext | None = None
     apply_vision_transform: ApplyVisionTransform | None = None
     apply_cache_hints: ApplyCacheHints | None = None
 
@@ -144,21 +148,98 @@ def _merge_active_packs(
     return new_packs
 
 
-_PARALLEL_SAFE_TOOLS = frozenset({
-    "read_file", "glob_search", "grep_search", "read_document",
-    "list_files", "list_triggers", "web_search", "jina_search", "jina_read",
-})
-
 _PARALLEL_SEMAPHORE_LIMIT = 4
+
+
+class _KernelCancelledError(Exception):
+    """Internal sentinel used when a runtime cancel event stops generation."""
 
 
 def _can_parallelize_batch(tool_calls: list[dict]) -> bool:
     """Check if all tool calls in a batch can run in parallel."""
     for tc in tool_calls:
         name = tc["function"]["name"]
-        if name not in _PARALLEL_SAFE_TOOLS:
+        if not is_parallel_safe_tool(name):
             return False
     return True
+
+
+def _fingerprint_prompt(prompt_prefix: str) -> str:
+    return hashlib.sha256(prompt_prefix.encode("utf-8")).hexdigest()
+
+
+def _clone_api_messages(messages: list[LLMMessage]) -> list[LLMMessage]:
+    return [
+        LLMMessage(
+            role=message.role,
+            content=message.content,
+            tool_calls=list(message.tool_calls) if message.tool_calls else None,
+            tool_call_id=message.tool_call_id,
+            reasoning_content=message.reasoning_content,
+            reasoning_signature=message.reasoning_signature,
+        )
+        for message in messages
+    ]
+
+
+def _build_cancelled_result(
+    partial_chunks: list[str],
+    partial_thinking: list[str],
+    *,
+    tokens_used: int = 0,
+    final_tools: list[dict] | None = None,
+    collected_parts: list[dict[str, Any]] | None = None,
+) -> InvocationResult:
+    partial_text = "".join(partial_chunks).strip()
+    if partial_text:
+        content = partial_text + "\n\n*[Generation stopped]*"
+    else:
+        content = "*[Generation stopped]*"
+    done_parts = build_done_event(
+        content,
+        thinking="".join(partial_thinking) if partial_thinking else None,
+    )["parts"]
+    return InvocationResult(
+        content=content,
+        tokens_used=tokens_used,
+        final_tools=final_tools,
+        parts=(collected_parts or []) + done_parts,
+    )
+
+
+async def _stream_with_cancel(
+    client: Any,
+    *,
+    cancel_event: asyncio.Event | None,
+    **kwargs: Any,
+) -> Any:
+    if cancel_event is None:
+        return await client.stream(**kwargs)
+
+    if cancel_event.is_set():
+        raise _KernelCancelledError
+
+    stream_task = asyncio.create_task(client.stream(**kwargs))
+    cancel_task = asyncio.create_task(cancel_event.wait())
+    try:
+        done, pending = await asyncio.wait(
+            {stream_task, cancel_task},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for task in pending:
+            task.cancel()
+
+        if cancel_task in done and cancel_event.is_set():
+            stream_task.cancel()
+            try:
+                await stream_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            raise _KernelCancelledError
+
+        return await stream_task
+    finally:
+        cancel_task.cancel()
 
 
 class AgentKernel:
@@ -185,6 +266,11 @@ class AgentKernel:
             resolved_memory_context = await _maybe_await(
                 self._deps.resolve_memory_context(request, runtime_config.tenant_id)
             )
+            resolved_retrieval_context = ""
+            if self._deps.resolve_retrieval_context:
+                resolved_retrieval_context = await _maybe_await(
+                    self._deps.resolve_retrieval_context(request, runtime_config.tenant_id)
+                )
             current_user_name = await _maybe_await(self._deps.resolve_current_user_name(request.user_id))
 
             # Prompt cache: reuse frozen prefix from session if available
@@ -196,13 +282,13 @@ class AgentKernel:
 
                 dynamic_suffix = build_dynamic_prompt_suffix(
                     active_packs=session_ctx.active_packs if session_ctx else [],
-                    retrieval_context=resolved_memory_context,
+                    retrieval_context=resolved_retrieval_context,
                     system_prompt_suffix=request.system_prompt_suffix,
                 )
                 system_prompt = assemble_runtime_prompt(session_ctx.prompt_prefix, dynamic_suffix)
             else:
-                # First call in session: build full prompt, then extract frozen prefix
-                full_prompt = await _maybe_await(
+                # First call in session: build and cache the frozen prefix only.
+                prompt_prefix = await _maybe_await(
                     self._deps.build_system_prompt(
                         request,
                         runtime_config.tenant_id,
@@ -210,23 +296,15 @@ class AgentKernel:
                         current_user_name,
                     )
                 )
-                # Cache only the frozen prefix (full prompt minus dynamic suffix)
-                # so subsequent rounds don't duplicate dynamic content
+                if session_ctx is not None:
+                    session_ctx.prompt_prefix = prompt_prefix
+                    session_ctx.prompt_fingerprint = _fingerprint_prompt(prompt_prefix)
                 dynamic_suffix = build_dynamic_prompt_suffix(
                     active_packs=session_ctx.active_packs if session_ctx else [],
-                    retrieval_context=resolved_memory_context,
+                    retrieval_context=resolved_retrieval_context,
                     system_prompt_suffix=request.system_prompt_suffix,
                 )
-                if session_ctx is not None and dynamic_suffix:
-                    # Strip trailing dynamic suffix to get pure frozen prefix
-                    frozen = full_prompt
-                    suffix_pos = full_prompt.rfind(dynamic_suffix)
-                    if suffix_pos > 0:
-                        frozen = full_prompt[:suffix_pos].rstrip()
-                    session_ctx.prompt_prefix = frozen
-                elif session_ctx is not None:
-                    session_ctx.prompt_prefix = full_prompt
-                system_prompt = full_prompt
+                system_prompt = assemble_runtime_prompt(prompt_prefix, dynamic_suffix)
 
             tools_for_llm = request.initial_tools
             if tools_for_llm is None:
@@ -236,6 +314,8 @@ class AgentKernel:
                     tools_for_llm = []
 
             collected_parts: list[dict[str, Any]] = []
+            streamed_chunks: list[str] = []
+            streamed_thinking: list[str] = []
 
             async def _emit_event(event: dict[str, Any]) -> None:
                 if request.on_event:
@@ -246,6 +326,16 @@ class AgentKernel:
 
             async def _emit_compaction_event(data: dict[str, Any]) -> None:
                 await _emit_event({"type": "session_compact", **data})
+
+            async def _emit_chunk(text: str) -> None:
+                streamed_chunks.append(text)
+                if request.on_chunk:
+                    await _maybe_await(request.on_chunk(text))
+
+            async def _emit_thinking(text: str) -> None:
+                streamed_thinking.append(text)
+                if request.on_thinking:
+                    await _maybe_await(request.on_thinking(text))
 
             messages = await _maybe_await(
                 self._deps.maybe_compress_messages(
@@ -270,25 +360,35 @@ class AgentKernel:
                     )
                 )
 
-            if self._deps.apply_vision_transform:
-                api_messages = self._deps.apply_vision_transform(api_messages, request.supports_vision)
-
+            active_model = request.model
+            fallback_model = request.fallback_model
+            active_supports_vision = request.supports_vision
             try:
-                client = self._deps.create_client(request.model)
+                client = self._deps.create_client(active_model)
             except Exception as exc:
                 return _build_error_result(f"[Error] Failed to create LLM client: {exc}")
 
             max_rounds = request.max_tool_rounds or runtime_config.max_tool_rounds
             max_tokens = self._deps.get_max_tokens(
-                request.model.provider,
-                request.model.model,
-                getattr(request.model, "max_output_tokens", None),
+                active_model.provider,
+                active_model.model,
+                getattr(active_model, "max_output_tokens", None),
             )
             accumulated_tokens = 0
             full_toolset = None
 
             try:
                 for round_i in range(max_rounds):
+                    if request.cancel_event and request.cancel_event.is_set():
+                        if request.agent_id and accumulated_tokens > 0:
+                            await _maybe_await(self._deps.record_token_usage(request.agent_id, accumulated_tokens))
+                        return _build_cancelled_result(
+                            streamed_chunks,
+                            streamed_thinking,
+                            tokens_used=accumulated_tokens,
+                            final_tools=tools_for_llm,
+                            collected_parts=collected_parts,
+                        )
                     warn_threshold_80 = int(max_rounds * 0.8)
                     warn_threshold_96 = max_rounds - 2
                     if round_i == warn_threshold_80:
@@ -311,47 +411,94 @@ class AgentKernel:
                         )
 
                     # Apply provider-specific cache hints (e.g., Anthropic prefix caching)
-                    stream_messages = api_messages
-                    if self._deps.apply_cache_hints:
-                        stream_messages = self._deps.apply_cache_hints(
-                            api_messages, getattr(request.model, "provider", "")
-                        )
+                    while True:
+                        stream_messages = _clone_api_messages(api_messages)
+                        if self._deps.apply_vision_transform:
+                            stream_messages = self._deps.apply_vision_transform(
+                                stream_messages,
+                                active_supports_vision,
+                            )
+                        if self._deps.apply_cache_hints:
+                            stream_messages = self._deps.apply_cache_hints(
+                                stream_messages, getattr(active_model, "provider", "")
+                            )
 
-                    try:
-                        response = await client.stream(
-                            messages=stream_messages,
-                            tools=tools_for_llm if tools_for_llm else None,
-                            temperature=0.7,
-                            max_tokens=max_tokens,
-                            on_chunk=request.on_chunk,
-                            on_thinking=request.on_thinking,
-                        )
-                    except LLMError as exc:
-                        if request.agent_id and accumulated_tokens > 0:
-                            await _maybe_await(self._deps.record_token_usage(request.agent_id, accumulated_tokens))
-                        logger.error(
-                            "[Kernel] LLMError provider=%s model=%s round=%s: %s",
-                            getattr(request.model, "provider", "?"),
-                            getattr(request.model, "model", "?"),
-                            round_i + 1,
-                            exc,
-                        )
-                        return _build_error_result(f"[LLM Error] {exc}", tokens_used=accumulated_tokens)
-                    except Exception as exc:
-                        if request.agent_id and accumulated_tokens > 0:
-                            await _maybe_await(self._deps.record_token_usage(request.agent_id, accumulated_tokens))
-                        logger.error(
-                            "[Kernel] Unexpected error provider=%s model=%s round=%s: %s: %s",
-                            getattr(request.model, "provider", "?"),
-                            getattr(request.model, "model", "?"),
-                            round_i + 1,
-                            type(exc).__name__,
-                            str(exc)[:300],
-                        )
-                        return _build_error_result(
-                            f"[LLM call error] {type(exc).__name__}: {str(exc)[:200]}",
-                            tokens_used=accumulated_tokens,
-                        )
+                        try:
+                            response = await _stream_with_cancel(
+                                client,
+                                cancel_event=request.cancel_event,
+                                messages=stream_messages,
+                                tools=tools_for_llm if tools_for_llm else None,
+                                temperature=0.7,
+                                max_tokens=max_tokens,
+                                on_chunk=_emit_chunk,
+                                on_thinking=_emit_thinking,
+                            )
+                            break
+                        except _KernelCancelledError:
+                            if request.agent_id and accumulated_tokens > 0:
+                                await _maybe_await(self._deps.record_token_usage(request.agent_id, accumulated_tokens))
+                            return _build_cancelled_result(
+                                streamed_chunks,
+                                streamed_thinking,
+                                tokens_used=accumulated_tokens,
+                                final_tools=tools_for_llm,
+                                collected_parts=collected_parts,
+                            )
+                        except LLMError as exc:
+                            logger.error(
+                                "[Kernel] LLMError provider=%s model=%s round=%s: %s",
+                                getattr(active_model, "provider", "?"),
+                                getattr(active_model, "model", "?"),
+                                round_i + 1,
+                                exc,
+                            )
+                            if fallback_model is not None and active_model is request.model:
+                                await client.close()
+                                client = self._deps.create_client(fallback_model)
+                                active_model = fallback_model
+                                active_supports_vision = bool(
+                                    getattr(fallback_model, "supports_vision", active_supports_vision)
+                                )
+                                max_tokens = self._deps.get_max_tokens(
+                                    active_model.provider,
+                                    active_model.model,
+                                    getattr(active_model, "max_output_tokens", None),
+                                )
+                                fallback_model = None
+                                continue
+                            if request.agent_id and accumulated_tokens > 0:
+                                await _maybe_await(self._deps.record_token_usage(request.agent_id, accumulated_tokens))
+                            return _build_error_result(f"[LLM Error] {exc}", tokens_used=accumulated_tokens)
+                        except Exception as exc:
+                            logger.error(
+                                "[Kernel] Unexpected error provider=%s model=%s round=%s: %s: %s",
+                                getattr(active_model, "provider", "?"),
+                                getattr(active_model, "model", "?"),
+                                round_i + 1,
+                                type(exc).__name__,
+                                str(exc)[:300],
+                            )
+                            if fallback_model is not None and active_model is request.model:
+                                await client.close()
+                                client = self._deps.create_client(fallback_model)
+                                active_model = fallback_model
+                                active_supports_vision = bool(
+                                    getattr(fallback_model, "supports_vision", active_supports_vision)
+                                )
+                                max_tokens = self._deps.get_max_tokens(
+                                    active_model.provider,
+                                    active_model.model,
+                                    getattr(active_model, "max_output_tokens", None),
+                                )
+                                fallback_model = None
+                                continue
+                            if request.agent_id and accumulated_tokens > 0:
+                                await _maybe_await(self._deps.record_token_usage(request.agent_id, accumulated_tokens))
+                            return _build_error_result(
+                                f"[LLM call error] {type(exc).__name__}: {str(exc)[:200]}",
+                                tokens_used=accumulated_tokens,
+                            )
 
                     real_tokens = self._deps.extract_usage_tokens(response.usage)
                     if real_tokens:
@@ -423,6 +570,16 @@ class AgentKernel:
 
                     if len(parsed_tool_calls) > 1 and _can_parallelize_batch(response.tool_calls):
                         # --- Parallel execution for read-only tools ---
+                        if request.cancel_event and request.cancel_event.is_set():
+                            if request.agent_id and accumulated_tokens > 0:
+                                await _maybe_await(self._deps.record_token_usage(request.agent_id, accumulated_tokens))
+                            return _build_cancelled_result(
+                                streamed_chunks,
+                                streamed_thinking,
+                                tokens_used=accumulated_tokens,
+                                final_tools=tools_for_llm,
+                                collected_parts=collected_parts,
+                            )
 
                         # 1. Emit all "running" events
                         for _tc, tool_name, args in parsed_tool_calls:
@@ -470,6 +627,16 @@ class AgentKernel:
                     else:
                         # --- Sequential execution (original logic) ---
                         for tc, tool_name, args in parsed_tool_calls:
+                            if request.cancel_event and request.cancel_event.is_set():
+                                if request.agent_id and accumulated_tokens > 0:
+                                    await _maybe_await(self._deps.record_token_usage(request.agent_id, accumulated_tokens))
+                                return _build_cancelled_result(
+                                    streamed_chunks,
+                                    streamed_thinking,
+                                    tokens_used=accumulated_tokens,
+                                    final_tools=tools_for_llm,
+                                    collected_parts=collected_parts,
+                                )
                             running_payload = {
                                 "name": tool_name,
                                 "args": args,
@@ -506,13 +673,23 @@ class AgentKernel:
                                                 "status": "info",
                                             }
                                             await _emit_event(event_payload)
-                                            system_prompt = await _maybe_await(
+                                            prompt_prefix = session_context.prompt_prefix or await _maybe_await(
                                                 self._deps.build_system_prompt(
                                                     request,
                                                     runtime_config.tenant_id,
                                                     resolved_memory_context,
                                                     current_user_name,
                                                 )
+                                            )
+                                            session_context.prompt_prefix = prompt_prefix
+                                            session_context.prompt_fingerprint = _fingerprint_prompt(prompt_prefix)
+                                            system_prompt = assemble_runtime_prompt(
+                                                prompt_prefix,
+                                                build_dynamic_prompt_suffix(
+                                                    active_packs=session_context.active_packs,
+                                                    retrieval_context=resolved_retrieval_context,
+                                                    system_prompt_suffix=request.system_prompt_suffix,
+                                                ),
                                             )
                                             api_messages[0] = LLMMessage(role="system", content=system_prompt)
                                     elif isinstance(expansion_payload, list):

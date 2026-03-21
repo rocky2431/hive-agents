@@ -88,3 +88,9 @@ def test_all_parallel_safe_tools():
     for name in non_parallel_names:
         assert registry.is_parallel_safe(name) is False, f"{name} should NOT be parallel_safe"
         assert registry.is_read_only(name) is False, f"{name} should NOT be read_only"
+
+
+def test_tool_search_is_read_only_but_not_parallel_safe():
+    registry = _build_registry("tool_search")
+    assert registry.is_read_only("tool_search") is True
+    assert registry.is_parallel_safe("tool_search") is False

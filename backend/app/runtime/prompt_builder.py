@@ -20,11 +20,43 @@ from app.services.knowledge_inject import fetch_relevant_knowledge
 BuildAgentContextFn = Callable[[uuid.UUID | None, str, str, str | None], Awaitable[str]]
 KnowledgeLookupFn = Callable[[str, uuid.UUID | None], Awaitable[str] | str]
 
+_ACTIVE_PACKS_CHAR_BUDGET = 1200
+_RETRIEVAL_CHAR_BUDGET = 2400
+
 
 async def _maybe_await(value):
     if inspect.isawaitable(value):
         return await value
     return value
+
+
+def _trim_block(text: str, *, budget_chars: int) -> str:
+    if not text or budget_chars <= 0:
+        return ""
+    stripped = text.strip()
+    if len(stripped) <= budget_chars:
+        return stripped
+
+    lines = stripped.splitlines()
+    kept: list[str] = []
+    used = 0
+    for line in lines:
+        normalized = line.rstrip()
+        if not normalized:
+            continue
+        line_cost = len(normalized) + 1
+        if used + line_cost > budget_chars:
+            break
+        kept.append(normalized)
+        used += line_cost
+
+    if not kept:
+        return stripped[: max(budget_chars - 3, 0)].rstrip() + "..."
+
+    result = "\n".join(kept).rstrip()
+    if len(result) < len(stripped):
+        result += "\n..."
+    return result
 
 
 # ── Frozen Prefix (session-stable) ──────────────────────────────
@@ -67,7 +99,7 @@ def _render_active_packs(active_packs: list[dict[str, Any]]) -> str:
         lines.append(f"- {pack.get('name', 'unknown_pack')}: {summary}")
         if tools:
             lines.append(f"  Tools: {tools}")
-    return "\n".join(lines)
+    return _trim_block("\n".join(lines), budget_chars=_ACTIVE_PACKS_CHAR_BUDGET)
 
 
 def build_dynamic_prompt_suffix(
@@ -89,7 +121,7 @@ def build_dynamic_prompt_suffix(
         parts.append(packs_section)
 
     if retrieval_context:
-        parts.append(retrieval_context)
+        parts.append(_trim_block(retrieval_context, budget_chars=_RETRIEVAL_CHAR_BUDGET))
 
     if system_prompt_suffix:
         parts.append(system_prompt_suffix)

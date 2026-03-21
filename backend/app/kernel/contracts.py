@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
@@ -29,6 +30,7 @@ class InvocationRequest:
     messages: list[dict]
     agent_name: str
     role_description: str
+    fallback_model: Any | None = None
     agent_id: uuid.UUID | None = None
     user_id: uuid.UUID | None = None
     execution_identity: ExecutionIdentityRef | None = None
@@ -43,6 +45,7 @@ class InvocationRequest:
     session_context: SessionContext | None = None
     system_prompt_suffix: str = ""
     tool_executor: ToolExecutor | None = None
+    cancel_event: asyncio.Event | None = None
     initial_tools: list[dict] | None = None
     core_tools_only: bool = True
     expand_tools: bool = True

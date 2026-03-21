@@ -6,6 +6,7 @@ heartbeat, scheduler, and agent-to-agent flows can share the same runtime.
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import logging
 import re
@@ -26,8 +27,7 @@ from app.kernel import (
 )
 from app.models.agent import Agent
 from app.models.user import User
-from app.runtime.context import RuntimeContext
-from app.runtime.prompt_builder import build_runtime_prompt
+from app.runtime.prompt_builder import build_frozen_prompt_prefix
 from app.runtime.session import SessionContext
 from app.skills import SkillParser, SkillRegistry, WorkspaceSkillLoader
 from app.services.agent_context import build_agent_context
@@ -36,6 +36,7 @@ from app.services.knowledge_inject import fetch_relevant_knowledge
 from app.services.llm_client import apply_prompt_cache_hints
 from app.services.llm_utils import LLMMessage, create_llm_client, get_max_tokens
 from app.services.memory_service import (
+    build_memory_snapshot,
     build_memory_context,
     maybe_compress_messages,
     persist_runtime_memory,
@@ -63,6 +64,7 @@ class AgentInvocationRequest:
     messages: list[dict]
     agent_name: str
     role_description: str
+    fallback_model: Any | None = None
     agent_id: uuid.UUID | None = None
     user_id: uuid.UUID | None = None
     execution_identity: ExecutionIdentityRef | None = None
@@ -77,6 +79,7 @@ class AgentInvocationRequest:
     session_context: SessionContext | None = None
     system_prompt_suffix: str = ""
     tool_executor: ToolExecutor | None = None
+    cancel_event: asyncio.Event | None = None
     initial_tools: list[dict] | None = None
     core_tools_only: bool = True
     expand_tools: bool = True
@@ -190,36 +193,41 @@ async def _build_system_prompt(
 ) -> str:
     if current_user_name is None:
         current_user_name = await _resolve_current_user_name(request.user_id)
-    runtime_context = RuntimeContext(
-        session=request.session_context or SessionContext(),
-        tenant_id=tenant_id,
-    )
-    return await build_runtime_prompt(
+    del tenant_id  # reserved for future prompt builders
+    agent_context = await build_agent_context(
         agent_id=request.agent_id,
         agent_name=request.agent_name,
         role_description=request.role_description,
-        messages=request.messages,
-        tenant_id=tenant_id,
         current_user_name=current_user_name,
-        memory_context=resolved_memory_context,
-        system_prompt_suffix=request.system_prompt_suffix,
-        runtime_context=runtime_context,
-        build_agent_context_fn=build_agent_context,
-        fetch_relevant_knowledge_fn=fetch_relevant_knowledge,
     )
+    return build_frozen_prompt_prefix(
+        agent_context=agent_context,
+        memory_snapshot=resolved_memory_context,
+    )
+
+
+def _last_user_query(messages: list[dict]) -> str:
+    for message in reversed(messages):
+        content = message.get("content")
+        if message.get("role") == "user" and isinstance(content, str) and content.strip():
+            return content.strip()
+    return ""
 
 
 async def _resolve_memory_context(
     request: AgentInvocationRequest,
     tenant_id: uuid.UUID | None,
 ) -> str:
+    if request.session_context and request.session_context.prompt_prefix:
+        return ""
+
     parts: list[str] = []
     session_id = request.memory_session_id
     if not session_id and request.session_context:
         session_id = request.session_context.session_id
 
     if request.agent_id and tenant_id:
-        runtime_memory_context = await build_memory_context(
+        runtime_memory_context = await build_memory_snapshot(
             request.agent_id,
             tenant_id,
             session_id=session_id,
@@ -229,6 +237,36 @@ async def _resolve_memory_context(
 
     if request.memory_context:
         parts.append(request.memory_context)
+
+    return "\n\n".join(parts)
+
+
+async def _resolve_retrieval_context(
+    request: AgentInvocationRequest,
+    tenant_id: uuid.UUID | None,
+) -> str:
+    query = _last_user_query(request.messages)
+    if not query:
+        return ""
+
+    parts: list[str] = []
+    session_id = request.memory_session_id
+    if not session_id and request.session_context:
+        session_id = request.session_context.session_id
+
+    if request.agent_id and tenant_id:
+        memory_recall = await build_memory_context(
+            request.agent_id,
+            tenant_id,
+            session_id=session_id,
+            query=query,
+        )
+        if memory_recall:
+            parts.append(memory_recall)
+
+    knowledge = await _maybe_await(fetch_relevant_knowledge(query, tenant_id))
+    if knowledge:
+        parts.append(knowledge)
 
     return "\n\n".join(parts)
 
@@ -454,6 +492,12 @@ def get_agent_kernel() -> AgentKernel:
     ) -> str:
         return await _resolve_memory_context(request, tenant_id)  # type: ignore[arg-type]
 
+    async def _kernel_resolve_retrieval_context(
+        request: InvocationRequest,
+        tenant_id: uuid.UUID | None,
+    ) -> str:
+        return await _resolve_retrieval_context(request, tenant_id)  # type: ignore[arg-type]
+
     async def _kernel_get_tools(agent_id: uuid.UUID, core_only: bool) -> list[dict]:
         return await _maybe_await(get_agent_tools_for_llm(agent_id, core_only=core_only))
 
@@ -480,6 +524,7 @@ def get_agent_kernel() -> AgentKernel:
             resolve_current_user_name=_resolve_current_user_name,
             build_system_prompt=_kernel_build_system_prompt,
             resolve_memory_context=_kernel_resolve_memory_context,
+            resolve_retrieval_context=_kernel_resolve_retrieval_context,
             get_tools=_kernel_get_tools,
             resolve_tool_expansion=_resolve_tool_expansion,
             maybe_compress_messages=maybe_compress_messages,
@@ -514,6 +559,7 @@ async def invoke_agent(request: AgentInvocationRequest) -> AgentInvocationResult
 
     kernel_request = InvocationRequest(
         model=request.model,
+        fallback_model=request.fallback_model,
         messages=request.messages,
         agent_name=request.agent_name,
         role_description=request.role_description,
@@ -531,6 +577,7 @@ async def invoke_agent(request: AgentInvocationRequest) -> AgentInvocationResult
         session_context=request.session_context,
         system_prompt_suffix=request.system_prompt_suffix,
         tool_executor=request.tool_executor,
+        cancel_event=request.cancel_event,
         initial_tools=request.initial_tools or (AGENT_TOOLS if request.agent_id is None else None),
         core_tools_only=request.core_tools_only,
         expand_tools=request.expand_tools,

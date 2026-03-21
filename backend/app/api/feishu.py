@@ -1355,6 +1355,7 @@ async def _call_agent_llm(
             messages,
             agent.name,
             agent.role_description or "",
+            fallback_model=fallback_model,
             agent_id=agent_id,
             user_id=effective_user_id,
             supports_vision=getattr(model, "supports_vision", False),
@@ -1370,25 +1371,4 @@ async def _call_agent_llm(
         traceback.print_exc()
         error_msg = str(e) or repr(e)
         logger.error(f"[LLM] Primary model error: {error_msg}")
-        # Runtime fallback: primary model failed -> retry with fallback model
-        if fallback_model:
-            logger.info(f"[LLM] Retrying with fallback model: {fallback_model.model}")
-            try:
-                reply = await call_llm(
-                    fallback_model,
-                    messages,
-                    agent.name,
-                    agent.role_description or "",
-                    agent_id=agent_id,
-                    user_id=effective_user_id,
-                    supports_vision=getattr(fallback_model, "supports_vision", False),
-                    on_chunk=on_chunk,
-                    on_thinking=on_thinking,
-                    session_id=session_id,
-                    memory_messages=messages,
-                )
-                return reply
-            except Exception as e2:
-                traceback.print_exc()
-                return f"⚠️ 调用模型出错: Primary: {str(e)[:80]} | Fallback: {str(e2)[:80]}"
         return f"⚠️ 调用模型出错: {error_msg[:150]}"

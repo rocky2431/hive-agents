@@ -8,7 +8,8 @@ from uuid import uuid4
 
 import pytest
 
-from app.kernel.engine import _PARALLEL_SAFE_TOOLS, _can_parallelize_batch
+from app.kernel.engine import _can_parallelize_batch
+from app.tools.registry import PARALLEL_SAFE_TOOL_NAMES
 
 
 class _FakeClient:
@@ -86,7 +87,7 @@ class TestCanParallelizeBatch:
         assert _can_parallelize_batch(tool_calls) is True
 
     def test_all_parallel_safe_tools_accepted(self):
-        for name in _PARALLEL_SAFE_TOOLS:
+        for name in PARALLEL_SAFE_TOOL_NAMES:
             assert _can_parallelize_batch([{"function": {"name": name}}]) is True
 
     def test_unknown_tool_returns_false(self):

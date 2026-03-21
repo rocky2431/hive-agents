@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -11,6 +12,14 @@ async def test_call_llm_delegates_to_runtime_invoker(monkeypatch):
     from app.api.websocket import call_llm
 
     captured = {}
+    cancel_event = asyncio.Event()
+    fallback_model = SimpleNamespace(
+        provider="anthropic",
+        model="claude-sonnet",
+        api_key="fallback",
+        base_url=None,
+        max_output_tokens=None,
+    )
 
     async def fake_invoke_agent(request):
         captured["request"] = request
@@ -37,10 +46,14 @@ async def test_call_llm_delegates_to_runtime_invoker(monkeypatch):
         session_id="session-1",
         memory_messages=[{"role": "user", "content": "hello"}],
         memory_context="MEM",
+        cancel_event=cancel_event,
+        fallback_model=fallback_model,
     )
 
     assert result == "runtime-result"
     assert captured["request"].model is model
+    assert captured["request"].fallback_model is fallback_model
+    assert captured["request"].cancel_event is cancel_event
     assert captured["request"].supports_vision is True
     assert captured["request"].memory_session_id == "session-1"
     assert captured["request"].memory_messages == [{"role": "user", "content": "hello"}]

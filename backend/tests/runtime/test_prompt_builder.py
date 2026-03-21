@@ -111,3 +111,17 @@ async def test_prompt_builder_includes_active_packs_section(monkeypatch):
     assert "## Active Capability Packs" in prompt
     assert "web_pack" in prompt
     assert "web_search, jina_read" in prompt
+
+
+def test_dynamic_suffix_trims_large_retrieval_but_keeps_suffix():
+    from app.runtime.prompt_builder import build_dynamic_prompt_suffix
+
+    retrieval = "\n".join(f"- item {i} {'x' * 80}" for i in range(80))
+    suffix = build_dynamic_prompt_suffix(
+        active_packs=[],
+        retrieval_context=retrieval,
+        system_prompt_suffix="FINAL_SUFFIX",
+    )
+
+    assert "FINAL_SUFFIX" in suffix
+    assert len(suffix) < 3200

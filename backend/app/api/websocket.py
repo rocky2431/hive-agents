@@ -1,5 +1,6 @@
 """WebSocket chat endpoint for real-time agent conversations."""
 
+import asyncio
 import json
 import logging
 import uuid
@@ -92,6 +93,7 @@ async def call_llm(
     messages: list[dict],
     agent_name: str,
     role_description: str,
+    fallback_model: LLMModel | None = None,
     agent_id=None,
     user_id=None,
     on_chunk=None,
@@ -102,11 +104,13 @@ async def call_llm(
     session_id: str | None = None,
     memory_messages: list[dict] | None = None,
     memory_context: str = "",
+    cancel_event: asyncio.Event | None = None,
 ) -> str:
     """Call LLM via the unified agent runtime."""
     result = await invoke_agent(
         AgentInvocationRequest(
             model=model,
+            fallback_model=fallback_model,
             messages=messages,
             agent_name=agent_name,
             role_description=role_description,
@@ -120,6 +124,7 @@ async def call_llm(
             memory_session_id=session_id,
             memory_messages=memory_messages,
             memory_context=memory_context,
+            cancel_event=cancel_event,
             session_context=SessionContext(
                 session_id=session_id,
                 source="websocket",
@@ -437,15 +442,11 @@ async def websocket_chat(
             if llm_model:
                 try:
                     logger.info(f"[WS] Calling LLM {llm_model.model} (streaming)...")
-                    
-                    # Accumulate partial content for abort handling
-                    partial_chunks: list[str] = []
-                    
+
                     async def stream_to_ws(text: str):
                         """Send each chunk to client in real-time."""
                         from app.services.chat_message_parts import build_chunk_event
 
-                        partial_chunks.append(text)
                         await websocket.send_json(build_chunk_event(text))
 
                     async def tool_call_to_ws(data: dict):
@@ -517,14 +518,14 @@ async def websocket_chat(
                             except Exception as _event_err:
                                 logger.warning(f"[WS] Failed to save runtime event: {_event_err}")
 
-                    import asyncio as _aio
-
                     # Run call_llm as a cancellable task
-                    llm_task = _aio.create_task(call_llm(
+                    cancel_event = asyncio.Event()
+                    llm_task = asyncio.create_task(call_llm(
                         llm_model,
                         conversation[-ctx_size:],
                         agent_name,
                         role_description,
+                        fallback_model=fallback_llm_model,
                         agent_id=agent_id,
                         user_id=user_id,
                         on_chunk=stream_to_ws,
@@ -534,45 +535,28 @@ async def websocket_chat(
                         supports_vision=getattr(llm_model, 'supports_vision', False),
                         session_id=conv_id,
                         memory_messages=conversation,
+                        cancel_event=cancel_event,
                     ))
 
                     # Listen for abort while LLM is running
-                    aborted = False
-                    queued_messages: list[dict] = []
                     while not llm_task.done():
                         try:
-                            msg = await _aio.wait_for(
+                            msg = await asyncio.wait_for(
                                 websocket.receive_json(), timeout=0.5
                             )
                             if msg.get("type") == "abort":
-                                logger.info(f"[WS] Abort received, cancelling LLM task")
-                                llm_task.cancel()
-                                aborted = True
+                                logger.info("[WS] Abort received, signalling runtime cancel")
+                                cancel_event.set()
                                 break
-                            else:
-                                # Queue non-abort messages for later
-                                queued_messages.append(msg)
-                        except _aio.TimeoutError:
+                        except asyncio.TimeoutError:
                             continue
                         except WebSocketDisconnect:
+                            cancel_event.set()
                             llm_task.cancel()
                             raise
 
-                    if aborted:
-                        # Wait for task to finish cancelling
-                        try:
-                            await llm_task
-                        except (_aio.CancelledError, Exception):
-                            pass
-                        partial_text = "".join(partial_chunks).strip()
-                        if partial_text:
-                            assistant_response = partial_text + "\n\n*[Generation stopped]*"
-                        else:
-                            assistant_response = "*[Generation stopped]*"
-                        logger.info(f"[WS] LLM aborted, partial: {assistant_response[:80]}")
-                    else:
-                        assistant_response = await llm_task
-                        logger.info(f"[WS] LLM response: {assistant_response[:80]}")
+                    assistant_response = await llm_task
+                    logger.info(f"[WS] LLM response: {assistant_response[:80]}")
 
                     # Update last_active_at
                     from datetime import datetime, timezone as tz
@@ -598,33 +582,7 @@ async def websocket_chat(
                     logger.error(f"[WS] LLM error: {e}")
                     import traceback
                     traceback.print_exc()
-                    # Runtime fallback: primary model failed -> retry with fallback model
-                    if fallback_llm_model:
-                        logger.info(f"[WS] Primary model failed, retrying with fallback: {fallback_llm_model.model}")
-                        try:
-                            await websocket.send_json({"type": "info", "content": f"Primary model error, switching to fallback model ({fallback_llm_model.model})..."})
-                            assistant_response = await call_llm(
-                                fallback_llm_model,
-                                conversation[-ctx_size:],
-                                agent_name,
-                                role_description,
-                                agent_id=agent_id,
-                                user_id=user_id,
-                                on_chunk=stream_to_ws,
-                                on_tool_call=tool_call_to_ws,
-                                on_thinking=thinking_to_ws,
-                                on_event=runtime_event_to_ws,
-                                supports_vision=getattr(fallback_llm_model, 'supports_vision', False),
-                                session_id=conv_id,
-                                memory_messages=conversation,
-                            )
-                            logger.info(f"[WS] Fallback LLM response: {assistant_response[:80]}")
-                        except Exception as e2:
-                            logger.error(f"[WS] Fallback LLM also failed: {e2}")
-                            traceback.print_exc()
-                            assistant_response = f"[LLM call error] Primary: {str(e)[:100]} | Fallback: {str(e2)[:100]}"
-                    else:
-                        assistant_response = f"[LLM call error] {str(e)[:200]}"
+                    assistant_response = f"[LLM call error] {str(e)[:200]}"
             else:
                 assistant_response = f"⚠️ {agent_name} has no LLM model configured. Please select a model in the agent's Settings tab."
 

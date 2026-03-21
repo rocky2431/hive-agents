@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 
 from app.memory.types import MemoryItem, MemoryKind
@@ -22,6 +23,39 @@ def _score_relevance(content: str, query: str) -> float:
     content_words = set(content.lower().split())
     overlap = query_words & content_words
     return len(overlap) / max(len(query_words), 1)
+
+
+def _parse_timestamp(value: str | None) -> datetime | None:
+    if not value or not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
+
+
+def _score_recency(timestamp: str | None) -> float:
+    dt = _parse_timestamp(timestamp)
+    if dt is None:
+        return 0.0
+    now = datetime.now(UTC)
+    age_days = max((now - dt).total_seconds() / 86400, 0.0)
+    # Smooth decay: 1.0 when new, tapering over ~90 days.
+    return 1.0 / (1.0 + (age_days / 90.0))
+
+
+def _score_semantic_item(content: str, query: str, timestamp: str | None) -> float:
+    lexical = _score_relevance(content, query) if query else 0.0
+    recency = _score_recency(timestamp)
+    if query:
+        return lexical * 0.85 + recency * 0.15
+    return recency
 
 
 class MemoryRetriever:
@@ -154,7 +188,8 @@ class MemoryRetriever:
             content = fact.get("content", fact.get("fact", ""))
             if not content:
                 continue
-            score = _score_relevance(content, query) if query else 0.5
+            timestamp = fact.get("timestamp") or fact.get("created_at")
+            score = _score_semantic_item(content, query, timestamp)
             items.append(
                 MemoryItem(
                     kind=MemoryKind.SEMANTIC,

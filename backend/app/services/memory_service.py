@@ -44,6 +44,21 @@ async def on_conversation_start(
     return await build_memory_context(agent_id, tenant_id, session_id=session_id)
 
 
+async def build_memory_snapshot(
+    agent_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    *,
+    session_id: str | None = None,
+) -> str:
+    """Build a session-start memory snapshot for frozen prompt prefixes."""
+    return await build_memory_context(
+        agent_id,
+        tenant_id,
+        session_id=session_id,
+        query="",
+    )
+
+
 async def build_memory_context(
     agent_id: uuid.UUID,
     tenant_id: uuid.UUID,
@@ -78,7 +93,11 @@ async def build_memory_context(
         load_previous_session_summary=_load_previous_session_summary,
         load_agent_memory=_load_agent_memory,
     )
-    return await store.build_context(agent_id=agent_id, tenant_id=tenant_id, session_id=session_id)
+    try:
+        return await store.build_context(agent_id=agent_id, tenant_id=tenant_id, session_id=session_id)
+    except Exception as exc:
+        logger.warning("FileBackedMemoryStore fallback failed, returning empty memory context: %s", exc)
+        return ""
 
 
 async def maybe_compress_messages(

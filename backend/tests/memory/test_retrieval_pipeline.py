@@ -160,3 +160,46 @@ async def test_semantic_sorts_by_relevance(data_root: Path, agent_id: uuid.UUID,
     assert scores == sorted(scores, reverse=True)
     # The fact containing "memory engine" should be first
     assert "memory engine" in semantic_items[0].content
+
+
+@pytest.mark.asyncio
+async def test_semantic_prefers_newer_fact_when_relevance_ties(
+    data_root: Path,
+    agent_id: uuid.UUID,
+    retriever: MemoryRetriever,
+) -> None:
+    _setup_memory_json(
+        data_root,
+        agent_id,
+        [
+            {"content": "memory engine architecture", "timestamp": "2024-01-01T00:00:00Z"},
+            {"content": "memory engine architecture", "timestamp": "2026-03-01T00:00:00Z"},
+        ],
+    )
+
+    items = await retriever.retrieve(agent_id, "memory engine", session_id=None, tenant_id=None)
+    semantic_items = [i for i in items if i.kind == MemoryKind.SEMANTIC]
+
+    assert semantic_items[0].metadata["timestamp"] == "2026-03-01T00:00:00Z"
+    assert semantic_items[0].score >= semantic_items[1].score
+
+
+@pytest.mark.asyncio
+async def test_empty_query_prefers_recent_facts(
+    data_root: Path,
+    agent_id: uuid.UUID,
+    retriever: MemoryRetriever,
+) -> None:
+    _setup_memory_json(
+        data_root,
+        agent_id,
+        [
+            {"content": "older fact", "timestamp": "2024-01-01T00:00:00Z"},
+            {"content": "newer fact", "timestamp": "2026-03-01T00:00:00Z"},
+        ],
+    )
+
+    items = await retriever.retrieve(agent_id, "", session_id=None, tenant_id=None)
+    semantic_items = [i for i in items if i.kind == MemoryKind.SEMANTIC]
+
+    assert semantic_items[0].content == "newer fact"

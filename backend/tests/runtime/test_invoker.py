@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -156,6 +157,51 @@ async def test_invoke_agent_composes_system_prompt_once(monkeypatch):
     system_prompt = fake_client.calls[0]["messages"][0].content
     # Memory is in frozen prefix (before knowledge); knowledge is in dynamic suffix
     assert system_prompt == "BASE_PROMPT\n\nMEMORY_CONTEXT\n\nKB_CONTEXT"
+
+
+@pytest.mark.asyncio
+async def test_invoke_agent_passes_cancel_and_fallback_to_kernel(monkeypatch):
+    from app.runtime.invoker import AgentInvocationRequest, invoke_agent
+
+    captured = {}
+    cancel_event = asyncio.Event()
+    fallback_model = SimpleNamespace(
+        provider="anthropic",
+        model="claude-sonnet",
+        api_key="fallback",
+        base_url=None,
+        max_output_tokens=None,
+    )
+
+    class _FakeKernel:
+        async def handle(self, request):
+            captured["request"] = request
+            return SimpleNamespace(content="ok", tokens_used=0, final_tools=None, parts=[])
+
+    monkeypatch.setattr("app.runtime.invoker.get_agent_kernel", lambda: _FakeKernel())
+
+    result = await invoke_agent(
+        AgentInvocationRequest(
+            model=SimpleNamespace(
+                provider="openai",
+                model="gpt-4.1",
+                api_key="key",
+                base_url=None,
+                max_output_tokens=None,
+            ),
+            fallback_model=fallback_model,
+            cancel_event=cancel_event,
+            messages=[{"role": "user", "content": "hello"}],
+            agent_name="Agent",
+            role_description="desc",
+            agent_id=uuid4(),
+            user_id=uuid4(),
+        )
+    )
+
+    assert result.content == "ok"
+    assert captured["request"].cancel_event is cancel_event
+    assert captured["request"].fallback_model is fallback_model
 
 
 @pytest.mark.asyncio
@@ -349,7 +395,7 @@ async def test_invoke_agent_loads_and_persists_runtime_memory(monkeypatch):
     async def fake_fetch_relevant_knowledge(*args, **kwargs):
         return ""
 
-    async def fake_build_memory_context(_agent_id, _tenant_id, session_id=None):
+    async def fake_build_memory_snapshot(_agent_id, _tenant_id, session_id=None):
         captured["loaded"] = (_agent_id, _tenant_id, session_id)
         return "RUNTIME_MEMORY"
 
@@ -367,7 +413,7 @@ async def test_invoke_agent_loads_and_persists_runtime_memory(monkeypatch):
     monkeypatch.setattr("app.runtime.invoker._resolve_runtime_config", fake_resolve_runtime_config)
     monkeypatch.setattr("app.runtime.invoker.build_agent_context", fake_build_agent_context)
     monkeypatch.setattr("app.runtime.invoker.fetch_relevant_knowledge", fake_fetch_relevant_knowledge)
-    monkeypatch.setattr("app.runtime.invoker.build_memory_context", fake_build_memory_context)
+    monkeypatch.setattr("app.runtime.invoker.build_memory_snapshot", fake_build_memory_snapshot)
     monkeypatch.setattr("app.runtime.invoker.persist_runtime_memory", fake_persist_runtime_memory)
     monkeypatch.setattr("app.runtime.invoker.maybe_compress_messages", fake_compress)
     monkeypatch.setattr("app.runtime.invoker.get_agent_tools_for_llm", lambda *args, **kwargs: [])
