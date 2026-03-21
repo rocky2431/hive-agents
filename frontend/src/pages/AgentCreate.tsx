@@ -2,23 +2,69 @@ import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { agentApi, capabilityApi, enterpriseApi, packApi, skillApi } from '../services/api';
-import ChannelConfig from '../components/ChannelConfig';
-import { buildBootstrapChannels } from '../lib/agentBootstrap.ts';
+import { agentApi, enterpriseApi, skillApi } from '../services/api';
 
-const STEPS = ['identity', 'capabilities', 'risk', 'channel', 'review'] as const;
+/* ── Template definitions ─────────────────────────────────────────── */
+
+interface AgentTemplate {
+    id: string;
+    nameKey: string;
+    icon: string;
+    role: string;
+    personality: string;
+}
+
+const AGENT_TEMPLATES: AgentTemplate[] = [
+    {
+        id: 'research',
+        nameKey: 'wizard.templates.research',
+        icon: '\uD83D\uDD0D',
+        role: '\u8C03\u7814\u5206\u6790\u3001\u4FE1\u606F\u6536\u96C6\u4E0E\u62A5\u544A\u64B0\u5199',
+        personality: '\u4E25\u8C28\u3001\u6570\u636E\u9A71\u52A8',
+    },
+    {
+        id: 'feishu-ops',
+        nameKey: 'wizard.templates.feishuOps',
+        icon: '\uD83D\uDCAC',
+        role: '\u901A\u8FC7\u98DE\u4E66\u534F\u8C03\u56E2\u961F\u5DE5\u4F5C\u3001\u7BA1\u7406\u65E5\u7A0B\u4E0E\u6587\u6863',
+        personality: '\u9AD8\u6548\u3001\u4E3B\u52A8',
+    },
+    {
+        id: 'content',
+        nameKey: 'wizard.templates.content',
+        icon: '\u270D\uFE0F',
+        role: '\u6587\u6848\u64B0\u5199\u3001\u5185\u5BB9\u7F16\u8F91\u4E0E\u521B\u610F\u8F93\u51FA',
+        personality: '\u521B\u610F\u3001\u7EC6\u81F4',
+    },
+    {
+        id: 'custom',
+        nameKey: 'wizard.templates.custom',
+        icon: '\u26A1',
+        role: '',
+        personality: '',
+    },
+];
+
+/* ── Phase constants ──────────────────────────────────────────────── */
+
+type Phase = 'templates' | 'identity' | 'abilities' | 'success';
 
 export default function AgentCreate() {
     const { t } = useTranslation();
     const navigate = useNavigate();
     const queryClient = useQueryClient();
-    const [step, setStep] = useState(0);
+    const [phase, setPhase] = useState<Phase>('templates');
     const [error, setError] = useState('');
     const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-    // Clear field error when user edits a field
-    const clearFieldError = (field: string) => setFieldErrors(prev => { const n = { ...prev }; delete n[field]; return n; });
-    // Current company (tenant) selection from layout sidebar
+    const clearFieldError = (field: string) =>
+        setFieldErrors((prev) => {
+            const n = { ...prev };
+            delete n[field];
+            return n;
+        });
     const [currentTenant] = useState<string | null>(() => localStorage.getItem('current_tenant_id'));
+    const [createdAgentName, setCreatedAgentName] = useState('');
+    const [createdAgentId, setCreatedAgentId] = useState('');
 
     const [form, setForm] = useState({
         name: '',
@@ -26,95 +72,89 @@ export default function AgentCreate() {
         personality: '',
         boundaries: '',
         primary_model_id: '' as string,
-        fallback_model_id: '' as string,
-        permission_scope_type: 'company',
-        permission_access_level: 'use',
-        max_tokens_per_day: '',
-        max_tokens_per_month: '',
         skill_ids: [] as string[],
-        agent_class: 'internal_tenant',
-        security_zone: 'standard',
     });
-    const [channelValues, setChannelValues] = useState<Record<string, string>>({});
 
-    // Fetch LLM models for step 1
+    /* ── Data fetching ────────────────────────────────────────────── */
+
     const { data: models = [] } = useQuery({
         queryKey: ['llm-models'],
         queryFn: enterpriseApi.llmModels,
     });
 
-    // Fetch global skills for step 3
     const { data: globalSkills = [] } = useQuery({
         queryKey: ['global-skills'],
         queryFn: skillApi.list,
     });
-    const { data: packCatalog = [] } = useQuery({
-        queryKey: ['pack-catalog-for-create'],
-        queryFn: () => packApi.catalog(),
-    });
-    const { data: capabilityDefinitions = [] } = useQuery({
-        queryKey: ['capability-definitions-for-create'],
-        queryFn: () => capabilityApi.definitions(),
-    });
+
+    // Auto-select first enabled model
+    useEffect(() => {
+        if (models.length > 0 && !form.primary_model_id) {
+            const firstEnabled = (models as any[]).find((m: any) => m.enabled);
+            if (firstEnabled) {
+                setForm((prev) => ({ ...prev, primary_model_id: firstEnabled.id }));
+            }
+        }
+    }, [models, form.primary_model_id]);
 
     // Auto-select default skills
     useEffect(() => {
         if (globalSkills.length > 0) {
             const defaultIds = globalSkills.filter((s: any) => s.is_default).map((s: any) => s.id);
             if (defaultIds.length > 0) {
-                setForm(prev => ({
+                setForm((prev) => ({
                     ...prev,
-                    skill_ids: Array.from(new Set([...prev.skill_ids, ...defaultIds]))
+                    skill_ids: Array.from(new Set([...prev.skill_ids, ...defaultIds])),
                 }));
             }
         }
     }, [globalSkills]);
 
-    const kernelTools = useMemo(
-        () => ['read_file', 'write_file', 'edit_file', 'glob_search', 'grep_search', 'load_skill', 'set_trigger', 'send_message_to_agent', 'send_channel_file', 'tool_search'],
-        [],
-    );
-    const selectedSkills = useMemo(
-        () => globalSkills.filter((skill: any) => form.skill_ids.includes(skill.id)),
-        [globalSkills, form.skill_ids],
-    );
-    const selectedPacks = useMemo(() => {
-        const names: string[] = [];
-        const seen = new Set<string>();
-        const packByTool = new Map<string, string[]>();
-        for (const pack of packCatalog as any[]) {
-            for (const tool of pack.tools || []) {
-                const existing = packByTool.get(tool) || [];
-                existing.push(pack.name);
-                packByTool.set(tool, existing);
-            }
+    /* ── Template selection ────────────────────────────────────────── */
+
+    const handleSelectTemplate = (tpl: AgentTemplate) => {
+        setForm((prev) => ({
+            ...prev,
+            name: tpl.id !== 'custom' ? t(tpl.nameKey) : '',
+            role_description: tpl.role,
+            personality: tpl.personality,
+        }));
+        setPhase('identity');
+    };
+
+    /* ── Validation ───────────────────────────────────────────────── */
+
+    const validateIdentity = (): boolean => {
+        const errors: Record<string, string> = {};
+        const name = form.name.trim();
+        if (!name) {
+            errors.name = t('wizard.errors.nameRequired', '\u667A\u80FD\u4F53\u540D\u79F0\u4E0D\u80FD\u4E3A\u7A7A');
+        } else if (name.length < 2) {
+            errors.name = t('wizard.errors.nameTooShort', '\u540D\u79F0\u81F3\u5C11\u9700\u8981 2 \u4E2A\u5B57\u7B26');
+        } else if (name.length > 100) {
+            errors.name = t('wizard.errors.nameTooLong', '\u540D\u79F0\u4E0D\u80FD\u8D85\u8FC7 100 \u4E2A\u5B57\u7B26');
         }
-        for (const skill of selectedSkills as any[]) {
-            for (const packName of skill.declared_packs || []) {
-                if (!seen.has(packName)) {
-                    seen.add(packName);
-                    names.push(packName);
-                }
-            }
-            for (const toolName of skill.declared_tools || []) {
-                for (const packName of packByTool.get(toolName) || []) {
-                    if (!seen.has(packName)) {
-                        seen.add(packName);
-                        names.push(packName);
-                    }
-                }
-            }
+        if (form.role_description.length > 500) {
+            errors.role_description = t('wizard.errors.roleDescTooLong', '\u89D2\u8272\u63CF\u8FF0\u4E0D\u80FD\u8D85\u8FC7 500 \u4E2A\u5B57\u7B26\uFF08\u5F53\u524D {{count}} \u5B57\u7B26\uFF09').replace(
+                '{{count}}',
+                String(form.role_description.length),
+            );
         }
-        return names;
-    }, [packCatalog, selectedSkills]);
-    const starterPacks = useMemo(
-        () => (packCatalog as any[]).filter((pack: any) => selectedPacks.includes(pack.name)),
-        [packCatalog, selectedPacks],
-    );
-    const configuredChannels = useMemo(
-        () => buildBootstrapChannels(channelValues),
-        [channelValues],
-    );
+        const enabledModels = (models as any[]).filter((m: any) => m.enabled);
+        if (enabledModels.length > 0 && !form.primary_model_id) {
+            errors.primary_model_id = t('wizard.errors.modelRequired', '\u8BF7\u9009\u62E9\u4E00\u4E2A\u4E3B\u6A21\u578B');
+        }
+        setFieldErrors(errors);
+        return Object.keys(errors).length === 0;
+    };
+
+    const handleNextToAbilities = () => {
+        setError('');
+        if (!validateIdentity()) return;
+        setPhase('abilities');
+    };
+
+    /* ── Submit ────────────────────────────────────────────────────── */
 
     const createMutation = useMutation({
         mutationFn: async (data: any) => {
@@ -123,54 +163,15 @@ export default function AgentCreate() {
         onSuccess: async (result) => {
             const agent = result.agent;
             queryClient.invalidateQueries({ queryKey: ['agents'] });
-            const failedChannels = (result.channel_results || []).filter((item: any) => item.status === 'failed');
-            navigate(`/agents/${agent.id}`, failedChannels.length > 0 ? {
-                state: {
-                    bootstrapChannelFailures: failedChannels,
-                },
-            } : undefined);
+            setCreatedAgentName(agent.name || form.name);
+            setCreatedAgentId(agent.id);
+            setPhase('success');
         },
         onError: (err: any) => setError(err.message),
     });
 
-    const validateStep0 = (): boolean => {
-        const errors: Record<string, string> = {};
-        const name = form.name.trim();
-        if (!name) {
-            errors.name = t('wizard.errors.nameRequired', '智能体名称不能为空');
-        } else if (name.length < 2) {
-            errors.name = t('wizard.errors.nameTooShort', '名称至少需要 2 个字符');
-        } else if (name.length > 100) {
-            errors.name = t('wizard.errors.nameTooLong', '名称不能超过 100 个字符');
-        }
-        if (form.role_description.length > 500) {
-            errors.role_description = t('wizard.errors.roleDescTooLong', '角色描述不能超过 500 个字符（当前 {{count}} 字符）').replace('{{count}}', String(form.role_description.length));
-        }
-        if (form.max_tokens_per_day && (isNaN(Number(form.max_tokens_per_day)) || Number(form.max_tokens_per_day) <= 0)) {
-            errors.max_tokens_per_day = t('wizard.errors.tokenLimitInvalid', '请输入有效的正整数');
-        }
-        if (form.max_tokens_per_month && (isNaN(Number(form.max_tokens_per_month)) || Number(form.max_tokens_per_month) <= 0)) {
-            errors.max_tokens_per_month = t('wizard.errors.tokenLimitInvalid', '请输入有效的正整数');
-        }
-        const enabledModels = (models as any[]).filter((m: any) => m.enabled);
-        if (enabledModels.length > 0 && !form.primary_model_id) {
-            errors.primary_model_id = t('wizard.errors.modelRequired', '请选择一个主模型');
-        }
-        setFieldErrors(errors);
-        return Object.keys(errors).length === 0;
-    };
-
-    const handleNext = () => {
+    const handleCreate = () => {
         setError('');
-        if (step === 0 && !validateStep0()) return;
-        setStep(step + 1);
-    };
-
-    const handleFinish = () => {
-        setError('');
-        if (step === 0) {
-            if (!validateStep0()) return;
-        }
         createMutation.mutate({
             agent: {
                 name: form.name,
@@ -178,53 +179,128 @@ export default function AgentCreate() {
                 personality: form.personality,
                 boundaries: form.boundaries,
                 primary_model_id: form.primary_model_id || undefined,
-                fallback_model_id: form.fallback_model_id || undefined,
-                permission_scope_type: form.permission_scope_type,
-                max_tokens_per_day: form.max_tokens_per_day ? Number(form.max_tokens_per_day) : undefined,
-                max_tokens_per_month: form.max_tokens_per_month ? Number(form.max_tokens_per_month) : undefined,
                 skill_ids: form.skill_ids,
-                permission_access_level: form.permission_access_level,
+                permission_scope_type: 'company',
+                permission_access_level: 'use',
                 tenant_id: currentTenant || undefined,
-                security_zone: form.security_zone,
-                agent_class: form.agent_class,
+                security_zone: 'standard',
+                agent_class: 'internal_tenant',
             },
-            channels: configuredChannels,
+            channels: [],
         });
     };
 
-    const selectedModel = models.find((m: any) => m.id === form.primary_model_id);
+    /* ── Derived values ───────────────────────────────────────────── */
+
+    const enabledModels = useMemo(() => (models as any[]).filter((m: any) => m.enabled), [models]);
+
+    /* ── Render: Template Gallery ─────────────────────────────────── */
+
+    if (phase === 'templates') {
+        return (
+            <div>
+                <div className="page-header">
+                    <h1 className="page-title">{t('nav.newAgent')}</h1>
+                </div>
+                <h2 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '8px' }}>
+                    {t('wizard.templates.title')}
+                </h2>
+                <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '24px' }}>
+                    {t('wizard.templates.subtitle')}
+                </p>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '12px', maxWidth: '720px' }}>
+                    {AGENT_TEMPLATES.map((tpl) => (
+                        <div
+                            key={tpl.id}
+                            className="card card-clickable"
+                            onClick={() => handleSelectTemplate(tpl)}
+                            style={{ padding: '20px', cursor: 'pointer', textAlign: 'center' }}
+                        >
+                            <div style={{ fontSize: '32px', marginBottom: '12px' }}>{tpl.icon}</div>
+                            <div style={{ fontWeight: 600, fontSize: '14px', marginBottom: '6px' }}>
+                                {t(tpl.nameKey)}
+                            </div>
+                            {tpl.role && (
+                                <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', lineHeight: 1.5 }}>
+                                    {tpl.role}
+                                </div>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
+    }
+
+    /* ── Render: Success Screen ───────────────────────────────────── */
+
+    if (phase === 'success') {
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '50vh', textAlign: 'center' }}>
+                <div style={{ fontSize: '48px', marginBottom: '16px' }}>&#10003;</div>
+                <h2 style={{ fontSize: '20px', fontWeight: 600, marginBottom: '12px' }}>
+                    {t('wizard.success.title', { name: createdAgentName })}
+                </h2>
+                <div style={{ display: 'flex', gap: '12px', marginTop: '20px' }}>
+                    <button
+                        className="btn btn-primary"
+                        onClick={() => navigate(`/agents/${createdAgentId}`, { state: { openChat: true } })}
+                    >
+                        {t('wizard.success.startChat')}
+                    </button>
+                    <button
+                        className="btn btn-secondary"
+                        onClick={() => navigate(`/agents/${createdAgentId}`)}
+                    >
+                        {t('wizard.success.connectChannel')}
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    /* ── Render: Steps (identity / abilities) ─────────────────────── */
+
+    const stepIndex = phase === 'identity' ? 0 : 1;
+    const stepLabels = [t('wizard.steps.identity'), t('wizard.steps.abilities')];
+
     return (
         <div>
             <div className="page-header">
                 <h1 className="page-title">{t('nav.newAgent')}</h1>
             </div>
 
-            {/* Stepper */}
+            {/* Stepper — 2 steps */}
             <div className="wizard-steps">
-                {STEPS.map((s, i) => (
-                    <div key={s} style={{ display: 'contents' }}>
-                        <div className={`wizard-step ${i === step ? 'active' : i < step ? 'completed' : ''}`}>
-                            <div className="wizard-step-number">{i < step ? '\u2713' : i + 1}</div>
-                            <span>{t(`wizard.steps.${s}`)}</span>
+                {stepLabels.map((label, i) => (
+                    <div key={i} style={{ display: 'contents' }}>
+                        <div className={`wizard-step ${i === stepIndex ? 'active' : i < stepIndex ? 'completed' : ''}`}>
+                            <div className="wizard-step-number">{i < stepIndex ? '\u2713' : i + 1}</div>
+                            <span>{label}</span>
                         </div>
-                        {i < STEPS.length - 1 && <div className="wizard-connector" />}
+                        {i < stepLabels.length - 1 && <div className="wizard-connector" />}
                     </div>
                 ))}
             </div>
 
-            {/* Navigation — sticky between stepper and card */}
+            {/* Navigation */}
             <div style={{ display: 'flex', justifyContent: 'space-between', maxWidth: '640px', marginBottom: '16px', position: 'sticky', top: 0, zIndex: 10, background: 'var(--bg-primary)', paddingTop: '4px', paddingBottom: '4px' }}>
-                <button className="btn btn-secondary" onClick={() => step > 0 ? setStep(step - 1) : navigate('/')}
-                    disabled={createMutation.isPending}>
-                    {step === 0 ? t('common.cancel') : t('wizard.prev')}
+                <button
+                    className="btn btn-secondary"
+                    onClick={() => {
+                        if (phase === 'identity') setPhase('templates');
+                        else setPhase('identity');
+                    }}
+                    disabled={createMutation.isPending}
+                >
+                    {phase === 'identity' ? t('common.cancel') : t('wizard.prev')}
                 </button>
-                {step < STEPS.length - 1 ? (
-                    <button className="btn btn-primary" onClick={handleNext}>
-                        {t('wizard.next')} →
+                {phase === 'identity' ? (
+                    <button className="btn btn-primary" onClick={handleNextToAbilities}>
+                        {t('wizard.next')} &rarr;
                     </button>
                 ) : (
-                    <button className="btn btn-primary" onClick={handleFinish}
-                        disabled={createMutation.isPending}>
+                    <button className="btn btn-primary" onClick={handleCreate} disabled={createMutation.isPending}>
                         {createMutation.isPending ? t('common.loading') : t('wizard.finish')}
                     </button>
                 )}
@@ -237,164 +313,145 @@ export default function AgentCreate() {
             )}
 
             <div className="card" style={{ maxWidth: '640px' }}>
-                {/* Step 1: Identity — merged basicInfo + personality + model */}
-                {step === 0 && (
+                {/* Step 1: Identity — "Who is this?" */}
+                {phase === 'identity' && (
                     <div>
-                        <h3 style={{ marginBottom: '20px', fontWeight: 600, fontSize: '15px' }}>{t('wizard.step1New.title')}</h3>
+                        <h3 style={{ marginBottom: '20px', fontWeight: 600, fontSize: '15px' }}>
+                            {t('wizard.step1New.title')}
+                        </h3>
 
+                        {/* Name */}
                         <div className="form-group">
                             <label className="form-label">{t('agent.fields.name')} *</label>
-                            <input className={`form-input${fieldErrors.name ? ' input-error' : ''}`} value={form.name}
-                                onChange={(e) => { setForm({ ...form, name: e.target.value }); clearFieldError('name'); }}
-                                placeholder={t("wizard.step1.namePlaceholder")} autoFocus />
-                            {fieldErrors.name && <div style={{ color: 'var(--error)', fontSize: '12px', marginTop: '4px' }}>{fieldErrors.name}</div>}
-                        </div>
-                        <div className="form-group">
-                            <label className="form-label">{t('agent.fields.role')}</label>
-                            <input className={`form-input${fieldErrors.role_description ? ' input-error' : ''}`} value={form.role_description}
-                                onChange={(e) => { setForm({ ...form, role_description: e.target.value }); clearFieldError('role_description'); }}
-                                placeholder={t('wizard.roleHint')} />
-                            {fieldErrors.role_description && <div style={{ color: 'var(--error)', fontSize: '12px', marginTop: '4px' }}>{fieldErrors.role_description}</div>}
-                        </div>
-
-                        {/* Personality & Boundaries — merged from old step 2 */}
-                        <div className="form-group">
-                            <label className="form-label">{t('agent.fields.personality')}</label>
-                            <textarea className="form-textarea" rows={3} value={form.personality}
-                                onChange={(e) => setForm({ ...form, personality: e.target.value })}
-                                placeholder={t("wizard.step2.personalityPlaceholder")} />
-                        </div>
-                        <div className="form-group">
-                            <label className="form-label">{t('agent.fields.boundaries')}</label>
-                            <textarea className="form-textarea" rows={3} value={form.boundaries}
-                                onChange={(e) => setForm({ ...form, boundaries: e.target.value })}
-                                placeholder={t("wizard.step2.boundariesPlaceholder")} />
-                        </div>
-
-                        {/* Model Selection */}
-                        <div className="form-group">
-                            <label className="form-label">{t('wizard.step1.primaryModel')} *</label>
-                            {models.length > 0 ? (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                    {models.filter((m: any) => m.enabled).map((m: any) => (
-                                        <label key={m.id} style={{
-                                            display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px',
-                                            background: form.primary_model_id === m.id ? 'var(--accent-subtle)' : 'var(--bg-elevated)',
-                                            border: `1px solid ${form.primary_model_id === m.id ? 'var(--accent-primary)' : fieldErrors.primary_model_id ? 'var(--error)' : 'var(--border-default)'}`,
-                                            borderRadius: '8px', cursor: 'pointer',
-                                        }}>
-                                            <input type="radio" name="model" checked={form.primary_model_id === m.id}
-                                                onChange={() => { setForm({ ...form, primary_model_id: m.id }); clearFieldError('primary_model_id'); }} />
-                                            <div>
-                                                <div style={{ fontWeight: 500, fontSize: '13px' }}>{m.label}</div>
-                                                <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{m.provider}/{m.model}</div>
-                                            </div>
-                                        </label>
-                                    ))}
-                                    {fieldErrors.primary_model_id && <div style={{ color: 'var(--error)', fontSize: '12px', marginTop: '2px' }}>{fieldErrors.primary_model_id}</div>}
-                                </div>
-                            ) : (
-                                <div style={{ padding: '16px', background: 'var(--bg-elevated)', borderRadius: '8px', fontSize: '13px', color: 'var(--text-tertiary)', textAlign: 'center' }}>
-                                    {t('wizard.step1.noModels')} <span style={{ color: 'var(--accent-primary)', cursor: 'pointer' }} onClick={() => navigate('/enterprise')}>{t('wizard.step1.enterpriseSettings')}</span> {t('wizard.step1.addModels')}
-                                </div>
+                            <input
+                                className={`form-input${fieldErrors.name ? ' input-error' : ''}`}
+                                value={form.name}
+                                onChange={(e) => {
+                                    setForm({ ...form, name: e.target.value });
+                                    clearFieldError('name');
+                                }}
+                                placeholder={t('wizard.step1.namePlaceholder')}
+                                autoFocus
+                            />
+                            {fieldErrors.name && (
+                                <div style={{ color: 'var(--error)', fontSize: '12px', marginTop: '4px' }}>{fieldErrors.name}</div>
                             )}
                         </div>
 
-                        {/* Token limits */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                            <div className="form-group">
-                                <label className="form-label">{t('wizard.step1.dailyTokenLimit')}</label>
-                                <input className={`form-input${fieldErrors.max_tokens_per_day ? ' input-error' : ''}`} type="number" value={form.max_tokens_per_day}
-                                    onChange={(e) => { setForm({ ...form, max_tokens_per_day: e.target.value }); clearFieldError('max_tokens_per_day'); }}
-                                    placeholder={t("wizard.step1.unlimited")} />
-                                {fieldErrors.max_tokens_per_day && <div style={{ color: 'var(--error)', fontSize: '12px', marginTop: '4px' }}>{fieldErrors.max_tokens_per_day}</div>}
+                        {/* Role */}
+                        <div className="form-group">
+                            <label className="form-label">{t('agent.fields.role')} *</label>
+                            <textarea
+                                className={`form-textarea${fieldErrors.role_description ? ' input-error' : ''}`}
+                                rows={2}
+                                value={form.role_description}
+                                onChange={(e) => {
+                                    setForm({ ...form, role_description: e.target.value });
+                                    clearFieldError('role_description');
+                                }}
+                                placeholder={t('wizard.roleHint')}
+                            />
+                            {fieldErrors.role_description && (
+                                <div style={{ color: 'var(--error)', fontSize: '12px', marginTop: '4px' }}>{fieldErrors.role_description}</div>
+                            )}
+                        </div>
+
+                        {/* Communication style — collapsible */}
+                        <details style={{ marginBottom: '16px' }}>
+                            <summary style={{ cursor: 'pointer', fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                                {t('wizard.identity.communicationStyle')}
+                            </summary>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', paddingTop: '8px' }}>
+                                <div className="form-group" style={{ marginBottom: 0 }}>
+                                    <label className="form-label">{t('agent.fields.personality')}</label>
+                                    <textarea
+                                        className="form-textarea"
+                                        rows={2}
+                                        value={form.personality}
+                                        onChange={(e) => setForm({ ...form, personality: e.target.value })}
+                                        placeholder={t('wizard.step2.personalityPlaceholder')}
+                                    />
+                                </div>
+                                <div className="form-group" style={{ marginBottom: 0 }}>
+                                    <label className="form-label">{t('agent.fields.boundaries')}</label>
+                                    <textarea
+                                        className="form-textarea"
+                                        rows={2}
+                                        value={form.boundaries}
+                                        onChange={(e) => setForm({ ...form, boundaries: e.target.value })}
+                                        placeholder={t('wizard.step2.boundariesPlaceholder')}
+                                    />
+                                </div>
                             </div>
-                            <div className="form-group">
-                                <label className="form-label">{t('wizard.step1.monthlyTokenLimit')}</label>
-                                <input className={`form-input${fieldErrors.max_tokens_per_month ? ' input-error' : ''}`} type="number" value={form.max_tokens_per_month}
-                                    onChange={(e) => { setForm({ ...form, max_tokens_per_month: e.target.value }); clearFieldError('max_tokens_per_month'); }}
-                                    placeholder={t("wizard.step1.unlimited")} />
-                                {fieldErrors.max_tokens_per_month && <div style={{ color: 'var(--error)', fontSize: '12px', marginTop: '4px' }}>{fieldErrors.max_tokens_per_month}</div>}
-                            </div>
+                        </details>
+
+                        {/* AI Model — single dropdown */}
+                        <div className="form-group">
+                            <label className="form-label">{t('wizard.identity.aiModel')} *</label>
+                            {enabledModels.length > 0 ? (
+                                <>
+                                    <select
+                                        className={`form-input${fieldErrors.primary_model_id ? ' input-error' : ''}`}
+                                        value={form.primary_model_id}
+                                        onChange={(e) => {
+                                            setForm({ ...form, primary_model_id: e.target.value });
+                                            clearFieldError('primary_model_id');
+                                        }}
+                                    >
+                                        <option value="">{t('wizard.identity.selectModel')}</option>
+                                        {enabledModels.map((m: any) => (
+                                            <option key={m.id} value={m.id}>
+                                                {m.label} ({m.provider}/{m.model})
+                                            </option>
+                                        ))}
+                                    </select>
+                                    {fieldErrors.primary_model_id && (
+                                        <div style={{ color: 'var(--error)', fontSize: '12px', marginTop: '4px' }}>{fieldErrors.primary_model_id}</div>
+                                    )}
+                                </>
+                            ) : (
+                                <div style={{ padding: '16px', background: 'var(--bg-elevated)', borderRadius: '8px', fontSize: '13px', color: 'var(--text-tertiary)', textAlign: 'center' }}>
+                                    {t('wizard.step1.noModels')}{' '}
+                                    <span style={{ color: 'var(--accent-primary)', cursor: 'pointer' }} onClick={() => navigate('/enterprise')}>
+                                        {t('wizard.step1.enterpriseSettings')}
+                                    </span>{' '}
+                                    {t('wizard.step1.addModels')}
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}
 
-                {/* Step 2: Starter Capabilities — skills only + kernel info */}
-                {step === 1 && (
+                {/* Step 2: Abilities — "What can they do?" */}
+                {phase === 'abilities' && (
                     <div>
-                        <h3 style={{ marginBottom: '6px', fontWeight: 600, fontSize: '15px' }}>{t('wizard.step2New.title')}</h3>
+                        <h3 style={{ marginBottom: '6px', fontWeight: 600, fontSize: '15px' }}>
+                            {t('wizard.abilities.title')}
+                        </h3>
                         <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
-                            {t('wizard.step2New.description')}
+                            {t('wizard.abilities.description')}
                         </p>
-
-                        {/* Kernel info box */}
-                        <div style={{
-                            padding: '12px 14px', marginBottom: '20px', borderRadius: '8px',
-                            background: 'var(--bg-secondary)', border: '1px solid var(--border-default)',
-                            fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.6,
-                        }}>
-                            {t('wizard.step2New.kernelInfo')}
-                            <div style={{ fontSize: '12px', fontWeight: 600, marginTop: '10px', marginBottom: '8px' }}>
-                                {t('wizard.step2New.kernelTitle')}
-                            </div>
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '10px' }}>
-                                {kernelTools.map((tool) => (
-                                    <span key={tool} style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', fontFamily: 'var(--font-mono)' }}>
-                                        {tool}
-                                    </span>
-                                ))}
-                            </div>
-                        </div>
-
-                        <div style={{ marginBottom: '20px' }}>
-                            <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '8px' }}>
-                                {t('wizard.step2New.starterPacksTitle')}
-                            </div>
-                            <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '10px' }}>
-                                {t('wizard.step2New.starterPacksDescription')}
-                            </div>
-                            {starterPacks.length > 0 ? (
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '10px' }}>
-                                    {starterPacks.map((pack: any) => (
-                                        <div key={pack.name} className="card" style={{ padding: '12px' }}>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'flex-start', marginBottom: '6px' }}>
-                                                <span style={{ fontWeight: 600, fontSize: '13px' }}>{pack.name}</span>
-                                                <span style={{ fontSize: '10px', color: pack.enabled ? 'var(--success)' : 'var(--text-tertiary)' }}>
-                                                    {pack.enabled ? t('wizard.step2New.packEnabled') : t('wizard.step2New.packDisabled')}
-                                                </span>
-                                            </div>
-                                            <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }}>{pack.summary}</div>
-                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                                                {(pack.tools || []).slice(0, 4).map((tool: string) => (
-                                                    <span key={tool} style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)' }}>
-                                                        {tool}
-                                                    </span>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            ) : (
-                                <div style={{ padding: '12px', background: 'var(--bg-elevated)', borderRadius: '8px', fontSize: '12px', color: 'var(--text-tertiary)' }}>
-                                    {t('wizard.step2New.starterPacksEmpty')}
-                                </div>
-                            )}
-                        </div>
 
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                             {globalSkills.map((skill: any) => {
                                 const isDefault = skill.is_default;
                                 const isChecked = form.skill_ids.includes(skill.id);
                                 return (
-                                    <label key={skill.id} style={{
-                                        display: 'flex', alignItems: 'center', gap: '12px', padding: '12px',
-                                        background: isChecked ? 'var(--accent-subtle)' : 'var(--bg-elevated)',
-                                        border: `1px solid ${isChecked ? 'var(--accent-primary)' : 'var(--border-default)'}`,
-                                        borderRadius: '8px', cursor: isDefault ? 'default' : 'pointer',
-                                        opacity: isDefault ? 0.85 : 1,
-                                    }}>
-                                        <input type="checkbox"
+                                    <label
+                                        key={skill.id}
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '12px',
+                                            padding: '12px',
+                                            background: isChecked ? 'var(--accent-subtle)' : 'var(--bg-elevated)',
+                                            border: `1px solid ${isChecked ? 'var(--accent-primary)' : 'var(--border-default)'}`,
+                                            borderRadius: '8px',
+                                            cursor: isDefault ? 'default' : 'pointer',
+                                        }}
+                                    >
+                                        <input
+                                            type="checkbox"
                                             checked={isChecked}
                                             disabled={isDefault}
                                             onChange={(e) => {
@@ -408,187 +465,43 @@ export default function AgentCreate() {
                                         />
                                         <div style={{ fontSize: '18px' }}>{skill.icon}</div>
                                         <div style={{ flex: 1 }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                            <span style={{ fontWeight: 500, fontSize: '13px' }}>{skill.name}</span>
-                                            {isDefault && (
-                                                <span style={{ fontSize: '10px', padding: '1px 6px', borderRadius: '4px', background: 'var(--accent-primary)', color: '#fff', fontWeight: 500 }}>
-                                                    {t('wizard.step2New.requiredBadge')}
-                                                </span>
-                                            )}
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                <span style={{ fontWeight: 500, fontSize: '13px' }}>{skill.name}</span>
+                                                {isDefault && (
+                                                    <span
+                                                        style={{
+                                                            fontSize: '10px',
+                                                            padding: '1px 6px',
+                                                            borderRadius: '4px',
+                                                            background: 'var(--accent-primary)',
+                                                            color: '#fff',
+                                                            fontWeight: 500,
+                                                        }}
+                                                    >
+                                                        {t('wizard.abilities.recommendedBadge')}
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '2px' }}>
+                                                {skill.description}
+                                            </div>
                                         </div>
-                                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{skill.description}</div>
-                                        </div>
-                                    </label>);
+                                    </label>
+                                );
                             })}
                             {globalSkills.length === 0 && (
                                 <div style={{ padding: '16px', background: 'var(--bg-elevated)', borderRadius: '8px', fontSize: '13px', color: 'var(--text-tertiary)', textAlign: 'center' }}>
-                                    {t('wizard.step2New.noSkills')}
+                                    {t('wizard.abilities.noSkills')}
                                 </div>
                             )}
                         </div>
 
                         <div style={{ marginTop: '20px', padding: '12px', background: 'var(--bg-secondary)', borderRadius: '8px', fontSize: '12px', color: 'var(--text-secondary)' }}>
-                            {t('wizard.step2New.governedActionsHint', { count: capabilityDefinitions.length })}
+                            {t('wizard.abilities.approvalHint')}
                         </div>
                     </div>
                 )}
-
-                {/* Step 3: Security & Access */}
-                {step === 2 && (
-                    <div>
-                        <h3 style={{ marginBottom: '20px', fontWeight: 600, fontSize: '15px' }}>{t('wizard.step3New.title')}</h3>
-
-                        {/* Security Zone */}
-                        <div style={{ marginBottom: '20px' }}>
-                            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '10px' }}>
-                                {t('agent.zone.title', 'Security Zone')}
-                            </label>
-                            <div style={{ display: 'flex', gap: '8px' }}>
-                                {(['standard', 'restricted', 'public'] as const).map((zone) => (
-                                    <label key={zone} style={{
-                                        flex: 1, display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '12px',
-                                        background: form.security_zone === zone ? 'var(--accent-subtle)' : 'var(--bg-elevated)',
-                                        border: `1px solid ${form.security_zone === zone ? 'var(--accent-primary)' : 'var(--border-default)'}`,
-                                        borderRadius: '8px', cursor: 'pointer',
-                                    }}>
-                                        <input type="radio" name="security_zone" checked={form.security_zone === zone}
-                                            onChange={() => setForm({ ...form, security_zone: zone })} style={{ marginTop: '2px' }} />
-                                        <div>
-                                            <div style={{ fontWeight: 500, fontSize: '13px' }}>{t(`agent.zone.${zone}`, zone)}</div>
-                                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '2px' }}>{t(`agent.zone.${zone}_desc`, '')}</div>
-                                        </div>
-                                    </label>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* Access Scope */}
-                        <div style={{ marginBottom: '20px' }}>
-                            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '10px' }}>
-                                {t('wizard.step4.title')}
-                            </label>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                {[
-                                    { value: 'company', label: t('wizard.step4.companyWide'), desc: t('wizard.step4.companyWideDesc') },
-                                    { value: 'user', label: t('wizard.step4.selfOnly'), desc: t('wizard.step4.selfOnlyDesc') },
-                                ].map((scope) => (
-                                    <label key={scope.value} style={{
-                                        display: 'flex', alignItems: 'center', gap: '12px', padding: '14px',
-                                        background: form.permission_scope_type === scope.value ? 'var(--accent-subtle)' : 'var(--bg-elevated)',
-                                        border: `1px solid ${form.permission_scope_type === scope.value ? 'var(--accent-primary)' : 'var(--border-default)'}`,
-                                        borderRadius: '8px', cursor: 'pointer',
-                                    }}>
-                                        <input type="radio" name="scope" checked={form.permission_scope_type === scope.value}
-                                            onChange={() => setForm({ ...form, permission_scope_type: scope.value })} />
-                                        <div>
-                                            <div style={{ fontWeight: 500, fontSize: '13px' }}>{scope.label}</div>
-                                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{scope.desc}</div>
-                                        </div>
-                                    </label>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* Access Level — only for company scope */}
-                        {form.permission_scope_type === 'company' && (
-                            <div style={{ marginBottom: '20px' }}>
-                                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '10px' }}>
-                                    {t('wizard.step4.accessLevel', 'Default Access Level')}
-                                </label>
-                                <div style={{ display: 'flex', gap: '8px' }}>
-                                    {[
-                                        { value: 'use', label: t('wizard.step4.useLevel', 'Use'), desc: t('wizard.step4.useDesc', 'Can use Task, Chat, Tools, Skills, Workspace') },
-                                        { value: 'manage', label: t('wizard.step4.manageLevel', 'Manage'), desc: t('wizard.step4.manageDesc', 'Full access including Settings, Mind, Relationships') },
-                                    ].map((lvl) => (
-                                        <label key={lvl.value} style={{
-                                            flex: 1, display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '12px',
-                                            background: form.permission_access_level === lvl.value ? 'var(--accent-subtle)' : 'var(--bg-elevated)',
-                                            border: `1px solid ${form.permission_access_level === lvl.value ? 'var(--accent-primary)' : 'var(--border-default)'}`,
-                                            borderRadius: '8px', cursor: 'pointer',
-                                        }}>
-                                            <input type="radio" name="access_level" checked={form.permission_access_level === lvl.value}
-                                                onChange={() => setForm({ ...form, permission_access_level: lvl.value })} style={{ marginTop: '2px' }} />
-                                            <div>
-                                                <div style={{ fontWeight: 500, fontSize: '13px' }}>{lvl.label}</div>
-                                                <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '2px' }}>{lvl.desc}</div>
-                                            </div>
-                                        </label>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Capability hint */}
-                        <div style={{
-                            padding: '12px 14px', borderRadius: '8px',
-                            background: 'var(--bg-secondary)', border: '1px solid var(--border-default)',
-                            fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.6,
-                        }}>
-                            {t('wizard.step3New.capabilityHint')}
-                        </div>
-                    </div>
-                )}
-
-                {/* Step 4: Channel — kept as-is */}
-                {step === 3 && (
-                    <div>
-                        <h3 style={{ marginBottom: '20px', fontWeight: 600, fontSize: '15px' }}>{t('wizard.stepChannel.title')}</h3>
-                        <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
-                            {t('wizard.stepChannel.description')}
-                        </p>
-
-                        <ChannelConfig mode="create" values={channelValues} onChange={setChannelValues} />
-
-                        {Object.keys(channelValues).length === 0 && (
-                            <div style={{ padding: '12px', background: 'var(--bg-secondary)', borderRadius: '8px', fontSize: '12px', color: 'var(--text-tertiary)', textAlign: 'center', marginTop: '12px' }}>
-                                {t('wizard.stepChannel.skipHint')}
-                            </div>
-                        )}
-                    </div>
-                )}
-
-                {/* Step 5: Review */}
-                {step === 4 && (
-                    <div>
-                        <h3 style={{ marginBottom: '6px', fontWeight: 600, fontSize: '15px' }}>{t('wizard.stepReview.title')}</h3>
-                        <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '20px' }}>
-                            {t('wizard.stepReview.summary')}
-                        </p>
-
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                            {[
-                                { label: t('wizard.stepReview.agentName'), value: form.name || t('wizard.summary.unnamed') },
-                                { label: t('wizard.stepReview.agentRole'), value: form.role_description || '-' },
-                                { label: t('wizard.stepReview.agentModel'), value: selectedModel?.label || t('wizard.stepReview.noneSelected') },
-                                { label: t('wizard.stepReview.agentSkills'), value: form.skill_ids.length > 0 ? `${form.skill_ids.length}` : t('wizard.stepReview.noneSelected') },
-                                { label: t('wizard.stepReview.agentStarterPacks'), value: starterPacks.length > 0 ? `${starterPacks.length}` : t('wizard.stepReview.noneSelected') },
-                                { label: t('wizard.stepReview.agentSecurityZone'), value: t(`agent.zone.${form.security_zone}`, form.security_zone) },
-                                { label: t('wizard.stepReview.agentAccessScope'), value: form.permission_scope_type === 'company' ? t('wizard.step4.companyWide') : t('wizard.step4.selfOnly') },
-                                ...(form.permission_scope_type === 'company' ? [{ label: t('wizard.stepReview.agentAccessLevel'), value: form.permission_access_level === 'manage' ? t('wizard.step4.manageLevel', 'Manage') : t('wizard.step4.useLevel', 'Use') }] : []),
-                                { label: t('wizard.stepReview.channelsConfigured'), value: configuredChannels.length > 0 ? `${configuredChannels.length}` : t('wizard.stepReview.no') },
-                            ].map((row, i) => (
-                                <div key={i} style={{
-                                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                                    padding: '10px 14px', background: 'var(--bg-elevated)', borderRadius: '8px',
-                                    border: '1px solid var(--border-default)',
-                                }}>
-                                    <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{row.label}</span>
-                                    <span style={{ fontSize: '13px', fontWeight: 500 }}>{row.value}</span>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
-
             </div>
-
-            {/* Summary sidebar */}
-            {selectedModel && (
-                <div style={{ marginTop: '16px', padding: '12px', background: 'var(--bg-elevated)', borderRadius: '8px', fontSize: '12px', color: 'var(--text-secondary)', maxWidth: '640px' }}>
-                    <strong>{form.name || t('wizard.summary.unnamed')}</strong> · {t('wizard.summary.model')}: {selectedModel.label}
-                    {form.max_tokens_per_day && ` · ${t('wizard.summary.dailyLimit')}: ${Number(form.max_tokens_per_day).toLocaleString()}`}
-                </div>
-            )}
         </div>
     );
 }

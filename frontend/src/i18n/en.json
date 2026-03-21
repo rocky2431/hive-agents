@@ -472,123 +472,61 @@
   },
   "wizard": {
     "steps": {
-      "basicInfo": "Basic Info",
-      "personality": "Personality",
-      "skills": "Skills",
-      "permissions": "Permissions",
-      "channel": "Channel",
       "identity": "Identity",
-      "capabilities": "Capabilities",
-      "risk": "Security & Access",
-      "review": "Review"
+      "abilities": "Abilities"
     },
     "next": "Next",
     "prev": "Previous",
     "finish": "Create",
     "nameHint": "Name your digital employee",
-    "roleHint": "Describe its role",
+    "roleHint": "What should they do?",
     "step1": {
-      "title": "Basic Info & Model Selection",
-      "selectTemplate": "Select template (optional)",
-      "custom": "Custom",
-      "primaryModel": "Primary Model",
       "noModels": "No available models. Please add LLM models in",
       "enterpriseSettings": "Company Settings",
       "addModels": "first",
-      "dailyTokenLimit": "Daily Token Limit",
-      "monthlyTokenLimit": "Monthly Token Limit",
-      "unlimited": "Unlimited",
       "namePlaceholder": "e.g. Smart Assistant"
     },
     "step2": {
-      "title": "Personality & Boundaries",
       "personalityPlaceholder": "Responsible, data-driven, proactive reporting...",
       "boundariesPlaceholder": "Cannot modify financial data, external communication requires approval..."
-    },
-    "step3": {
-      "title": "Skills & Tools",
-      "description": "Select skills for the digital employee. You can edit them later on the detail page.",
-      "toolsTitle": "Tools",
-      "toolsDescription": "Select tools the agent can use. Default tools are pre-enabled.",
-      "noSkills": "No skills available. Add skills in Enterprise Settings.",
-      "noTools": "No tools available.",
-      "infoSearch": "Info Search",
-      "infoSearchDesc": "Web search and information retrieval",
-      "dataAnalysis": "Data Analysis",
-      "dataAnalysisDesc": "Data queries and report generation",
-      "contentCreation": "Content Creation",
-      "contentCreationDesc": "Copywriting and content editing",
-      "codeDev": "Code Development",
-      "codeDevDesc": "Code writing and technical documentation",
-      "emailMgmt": "Email Management",
-      "emailMgmtDesc": "Email and calendar management",
-      "fileProcessing": "File Processing",
-      "fileProcessingDesc": "Document parsing and format conversion"
-    },
-    "step4": {
-      "title": "Permissions",
-      "companyWide": "Company-wide",
-      "companyWideDesc": "Everyone can use this digital employee",
-      "department": "Department",
-      "departmentDesc": "Only selected department members can use",
-      "selfOnly": "Self Only",
-      "selfOnlyDesc": "Only the creator can use"
     },
     "step1New": {
       "title": "Identity & Model"
     },
-    "step2New": {
-      "title": "Starter Capabilities",
-      "description": "Select starter skills. The pack list below is a derived preview of what those skills can unlock later, not an always-on capability set.",
-      "kernelInfo": "Agents start with a stable kernel of primitives. Feishu, web, shared plaza, and MCP capabilities are loaded explicitly through skills, channels, or MCP.",
-      "kernelTitle": "Kernel Tools",
-      "starterPacksTitle": "Derived Capability Packs",
-      "starterPacksDescription": "Selected skills declare the first wave of capability packs that can be activated on demand. They do not stay always-on until the matching skill is loaded.",
-      "starterPacksEmpty": "No derived capability packs yet. Choose skills below to define the first wave of expandable capabilities.",
-      "packEnabled": "Enabled",
-      "packDisabled": "Disabled",
-      "requiredBadge": "Required",
-      "noSkills": "No skills available. Add skills in Company Settings first.",
-      "governedActionsHint": "{{count}} governed capability actions are currently defined. High-risk operations from these packs will still flow through capability gates and approval after creation."
+    "templates": {
+      "title": "Choose a starting point",
+      "subtitle": "Pick a template to get started quickly, or build from scratch.",
+      "research": "Research Assistant",
+      "feishuOps": "Feishu Ops",
+      "content": "Content Creator",
+      "custom": "Start from Scratch"
     },
-    "step3New": {
-      "title": "Security & Access",
-      "capabilityHint": "This step only sets the security zone and default access scope. Fine-grained capability policies are configured after creation in Agent Settings."
+    "identity": {
+      "communicationStyle": "Communication style (personality & boundaries)",
+      "aiModel": "AI Model",
+      "selectModel": "-- Select a model --"
+    },
+    "abilities": {
+      "title": "What can they do?",
+      "description": "Select the skills this agent should have. You can always change these later.",
+      "recommendedBadge": "Recommended",
+      "noSkills": "No skills available. Add skills in Company Settings first.",
+      "approvalHint": "Some actions may need your approval before executing."
+    },
+    "success": {
+      "title": "{{name}} is ready!",
+      "startChat": "Start chatting",
+      "connectChannel": "Connect a channel"
     },
     "stepChannel": {
-      "title": "Channel Configuration",
-      "description": "Connect communication channels so this agent can work through Feishu, Slack, Discord, WeCom, or web. You can skip this for now and add channels later in Agent Settings.",
-      "skipHint": "You can skip this step and let the agent start on web first",
       "partialFailure": "Agent created, but some channels failed to configure: {{channels}}"
-    },
-    "stepReview": {
-      "title": "Review & Create",
-      "summary": "Review your agent configuration before creating.",
-      "agentName": "Name",
-      "agentRole": "Role",
-      "agentModel": "Model",
-      "agentSkills": "Skills",
-      "agentStarterPacks": "Derived Packs",
-      "agentSecurityZone": "Security Zone",
-      "agentAccessScope": "Access Scope",
-      "agentAccessLevel": "Access Level",
-      "channelsConfigured": "Channels configured",
-      "noneSelected": "None",
-      "yes": "Yes",
-      "no": "No"
-    },
-    "summary": {
-      "unnamed": "Unnamed",
-      "model": "Model",
-      "dailyLimit": "Daily limit"
     },
     "errors": {
       "nameRequired": "Agent name is required",
       "nameTooShort": "Name must be at least 2 characters",
       "nameTooLong": "Name cannot exceed 100 characters",
       "roleDescTooLong": "Role description cannot exceed 500 characters (current: {{count}})",
-      "tokenLimitInvalid": "Please enter a valid positive integer",
-      "modelRequired": "Please select a primary model"
+      "modelRequired": "Please select a model"
     }
   },
   "task": {
@@ -641,7 +579,15 @@
       "capabilities": "Action Permissions",
       "onboarding": "Onboarding",
       "packs": "Tool Kits",
-      "mcp": "Imported Tools"
+      "mcp": "Imported Tools",
+      "invites": "Invitations"
+    },
+    "groups": {
+      "overview": "Overview",
+      "team": "Team & Access",
+      "ai": "AI Capabilities",
+      "security": "Security",
+      "platform": "Platform"
     },
     "memory": {
       "title": "Memory & Summarization",

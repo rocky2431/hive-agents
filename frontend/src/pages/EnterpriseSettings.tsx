@@ -1318,7 +1318,22 @@ function MemoryTab({ models }: { models: LLMModel[] }) {
 export default function EnterpriseSettings() {
     const { t } = useTranslation();
     const qc = useQueryClient();
-    const [activeTab, setActiveTab] = useState<'llm' | 'org' | 'info' | 'approvals' | 'audit' | 'packs' | 'mcp' | 'skills' | 'quotas' | 'users' | 'flags' | 'invites' | 'memory' | 'sso' | 'capabilities'>('info');
+    type TabKey = 'info' | 'llm' | 'org' | 'approvals' | 'audit' | 'packs' | 'mcp' | 'skills' | 'quotas' | 'users' | 'flags' | 'invites' | 'memory' | 'sso' | 'capabilities' | 'config' | 'kb';
+
+    interface SidebarGroup {
+        key: string;
+        tabs: TabKey[];
+    }
+
+    const SIDEBAR_GROUPS: SidebarGroup[] = [
+        { key: 'overview', tabs: ['info'] },
+        { key: 'team', tabs: ['users', 'invites', 'org', 'sso', 'quotas'] },
+        { key: 'ai', tabs: ['llm', 'skills', 'mcp', 'packs', 'memory'] },
+        { key: 'security', tabs: ['capabilities', 'approvals', 'audit'] },
+        { key: 'platform', tabs: ['config', 'kb', 'flags'] },
+    ];
+
+    const [activeTab, setActiveTab] = useState<TabKey>('info');
 
     // OpenViking status for KB tab
     const { data: vikingStatus } = useQuery({
@@ -1675,13 +1690,56 @@ export default function EnterpriseSettings() {
                     </div>
                 </div>
 
-                <div className="tabs">
-                    {(['info', 'llm', 'packs', 'mcp', 'skills', 'memory', 'invites', 'quotas', 'users', 'org', 'approvals', 'audit', 'sso', 'capabilities', 'flags'] as const).map(tab => (
-                        <div key={tab} className={`tab ${activeTab === tab ? 'active' : ''}`} onClick={() => setActiveTab(tab)}>
-                            {tab === 'quotas' ? t('enterprise.tabs.quotas', 'Quotas') : tab === 'users' ? t('enterprise.tabs.users', 'Users') : tab === 'invites' ? t('enterprise.tabs.invites', 'Invitations') : t(`enterprise.tabs.${tab}`, tab)}
+                <div style={{ display: 'flex', gap: '0', marginTop: '4px' }}>
+                {/* ── Left Sidebar Navigation ── */}
+                <nav style={{
+                    width: '200px',
+                    minWidth: '200px',
+                    borderRight: '1px solid var(--border-subtle)',
+                    padding: '16px 0',
+                    position: 'sticky',
+                    top: 0,
+                    alignSelf: 'flex-start',
+                }}>
+                    {SIDEBAR_GROUPS.map(group => (
+                        <div key={group.key} style={{ marginBottom: '8px' }}>
+                            <div style={{
+                                padding: '8px 16px',
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                textTransform: 'uppercase' as const,
+                                color: 'var(--text-tertiary)',
+                                letterSpacing: '0.5px',
+                            }}>
+                                {t(`enterprise.groups.${group.key}`, group.key)}
+                            </div>
+                            {group.tabs.map(tab => (
+                                <div
+                                    key={tab}
+                                    onClick={() => setActiveTab(tab)}
+                                    style={{
+                                        padding: '6px 16px 6px 28px',
+                                        fontSize: '13px',
+                                        cursor: 'pointer',
+                                        borderRadius: '6px',
+                                        margin: '0 8px',
+                                        transition: 'background 0.12s ease',
+                                        ...(activeTab === tab
+                                            ? { background: 'var(--accent-subtle, rgba(99,102,241,0.08))', color: 'var(--accent-primary, #6366f1)', fontWeight: 500 }
+                                            : { color: 'var(--text-secondary)' }),
+                                    }}
+                                    onMouseEnter={e => { if (activeTab !== tab) (e.currentTarget as HTMLDivElement).style.background = 'var(--bg-hover, rgba(255,255,255,0.04)'; }}
+                                    onMouseLeave={e => { if (activeTab !== tab) (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
+                                >
+                                    {t(`enterprise.tabs.${tab}`, tab)}
+                                </div>
+                            ))}
                         </div>
                     ))}
-                </div>
+                </nav>
+
+                {/* ── Content Area ── */}
+                <div style={{ flex: 1, minWidth: 0, padding: '0 0 0 24px' }}>
 
                 {/* ── LLM Model Pool ── */}
                 {activeTab === 'llm' && (
@@ -2320,67 +2378,6 @@ export default function EnterpriseSettings() {
                                 </span>
                             </div>
                         </div>
-
-                        {/* ── 2. Company Knowledge Base ── */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
-                            <h3 style={{ margin: 0 }}>{t('enterprise.kb.title')}</h3>
-                            {vikingStatus?.connected ? (
-                                <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '10px', background: 'rgba(16,185,129,0.15)', color: 'rgb(16,185,129)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'rgb(16,185,129)' }} />
-                                    OpenViking {vikingStatus.version || ''}
-                                </span>
-                            ) : vikingStatus ? (
-                                <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '10px', background: 'var(--bg-secondary)', color: 'var(--text-tertiary)', fontWeight: 500 }}>
-                                    {t('enterprise.kb.vikingOffline', 'Knowledge engine offline')}
-                                </span>
-                            ) : null}
-                        </div>
-                        <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
-                            {t('enterprise.kb.description', 'Shared files accessible to all agents via enterprise_info/ directory.')}
-                        </p>
-                        <div className="card" style={{ marginBottom: '24px', padding: '16px' }}>
-                            <EnterpriseKBBrowser onRefresh={() => setInfoRefresh((v: number) => v + 1)} refreshKey={infoRefresh} />
-                        </div>
-
-                        {/* ── 3. Platform Configuration ── */}
-                        <h3 style={{ marginBottom: '8px' }}>{t('enterprise.config.title')}</h3>
-                        <PlatformSettings />
-
-                        {/* ── Theme Color ── */}
-                        <ThemeColorPicker />
-
-                        {/* ── Danger Zone: Delete Company ── */}
-                        <div style={{ marginTop: '32px', padding: '16px', border: '1px solid var(--status-error, #e53e3e)', borderRadius: '8px' }}>
-                            <h3 style={{ marginBottom: '4px', color: 'var(--status-error, #e53e3e)' }}>{t('enterprise.dangerZone', 'Danger Zone')}</h3>
-                            <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
-                                {t('enterprise.deleteCompanyDesc', 'Permanently delete this company and all its data including agents, models, tools, and skills. This action cannot be undone.')}
-                            </p>
-                            <button
-                                className="btn"
-                                onClick={async () => {
-                                    const name = document.querySelector<HTMLInputElement>('.company-name-input')?.value || selectedTenantId;
-                                    if (!confirm(t('enterprise.deleteCompanyConfirm', 'Are you sure you want to delete this company and ALL its data? This cannot be undone.'))) return;
-                                    try {
-                                        const res = await fetchJson<any>(`/tenants/${selectedTenantId}`, { method: 'DELETE' });
-                                        // Switch to fallback tenant
-                                        const fallbackId = res.fallback_tenant_id;
-                                        localStorage.setItem('current_tenant_id', fallbackId);
-                                        setSelectedTenantId(fallbackId);
-                                        window.dispatchEvent(new StorageEvent('storage', { key: 'current_tenant_id', newValue: fallbackId }));
-                                        qc.invalidateQueries({ queryKey: ['tenants'] });
-                                    } catch (e: any) {
-                                        alert(e.message || 'Delete failed');
-                                    }
-                                }}
-                                style={{
-                                    background: 'transparent', color: 'var(--status-error, #e53e3e)',
-                                    border: '1px solid var(--status-error, #e53e3e)', borderRadius: '6px',
-                                    padding: '6px 16px', fontSize: '13px', cursor: 'pointer',
-                                }}
-                            >
-                                {t('enterprise.deleteCompany', 'Delete This Company')}
-                            </button>
-                        </div>
                     </div>
                 )}
 
@@ -2664,6 +2661,75 @@ export default function EnterpriseSettings() {
 
                 {/* ── Invitation Codes Tab ── */}
                 {activeTab === 'invites' && <InvitationCodes />}
+
+                {/* ── Config Tab (extracted from info) ── */}
+                {activeTab === 'config' && (
+                    <div>
+                        <NotificationBarConfig />
+                        <h3 style={{ marginBottom: '8px' }}>{t('enterprise.config.title')}</h3>
+                        <PlatformSettings />
+                        <ThemeColorPicker />
+
+                        {/* ── Danger Zone: Delete Company ── */}
+                        <div style={{ marginTop: '32px', padding: '16px', border: '1px solid var(--status-error, #e53e3e)', borderRadius: '8px' }}>
+                            <h3 style={{ marginBottom: '4px', color: 'var(--status-error, #e53e3e)' }}>{t('enterprise.dangerZone', 'Danger Zone')}</h3>
+                            <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
+                                {t('enterprise.deleteCompanyDesc', 'Permanently delete this company and all its data including agents, models, tools, and skills. This action cannot be undone.')}
+                            </p>
+                            <button
+                                className="btn"
+                                onClick={async () => {
+                                    if (!confirm(t('enterprise.deleteCompanyConfirm', 'Are you sure you want to delete this company and ALL its data? This cannot be undone.'))) return;
+                                    try {
+                                        const res = await fetchJson<any>(`/tenants/${selectedTenantId}`, { method: 'DELETE' });
+                                        const fallbackId = res.fallback_tenant_id;
+                                        localStorage.setItem('current_tenant_id', fallbackId);
+                                        setSelectedTenantId(fallbackId);
+                                        window.dispatchEvent(new StorageEvent('storage', { key: 'current_tenant_id', newValue: fallbackId }));
+                                        qc.invalidateQueries({ queryKey: ['tenants'] });
+                                    } catch (e: any) {
+                                        alert(e.message || 'Delete failed');
+                                    }
+                                }}
+                                style={{
+                                    background: 'transparent', color: 'var(--status-error, #e53e3e)',
+                                    border: '1px solid var(--status-error, #e53e3e)', borderRadius: '6px',
+                                    padding: '6px 16px', fontSize: '13px', cursor: 'pointer',
+                                }}
+                            >
+                                {t('enterprise.deleteCompany', 'Delete This Company')}
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {/* ── Knowledge Base Tab (extracted from info) ── */}
+                {activeTab === 'kb' && (
+                    <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+                            <h3 style={{ margin: 0 }}>{t('enterprise.kb.title')}</h3>
+                            {vikingStatus?.connected ? (
+                                <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '10px', background: 'rgba(16,185,129,0.15)', color: 'rgb(16,185,129)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'rgb(16,185,129)' }} />
+                                    OpenViking {vikingStatus.version || ''}
+                                </span>
+                            ) : vikingStatus ? (
+                                <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '10px', background: 'var(--bg-secondary)', color: 'var(--text-tertiary)', fontWeight: 500 }}>
+                                    {t('enterprise.kb.vikingOffline', 'Knowledge engine offline')}
+                                </span>
+                            ) : null}
+                        </div>
+                        <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
+                            {t('enterprise.kb.description', 'Shared files accessible to all agents via enterprise_info/ directory.')}
+                        </p>
+                        <div className="card" style={{ marginBottom: '24px', padding: '16px' }}>
+                            <EnterpriseKBBrowser onRefresh={() => setInfoRefresh((v: number) => v + 1)} refreshKey={infoRefresh} />
+                        </div>
+                    </div>
+                )}
+
+                </div>{/* end content area */}
+                </div>{/* end sidebar + content flex */}
             </div>
 
             {

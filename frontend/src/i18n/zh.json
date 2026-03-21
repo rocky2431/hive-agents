@@ -481,128 +481,61 @@
   },
   "wizard": {
     "steps": {
-      "basicInfo": "基本信息",
-      "personality": "人格设定",
-      "skills": "技能配置",
-      "permissions": "权限设置",
-      "channel": "通道绑定",
       "identity": "身份与模型",
-      "capabilities": "初始能力",
-      "risk": "安全与访问",
-      "review": "确认创建"
+      "abilities": "能力配置"
     },
     "next": "下一步",
     "prev": "上一步",
     "finish": "完成创建",
     "nameHint": "给你的数字员工起个名字",
-    "roleHint": "描述它的角色定位",
+    "roleHint": "它应该做什么？",
     "step1": {
-      "title": "基础信息与模型选择",
-      "selectTemplate": "选择模板（可选）",
-      "custom": "自定义",
-      "primaryModel": "主模型",
       "noModels": "暂无可用模型，请先在",
       "enterpriseSettings": "企业设置",
       "addModels": "中添加 LLM 模型",
-      "dailyTokenLimit": "每日 Token 上限",
-      "monthlyTokenLimit": "每月 Token 上限",
-      "unlimited": "不限制",
       "namePlaceholder": "例：小智"
     },
     "step2": {
-      "title": "人格与边界",
       "personalityPlaceholder": "认真负责、数据驱动、主动汇报...",
       "boundariesPlaceholder": "不可修改财务数据、对外沟通需经审批..."
-    },
-    "step3": {
-      "title": "技能与工具",
-      "description": "选择数字员工的技能，创建后可在详情页继续编辑。",
-      "toolsTitle": "工具",
-      "toolsDescription": "选择数字员工可使用的工具，默认工具已自动开启。",
-      "noSkills": "暂无可用技能，请在企业设置中添加。",
-      "noTools": "暂无可用工具。",
-      "infoSearch": "信息搜索",
-      "infoSearchDesc": "联网搜索和信息检索",
-      "dataAnalysis": "数据分析",
-      "dataAnalysisDesc": "数据查询和报表生成",
-      "contentCreation": "内容创作",
-      "contentCreationDesc": "文案撰写和内容编辑",
-      "codeDev": "代码开发",
-      "codeDevDesc": "代码编写和技术文档",
-      "emailMgmt": "邮件管理",
-      "emailMgmtDesc": "邮件收发和日程管理",
-      "fileProcessing": "文件处理",
-      "fileProcessingDesc": "文档解析和格式转换"
-    },
-    "step4": {
-      "title": "权限设置",
-      "companyWide": "全公司可见",
-      "companyWideDesc": "所有人都可以使用此数字员工",
-      "department": "指定部门",
-      "departmentDesc": "仅选定部门成员可使用",
-      "selfOnly": "仅自己",
-      "selfOnlyDesc": "仅创建者本人可使用",
-      "accessLevel": "默认访问级别",
-      "useLevel": "使用",
-      "useDesc": "可使用任务、对话、工具、技能、工作空间",
-      "manageLevel": "管理",
-      "manageDesc": "包含设置、灵魂、关系等完整管理权限"
     },
     "step1New": {
       "title": "身份与模型"
     },
-    "step2New": {
-      "title": "初始能力",
-      "description": "选择初始 skills。下方展示的是这些 skills 会派生出的能力包预览，不代表它们会在创建后默认常驻。",
-      "kernelInfo": "数字员工默认拥有一组稳定的内核原语。飞书、网页、共享广场、MCP 等能力将通过 skill、渠道或 MCP 按需接入。",
-      "kernelTitle": "内核工具",
-      "starterPacksTitle": "派生能力包预览",
-      "starterPacksDescription": "已选 skills 会声明首批可按需激活的能力包。它们不会默认常驻，只有在运行时加载对应 skill 后才会出现。",
-      "starterPacksEmpty": "当前还没有可派生的能力包。请先选择下方 skills，确定数字员工的首批扩展能力。",
-      "packEnabled": "已启用",
-      "packDisabled": "已禁用",
-      "requiredBadge": "必选",
-      "noSkills": "暂无可用技能，请先在公司设置中添加。",
-      "governedActionsHint": "当前已有 {{count}} 个受治理能力动作。来自这些能力包的高风险操作在创建后仍会经过 capability gate 与审批流。"
+    "templates": {
+      "title": "选择一个起点",
+      "subtitle": "选择模板快速开始，或从零开始搭建。",
+      "research": "研究助手",
+      "feishuOps": "飞书运营",
+      "content": "内容创作",
+      "custom": "从零开始"
     },
-    "step3New": {
-      "title": "安全与访问",
-      "capabilityHint": "此步骤只设置安全区域与默认访问范围。更细的 capability policy 需要在创建后到 Agent 设置里配置。"
+    "identity": {
+      "communicationStyle": "沟通风格（人格与边界）",
+      "aiModel": "AI 模型",
+      "selectModel": "-- 选择模型 --"
+    },
+    "abilities": {
+      "title": "它能做什么？",
+      "description": "选择数字员工的技能，创建后仍可随时更改。",
+      "recommendedBadge": "推荐",
+      "noSkills": "暂无可用技能，请先在公司设置中添加。",
+      "approvalHint": "部分操作可能需要你的审批后才会执行。"
+    },
+    "success": {
+      "title": "{{name}} 已就绪！",
+      "startChat": "开始对话",
+      "connectChannel": "连接通信渠道"
     },
     "stepChannel": {
-      "title": "通道绑定",
-      "description": "连接通信渠道，让数字员工能通过飞书、Slack、Discord、企业微信或 Web 对外工作。此步骤可跳过，稍后仍可在 Agent 设置中补充。",
-      "skipHint": "跳过此步骤后，数字员工仍可先通过 Web 端工作",
       "partialFailure": "Agent 已创建，但部分渠道配置失败：{{channels}}"
-    },
-    "stepReview": {
-      "title": "确认创建",
-      "summary": "创建前确认 Agent 配置。",
-      "agentName": "名称",
-      "agentRole": "角色",
-      "agentModel": "模型",
-      "agentSkills": "技能",
-      "agentStarterPacks": "派生能力包",
-      "agentSecurityZone": "安全区域",
-      "agentAccessScope": "访问范围",
-      "agentAccessLevel": "访问级别",
-      "channelsConfigured": "已配置渠道",
-      "noneSelected": "未选择",
-      "yes": "是",
-      "no": "否"
-    },
-    "summary": {
-      "unnamed": "未命名",
-      "model": "模型",
-      "dailyLimit": "日限"
     },
     "errors": {
       "nameRequired": "智能体名称不能为空",
       "nameTooShort": "名称至少需要 2 个字符",
       "nameTooLong": "名称不能超过 100 个字符",
       "roleDescTooLong": "角色描述不能超过 500 个字符（当前 {{count}} 字符）",
-      "tokenLimitInvalid": "请输入有效的正整数",
-      "modelRequired": "请选择一个主模型"
+      "modelRequired": "请选择一个模型"
     }
   },
   "task": {
@@ -657,6 +590,13 @@
       "onboarding": "引导",
       "packs": "工具包",
       "mcp": "导入工具"
+    },
+    "groups": {
+      "overview": "概览",
+      "team": "团队与访问",
+      "ai": "AI 能力",
+      "security": "安全与合规",
+      "platform": "平台设置"
     },
     "memory": {
       "title": "记忆与摘要",
