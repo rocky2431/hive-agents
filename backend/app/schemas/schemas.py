@@ -82,6 +82,8 @@ class AgentCreate(BaseModel):
     # Classification
     agent_class: AgentClass = "internal_tenant"
     security_zone: str = "standard"  # public | standard | restricted
+    # Autonomy policy
+    autonomy_policy: dict | None = None
     # Skills to copy into agent workspace
     skill_ids: list[uuid.UUID] = []
 

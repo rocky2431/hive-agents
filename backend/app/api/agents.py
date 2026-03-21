@@ -159,6 +159,14 @@ async def create_agent(
         max_tokens_per_month=data.max_tokens_per_month,
         agent_class=data.agent_class,
         security_zone=data.security_zone,
+        autonomy_policy=data.autonomy_policy or {
+            "read_files": "L1",
+            "write_workspace_files": "L2",
+            "delete_files": "L3",
+            "send_feishu_message": "L2",
+            "web_search": "L1",
+            "execute_code": "L2",
+        },
         status="draft",
         expires_at=expires_at,
         max_llm_calls_per_day=max_llm_calls,
@@ -545,7 +553,7 @@ async def delete_agent(
             async with db.begin_nested():
                 await db.execute(text(sql), {"aid": agent_id})
         except Exception:
-            pass
+            logger.debug("FK cleanup skipped for agent %s: %s", agent_id, sql[:60])
 
     # Also clean agent_agent_relationships (has both agent_id and target_agent_id)
     try:
