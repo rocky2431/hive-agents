@@ -2312,46 +2312,27 @@ function AgentDetailInner() {
                                 {/* ── Sub-tab 2: MCP / Imported Tools ── */}
                                 {skillSubTab === 'mcp' && (
                                     <div>
-                                        <h3 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '6px' }}>{t('agent.skillTabs.mcp')}</h3>
-                                        <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
-                                            {t('agent.mcp.description', '连接外部工具和数据源。在对话中使用 tool_search 发现工具，或手动添加。')}
-                                        </p>
+                                        {/* Existing CapabilitiesView — pack cards + runtime records */}
+                                        <CapabilitiesView agentId={id!} canManage={canManage} />
 
-                                        {/* Agent-installed MCP tools */}
-                                        {(() => {
-                                            const installedTools: any[] = [];
-                                            if (installedTools.length === 0) {
-                                                return (
-                                                    <div className="card" style={{ padding: '32px', textAlign: 'center', color: 'var(--text-tertiary)' }}>
-                                                        <div style={{ fontSize: '32px', marginBottom: '12px' }}>🔌</div>
-                                                        <div style={{ fontSize: '14px', fontWeight: 500, marginBottom: '6px' }}>
-                                                            {t('agent.mcp.empty', '暂无已连接的外部工具')}
-                                                        </div>
-                                                        <div style={{ fontSize: '12px' }}>
-                                                            {t('agent.mcp.emptyHint', '在对话中使用 tool_search 发现并安装工具，或在公司设置中导入 MCP 服务器。')}
-                                                        </div>
-                                                    </div>
-                                                );
-                                            }
-                                            return (
-                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                                    {installedTools.map((tool: any) => (
-                                                        <div key={tool.id || tool.name} className="card" style={{ padding: '12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                                            <div>
-                                                                <div style={{ fontWeight: 500, fontSize: '13px' }}>{tool.display_name || tool.name}</div>
-                                                                <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '2px' }}>{tool.description || 'MCP tool'}</div>
-                                                            </div>
-                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                                <span style={{ fontSize: '10px', padding: '2px 8px', borderRadius: '4px', background: 'rgba(168,85,247,0.15)', color: '#c084fc' }}>MCP</span>
-                                                                <span style={{ color: tool.enabled !== false ? 'var(--success, #34c759)' : 'var(--text-tertiary)' }}>
-                                                                    {tool.enabled !== false ? '●' : '○'}
-                                                                </span>
-                                                            </div>
-                                                        </div>
-                                                    ))}
+                                        {/* MCP management link */}
+                                        <div className="card" style={{ marginTop: '20px', padding: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                            <div>
+                                                <div style={{ fontWeight: 600, fontSize: '14px', marginBottom: '4px' }}>
+                                                    🔌 {t('agent.mcp.manageTitle', 'MCP 服务器')}
                                                 </div>
-                                            );
-                                        })()}
+                                                <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                                                    {t('agent.mcp.manageDesc', '在公司设置中添加、配置和管理 MCP 外部工具服务器。所有 Agent 共享。')}
+                                                </div>
+                                            </div>
+                                            <button
+                                                className="btn btn-secondary"
+                                                style={{ fontSize: '12px', whiteSpace: 'nowrap' }}
+                                                onClick={() => window.location.href = '/enterprise?tab=mcp'}
+                                            >
+                                                {t('agent.mcp.goToSettings', '前往公司设置 →')}
+                                            </button>
+                                        </div>
                                     </div>
                                 )}
 
