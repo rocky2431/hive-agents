@@ -5,11 +5,12 @@ def _tool_names(tools: list[dict]) -> list[str]:
     return [tool["function"]["name"] for tool in tools]
 
 
-def test_tool_registry_round_trips_legacy_openai_tools():
-    from app.services.agent_tools import AGENT_TOOLS
+def test_tool_registry_round_trips_collected_openai_tools():
+    from app.services.agent_tools import get_combined_openai_tools
     from app.tools.registry import ToolRegistry
 
-    registry = ToolRegistry.from_openai_tools(AGENT_TOOLS)
+    all_tools = get_combined_openai_tools()
+    registry = ToolRegistry.from_openai_tools(all_tools)
 
     assert "load_skill" in registry.names()
     assert "set_trigger" in registry.names()

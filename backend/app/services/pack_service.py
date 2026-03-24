@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.agent import Agent
 from app.models.channel_config import ChannelConfig
-from app.services.agent_tools import AGENT_TOOLS, CORE_TOOL_NAMES
+from app.services.agent_tools import CORE_TOOL_NAMES, get_combined_openai_tools
 from app.services.capability_gate import CAPABILITY_MAP
 from app.services.pack_policy_service import get_tenant_pack_policies, is_pack_enabled
 from app.skills.types import ParsedSkill
@@ -20,11 +20,52 @@ from app.tools.packs import TOOL_PACKS, ToolPackSpec, infer_static_pack_names, p
 logger = logging.getLogger(__name__)
 
 # Kernel tools must mirror the runtime's real minimal toolset.
-KERNEL_TOOLS = tuple(
-    tool["function"]["name"]
-    for tool in AGENT_TOOLS
-    if tool["function"]["name"] in CORE_TOOL_NAMES
-)
+# Lazy-computed from collected tools (handlers/) since AGENT_TOOLS is now empty.
+_KERNEL_TOOLS: tuple[str, ...] | None = None
+
+
+def _compute_kernel_tools() -> tuple[str, ...]:
+    global _KERNEL_TOOLS
+    if _KERNEL_TOOLS is None:
+        _KERNEL_TOOLS = tuple(
+            tool["function"]["name"]
+            for tool in get_combined_openai_tools()
+            if tool["function"]["name"] in CORE_TOOL_NAMES
+        )
+    return _KERNEL_TOOLS
+
+
+# Public alias kept for backward-compat imports; resolved lazily on first access.
+class _LazyKernelTools(tuple):
+    """Tuple subclass that populates on first iteration / membership test."""
+
+    _resolved: tuple[str, ...] | None = None
+
+    def _ensure(self) -> tuple[str, ...]:
+        if self._resolved is None:
+            self._resolved = _compute_kernel_tools()
+        return self._resolved
+
+    def __contains__(self, item: object) -> bool:
+        return item in self._ensure()
+
+    def __iter__(self):
+        return iter(self._ensure())
+
+    def __len__(self) -> int:
+        return len(self._ensure())
+
+    def __repr__(self) -> str:
+        return repr(self._ensure())
+
+    def __eq__(self, other: object) -> bool:
+        return self._ensure() == other
+
+    def __hash__(self) -> int:
+        return hash(self._ensure())
+
+
+KERNEL_TOOLS: tuple[str, ...] = _LazyKernelTools()
 
 # Channel type → pack name mapping
 _CHANNEL_PACK_MAP = {

@@ -74,6 +74,14 @@ def _import_handler_modules() -> None:
     """
     # Phase 3 handler imports — add new modules here as tools are migrated.
     import app.tools.handlers.search  # noqa: F401
+    import app.tools.handlers.filesystem  # noqa: F401
+    import app.tools.handlers.skills  # noqa: F401
+    import app.tools.handlers.triggers  # noqa: F401
+    import app.tools.handlers.communication  # noqa: F401
+    import app.tools.handlers.feishu  # noqa: F401
+    import app.tools.handlers.mcp  # noqa: F401
+    import app.tools.handlers.email  # noqa: F401
+    import app.tools.handlers.plaza  # noqa: F401
 
 
 def collect_tools() -> CollectedTools:
