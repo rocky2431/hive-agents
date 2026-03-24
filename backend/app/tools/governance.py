@@ -13,7 +13,17 @@ logger = logging.getLogger(__name__)
 
 EventCallback = Callable[[dict[str, Any]], Awaitable[None] | None]
 
-_STATIC_SENSITIVE_TOOLS = {"send_feishu_message", "send_email", "delete_file", "write_file", "reply_email"}
+_STATIC_SENSITIVE_TOOLS = {
+    "send_feishu_message",
+    "send_email",
+    "delete_file",
+    "write_file",
+    "reply_email",
+    "execute_code",
+    "set_trigger",
+    "import_mcp_server",
+    "send_message_to_agent",
+}
 _STATIC_SAFE_TOOLS = {
     "list_files",
     "read_file",

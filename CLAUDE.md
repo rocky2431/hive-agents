@@ -73,7 +73,7 @@ kernel/engine.py — AgentKernel.handle() — pure LLM loop, zero DB deps
     ↓ (14 injected callbacks via KernelDependencies)
 tools/service.py — ToolRuntimeService.execute() — governed tool execution
     ↓
-tools/governance.py — security zone → capability gate → autonomy approval
+tools/governance.py — security zone → capability gate → approval flow
     ↓
 tools/executors/ — core.py, extended.py, integrations.py
 ```
@@ -99,15 +99,15 @@ Tools follow a registry + executor + governance pattern:
 |------|---------|
 | `runtime.py` | `ToolExecutionRegistry` — name → executor mapping, `try_execute()` |
 | `service.py` | `ToolRuntimeService` — wraps governance + execution + timeout + logging |
-| `governance.py` | `run_tool_governance()` — 3-layer preflight: security zone → capability gate → autonomy check |
-| `governance_resolver.py` | Connects governance to real DB (agent security_zone, capability policies, autonomy service) |
+| `governance.py` | `run_tool_governance()` — 2-layer preflight: security zone → capability gate (with optional approval escalation) |
+| `governance_resolver.py` | Connects governance to real DB (agent security_zone, capability policies, approval service) |
 | `packs.py` | `ToolPackSpec` — static capability bundles (web_pack, feishu_pack, email_pack, etc.) |
 | `executors/core.py` | File I/O, skill loading, triggers, messaging — 13 core tool handlers |
 | `executors/extended.py` | Web search, document reader, MCP, upload — 12 extended handlers |
 | `executors/integrations.py` | Plaza, Feishu docs/calendar, email, MCP passthrough |
 | `workspace.py` | `ensure_workspace()` — bootstraps agent filesystem (soul.md, memory/, skills/, workspace/) |
 
-**Tool governance pipeline:** Every `execute_tool()` call runs through `run_tool_governance()` which checks: (1) security zone (public/standard/restricted), (2) capability policy (tenant/agent-level allow/deny/approval), (3) autonomy level (L1/L2/L3). If blocked, returns a user-friendly message; if escalated, creates an approval request.
+**Tool governance pipeline:** Every `execute_tool()` call runs through `run_tool_governance()` which checks: (1) security zone (public/standard/restricted), (2) capability policy (tenant/agent-level allow/deny/approval). If the capability policy requires approval, it escalates to the approval service. If blocked, returns a user-friendly message.
 
 **Dynamic tool expansion:** When an agent calls `load_skill` or `discover_resources`, the kernel expands the tool list from core-only to full toolset and emits a `pack_activation` event.
 
@@ -141,7 +141,7 @@ File-backed memory with session summaries. `FileBackedMemoryStore` loads session
 | `llm_client.py` | Unified LLM client — OpenAI, Anthropic, OpenAI-compatible, Gemini |
 | `agent_tools.py` | Tool definitions (OpenAI function-calling format) + legacy execute_tool |
 | `trigger_daemon.py` | 15-sec tick loop evaluating cron/interval/poll/webhook/on_message triggers |
-| `autonomy_service.py` | L1/L2/L3 enforcement — auto-execute, notify, or block-and-approve |
+| `approval_service.py` | Approval request creation and resolution — integrates with Feishu approval cards |
 | `capability_gate.py` | `CAPABILITY_MAP` (tool → capability) + `check_capability()` per tenant/agent |
 | `feishu_service.py` | Feishu OAuth, messaging, interactive approval cards |
 | `pack_service.py` | Pack catalog, agent packs, capability summary, session runtime state |

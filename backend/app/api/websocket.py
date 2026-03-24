@@ -194,6 +194,10 @@ async def websocket_chat(
                 await websocket.close(code=4001)
                 return
 
+            # Set execution identity for audit trail
+            from app.core.execution_context import set_delegated_user_identity
+            set_delegated_user_identity(user.id, user.display_name or user.username, channel="web")
+
             logger.info(f"[WS] Checking agent access for {agent_id}")
             agent, _ = await check_agent_access(db, user, agent_id)
             # Check agent expiry
