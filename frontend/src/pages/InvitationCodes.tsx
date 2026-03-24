@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 
-export default function InvitationCodes() {
+export default function InvitationCodes({ tenantId: tenantIdProp }: { tenantId?: string }) {
     const { t } = useTranslation();
     const [codes, setCodes] = useState<any[]>([]);
     const [total, setTotal] = useState(0);
@@ -12,6 +12,7 @@ export default function InvitationCodes() {
     const [maxUses, setMaxUses] = useState(5);
     const [creating, setCreating] = useState(false);
     const [toast, setToast] = useState('');
+    const tenantId = tenantIdProp || localStorage.getItem('current_tenant_id') || '';
 
     const token = localStorage.getItem('token');
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -25,13 +26,14 @@ export default function InvitationCodes() {
             page_size: String(pageSize),
         });
         if (currentSearch) params.set('search', currentSearch);
+        if (tenantId) params.set('tenant_id', tenantId);
         const res = await fetch(`/api/v1/enterprise/invitation-codes?${params}`, { headers });
         const data = await res.json();
         setCodes(data.items || []);
         setTotal(data.total || 0);
-    }, [page, search]);
+    }, [page, search, tenantId]);
 
-    useEffect(() => { loadCodes(page, search); }, [page, search]);
+    useEffect(() => { loadCodes(page, search); }, [page, search, loadCodes]);
 
     const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -42,7 +44,7 @@ export default function InvitationCodes() {
 
     const createBatch = async () => {
         setCreating(true);
-        await fetch('/api/v1/enterprise/invitation-codes', {
+        await fetch(`/api/v1/enterprise/invitation-codes${tenantId ? `?tenant_id=${tenantId}` : ''}`, {
             method: 'POST', headers, body: JSON.stringify({ count: batchCount, max_uses: maxUses }),
         });
         setPage(1);
@@ -54,7 +56,7 @@ export default function InvitationCodes() {
     };
 
     const deactivate = async (id: string) => {
-        await fetch(`/api/v1/enterprise/invitation-codes/${id}`, { method: 'DELETE', headers });
+        await fetch(`/api/v1/enterprise/invitation-codes/${id}${tenantId ? `?tenant_id=${tenantId}` : ''}`, { method: 'DELETE', headers });
         await loadCodes();
     };
 
@@ -62,7 +64,7 @@ export default function InvitationCodes() {
         const token = localStorage.getItem('token');
         const a = document.createElement('a');
         // Use fetch to include auth header, then trigger download
-        fetch('/api/v1/enterprise/invitation-codes/export', {
+        fetch(`/api/v1/enterprise/invitation-codes/export${tenantId ? `?tenant_id=${tenantId}` : ''}`, {
             headers: token ? { Authorization: `Bearer ${token}` } : {},
         })
             .then(r => r.blob())
@@ -222,4 +224,3 @@ export default function InvitationCodes() {
         </div>
     );
 }
-

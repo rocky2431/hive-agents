@@ -149,10 +149,10 @@ export const oidcApi = {
     bind: (data: { code: string; redirect_uri: string }) =>
         request<any>('/auth/oidc/bind', { method: 'POST', body: JSON.stringify(data) }),
 
-    getConfig: () => request<any>('/enterprise/oidc-config'),
+    getConfig: (tenantId?: string) => request<any>(`/enterprise/oidc-config${tenantId ? `?tenant_id=${tenantId}` : ''}`),
 
-    updateConfig: (data: { issuer_url: string; client_id: string; client_secret: string; scopes?: string; auto_provision?: boolean; display_name?: string }) =>
-        request<any>('/enterprise/oidc-config', { method: 'PUT', body: JSON.stringify(data) }),
+    updateConfig: (data: { issuer_url: string; client_id: string; client_secret: string; scopes?: string; auto_provision?: boolean; display_name?: string }, tenantId?: string) =>
+        request<any>(`/enterprise/oidc-config${tenantId ? `?tenant_id=${tenantId}` : ''}`, { method: 'PUT', body: JSON.stringify(data) }),
 };
 
 // ─── Tenants ──────────────────────────────────────────
@@ -342,9 +342,10 @@ export const enterpriseApi = {
         request<{ connected: boolean; version?: string; reason?: string }>('/enterprise/knowledge-base/openviking-status'),
 
     // Memory configuration
-    memoryConfig: () => request<any>('/enterprise/memory/config'),
-    updateMemoryConfig: (data: any) =>
-        request<any>('/enterprise/memory/config', { method: 'PUT', body: JSON.stringify(data) }),
+    memoryConfig: (tenantId?: string) =>
+        request<any>(`/enterprise/memory/config${tenantId ? `?tenant_id=${tenantId}` : ''}`),
+    updateMemoryConfig: (data: any, tenantId?: string) =>
+        request<any>(`/enterprise/memory/config${tenantId ? `?tenant_id=${tenantId}` : ''}`, { method: 'PUT', body: JSON.stringify(data) }),
     agentMemory: (agentId: string) =>
         request<{ facts: any[] }>(`/enterprise/memory/agents/${agentId}/memory`),
     sessionSummary: (sessionId: string) =>

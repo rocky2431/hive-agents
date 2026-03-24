@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import get_current_admin, get_current_user
+from app.core.tenant_scope import resolve_tenant_scope
 from app.database import get_db
 from app.models.chat_session import ChatSession
 from app.models.tenant_setting import TenantSetting
@@ -29,15 +30,15 @@ class MemoryConfigUpdate(BaseModel):
 
 @router.get("/config")
 async def get_memory_config(
+    tenant_id: str | None = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Get tenant memory configuration."""
-    if not current_user.tenant_id:
-        return {}
+    target_tenant_id = resolve_tenant_scope(current_user, tenant_id)
     result = await db.execute(
         select(TenantSetting).where(
-            TenantSetting.tenant_id == current_user.tenant_id,
+            TenantSetting.tenant_id == target_tenant_id,
             TenantSetting.key == "memory_config",
         )
     )
@@ -55,16 +56,16 @@ async def get_memory_config(
 @router.put("/config")
 async def update_memory_config(
     data: MemoryConfigUpdate,
+    tenant_id: str | None = None,
     current_user: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """Update tenant memory configuration (admin only)."""
-    if not current_user.tenant_id:
-        raise HTTPException(status_code=400, detail="No tenant assigned")
+    target_tenant_id = resolve_tenant_scope(current_user, tenant_id)
 
     result = await db.execute(
         select(TenantSetting).where(
-            TenantSetting.tenant_id == current_user.tenant_id,
+            TenantSetting.tenant_id == target_tenant_id,
             TenantSetting.key == "memory_config",
         )
     )
@@ -76,7 +77,7 @@ async def update_memory_config(
         setting.value = config_dict
     else:
         setting = TenantSetting(
-            tenant_id=current_user.tenant_id,
+            tenant_id=target_tenant_id,
             key="memory_config",
             value=config_dict,
         )

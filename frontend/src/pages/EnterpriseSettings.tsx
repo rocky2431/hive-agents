@@ -1191,20 +1191,23 @@ function FeatureFlagsTab() {
 
 
 // ─── Memory Tab ──────────────────────────────────────
-function MemoryTab({ models }: { models: LLMModel[] }) {
+function MemoryTab({ models, tenantId }: { models: LLMModel[]; tenantId?: string }) {
     const { t } = useTranslation();
-    const [config, setConfig] = useState({
+    const defaultConfig = {
         summary_model_id: '' as string,
         compress_threshold: 70,
         keep_recent: 10,
         extract_to_viking: false,
-    });
+    };
+    const [config, setConfig] = useState(defaultConfig);
     const [saving, setSaving] = useState(false);
     const [saved, setSaved] = useState(false);
     const [loaded, setLoaded] = useState(false);
 
     useEffect(() => {
-        fetchJson<any>('/enterprise/memory/config').then(d => {
+        setLoaded(false);
+        setConfig(defaultConfig);
+        fetchJson<any>(`/enterprise/memory/config${tenantId ? `?tenant_id=${tenantId}` : ''}`).then(d => {
             if (d && Object.keys(d).length) {
                 setConfig(c => ({
                     ...c,
@@ -1214,12 +1217,12 @@ function MemoryTab({ models }: { models: LLMModel[] }) {
             }
             setLoaded(true);
         }).catch(() => setLoaded(true));
-    }, []);
+    }, [tenantId]);
 
     const saveConfig = async () => {
         setSaving(true);
         try {
-            await fetchJson('/enterprise/memory/config', {
+            await fetchJson(`/enterprise/memory/config${tenantId ? `?tenant_id=${tenantId}` : ''}`, {
                 method: 'PUT',
                 body: JSON.stringify({
                     ...config,
@@ -1374,25 +1377,27 @@ export default function EnterpriseSettings() {
     });
 
     // Tenant quota defaults
-    const [quotaForm, setQuotaForm] = useState({
+    const defaultQuotaForm = {
         default_message_limit: 50, default_message_period: 'permanent',
         default_max_agents: 2, default_agent_ttl_hours: 48,
         default_max_llm_calls_per_day: 100, min_heartbeat_interval_minutes: 120,
         default_max_triggers: 20, min_poll_interval_floor: 5, max_webhook_rate_ceiling: 5,
-    });
+    };
+    const [quotaForm, setQuotaForm] = useState(defaultQuotaForm);
     const [quotaSaving, setQuotaSaving] = useState(false);
     const [quotaSaved, setQuotaSaved] = useState(false);
     useEffect(() => {
         if (activeTab === 'quotas') {
-            fetchJson<any>('/enterprise/tenant-quotas').then(d => {
+            setQuotaForm(defaultQuotaForm);
+            fetchJson<any>(`/enterprise/tenant-quotas${selectedTenantId ? `?tenant_id=${selectedTenantId}` : ''}`).then(d => {
                 if (d && Object.keys(d).length) setQuotaForm(f => ({ ...f, ...d }));
             }).catch(() => { });
         }
-    }, [activeTab]);
+    }, [activeTab, selectedTenantId]);
     const saveQuotas = async () => {
         setQuotaSaving(true);
         try {
-            await fetchJson('/enterprise/tenant-quotas', { method: 'PATCH', body: JSON.stringify(quotaForm) });
+            await fetchJson(`/enterprise/tenant-quotas${selectedTenantId ? `?tenant_id=${selectedTenantId}` : ''}`, { method: 'PATCH', body: JSON.stringify(quotaForm) });
             setQuotaSaved(true); setTimeout(() => setQuotaSaved(false), 2000);
         } catch (e) { alert('Failed to save'); }
         setQuotaSaving(false);
@@ -1593,8 +1598,9 @@ export default function EnterpriseSettings() {
 
     // ─── SSO Config
     useEffect(() => {
-        if (activeTab === 'sso' && !ssoLoaded) {
-            oidcApi.getConfig().then((cfg: any) => {
+        if (activeTab === 'sso') {
+            setSsoLoaded(false);
+            oidcApi.getConfig(selectedTenantId || undefined).then((cfg: any) => {
                 if (cfg) {
                     setSsoForm(f => ({
                         ...f,
@@ -1609,12 +1615,12 @@ export default function EnterpriseSettings() {
                 setSsoLoaded(true);
             }).catch(() => { setSsoLoaded(true); });
         }
-    }, [activeTab, ssoLoaded]);
+    }, [activeTab, selectedTenantId]);
 
     const saveSsoConfig = async () => {
         setSsoSaving(true);
         try {
-            await oidcApi.updateConfig(ssoForm);
+            await oidcApi.updateConfig(ssoForm, selectedTenantId || undefined);
             setSsoSaved(true);
             setTimeout(() => setSsoSaved(false), 2000);
         } catch {
@@ -2692,10 +2698,10 @@ export default function EnterpriseSettings() {
                 {activeTab === 'flags' && <FeatureFlagsTab />}
 
                 {/* ── Memory Tab ── */}
-                {activeTab === 'memory' && <MemoryTab models={models} />}
+                {activeTab === 'memory' && <MemoryTab key={selectedTenantId || 'memory-default'} models={models} tenantId={selectedTenantId || undefined} />}
 
                 {/* ── Invitation Codes Tab ── */}
-                {activeTab === 'invites' && <InvitationCodes />}
+                {activeTab === 'invites' && <InvitationCodes key={selectedTenantId || 'invites-default'} tenantId={selectedTenantId || undefined} />}
 
                 {/* ── Config Tab (extracted from info) ── */}
                 {activeTab === 'config' && (

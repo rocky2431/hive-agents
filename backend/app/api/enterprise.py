@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 logger = logging.getLogger(__name__)
 
 from app.core.security import get_current_admin, get_current_user
+from app.core.tenant_scope import resolve_tenant_scope
 from app.database import get_db
 from app.services.secrets_provider import get_secrets_provider
 from app.models.agent import Agent
@@ -553,13 +554,13 @@ class TenantQuotaUpdate(BaseModel):
 
 @router.get("/tenant-quotas")
 async def get_tenant_quotas(
+    tenant_id: str | None = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Get tenant quota defaults and heartbeat settings."""
-    if not current_user.tenant_id:
-        return {}
-    result = await db.execute(select(Tenant).where(Tenant.id == current_user.tenant_id))
+    target_tenant_id = resolve_tenant_scope(current_user, tenant_id)
+    result = await db.execute(select(Tenant).where(Tenant.id == target_tenant_id))
     tenant = result.scalar_one_or_none()
     if not tenant:
         return {}
@@ -579,14 +580,13 @@ async def get_tenant_quotas(
 @router.patch("/tenant-quotas")
 async def update_tenant_quotas(
     data: TenantQuotaUpdate,
+    tenant_id: str | None = None,
     current_user: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """Update tenant quota defaults (admin only). Enforces heartbeat floor on existing agents."""
-    if not current_user.tenant_id:
-        raise HTTPException(status_code=400, detail="No tenant assigned")
-
-    result = await db.execute(select(Tenant).where(Tenant.id == current_user.tenant_id))
+    target_tenant_id = resolve_tenant_scope(current_user, tenant_id)
+    result = await db.execute(select(Tenant).where(Tenant.id == target_tenant_id))
     tenant = result.scalar_one_or_none()
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant not found")
@@ -627,10 +627,10 @@ async def update_tenant_quotas(
             severity="info",
             actor_type="user",
             actor_id=current_user.id,
-            tenant_id=current_user.tenant_id,
+            tenant_id=target_tenant_id,
             action="update_tenant_quotas",
             resource_type="tenant",
-            resource_id=current_user.tenant_id,
+            resource_id=target_tenant_id,
             details=data.model_dump(exclude_unset=True),
         )
     except Exception:
@@ -666,18 +666,18 @@ class OIDCConfigUpdate(BaseModel):
 
 @router.get("/oidc-config")
 async def get_oidc_config(
+    tenant_id: str | None = None,
     current_user: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """Get OIDC SSO configuration for the current tenant (admin only)."""
-    if not current_user.tenant_id:
-        return {"configured": False}
+    target_tenant_id = resolve_tenant_scope(current_user, tenant_id)
 
     from app.models.tenant_setting import TenantSetting
 
     result = await db.execute(
         select(TenantSetting).where(
-            TenantSetting.tenant_id == current_user.tenant_id,
+            TenantSetting.tenant_id == target_tenant_id,
             TenantSetting.key == "oidc_config",
         )
     )
@@ -700,12 +700,12 @@ async def get_oidc_config(
 @router.put("/oidc-config")
 async def update_oidc_config(
     data: OIDCConfigUpdate,
+    tenant_id: str | None = None,
     current_user: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """Set or update OIDC SSO configuration for the current tenant (admin only)."""
-    if not current_user.tenant_id:
-        raise HTTPException(status_code=400, detail="No tenant assigned")
+    target_tenant_id = resolve_tenant_scope(current_user, tenant_id)
 
     # Validate issuer URL by attempting discovery
     from app.services.oidc_service import discover_oidc
@@ -721,7 +721,7 @@ async def update_oidc_config(
 
     result = await db.execute(
         select(TenantSetting).where(
-            TenantSetting.tenant_id == current_user.tenant_id,
+            TenantSetting.tenant_id == target_tenant_id,
             TenantSetting.key == "oidc_config",
         )
     )
@@ -744,7 +744,7 @@ async def update_oidc_config(
     else:
         db.add(
             TenantSetting(
-                tenant_id=current_user.tenant_id,
+                tenant_id=target_tenant_id,
                 key="oidc_config",
                 value=config_value,
             )
@@ -759,7 +759,7 @@ async def update_oidc_config(
             severity="warn",
             actor_type="user",
             actor_id=current_user.id,
-            tenant_id=current_user.tenant_id,
+            tenant_id=target_tenant_id,
             action="update_oidc_config",
             details={"issuer_url": data.issuer_url, "client_id": data.client_id},
         )
@@ -912,18 +912,20 @@ def _require_tenant_admin(current_user: User) -> None:
     """Check that the user is org_admin or platform_admin with a tenant."""
     if current_user.role not in ("platform_admin", "org_admin"):
         raise HTTPException(status_code=403, detail="Requires admin privileges")
-    if not current_user.tenant_id:
+    if current_user.role != "platform_admin" and not current_user.tenant_id:
         raise HTTPException(status_code=400, detail="No company assigned")
 
 
 @router.post("/invitation-codes")
 async def create_invitation_codes(
     data: InvitationCodeCreate,
+    tenant_id: str | None = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Batch-create invitation codes for the current user's company."""
     _require_tenant_admin(current_user)
+    target_tenant_id = resolve_tenant_scope(current_user, tenant_id)
     import random
     import string
 
@@ -932,7 +934,7 @@ async def create_invitation_codes(
         code_str = "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
         code = InvitationCode(
             code=code_str,
-            tenant_id=current_user.tenant_id,
+            tenant_id=target_tenant_id,
             max_uses=data.max_uses,
             created_by=current_user.id,
         )
@@ -948,14 +950,16 @@ async def list_invitation_codes(
     page: int = 1,
     page_size: int = 20,
     search: str = "",
+    tenant_id: str | None = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """List invitation codes for the current user's company."""
     _require_tenant_admin(current_user)
     from sqlalchemy import func as sqla_func
+    target_tenant_id = resolve_tenant_scope(current_user, tenant_id)
 
-    base_filter = InvitationCode.tenant_id == current_user.tenant_id
+    base_filter = InvitationCode.tenant_id == target_tenant_id
     stmt = select(InvitationCode).where(base_filter)
     count_stmt = select(sqla_func.count()).select_from(InvitationCode).where(base_filter)
 
@@ -989,18 +993,20 @@ async def list_invitation_codes(
 
 @router.get("/invitation-codes/export")
 async def export_invitation_codes_csv(
+    tenant_id: str | None = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Export invitation codes for the current user's company as CSV."""
     _require_tenant_admin(current_user)
+    target_tenant_id = resolve_tenant_scope(current_user, tenant_id)
     import csv
     import io
     from fastapi.responses import StreamingResponse
 
     result = await db.execute(
         select(InvitationCode)
-        .where(InvitationCode.tenant_id == current_user.tenant_id)
+        .where(InvitationCode.tenant_id == target_tenant_id)
         .order_by(InvitationCode.created_at.asc())
     )
     codes = result.scalars().all()
@@ -1030,17 +1036,19 @@ async def export_invitation_codes_csv(
 @router.delete("/invitation-codes/{code_id}")
 async def deactivate_invitation_code(
     code_id: str,
+    tenant_id: str | None = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Deactivate an invitation code (must belong to current user's company)."""
     _require_tenant_admin(current_user)
+    target_tenant_id = resolve_tenant_scope(current_user, tenant_id)
     import uuid as _uuid
 
     result = await db.execute(
         select(InvitationCode).where(
             InvitationCode.id == _uuid.UUID(code_id),
-            InvitationCode.tenant_id == current_user.tenant_id,
+            InvitationCode.tenant_id == target_tenant_id,
         )
     )
     code = result.scalar_one_or_none()

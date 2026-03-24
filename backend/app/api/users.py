@@ -114,7 +114,7 @@ async def update_user_quota(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    if user.tenant_id != current_user.tenant_id:
+    if current_user.role != "platform_admin" and user.tenant_id != current_user.tenant_id:
         raise HTTPException(status_code=403, detail="Cannot modify users outside your organization")
 
     if data.quota_message_limit is not None:
