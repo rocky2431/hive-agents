@@ -1,0 +1,33 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+
+const enterpriseSettingsPath = path.resolve(process.cwd(), 'src/pages/EnterpriseSettings.tsx');
+const agentDetailPath = path.resolve(process.cwd(), 'src/pages/AgentDetail.tsx');
+const typesPath = path.resolve(process.cwd(), 'src/types/index.ts');
+
+const read = (filePath: string) => fs.readFileSync(filePath, 'utf8');
+
+test('EnterpriseSettings scopes org sync config and trigger requests to the selected tenant', () => {
+    const source = read(enterpriseSettingsPath);
+
+    assert.match(source, /queryKey:\s*\['system-settings', 'feishu_org_sync', currentTenantId\]/);
+    assert.match(source, /\/enterprise\/system-settings\/feishu_org_sync\$\{currentTenantId \? `\?tenant_id=\$\{currentTenantId\}` : ''\}/);
+    assert.match(source, /\/enterprise\/org\/sync\$\{currentTenantId \? `\?tenant_id=\$\{currentTenantId\}` : ''\}/);
+});
+
+test('AgentDetail scopes relationship searches and candidate agents to the agent tenant', () => {
+    const source = read(agentDetailPath);
+
+    assert.match(source, /const relationshipTenantId = localStorage\.getItem\('current_tenant_id'\) \|\| '';/);
+    assert.match(source, /queryKey:\s*\['agents-for-rel', relationshipTenantId\]/);
+    assert.match(source, /\/agents\/\$\{relationshipTenantId \? `\?tenant_id=\$\{relationshipTenantId\}` : ''\}/);
+    assert.match(source, /params\.set\('tenant_id', relationshipTenantId\)/);
+});
+
+test('frontend Agent type exposes tenant_id for tenant-scoped detail flows', () => {
+    const source = read(typesPath);
+
+    assert.match(source, /export interface Agent \{[\s\S]*tenant_id\?: string;/);
+});

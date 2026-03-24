@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import async_session
 from app.models.org import OrgDepartment, OrgMember
-from app.models.system_settings import SystemSetting
+from app.models.tenant_setting import TenantSetting
 from app.models.user import User
 from app.core.security import hash_password
 
@@ -25,15 +25,16 @@ FEISHU_USERS_URL = "https://open.feishu.cn/open-apis/contact/v3/users/find_by_de
 class OrgSyncService:
     """Sync org structure from Feishu into local database."""
 
-    async def _get_feishu_config(self, db: AsyncSession) -> dict | None:
-        """Load Feishu org sync config from system_settings."""
+    async def _get_feishu_config(self, db: AsyncSession, tenant_id: uuid.UUID) -> dict | None:
+        """Load Feishu org sync config from tenant settings."""
         result = await db.execute(
-            select(SystemSetting).where(SystemSetting.key == "feishu_org_sync")
+            select(TenantSetting).where(
+                TenantSetting.tenant_id == tenant_id,
+                TenantSetting.key == "feishu_org_sync",
+            )
         )
         setting = result.scalar_one_or_none()
-        if not setting:
-            return None
-        return setting.value
+        return setting.value if setting else None
 
     async def _get_app_token(self, app_id: str, app_secret: str) -> tuple[str, dict]:
         """Get Feishu tenant_access_token.
@@ -164,10 +165,10 @@ class OrgSyncService:
                 page_token = data["data"].get("page_token", "")
         return all_users
 
-    async def full_sync(self) -> dict:
+    async def full_sync(self, tenant_id: uuid.UUID) -> dict:
         """Run a full org sync from Feishu. Returns stats."""
         async with async_session() as db:
-            config = await self._get_feishu_config(db)
+            config = await self._get_feishu_config(db, tenant_id)
             if not config:
                 return {"error": "未配置飞书组织架构同步信息"}
 
@@ -191,13 +192,6 @@ class OrgSyncService:
             member_count = 0
             user_count = 0
 
-            # Resolve tenant_id from the first admin user
-            admin_result = await db.execute(
-                select(User).where(User.role == "platform_admin").limit(1)
-            )
-            admin_user = admin_result.scalar_one_or_none()
-            tenant_id = admin_user.tenant_id if admin_user else None
-
             # --- Sync departments ---
             try:
                 depts = await self._fetch_departments(token, "0")
@@ -208,7 +202,10 @@ class OrgSyncService:
                     if not feishu_id:
                         continue
                     result = await db.execute(
-                        select(OrgDepartment).where(OrgDepartment.feishu_id == feishu_id)
+                        select(OrgDepartment).where(
+                            OrgDepartment.tenant_id == tenant_id,
+                            OrgDepartment.feishu_id == feishu_id,
+                        )
                     )
                     dept = result.scalar_one_or_none()
                     if dept:
@@ -231,7 +228,9 @@ class OrgSyncService:
 
                 # Build feishu_id -> db_id + parent mapping
                 dept_map = {}
-                all_result = await db.execute(select(OrgDepartment))
+                all_result = await db.execute(
+                    select(OrgDepartment).where(OrgDepartment.tenant_id == tenant_id)
+                )
                 for dept in all_result.scalars().all():
                     if dept.feishu_id:
                         dept_map[dept.feishu_id] = dept
@@ -252,7 +251,9 @@ class OrgSyncService:
 
             # --- Sync members ---
             try:
-                all_dept_result = await db.execute(select(OrgDepartment))
+                all_dept_result = await db.execute(
+                    select(OrgDepartment).where(OrgDepartment.tenant_id == tenant_id)
+                )
                 departments = all_dept_result.scalars().all()
 
                 for dept in departments:
@@ -274,12 +275,18 @@ class OrgSyncService:
                         member = None
                         if user_id:
                             result = await db.execute(
-                                select(OrgMember).where(OrgMember.feishu_user_id == user_id)
+                                select(OrgMember).where(
+                                    OrgMember.tenant_id == tenant_id,
+                                    OrgMember.feishu_user_id == user_id,
+                                )
                             )
                             member = result.scalar_one_or_none()
                         if not member and open_id:
                             result = await db.execute(
-                                select(OrgMember).where(OrgMember.feishu_open_id == open_id)
+                                select(OrgMember).where(
+                                    OrgMember.tenant_id == tenant_id,
+                                    OrgMember.feishu_open_id == open_id,
+                                )
                             )
                             member = result.scalar_one_or_none()
 
@@ -322,19 +329,28 @@ class OrgSyncService:
                         platform_user = None
                         if user_id:
                             pu_result = await db.execute(
-                                select(User).where(User.feishu_user_id == user_id)
+                                select(User).where(
+                                    User.tenant_id == tenant_id,
+                                    User.feishu_user_id == user_id,
+                                )
                             )
                             platform_user = pu_result.scalar_one_or_none()
                         if not platform_user and open_id:
                             pu_result = await db.execute(
-                                select(User).where(User.feishu_open_id == open_id)
+                                select(User).where(
+                                    User.tenant_id == tenant_id,
+                                    User.feishu_open_id == open_id,
+                                )
                             )
                             platform_user = pu_result.scalar_one_or_none()
                         # Fallback: match by real email (most reliable cross-app identifier)
                         member_email = u.get("email", "")
                         if not platform_user and member_email and "@" in member_email and not member_email.endswith("@feishu.local"):
                             pu_result = await db.execute(
-                                select(User).where(User.email == member_email)
+                                select(User).where(
+                                    User.tenant_id == tenant_id,
+                                    User.email == member_email,
+                                )
                             )
                             platform_user = pu_result.scalar_one_or_none()
 
@@ -371,9 +387,12 @@ class OrgSyncService:
                 logger.error(f"[OrgSync] Member sync failed: {e}")
                 return {"error": f"成员同步失败: {str(e)[:200]}", "departments": dept_count}
 
-            # Update last sync time
+            # Update last sync time on the tenant-scoped config.
             result = await db.execute(
-                select(SystemSetting).where(SystemSetting.key == "feishu_org_sync")
+                select(TenantSetting).where(
+                    TenantSetting.tenant_id == tenant_id,
+                    TenantSetting.key == "feishu_org_sync",
+                )
             )
             setting = result.scalar_one_or_none()
             if setting:

@@ -105,10 +105,12 @@ async def list_llm_models(
     db: AsyncSession = Depends(get_db),
 ):
     """List LLM models scoped to the selected tenant."""
-    tid = tenant_id or str(current_user.tenant_id) if current_user.tenant_id else None
-    query = select(LLMModel).order_by(LLMModel.created_at.desc())
-    if tid:
-        query = query.where(LLMModel.tenant_id == uuid.UUID(tid))
+    target_tenant_id = resolve_tenant_scope(current_user, tenant_id)
+    query = (
+        select(LLMModel)
+        .where(LLMModel.tenant_id == target_tenant_id)
+        .order_by(LLMModel.created_at.desc())
+    )
     result = await db.execute(query)
     models = []
     for m in result.scalars().all():
@@ -128,7 +130,7 @@ async def add_llm_model(
     db: AsyncSession = Depends(get_db),
 ):
     """Add a new LLM model to the tenant's pool (admin)."""
-    tid = tenant_id or (str(current_user.tenant_id) if current_user.tenant_id else None)
+    target_tenant_id = resolve_tenant_scope(current_user, tenant_id)
     model = LLMModel(
         provider=data.provider,
         model=data.model,
@@ -140,7 +142,7 @@ async def add_llm_model(
         supports_vision=data.supports_vision,
         max_output_tokens=data.max_output_tokens,
         max_input_tokens=data.max_input_tokens,
-        tenant_id=uuid.UUID(tid) if tid else None,
+        tenant_id=target_tenant_id,
     )
     db.add(model)
     await db.flush()
@@ -154,7 +156,7 @@ async def add_llm_model(
             severity="info",
             actor_type="user",
             actor_id=current_user.id,
-            tenant_id=current_user.tenant_id,
+            tenant_id=target_tenant_id,
             action="create_llm_model",
             resource_type="llm_model",
             resource_id=model.id,
@@ -295,27 +297,36 @@ async def update_llm_model(
 
 @router.get("/info", response_model=list[EnterpriseInfoOut])
 async def list_enterprise_info(
+    tenant_id: str | None = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """List all enterprise information entries."""
-    result = await db.execute(select(EnterpriseInfo).order_by(EnterpriseInfo.info_type))
-    return [EnterpriseInfoOut.model_validate(e) for e in result.scalars().all()]
+    target_tenant_id = resolve_tenant_scope(current_user, tenant_id)
+    result = await db.execute(
+        select(EnterpriseInfo)
+        .where(EnterpriseInfo.tenant_id == target_tenant_id)
+        .order_by(EnterpriseInfo.info_type)
+    )
+    infos = [e for e in result.scalars().all() if getattr(e, "tenant_id", None) == target_tenant_id]
+    return [EnterpriseInfoOut.model_validate(e) for e in infos]
 
 
 @router.put("/info/{info_type}", response_model=EnterpriseInfoOut)
 async def update_enterprise_info(
     info_type: str,
     data: EnterpriseInfoUpdate,
+    tenant_id: str | None = None,
     current_user: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """Create or update enterprise information. Triggers sync to agents."""
+    target_tenant_id = resolve_tenant_scope(current_user, tenant_id)
     info = await enterprise_sync_service.update_enterprise_info(
-        db, info_type, data.content, data.visible_roles, current_user.id
+        db, target_tenant_id, info_type, data.content, data.visible_roles, current_user.id
     )
     # Sync to all running agents
-    await enterprise_sync_service.sync_to_all_agents(db)
+    await enterprise_sync_service.sync_to_all_agents(db, target_tenant_id)
     return EnterpriseInfoOut.model_validate(info)
 
 
@@ -332,10 +343,9 @@ async def list_approvals(
     """List approval requests scoped to a tenant."""
     query = select(ApprovalRequest)
     # Scope by tenant: only show approvals for agents belonging to this tenant
-    tid = tenant_id or (str(current_user.tenant_id) if current_user.tenant_id else None)
-    if tid:
-        tenant_agent_ids = select(Agent.id).where(Agent.tenant_id == tid)
-        query = query.where(ApprovalRequest.agent_id.in_(tenant_agent_ids))
+    target_tenant_id = resolve_tenant_scope(current_user, tenant_id)
+    tenant_agent_ids = select(Agent.id).where(Agent.tenant_id == target_tenant_id)
+    query = query.where(ApprovalRequest.agent_id.in_(tenant_agent_ids))
     # Non-admins further restricted to their own agents
     if current_user.role != "platform_admin":
         query = query.where(ApprovalRequest.agent_id.in_(select(Agent.id).where(Agent.creator_id == current_user.id)))
@@ -390,10 +400,9 @@ async def list_audit_logs(
     """List audit logs scoped to a tenant (admin only)."""
     query = select(AuditLog).order_by(AuditLog.created_at.desc()).limit(limit)
     # Scope by tenant: only show logs for agents belonging to this tenant
-    tid = tenant_id or (str(current_user.tenant_id) if current_user.tenant_id else None)
-    if tid:
-        tenant_agent_ids = select(Agent.id).where(Agent.tenant_id == tid)
-        query = query.where(AuditLog.agent_id.in_(tenant_agent_ids))
+    target_tenant_id = resolve_tenant_scope(current_user, tenant_id)
+    tenant_agent_ids = select(Agent.id).where(Agent.tenant_id == target_tenant_id)
+    query = query.where(AuditLog.agent_id.in_(tenant_agent_ids))
     if agent_id:
         query = query.where(AuditLog.agent_id == agent_id)
     result = await db.execute(query)
@@ -512,7 +521,7 @@ async def get_enterprise_stats(
 ):
     """Get enterprise dashboard statistics, optionally scoped to a tenant."""
     # Determine which tenant to filter by
-    tid = tenant_id or str(current_user.tenant_id)
+    tid = resolve_tenant_scope(current_user, tenant_id)
 
     total_agents = await db.execute(select(func.count(Agent.id)).where(Agent.tenant_id == tid))
     running_agents = await db.execute(
@@ -791,10 +800,31 @@ async def get_notification_bar_public(
 @router.get("/system-settings/{key}")
 async def get_system_setting(
     key: str,
+    tenant_id: str | None = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Get a system setting by key."""
+    tenant_setting_keys = {"feishu_org_sync"}
+    if key in tenant_setting_keys:
+        from app.models.tenant_setting import TenantSetting
+
+        target_tenant_id = resolve_tenant_scope(current_user, tenant_id)
+        result = await db.execute(
+            select(TenantSetting).where(
+                TenantSetting.tenant_id == target_tenant_id,
+                TenantSetting.key == key,
+            )
+        )
+        setting = result.scalar_one_or_none()
+        if not setting:
+            return {"key": key, "value": {}}
+        return {
+            "key": setting.key,
+            "value": setting.value,
+            "updated_at": setting.updated_at.isoformat() if setting.updated_at else None,
+        }
+
     result = await db.execute(select(SystemSetting).where(SystemSetting.key == key))
     setting = result.scalar_one_or_none()
     if not setting:
@@ -810,10 +840,31 @@ async def get_system_setting(
 async def update_system_setting(
     key: str,
     data: SettingUpdate,
+    tenant_id: str | None = None,
     current_user: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """Create or update a system setting."""
+    tenant_setting_keys = {"feishu_org_sync"}
+    if key in tenant_setting_keys:
+        from app.models.tenant_setting import TenantSetting
+
+        target_tenant_id = resolve_tenant_scope(current_user, tenant_id)
+        result = await db.execute(
+            select(TenantSetting).where(
+                TenantSetting.tenant_id == target_tenant_id,
+                TenantSetting.key == key,
+            )
+        )
+        setting = result.scalar_one_or_none()
+        if setting:
+            setting.value = data.value
+        else:
+            setting = TenantSetting(tenant_id=target_tenant_id, key=key, value=data.value)
+            db.add(setting)
+        await db.commit()
+        return {"key": setting.key, "value": setting.value}
+
     result = await db.execute(select(SystemSetting).where(SystemSetting.key == key))
     setting = result.scalar_one_or_none()
     if setting:
@@ -837,11 +888,10 @@ async def list_org_departments(
     db: AsyncSession = Depends(get_db),
 ):
     """List all departments, optionally filtered by tenant."""
-    query = select(OrgDepartment)
-    if tenant_id:
-        query = query.where(OrgDepartment.tenant_id == uuid.UUID(tenant_id))
+    target_tenant_id = resolve_tenant_scope(current_user, tenant_id)
+    query = select(OrgDepartment).where(OrgDepartment.tenant_id == target_tenant_id)
     result = await db.execute(query.order_by(OrgDepartment.name))
-    depts = result.scalars().all()
+    depts = [d for d in result.scalars().all() if getattr(d, "tenant_id", None) == target_tenant_id]
     return [
         {
             "id": str(d.id),
@@ -864,16 +914,18 @@ async def list_org_members(
     db: AsyncSession = Depends(get_db),
 ):
     """List org members, optionally filtered by department, search, or tenant."""
-    query = select(OrgMember).where(OrgMember.status == "active")
-    if tenant_id:
-        query = query.where(OrgMember.tenant_id == uuid.UUID(tenant_id))
+    target_tenant_id = resolve_tenant_scope(current_user, tenant_id)
+    query = select(OrgMember).where(
+        OrgMember.status == "active",
+        OrgMember.tenant_id == target_tenant_id,
+    )
     if department_id:
         query = query.where(OrgMember.department_id == uuid.UUID(department_id))
     if search:
         query = query.where(OrgMember.name.ilike(f"%{search}%"))
     query = query.order_by(OrgMember.name).limit(100)
     result = await db.execute(query)
-    members = result.scalars().all()
+    members = [m for m in result.scalars().all() if getattr(m, "tenant_id", None) == target_tenant_id]
     return [
         {
             "id": str(m.id),
@@ -889,12 +941,14 @@ async def list_org_members(
 
 @router.post("/org/sync")
 async def trigger_org_sync(
+    tenant_id: str | None = None,
     current_user: User = Depends(get_current_admin),
 ):
     """Manually trigger org structure sync from Feishu."""
     from app.services.org_sync_service import org_sync_service
 
-    result = await org_sync_service.full_sync()
+    target_tenant_id = resolve_tenant_scope(current_user, tenant_id)
+    result = await org_sync_service.full_sync(target_tenant_id)
     return result
 
 

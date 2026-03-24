@@ -7,7 +7,7 @@ import uuid
 from fastapi import HTTPException
 
 
-def resolve_tenant_scope(current_user, requested_tenant_id: str | None = None) -> uuid.UUID:
+def resolve_tenant_scope(current_user, requested_tenant_id: uuid.UUID | str | None = None) -> uuid.UUID:
     """Resolve the effective tenant for a request.
 
     Platform admins may target any tenant by explicit `tenant_id`.

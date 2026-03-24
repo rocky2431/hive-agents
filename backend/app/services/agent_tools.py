@@ -1589,7 +1589,6 @@ async def _send_feishu_message(agent_id: uuid.UUID, args: dict) -> str:
                 return "❌ This agent has no Feishu channel configured"
 
             import json as _json
-            from app.models.system_settings import SystemSetting
 
             content = _json.dumps({"text": message_text}, ensure_ascii=False)
 
@@ -1678,7 +1677,14 @@ async def _send_feishu_message(agent_id: uuid.UUID, args: dict) -> str:
                 # Step 4: If cross-app error, try org sync app as fallback
                 err_msg = resp.get("msg", "")
                 if "cross" in err_msg.lower():
-                    org_r = await db.execute(select(SystemSetting).where(SystemSetting.key == "feishu_org_sync"))
+                    from app.models.tenant_setting import TenantSetting
+
+                    org_r = await db.execute(
+                        select(TenantSetting).where(
+                            TenantSetting.tenant_id == target_member.tenant_id,
+                            TenantSetting.key == "feishu_org_sync",
+                        )
+                    )
                     org_setting = org_r.scalar_one_or_none()
                     if org_setting and org_setting.value.get("app_id"):
                         # Try user_id with org sync app first

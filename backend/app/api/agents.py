@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.permissions import check_agent_access, is_agent_creator
 from app.core.security import get_current_user
+from app.core.tenant_scope import resolve_tenant_scope
 from app.database import get_db
 from app.domain.agent_lifecycle import InvalidTransitionError, TransitionContext, transition
 from app.models.agent import Agent, AgentPermission
@@ -53,9 +54,8 @@ async def list_agents(
     """List all agents the current user has access to."""
     # platform_admin & org_admin see all agents (optionally filtered by tenant)
     if current_user.role in ("platform_admin", "org_admin"):
-        stmt = select(Agent)
-        if tenant_id:
-            stmt = stmt.where(Agent.tenant_id == tenant_id)
+        target_tenant_id = resolve_tenant_scope(current_user, tenant_id)
+        stmt = select(Agent).where(Agent.tenant_id == target_tenant_id)
         result = await db.execute(stmt.order_by(Agent.created_at.desc()))
         agents = result.scalars().all()
         # Lazy reset token counters
@@ -127,8 +127,8 @@ async def create_agent(
 
     # Determine target tenant: normally user's tenant; admins can override via payload
     target_tenant_id = current_user.tenant_id
-    if current_user.role in ("platform_admin", "org_admin") and data.tenant_id:
-        target_tenant_id = data.tenant_id
+    if current_user.role in ("platform_admin", "org_admin"):
+        target_tenant_id = resolve_tenant_scope(current_user, data.tenant_id)
 
     # Get default limits from target tenant
     max_llm_calls = 100

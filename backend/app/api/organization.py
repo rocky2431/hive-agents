@@ -7,6 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import get_current_admin, get_current_user
+from app.core.tenant_scope import resolve_tenant_scope
 from app.database import get_db
 from app.models.user import Department, User
 from app.schemas.schemas import DepartmentCreate, DepartmentOut, DepartmentTree, UserOut, UserUpdate
@@ -18,12 +19,18 @@ router = APIRouter(prefix="/org", tags=["organization"])
 
 @router.get("/departments", response_model=list[DepartmentTree])
 async def get_department_tree(
+    tenant_id: str | None = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Get full department tree."""
-    result = await db.execute(select(Department).order_by(Department.sort_order))
-    departments = result.scalars().all()
+    target_tenant_id = resolve_tenant_scope(current_user, tenant_id)
+    result = await db.execute(
+        select(Department)
+        .where(Department.tenant_id == target_tenant_id)
+        .order_by(Department.sort_order)
+    )
+    departments = [dept for dept in result.scalars().all() if getattr(dept, "tenant_id", None) == target_tenant_id]
 
     # Build tree
     dept_map: dict[uuid.UUID, DepartmentTree] = {}
@@ -32,7 +39,10 @@ async def get_department_tree(
     for dept in departments:
         # Count members
         member_count_result = await db.execute(
-            select(func.count(User.id)).where(User.department_id == dept.id)
+            select(func.count(User.id)).where(
+                User.department_id == dept.id,
+                User.tenant_id == target_tenant_id,
+            )
         )
         member_count = member_count_result.scalar() or 0
 
@@ -55,11 +65,14 @@ async def get_department_tree(
 @router.post("/departments", response_model=DepartmentOut, status_code=status.HTTP_201_CREATED)
 async def create_department(
     data: DepartmentCreate,
+    tenant_id: str | None = None,
     current_user: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new department (admin only)."""
+    target_tenant_id = resolve_tenant_scope(current_user, tenant_id)
     dept = Department(
+        tenant_id=target_tenant_id,
         name=data.name,
         parent_id=data.parent_id,
         manager_id=data.manager_id,
@@ -73,11 +86,18 @@ async def create_department(
 async def update_department(
     dept_id: uuid.UUID,
     data: DepartmentCreate,
+    tenant_id: str | None = None,
     current_user: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """Update a department."""
-    result = await db.execute(select(Department).where(Department.id == dept_id))
+    target_tenant_id = resolve_tenant_scope(current_user, tenant_id)
+    result = await db.execute(
+        select(Department).where(
+            Department.id == dept_id,
+            Department.tenant_id == target_tenant_id,
+        )
+    )
     dept = result.scalar_one_or_none()
     if not dept:
         raise HTTPException(status_code=404, detail="Department not found")
@@ -94,11 +114,18 @@ async def update_department(
 @router.delete("/departments/{dept_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_department(
     dept_id: uuid.UUID,
+    tenant_id: str | None = None,
     current_user: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """Delete a department (admin only)."""
-    result = await db.execute(select(Department).where(Department.id == dept_id))
+    target_tenant_id = resolve_tenant_scope(current_user, tenant_id)
+    result = await db.execute(
+        select(Department).where(
+            Department.id == dept_id,
+            Department.tenant_id == target_tenant_id,
+        )
+    )
     dept = result.scalar_one_or_none()
     if not dept:
         raise HTTPException(status_code=404, detail="Department not found")
@@ -110,11 +137,13 @@ async def delete_department(
 @router.get("/users", response_model=list[UserOut])
 async def list_users(
     department_id: uuid.UUID | None = None,
+    tenant_id: str | None = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """List users, optionally filtered by department."""
-    query = select(User).where(User.is_active == True)
+    target_tenant_id = resolve_tenant_scope(current_user, tenant_id)
+    query = select(User).where(User.is_active == True, User.tenant_id == target_tenant_id)
     if department_id:
         query = query.where(User.department_id == department_id)
     query = query.order_by(User.display_name)

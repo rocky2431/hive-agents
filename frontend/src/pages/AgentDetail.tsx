@@ -1343,19 +1343,22 @@ function RelationshipEditor({ agentId, readOnly = false }: { agentId: string; re
         queryKey: ['agent-relationships', agentId],
         queryFn: () => fetchAuth<any[]>(`/agents/${agentId}/relationships/agents`),
     });
+    const relationshipTenantId = localStorage.getItem('current_tenant_id') || '';
     const { data: allAgents = [] } = useQuery({
-        queryKey: ['agents-for-rel'],
-        queryFn: () => fetchAuth<any[]>(`/agents/`),
+        queryKey: ['agents-for-rel', relationshipTenantId],
+        queryFn: () => fetchAuth<any[]>(`/agents/${relationshipTenantId ? `?tenant_id=${relationshipTenantId}` : ''}`),
     });
     const availableAgents = allAgents.filter((a: any) => a.id !== agentId);
 
     useEffect(() => {
         if (!search || search.length < 1) { setSearchResults([]); return; }
         const t = setTimeout(() => {
-            fetchAuth<any[]>(`/enterprise/org/members?search=${encodeURIComponent(search)}`).then(setSearchResults);
+            const params = new URLSearchParams({ search });
+            if (relationshipTenantId) params.set('tenant_id', relationshipTenantId);
+            fetchAuth<any[]>(`/enterprise/org/members?${params}`).then(setSearchResults);
         }, 300);
         return () => clearTimeout(t);
-    }, [search]);
+    }, [search, relationshipTenantId]);
 
     const addRelationship = async () => {
         if (!adding) return;

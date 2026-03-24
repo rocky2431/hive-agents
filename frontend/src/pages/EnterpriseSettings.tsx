@@ -97,6 +97,7 @@ function DeptTree({ departments, parentId, selectedDept, onSelect, level }: {
 function OrgTab() {
     const { t } = useTranslation();
     const qc = useQueryClient();
+    const currentTenantId = localStorage.getItem('current_tenant_id') || '';
     const [syncForm, setSyncForm] = useState({ app_id: '', app_secret: '' });
     const [syncing, setSyncing] = useState(false);
     const [syncResult, setSyncResult] = useState<any>(null);
@@ -104,8 +105,8 @@ function OrgTab() {
     const [selectedDept, setSelectedDept] = useState<string | null>(null);
 
     const { data: config } = useQuery({
-        queryKey: ['system-settings', 'feishu_org_sync'],
-        queryFn: () => fetchJson<any>('/enterprise/system-settings/feishu_org_sync'),
+        queryKey: ['system-settings', 'feishu_org_sync', currentTenantId],
+        queryFn: () => fetchJson<any>(`/enterprise/system-settings/feishu_org_sync${currentTenantId ? `?tenant_id=${currentTenantId}` : ''}`),
     });
 
     useEffect(() => {
@@ -114,7 +115,6 @@ function OrgTab() {
         }
     }, [config]);
 
-    const currentTenantId = localStorage.getItem('current_tenant_id') || '';
     const { data: departments = [] } = useQuery({
         queryKey: ['org-departments', currentTenantId],
         queryFn: () => fetchJson<any[]>(`/enterprise/org/departments${currentTenantId ? `?tenant_id=${currentTenantId}` : ''}`),
@@ -131,11 +131,11 @@ function OrgTab() {
     });
 
     const saveConfig = async () => {
-        await fetchJson('/enterprise/system-settings/feishu_org_sync', {
+        await fetchJson(`/enterprise/system-settings/feishu_org_sync${currentTenantId ? `?tenant_id=${currentTenantId}` : ''}`, {
             method: 'PUT',
             body: JSON.stringify({ value: { app_id: syncForm.app_id, app_secret: syncForm.app_secret } }),
         });
-        qc.invalidateQueries({ queryKey: ['system-settings', 'feishu_org_sync'] });
+        qc.invalidateQueries({ queryKey: ['system-settings', 'feishu_org_sync', currentTenantId] });
     };
 
     const triggerSync = async () => {
@@ -143,7 +143,7 @@ function OrgTab() {
         setSyncResult(null);
         try {
             if (syncForm.app_secret) await saveConfig();
-            const result = await fetchJson<any>('/enterprise/org/sync', { method: 'POST' });
+            const result = await fetchJson<any>(`/enterprise/org/sync${currentTenantId ? `?tenant_id=${currentTenantId}` : ''}`, { method: 'POST' });
             setSyncResult(result);
             qc.invalidateQueries({ queryKey: ['org-departments'] });
             qc.invalidateQueries({ queryKey: ['org-members'] });

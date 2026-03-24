@@ -27,12 +27,15 @@ class EnterpriseSyncService:
     """Synchronize enterprise information to all online Agent containers."""
 
     async def update_enterprise_info(
-        self, db: AsyncSession, info_type: str, content: dict,
+        self, db: AsyncSession, tenant_id: uuid.UUID, info_type: str, content: dict,
         visible_roles: list[str], updated_by: uuid.UUID
     ) -> EnterpriseInfo:
         """Update enterprise info in database and notify all agents."""
         result = await db.execute(
-            select(EnterpriseInfo).where(EnterpriseInfo.info_type == info_type)
+            select(EnterpriseInfo).where(
+                EnterpriseInfo.tenant_id == tenant_id,
+                EnterpriseInfo.info_type == info_type,
+            )
         )
         info = result.scalar_one_or_none()
 
@@ -43,6 +46,7 @@ class EnterpriseSyncService:
             info.updated_by = updated_by
         else:
             info = EnterpriseInfo(
+                tenant_id=tenant_id,
                 info_type=info_type,
                 content=content,
                 visible_roles=visible_roles,
@@ -54,6 +58,7 @@ class EnterpriseSyncService:
 
         # Publish update event
         await publish_event(ENTERPRISE_INFO_CHANNEL, {
+            "tenant_id": str(tenant_id),
             "info_type": info_type,
             "version": info.version,
             "visible_roles": visible_roles,
@@ -67,10 +72,14 @@ class EnterpriseSyncService:
 
         Filters by visible_roles — if empty, all roles can see it.
         """
+        agent_result = await db.execute(select(Agent.tenant_id).where(Agent.id == agent_id))
+        agent_tenant_id = agent_result.scalar_one_or_none()
         agent_dir = Path(settings.AGENT_DATA_DIR) / str(agent_id) / "enterprise_info"
         agent_dir.mkdir(parents=True, exist_ok=True)
 
-        result = await db.execute(select(EnterpriseInfo))
+        result = await db.execute(
+            select(EnterpriseInfo).where(EnterpriseInfo.tenant_id == agent_tenant_id)
+        )
         all_info = result.scalars().all()
 
         for info in all_info:
@@ -87,9 +96,12 @@ class EnterpriseSyncService:
 
         logger.info(f"Synced enterprise info to agent {agent_id}")
 
-    async def sync_to_all_agents(self, db: AsyncSession) -> int:
+    async def sync_to_all_agents(self, db: AsyncSession, tenant_id: uuid.UUID | None = None) -> int:
         """Sync enterprise info to all running agents. Returns count."""
-        result = await db.execute(select(Agent).where(Agent.status == "running"))
+        stmt = select(Agent).where(Agent.status == "running")
+        if tenant_id:
+            stmt = stmt.where(Agent.tenant_id == tenant_id)
+        result = await db.execute(stmt)
         agents = result.scalars().all()
 
         for agent in agents:

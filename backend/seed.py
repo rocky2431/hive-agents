@@ -42,8 +42,11 @@ async def seed():
 
         # 1. Default company (tenant)
         existing_tenant = await db.execute(select(Tenant).where(Tenant.slug == "default"))
-        if not existing_tenant.scalar_one_or_none():
-            db.add(Tenant(name="Default", slug="default", im_provider="web_only"))
+        default_tenant = existing_tenant.scalar_one_or_none()
+        if not default_tenant:
+            default_tenant = Tenant(name="Default", slug="default", im_provider="web_only")
+            db.add(default_tenant)
+            await db.flush()
             print("✅ Default company created")
 
         # 2. Built-in templates
@@ -99,9 +102,14 @@ async def seed():
                 print(f"✅ Template created: {tmpl['icon']} {tmpl['name']}")
 
         # 3. Default department
-        existing_dept = await db.execute(select(Department).where(Department.name == "总部"))
+        existing_dept = await db.execute(
+            select(Department).where(
+                Department.name == "总部",
+                Department.tenant_id == default_tenant.id,
+            )
+        )
         if not existing_dept.scalar_one_or_none():
-            db.add(Department(name="总部"))
+            db.add(Department(name="总部", tenant_id=default_tenant.id))
             print("✅ Default department created: 总部")
 
         # 4. Demo agents for platform admin (if admin has zero agents)
