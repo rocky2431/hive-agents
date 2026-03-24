@@ -92,14 +92,31 @@ MEESEEKS_SKILLS = [
 
 
 async def seed_default_agents():
-    """Create Morty & Meeseeks if they don't already exist."""
+    """Create Morty & Meeseeks on first-ever startup only.
+
+    Uses a persistent SystemSetting marker so that user-initiated deletions
+    are respected across restarts/redeployments.
+    """
+    from app.models.system_settings import SystemSetting
+
     async with async_session() as db:
-        # Check if already seeded (presence of either agent by name)
+        # Persistent marker — survives agent hard-delete
+        marker = await db.execute(
+            select(SystemSetting).where(SystemSetting.key == "default_agents_seeded")
+        )
+        if marker.scalar_one_or_none():
+            logger.info("[AgentSeeder] Default agents already seeded (marker found), skipping")
+            return
+
+        # Also check by name for backwards compat (pre-marker installs)
         existing = await db.execute(
             select(Agent).where(Agent.name.in_(["Morty", "Meeseeks"]))
         )
         if existing.scalars().first():
-            logger.info("[AgentSeeder] Default agents already exist, skipping")
+            # Agents exist from before the marker was introduced — plant the marker now
+            db.add(SystemSetting(key="default_agents_seeded", value={"seeded": True}))
+            await db.commit()
+            logger.info("[AgentSeeder] Default agents already exist, planted marker, skipping")
             return
 
         # Get platform admin as creator
@@ -244,5 +261,7 @@ async def seed_default_agents():
             encoding="utf-8",
         )
 
+        # Plant the persistent marker so we never re-seed after user deletion
+        db.add(SystemSetting(key="default_agents_seeded", value={"seeded": True}))
         await db.commit()
         logger.info(f"[AgentSeeder] Created default agents: Morty ({morty.id}), Meeseeks ({meeseeks.id})")

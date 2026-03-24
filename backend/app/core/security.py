@@ -64,16 +64,32 @@ async def get_current_user(
 ):
     """Dependency to get the current authenticated user."""
     from app.models.user import User
+    from app.models.tenant import Tenant
 
     payload = decode_access_token(credentials.credentials)
     user_id = payload.get("sub")
     if not user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
-    result = await db.execute(select(User).where(User.id == uuid.UUID(user_id)))
-    user = result.scalar_one_or_none()
-    if not user or not user.is_active:
+    # Single query: load user + tenant is_active via LEFT JOIN (no extra round-trip)
+    result = await db.execute(
+        select(User, Tenant.is_active.label("tenant_is_active"))
+        .outerjoin(Tenant, User.tenant_id == Tenant.id)
+        .where(User.id == uuid.UUID(user_id))
+    )
+    row = result.first()
+    if not row:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
+    user, tenant_is_active = row[0], row[1]
+    if not user.is_active:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
+
+    # Block access if the user's company/tenant has been disabled
+    if user.tenant_id and tenant_is_active is not None and not tenant_is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Company has been disabled",
+        )
     return user
 
 
