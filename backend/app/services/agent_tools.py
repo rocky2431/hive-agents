@@ -435,48 +435,7 @@ AGENT_TOOLS = [
             },
         },
     },
-    {
-        "type": "function",
-        "function": {
-            "name": "jina_search",
-            "description": "Search the internet using Jina AI Search (s.jina.ai). Returns high-quality search results with full page content, not just snippets. Ideal for research, news, technical docs, and any real-time information lookup.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "Search query, e.g. 'Python asyncio best practices' or '苏州通道人工智能科技有限公司'",
-                    },
-                    "max_results": {
-                        "type": "integer",
-                        "description": "Number of results to return, default 5, max 10",
-                    },
-                },
-                "required": ["query"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "jina_read",
-            "description": "Read and extract the full content from a web page URL using Jina AI Reader (r.jina.ai). Returns clean, well-structured markdown including article text, tables, and key information. Better than jina_search when you already have a specific URL to read.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "url": {
-                        "type": "string",
-                        "description": "The full URL of the web page to read, e.g. 'https://example.com/article'",
-                    },
-                    "max_chars": {
-                        "type": "integer",
-                        "description": "Max characters to return (default 8000, max 20000)",
-                    },
-                },
-                "required": ["url"],
-            },
-        },
-    },
+    # jina_search, jina_read → migrated to tools/handlers/search.py
     {
         "type": "function",
         "function": {
@@ -548,27 +507,7 @@ AGENT_TOOLS = [
             },
         },
     },
-    {
-        "type": "function",
-        "function": {
-            "name": "discover_resources",
-            "description": "Search public MCP registries (Smithery) for tools and capabilities that can extend your abilities. Use this when you encounter a task you cannot handle with your current tools.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "Semantic description of the capability needed, e.g. 'send email', 'query SQL database', 'generate images'",
-                    },
-                    "max_results": {
-                        "type": "integer",
-                        "description": "Max results to return (default 5, max 10)",
-                    },
-                },
-                "required": ["query"],
-            },
-        },
-    },
+    # discover_resources → migrated to tools/handlers/search.py
     # ── Feishu Document Tools ──────────────────────────────────────
     {
         "type": "function",

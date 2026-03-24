@@ -72,11 +72,8 @@ def _import_handler_modules() -> None:
     Explicit imports — no pkgutil magic — to guarantee deterministic order
     and catch import errors at startup.
     """
-    # NOTE: As handlers are created in Phase 3, add imports here.
-    # Example:
-    # import app.tools.handlers.search       # noqa: F401
-    # import app.tools.handlers.filesystem   # noqa: F401
-    pass
+    # Phase 3 handler imports — add new modules here as tools are migrated.
+    import app.tools.handlers.search  # noqa: F401
 
 
 def collect_tools() -> CollectedTools:
