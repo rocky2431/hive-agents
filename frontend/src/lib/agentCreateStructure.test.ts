@@ -9,16 +9,15 @@ const enI18nPath = path.resolve(process.cwd(), 'src/i18n/en.json');
 const read = () => fs.readFileSync(agentCreatePath, 'utf8');
 const readFile = (filePath: string) => fs.readFileSync(filePath, 'utf8');
 
-test('AgentCreate uses template gallery + 2-step flow (not 5-step wizard)', () => {
+test('AgentCreate uses 2-step flow (not 5-step wizard)', () => {
     const source = read();
 
-    // Template gallery exists
-    assert.match(source, /AGENT_TEMPLATES/);
-    assert.match(source, /wizard\.templates\.title/);
-    assert.match(source, /wizard\.templates\.research|wizard\.templates\.feishuOps|wizard\.templates\.content|wizard\.templates\.custom/);
+    // No template gallery
+    assert.doesNotMatch(source, /AGENT_TEMPLATES/);
+    assert.doesNotMatch(source, /wizard\.templates\./);
 
     // Phase-based flow, not 5-step STEPS constant
-    assert.match(source, /type Phase = 'templates' \| 'identity' \| 'abilities' \| 'success'/);
+    assert.match(source, /type Phase = 'identity' \| 'abilities' \| 'success'/);
     assert.doesNotMatch(source, /const STEPS\s*=/);
 
     // 2-step stepper labels only
@@ -96,24 +95,12 @@ test('AgentCreate uses dropdown for model selection instead of radio cards', () 
     assert.doesNotMatch(source, /wizard\.step1\.primaryModel/);
 });
 
-test('i18n has template gallery keys in both languages', () => {
+test('i18n has no template gallery keys', () => {
     const zh = JSON.parse(readFile(zhI18nPath));
     const en = JSON.parse(readFile(enI18nPath));
 
-    assert.equal(en.wizard.templates.title, 'Choose a starting point');
-    assert.equal(zh.wizard.templates.title, '\u9009\u62E9\u4E00\u4E2A\u8D77\u70B9');
-
-    assert.equal(en.wizard.templates.research, 'Research Assistant');
-    assert.equal(zh.wizard.templates.research, '\u7814\u7A76\u52A9\u624B');
-
-    assert.equal(en.wizard.templates.feishuOps, 'Feishu Ops');
-    assert.equal(zh.wizard.templates.feishuOps, '\u98DE\u4E66\u8FD0\u8425');
-
-    assert.equal(en.wizard.templates.content, 'Content Creator');
-    assert.equal(zh.wizard.templates.content, '\u5185\u5BB9\u521B\u4F5C');
-
-    assert.equal(en.wizard.templates.custom, 'Start from Scratch');
-    assert.equal(zh.wizard.templates.custom, '\u4ECE\u96F6\u5F00\u59CB');
+    assert.equal(en.wizard.templates, undefined);
+    assert.equal(zh.wizard.templates, undefined);
 });
 
 test('i18n has success screen keys in both languages', () => {

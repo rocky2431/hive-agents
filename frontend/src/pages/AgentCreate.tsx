@@ -5,16 +5,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { agentApi, enterpriseApi, skillApi } from '../services/api';
 import type { Agent, AgentCreateInput } from '../types';
 
-/* ── Template definitions ─────────────────────────────────────────── */
-
-interface AgentTemplate {
-    id: string;
-    nameKey: string;
-    icon: string;
-    role: string;
-    personality: string;
-}
-
 interface AgentCreateFormState {
     name: string;
     role_description: string;
@@ -27,46 +17,15 @@ interface AgentCreateFormState {
     security_zone: 'standard' | 'restricted' | 'public';
 }
 
-const AGENT_TEMPLATES: AgentTemplate[] = [
-    {
-        id: 'research',
-        nameKey: 'wizard.templates.research',
-        icon: '\uD83D\uDD0D',
-        role: '\u8C03\u7814\u5206\u6790\u3001\u4FE1\u606F\u6536\u96C6\u4E0E\u62A5\u544A\u64B0\u5199',
-        personality: '\u4E25\u8C28\u3001\u6570\u636E\u9A71\u52A8',
-    },
-    {
-        id: 'feishu-ops',
-        nameKey: 'wizard.templates.feishuOps',
-        icon: '\uD83D\uDCAC',
-        role: '\u901A\u8FC7\u98DE\u4E66\u534F\u8C03\u56E2\u961F\u5DE5\u4F5C\u3001\u7BA1\u7406\u65E5\u7A0B\u4E0E\u6587\u6863',
-        personality: '\u9AD8\u6548\u3001\u4E3B\u52A8',
-    },
-    {
-        id: 'content',
-        nameKey: 'wizard.templates.content',
-        icon: '\u270D\uFE0F',
-        role: '\u6587\u6848\u64B0\u5199\u3001\u5185\u5BB9\u7F16\u8F91\u4E0E\u521B\u610F\u8F93\u51FA',
-        personality: '\u521B\u610F\u3001\u7EC6\u81F4',
-    },
-    {
-        id: 'custom',
-        nameKey: 'wizard.templates.custom',
-        icon: '\u26A1',
-        role: '',
-        personality: '',
-    },
-];
-
 /* ── Phase constants ──────────────────────────────────────────────── */
 
-type Phase = 'templates' | 'identity' | 'abilities' | 'success';
+type Phase = 'identity' | 'abilities' | 'success';
 
 export default function AgentCreate() {
     const { t } = useTranslation();
     const navigate = useNavigate();
     const queryClient = useQueryClient();
-    const [phase, setPhase] = useState<Phase>('templates');
+    const [phase, setPhase] = useState<Phase>('identity');
     const [error, setError] = useState('');
     const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
     const clearFieldError = (field: string) =>
@@ -125,18 +84,6 @@ export default function AgentCreate() {
             }
         }
     }, [globalSkills]);
-
-    /* ── Template selection ────────────────────────────────────────── */
-
-    const handleSelectTemplate = (tpl: AgentTemplate) => {
-        setForm((prev) => ({
-            ...prev,
-            name: tpl.id !== 'custom' ? t(tpl.nameKey) : '',
-            role_description: tpl.role,
-            personality: tpl.personality,
-        }));
-        setPhase('identity');
-    };
 
     /* ── Validation ───────────────────────────────────────────────── */
 
@@ -206,44 +153,6 @@ export default function AgentCreate() {
 
     const enabledModels = useMemo(() => (models as any[]).filter((m: any) => m.enabled), [models]);
 
-    /* ── Render: Template Gallery ─────────────────────────────────── */
-
-    if (phase === 'templates') {
-        return (
-            <div>
-                <div className="page-header">
-                    <h1 className="page-title">{t('nav.newAgent')}</h1>
-                </div>
-                <h2 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '8px' }}>
-                    {t('wizard.templates.title')}
-                </h2>
-                <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '24px' }}>
-                    {t('wizard.templates.subtitle')}
-                </p>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '12px', maxWidth: '720px' }}>
-                    {AGENT_TEMPLATES.map((tpl) => (
-                        <div
-                            key={tpl.id}
-                            className="card card-clickable"
-                            onClick={() => handleSelectTemplate(tpl)}
-                            style={{ padding: '20px', cursor: 'pointer', textAlign: 'center' }}
-                        >
-                            <div style={{ fontSize: '32px', marginBottom: '12px' }}>{tpl.icon}</div>
-                            <div style={{ fontWeight: 600, fontSize: '14px', marginBottom: '6px' }}>
-                                {t(tpl.nameKey)}
-                            </div>
-                            {tpl.role && (
-                                <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', lineHeight: 1.5 }}>
-                                    {tpl.role}
-                                </div>
-                            )}
-                        </div>
-                    ))}
-                </div>
-            </div>
-        );
-    }
-
     /* ── Render: Success Screen ───────────────────────────────────── */
 
     if (phase === 'success') {
@@ -300,7 +209,7 @@ export default function AgentCreate() {
                 <button
                     className="btn btn-secondary"
                     onClick={() => {
-                        if (phase === 'identity') setPhase('templates');
+                        if (phase === 'identity') navigate(-1);
                         else if (phase === 'abilities') setPhase('identity');
                     }}
                     disabled={createMutation.isPending}

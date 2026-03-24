@@ -573,14 +573,6 @@
     "step1New": {
       "title": "Identity & Model"
     },
-    "templates": {
-      "title": "Choose a starting point",
-      "subtitle": "Pick a template to get started quickly, or build from scratch.",
-      "research": "Research Assistant",
-      "feishuOps": "Feishu Ops",
-      "content": "Content Creator",
-      "custom": "Start from Scratch"
-    },
     "identity": {
       "communicationStyle": "Communication style (personality & boundaries)",
       "aiModel": "AI Model",

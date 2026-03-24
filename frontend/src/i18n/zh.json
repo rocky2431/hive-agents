@@ -584,14 +584,6 @@
     "step1New": {
       "title": "身份与模型"
     },
-    "templates": {
-      "title": "选择一个起点",
-      "subtitle": "选择模板快速开始，或从零开始搭建。",
-      "research": "研究助手",
-      "feishuOps": "飞书运营",
-      "content": "内容创作",
-      "custom": "从零开始"
-    },
     "identity": {
       "communicationStyle": "沟通风格（人格与边界）",
       "aiModel": "AI 模型",
