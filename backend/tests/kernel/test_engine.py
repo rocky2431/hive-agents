@@ -466,3 +466,200 @@ async def test_agent_kernel_does_not_auto_expand_without_skill_or_mcp_trigger():
     assert fake_client.calls[1]["tools"][0]["function"]["name"] == "core_tool"
     assert fake_client.calls[2]["tools"][0]["function"]["name"] == "core_tool"
     assert fake_client.calls[3]["tools"][0]["function"]["name"] == "core_tool"
+
+
+@pytest.mark.asyncio
+async def test_midloop_compaction_triggers_after_interval():
+    """Mid-loop compaction fires every _MIDLOOP_COMPACT_CHECK_INTERVAL rounds
+    and compresses when maybe_compress_messages returns fewer messages."""
+    from app.kernel.contracts import InvocationRequest
+    from app.kernel.engine import AgentKernel, KernelDependencies, RuntimeConfig
+
+    model = SimpleNamespace(
+        provider="openai",
+        model="gpt-4.1",
+        api_key="test-key",
+        base_url=None,
+        max_output_tokens=None,
+    )
+
+    compress_calls: list[int] = []
+    compaction_events: list[dict] = []
+
+    async def maybe_compress_messages(messages, **kwargs):
+        compress_calls.append(len(messages))
+        # Simulate compression: if >4 messages, summarise the old ones into 1
+        if len(messages) > 4:
+            on_compaction = kwargs.get("on_compaction")
+            if on_compaction:
+                result = on_compaction({
+                    "summary": "compressed",
+                    "original_message_count": len(messages),
+                    "kept_message_count": 3,
+                })
+                if result is not None:
+                    await result
+            summary = {"role": "system", "content": "[Summary of previous conversation]"}
+            return [summary] + messages[-2:]
+        return messages
+
+    # 4 tool-call rounds then a final text response
+    responses = []
+    for i in range(4):
+        responses.append(SimpleNamespace(
+            content="",
+            tool_calls=[{
+                "id": f"call_{i}",
+                "function": {"name": "list_files", "arguments": f'{{"path":"dir{i}"}}'},
+            }],
+            reasoning_content=None,
+            usage={"total_tokens": 5},
+        ))
+    responses.append(SimpleNamespace(
+        content="all done",
+        tool_calls=[],
+        reasoning_content=None,
+        usage={"total_tokens": 3},
+    ))
+
+    fake_client = _FakeClient(responses)
+
+    kernel = AgentKernel(
+        KernelDependencies(
+            resolve_runtime_config=lambda *_a, **_kw: RuntimeConfig(
+                tenant_id=uuid4(), max_tool_rounds=10, quota_message=None,
+            ),
+            resolve_current_user_name=lambda *_a, **_kw: "Rocky",
+            build_system_prompt=lambda *_a, **_kw: "SYSTEM",
+            resolve_memory_context=lambda *_a, **_kw: "",
+            get_tools=lambda *_a, **_kw: [
+                {"type": "function", "function": {"name": "list_files", "description": "", "parameters": {"type": "object"}}}
+            ],
+            maybe_compress_messages=maybe_compress_messages,
+            create_client=lambda _model: fake_client,
+            execute_tool=lambda *_a, **_kw: "files: a.txt, b.txt",
+            persist_memory=lambda **kw: None,
+            record_token_usage=lambda *a, **kw: None,
+            get_max_tokens=lambda *a, **kw: 2048,
+            extract_usage_tokens=lambda usage: usage.get("total_tokens"),
+            estimate_tokens_from_chars=lambda chars: chars // 4,
+        )
+    )
+
+    result = await kernel.handle(
+        InvocationRequest(
+            model=model,
+            messages=[{"role": "user", "content": "list everything"}],
+            agent_name="Agent",
+            role_description="test",
+            agent_id=uuid4(),
+            user_id=uuid4(),
+            on_event=lambda ev: compaction_events.append(ev) if ev.get("type") == "session_compact" else None,
+        )
+    )
+
+    assert result.content == "all done"
+
+    # Pre-loop compression is call 1 (1 user message → no compression needed)
+    # Mid-loop compression fires at round 3 (interval=3)
+    # At that point api_messages[1:] has: user + 3×(assistant+tool) = 7 messages → compressed
+    assert len(compress_calls) >= 2, f"Expected at least 2 compress calls, got {compress_calls}"
+
+    # The mid-loop call should have received >4 messages and compressed
+    midloop_call_msg_count = compress_calls[1]
+    assert midloop_call_msg_count > 4, f"Mid-loop should see >4 messages, got {midloop_call_msg_count}"
+
+    # Compaction event should have been emitted
+    assert len(compaction_events) >= 1, "Expected at least one session_compact event"
+    assert compaction_events[0]["type"] == "session_compact"
+
+
+def test_maybe_evict_tool_result_truncates_large_output():
+    from app.kernel.engine import _maybe_evict_tool_result
+
+    # Small result — returned unchanged
+    small = "hello world"
+    assert _maybe_evict_tool_result("web_search", "call_1", small) == small
+
+    # Exempt tool — never evicted even if large
+    large = "x" * 10000
+    assert _maybe_evict_tool_result("read_file", "call_2", large) == large
+    assert _maybe_evict_tool_result("list_files", "call_3", large) == large
+
+    # Non-exempt large result — truncated
+    evicted = _maybe_evict_tool_result("web_search", "call_4", large)
+    assert len(evicted) < len(large)
+    assert "truncated" in evicted
+    assert "10000 chars" in evicted
+    assert "call_4" in evicted
+    # Preview should be present (first 800 chars)
+    assert evicted.startswith("x" * 800)
+
+
+@pytest.mark.asyncio
+async def test_large_tool_result_evicted_in_kernel_loop():
+    """Kernel evicts large tool results inline during the LLM loop."""
+    from app.kernel.contracts import InvocationRequest
+    from app.kernel.engine import AgentKernel, KernelDependencies, RuntimeConfig
+
+    model = SimpleNamespace(
+        provider="openai", model="gpt-4.1", api_key="k", base_url=None, max_output_tokens=None,
+    )
+
+    fake_client = _FakeClient([
+        SimpleNamespace(
+            content="",
+            tool_calls=[{"id": "c1", "function": {"name": "web_search", "arguments": '{"q":"test"}'}}],
+            reasoning_content=None,
+            usage={"total_tokens": 5},
+        ),
+        SimpleNamespace(
+            content="done",
+            tool_calls=[],
+            reasoning_content=None,
+            usage={"total_tokens": 3},
+        ),
+    ])
+
+    large_result = "RESULT_LINE\n" * 1000  # ~12000 chars
+
+    kernel = AgentKernel(
+        KernelDependencies(
+            resolve_runtime_config=lambda *_a, **_kw: RuntimeConfig(
+                tenant_id=uuid4(), max_tool_rounds=5, quota_message=None,
+            ),
+            resolve_current_user_name=lambda *_a, **_kw: "Rocky",
+            build_system_prompt=lambda *_a, **_kw: "SYSTEM",
+            resolve_memory_context=lambda *_a, **_kw: "",
+            get_tools=lambda *_a, **_kw: [
+                {"type": "function", "function": {"name": "web_search", "description": "", "parameters": {"type": "object"}}}
+            ],
+            maybe_compress_messages=lambda messages, **kw: messages,
+            create_client=lambda _m: fake_client,
+            execute_tool=lambda *_a, **_kw: large_result,
+            persist_memory=lambda **kw: None,
+            record_token_usage=lambda *a, **kw: None,
+            get_max_tokens=lambda *a, **kw: 2048,
+            extract_usage_tokens=lambda usage: usage.get("total_tokens"),
+            estimate_tokens_from_chars=lambda c: c // 4,
+        )
+    )
+
+    result = await kernel.handle(
+        InvocationRequest(
+            model=model,
+            messages=[{"role": "user", "content": "search"}],
+            agent_name="Agent",
+            role_description="test",
+            agent_id=uuid4(),
+            user_id=uuid4(),
+        )
+    )
+
+    assert result.content == "done"
+
+    # The second LLM call should have received the evicted (truncated) tool result
+    second_call_messages = fake_client.calls[1]["messages"]
+    tool_msg = [m for m in second_call_messages if m.role == "tool"][0]
+    assert len(tool_msg.content) < len(large_result)
+    assert "truncated" in tool_msg.content

@@ -51,6 +51,8 @@ class PersistentMemoryStore:
                 """,
                 rows,
             )
+            # Rebuild FTS index
+            self._rebuild_fts(conn)
             conn.commit()
         self._write_legacy_json(agent_id, facts)
 
@@ -107,6 +109,59 @@ class PersistentMemoryStore:
         memory_dir.mkdir(parents=True, exist_ok=True)
         return sqlite3.connect(self._db_path(agent_id))
 
+    def search_facts(self, agent_id: uuid.UUID, query: str, *, limit: int = 5) -> list[dict]:
+        """Full-text search over semantic facts using FTS5. Falls back to LIKE if FTS unavailable."""
+        if not query or not query.strip():
+            return self.load_semantic_facts(agent_id, limit=limit)
+
+        with self._connect(agent_id) as conn:
+            self._ensure_schema(conn)
+            self._import_legacy_json_if_needed(agent_id, conn)
+
+            # Try FTS5 first (standalone table, joined back to main for metadata)
+            try:
+                rows = conn.execute(
+                    """
+                    SELECT sf.content, sf.subject, sf.timestamp, sf.metadata_json
+                    FROM semantic_facts_fts fts
+                    JOIN semantic_facts sf ON sf.rowid = fts.rowid
+                    WHERE fts MATCH ?
+                    ORDER BY fts.rank
+                    LIMIT ?
+                    """,
+                    (query, limit),
+                ).fetchall()
+            except sqlite3.OperationalError:
+                # FTS table missing or corrupt — fall back to LIKE
+                like_pattern = f"%{query}%"
+                rows = conn.execute(
+                    """
+                    SELECT content, subject, timestamp, metadata_json
+                    FROM semantic_facts
+                    WHERE content LIKE ? OR subject LIKE ?
+                    ORDER BY position DESC
+                    LIMIT ?
+                    """,
+                    (like_pattern, like_pattern, limit),
+                ).fetchall()
+
+        facts: list[dict] = []
+        for content, subject, timestamp, metadata_json in rows:
+            fact: dict = {"content": content}
+            if subject:
+                fact["subject"] = subject
+            if timestamp:
+                fact["timestamp"] = timestamp
+            if metadata_json:
+                try:
+                    payload = json.loads(metadata_json)
+                    if isinstance(payload, dict):
+                        fact.update(payload)
+                except json.JSONDecodeError:
+                    pass
+            facts.append(fact)
+        return facts
+
     def _ensure_schema(self, conn: sqlite3.Connection) -> None:
         conn.execute(
             """
@@ -119,6 +174,13 @@ class PersistentMemoryStore:
             )
             """
         )
+        # Standalone FTS5 table — kept in sync manually via _rebuild_fts()
+        try:
+            conn.execute(
+                "CREATE VIRTUAL TABLE IF NOT EXISTS semantic_facts_fts USING fts5(content, subject)"
+            )
+        except sqlite3.OperationalError:
+            pass  # FTS5 not available on this SQLite build
 
     def _import_legacy_json_if_needed(self, agent_id: uuid.UUID, conn: sqlite3.Connection) -> None:
         row = conn.execute("SELECT COUNT(*) FROM semantic_facts").fetchone()
@@ -160,8 +222,22 @@ class PersistentMemoryStore:
             """,
             rows,
         )
+        self._rebuild_fts(conn)
         conn.commit()
         self._write_legacy_json(agent_id, facts)
+
+    def _rebuild_fts(self, conn: sqlite3.Connection) -> None:
+        """Rebuild standalone FTS5 index from semantic_facts. No-op if FTS5 unavailable."""
+        try:
+            conn.execute("DELETE FROM semantic_facts_fts")
+            conn.execute(
+                """
+                INSERT INTO semantic_facts_fts(rowid, content, subject)
+                SELECT rowid, content, COALESCE(subject, '') FROM semantic_facts
+                """
+            )
+        except (sqlite3.OperationalError, sqlite3.DatabaseError):
+            pass  # FTS5 not available or table missing
 
     def _write_legacy_json(self, agent_id: uuid.UUID, facts: list[dict]) -> None:
         memory_file = self._legacy_json_path(agent_id)

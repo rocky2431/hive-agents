@@ -28,6 +28,20 @@ from app.services.chat_message_parts import (
 from app.services.llm_utils import LLMError, LLMMessage
 from app.tools.registry import is_parallel_safe_tool
 
+# Mid-loop compaction: check every N rounds and compress when approaching context limit.
+_MIDLOOP_COMPACT_CHECK_INTERVAL = 3
+_MIDLOOP_COMPACT_THRESHOLD = 0.85  # 85% of context window
+
+# Large tool result eviction: save to workspace file and keep truncated preview.
+_TOOL_RESULT_EVICTION_THRESHOLD = 4000  # chars
+_TOOL_RESULT_PREVIEW_LENGTH = 800  # chars to keep inline
+# Tools whose output should never be evicted (small, structural results).
+_EVICTION_EXEMPT_TOOLS = frozenset({
+    "list_files", "read_file", "load_skill", "tool_search",
+    "discover_resources", "list_triggers", "list_tasks", "get_task",
+    "get_current_time", "check_async_task", "list_async_tasks",
+})
+
 logger = logging.getLogger(__name__)
 
 
@@ -180,6 +194,51 @@ def _clone_api_messages(messages: list[LLMMessage]) -> list[LLMMessage]:
         )
         for message in messages
     ]
+
+
+def _llm_messages_to_dicts(messages: list[LLMMessage]) -> list[dict]:
+    """Convert LLMMessage list to plain dicts for compression."""
+    result: list[dict] = []
+    for m in messages:
+        d: dict[str, Any] = {"role": m.role}
+        if m.content is not None:
+            d["content"] = m.content
+        if m.tool_calls:
+            d["tool_calls"] = m.tool_calls
+        if m.tool_call_id:
+            d["tool_call_id"] = m.tool_call_id
+        if m.reasoning_content:
+            d["reasoning_content"] = m.reasoning_content
+        result.append(d)
+    return result
+
+
+def _dicts_to_llm_messages(dicts: list[dict]) -> list[LLMMessage]:
+    """Convert plain dicts back to LLMMessage objects."""
+    return [
+        LLMMessage(
+            role=d.get("role", "user"),
+            content=d.get("content"),
+            tool_calls=d.get("tool_calls"),
+            tool_call_id=d.get("tool_call_id"),
+            reasoning_content=d.get("reasoning_content"),
+        )
+        for d in dicts
+    ]
+
+
+def _maybe_evict_tool_result(tool_name: str, tool_call_id: str, result: str) -> str:
+    """If tool result exceeds threshold, truncate with eviction notice."""
+    if tool_name in _EVICTION_EXEMPT_TOOLS:
+        return result
+    if len(result) <= _TOOL_RESULT_EVICTION_THRESHOLD:
+        return result
+    preview = result[:_TOOL_RESULT_PREVIEW_LENGTH]
+    return (
+        f"{preview}\n\n"
+        f"[... truncated — full output {len(result)} chars, tool_call_id={tool_call_id}. "
+        f"Use read_file or grep_search to retrieve specific parts if needed.]"
+    )
 
 
 def _build_cancelled_result(
@@ -621,7 +680,7 @@ class AgentKernel:
                                 LLMMessage(
                                     role="tool",
                                     tool_call_id=tc["id"],
-                                    content=str(result),
+                                    content=_maybe_evict_tool_result(tool_name, tc["id"], str(result)),
                                 )
                             )
                     else:
@@ -715,8 +774,33 @@ class AgentKernel:
                                 LLMMessage(
                                     role="tool",
                                     tool_call_id=tc["id"],
-                                    content=str(result),
+                                    content=_maybe_evict_tool_result(tool_name, tc["id"], str(result)),
                                 )
+                            )
+
+                    # ── Mid-loop context compaction ──────────────────────────
+                    if (round_i + 1) % _MIDLOOP_COMPACT_CHECK_INTERVAL == 0 and len(api_messages) > 6:
+                        conv_dicts = _llm_messages_to_dicts(api_messages[1:])
+                        compressed = await _maybe_await(
+                            self._deps.maybe_compress_messages(
+                                conv_dicts,
+                                model_provider=active_model.provider,
+                                model_name=active_model.model,
+                                max_input_tokens_override=getattr(
+                                    active_model, "max_input_tokens", None
+                                ),
+                                tenant_id=runtime_config.tenant_id,
+                                compress_threshold=_MIDLOOP_COMPACT_THRESHOLD,
+                                on_compaction=_emit_compaction_event,
+                            )
+                        )
+                        if len(compressed) < len(conv_dicts):
+                            api_messages = [api_messages[0]] + _dicts_to_llm_messages(compressed)
+                            logger.info(
+                                "[Kernel] Mid-loop compaction: %d → %d messages (round %d)",
+                                len(conv_dicts) + 1,
+                                len(api_messages),
+                                round_i + 1,
                             )
 
                 if request.agent_id and accumulated_tokens > 0:
