@@ -24,7 +24,7 @@ _SCHEDULED = {"set_trigger", "update_trigger", "cancel_trigger", "list_triggers"
 _CHANNEL = {"send_feishu_message", "send_web_message", "send_message_to_agent", "send_channel_file"}
 _WEB = {"jina_search", "jina_read", "web_search"}
 
-READ_ONLY_TOOL_NAMES = frozenset({
+READ_ONLY_TOOL_NAMES: set[str] = {
     "read_file",
     "glob_search",
     "grep_search",
@@ -38,9 +38,9 @@ READ_ONLY_TOOL_NAMES = frozenset({
     "discover_resources",
     "list_mcp_resources",
     "read_mcp_resource",
-})
+}
 
-PARALLEL_SAFE_TOOL_NAMES = frozenset({
+PARALLEL_SAFE_TOOL_NAMES: set[str] = {
     "read_file",
     "glob_search",
     "grep_search",
@@ -50,7 +50,7 @@ PARALLEL_SAFE_TOOL_NAMES = frozenset({
     "web_search",
     "jina_search",
     "jina_read",
-})
+}
 
 
 def is_read_only_tool(name: str) -> bool:

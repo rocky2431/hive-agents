@@ -12,8 +12,8 @@ logger = logging.getLogger(__name__)
 
 EventCallback = Callable[[dict[str, Any]], Awaitable[None] | None]
 
-SENSITIVE_TOOLS = {"send_feishu_message", "send_email", "delete_file", "write_file", "reply_email"}
-SAFE_TOOLS = {
+SENSITIVE_TOOLS: set[str] = {"send_feishu_message", "send_email", "delete_file", "write_file", "reply_email"}
+SAFE_TOOLS: set[str] = {
     "list_files",
     "read_file",
     "load_skill",

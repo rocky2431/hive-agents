@@ -1001,12 +1001,45 @@ _LEGACY_TOOL_REGISTRY = ToolRegistry.from_openai_tools(AGENT_TOOLS)
 _TOOL_EXECUTION_REGISTRY = ToolExecutionRegistry()
 _TOOL_EXECUTION_REGISTRY_INITIALIZED = False
 _TOOL_RUNTIME_SERVICE: ToolRuntimeService | None = None
+_COLLECTED_TOOLS = None  # Lazy-initialized by _ensure_tool_execution_registry
+
+
+def _get_collected_tools():
+    """Lazy-load collected tools from @tool-decorated handlers."""
+    global _COLLECTED_TOOLS
+    if _COLLECTED_TOOLS is None:
+        from app.tools.collector import collect_tools
+        _COLLECTED_TOOLS = collect_tools()
+    return _COLLECTED_TOOLS
+
+
+def get_combined_openai_tools() -> list[dict]:
+    """Return OpenAI tool schemas: collected (decorator) + legacy (hardcoded)."""
+    collected = _get_collected_tools()
+    collected_names = {t["function"]["name"] for t in collected.openai_tools}
+    legacy = [t for t in AGENT_TOOLS if t["function"]["name"] not in collected_names]
+    return collected.openai_tools + legacy
 
 
 def _ensure_tool_execution_registry() -> None:
     global _TOOL_EXECUTION_REGISTRY_INITIALIZED
     if _TOOL_EXECUTION_REGISTRY_INITIALIZED:
         return
+
+    # Register @tool-decorated handlers (from tools/handlers/)
+    collected = _get_collected_tools()
+    for name, executor in collected.exec_registry._executors.items():
+        _TOOL_EXECUTION_REGISTRY.register(name, executor)
+
+    # Extend governance/registry sets with collected metadata
+    from app.tools.governance import SAFE_TOOLS, SENSITIVE_TOOLS
+    from app.tools.registry import READ_ONLY_TOOL_NAMES, PARALLEL_SAFE_TOOL_NAMES
+    SAFE_TOOLS.update(collected.safe_tools)
+    SENSITIVE_TOOLS.update(collected.sensitive_tools)
+    READ_ONLY_TOOL_NAMES.update(collected.read_only_names)
+    PARALLEL_SAFE_TOOL_NAMES.update(collected.parallel_safe_names)
+
+    # Register legacy handlers (not-yet-migrated tools)
     register_core_tool_executors(
         _TOOL_EXECUTION_REGISTRY,
         CoreToolDependencies(
