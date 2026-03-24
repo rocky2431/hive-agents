@@ -227,13 +227,39 @@ def _dicts_to_llm_messages(dicts: list[dict]) -> list[LLMMessage]:
     ]
 
 
-def _maybe_evict_tool_result(tool_name: str, tool_call_id: str, result: str) -> str:
-    """If tool result exceeds threshold, truncate with eviction notice."""
+def _maybe_evict_tool_result(
+    tool_name: str,
+    tool_call_id: str,
+    result: str,
+    eviction_dir: "Path | None" = None,
+) -> str:
+    """If tool result exceeds threshold, save full output to file and truncate inline."""
+    from pathlib import Path as _Path  # deferred to avoid top-level import in kernel
+
     if tool_name in _EVICTION_EXEMPT_TOOLS:
         return result
     if len(result) <= _TOOL_RESULT_EVICTION_THRESHOLD:
         return result
+
+    # Write full result to workspace file if eviction_dir provided
+    eviction_path = ""
+    if eviction_dir is not None:
+        try:
+            _Path(eviction_dir).mkdir(parents=True, exist_ok=True)
+            file_name = f"{tool_call_id}.txt"
+            full_path = _Path(eviction_dir) / file_name
+            full_path.write_text(result, encoding="utf-8")
+            eviction_path = f"workspace/tool_results/{file_name}"
+        except Exception as exc:
+            logger.warning("[Kernel] Failed to write eviction file: %s", exc)
+
     preview = result[:_TOOL_RESULT_PREVIEW_LENGTH]
+    if eviction_path:
+        return (
+            f"{preview}\n\n"
+            f"[Full output saved to {eviction_path} — {len(result)} chars. "
+            f"Use read_file(\"{eviction_path}\") to retrieve.]"
+        )
     return (
         f"{preview}\n\n"
         f"[... truncated — full output {len(result)} chars, tool_call_id={tool_call_id}. "
@@ -306,6 +332,27 @@ class AgentKernel:
 
     def __init__(self, dependencies: KernelDependencies) -> None:
         self._deps = dependencies
+
+    async def _persist_before_exit(
+        self,
+        request: InvocationRequest,
+        runtime_config: RuntimeConfig,
+        final_content: str,
+    ) -> None:
+        """Best-effort memory persistence on abnormal exit paths."""
+        if not request.agent_id or not runtime_config.tenant_id:
+            return
+        try:
+            await _maybe_await(
+                self._deps.persist_memory(
+                    agent_id=request.agent_id,
+                    session_id=request.memory_session_id,
+                    tenant_id=runtime_config.tenant_id,
+                    messages=_build_persisted_memory_messages(request, final_content),
+                )
+            )
+        except Exception as exc:
+            logger.warning("[Kernel] Best-effort persist_memory failed on exit: %s", exc)
 
     async def handle(self, request: InvocationRequest) -> InvocationResult:
         previous_identity = get_execution_identity()
@@ -441,6 +488,7 @@ class AgentKernel:
                     if request.cancel_event and request.cancel_event.is_set():
                         if request.agent_id and accumulated_tokens > 0:
                             await _maybe_await(self._deps.record_token_usage(request.agent_id, accumulated_tokens))
+                        await self._persist_before_exit(request, runtime_config, "*[Generation stopped]*")
                         return _build_cancelled_result(
                             streamed_chunks,
                             streamed_thinking,
@@ -497,6 +545,7 @@ class AgentKernel:
                         except _KernelCancelledError:
                             if request.agent_id and accumulated_tokens > 0:
                                 await _maybe_await(self._deps.record_token_usage(request.agent_id, accumulated_tokens))
+                            await self._persist_before_exit(request, runtime_config, "*[Generation stopped]*")
                             return _build_cancelled_result(
                                 streamed_chunks,
                                 streamed_thinking,
@@ -528,6 +577,7 @@ class AgentKernel:
                                 continue
                             if request.agent_id and accumulated_tokens > 0:
                                 await _maybe_await(self._deps.record_token_usage(request.agent_id, accumulated_tokens))
+                            await self._persist_before_exit(request, runtime_config, f"[LLM Error] {exc}")
                             return _build_error_result(f"[LLM Error] {exc}", tokens_used=accumulated_tokens)
                         except Exception as exc:
                             logger.error(
@@ -554,8 +604,10 @@ class AgentKernel:
                                 continue
                             if request.agent_id and accumulated_tokens > 0:
                                 await _maybe_await(self._deps.record_token_usage(request.agent_id, accumulated_tokens))
+                            err_msg = f"[LLM call error] {type(exc).__name__}: {str(exc)[:200]}"
+                            await self._persist_before_exit(request, runtime_config, err_msg)
                             return _build_error_result(
-                                f"[LLM call error] {type(exc).__name__}: {str(exc)[:200]}",
+                                err_msg,
                                 tokens_used=accumulated_tokens,
                             )
 
@@ -632,6 +684,7 @@ class AgentKernel:
                         if request.cancel_event and request.cancel_event.is_set():
                             if request.agent_id and accumulated_tokens > 0:
                                 await _maybe_await(self._deps.record_token_usage(request.agent_id, accumulated_tokens))
+                            await self._persist_before_exit(request, runtime_config, "*[Generation stopped]*")
                             return _build_cancelled_result(
                                 streamed_chunks,
                                 streamed_thinking,
@@ -680,7 +733,7 @@ class AgentKernel:
                                 LLMMessage(
                                     role="tool",
                                     tool_call_id=tc["id"],
-                                    content=_maybe_evict_tool_result(tool_name, tc["id"], str(result)),
+                                    content=_maybe_evict_tool_result(tool_name, tc["id"], str(result), request.eviction_dir),
                                 )
                             )
                     else:
@@ -689,6 +742,7 @@ class AgentKernel:
                             if request.cancel_event and request.cancel_event.is_set():
                                 if request.agent_id and accumulated_tokens > 0:
                                     await _maybe_await(self._deps.record_token_usage(request.agent_id, accumulated_tokens))
+                                await self._persist_before_exit(request, runtime_config, "*[Generation stopped]*")
                                 return _build_cancelled_result(
                                     streamed_chunks,
                                     streamed_thinking,
@@ -774,7 +828,7 @@ class AgentKernel:
                                 LLMMessage(
                                     role="tool",
                                     tool_call_id=tc["id"],
-                                    content=_maybe_evict_tool_result(tool_name, tc["id"], str(result)),
+                                    content=_maybe_evict_tool_result(tool_name, tc["id"], str(result), request.eviction_dir),
                                 )
                             )
 
@@ -805,6 +859,7 @@ class AgentKernel:
 
                 if request.agent_id and accumulated_tokens > 0:
                     await _maybe_await(self._deps.record_token_usage(request.agent_id, accumulated_tokens))
+                await self._persist_before_exit(request, runtime_config, "[Error] Too many tool call rounds")
                 return _build_error_result(
                     "[Error] Too many tool call rounds",
                     tokens_used=accumulated_tokens,

@@ -541,6 +541,15 @@ def get_agent_kernel() -> AgentKernel:
     )
 
 
+def _resolve_eviction_dir(agent_id: uuid.UUID | None) -> "Path | None":
+    """Resolve the workspace directory for storing evicted tool results."""
+    if agent_id is None:
+        return None
+    from pathlib import Path
+    from app.config import get_settings
+    return Path(get_settings().AGENT_DATA_DIR) / str(agent_id) / "workspace" / "tool_results"
+
+
 async def invoke_agent(request: AgentInvocationRequest) -> AgentInvocationResult:
     execution_identity = request.execution_identity
     if execution_identity is None:
@@ -582,6 +591,7 @@ async def invoke_agent(request: AgentInvocationRequest) -> AgentInvocationResult
         core_tools_only=request.core_tools_only,
         expand_tools=request.expand_tools,
         max_tool_rounds=request.max_tool_rounds,
+        eviction_dir=_resolve_eviction_dir(request.agent_id),
     )
 
     result = await get_agent_kernel().handle(kernel_request)

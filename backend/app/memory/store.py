@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import uuid
 from pathlib import Path
 from typing import Awaitable, Callable
+
+logger = logging.getLogger(__name__)
 
 
 SummaryLoader = Callable[[uuid.UUID, str | None], Awaitable[str | None]]
@@ -131,8 +134,9 @@ class PersistentMemoryStore:
                     """,
                     (query, limit),
                 ).fetchall()
-            except sqlite3.OperationalError:
+            except sqlite3.OperationalError as exc:
                 # FTS table missing or corrupt — fall back to LIKE
+                logger.info("[MemoryStore] FTS5 search failed, using LIKE fallback: %s", exc)
                 like_pattern = f"%{query}%"
                 rows = conn.execute(
                     """
@@ -180,7 +184,7 @@ class PersistentMemoryStore:
                 "CREATE VIRTUAL TABLE IF NOT EXISTS semantic_facts_fts USING fts5(content, subject)"
             )
         except sqlite3.OperationalError:
-            pass  # FTS5 not available on this SQLite build
+            logger.warning("[MemoryStore] FTS5 not available on this SQLite build, falling back to LIKE search")
 
     def _import_legacy_json_if_needed(self, agent_id: uuid.UUID, conn: sqlite3.Connection) -> None:
         row = conn.execute("SELECT COUNT(*) FROM semantic_facts").fetchone()
@@ -236,8 +240,8 @@ class PersistentMemoryStore:
                 SELECT rowid, content, COALESCE(subject, '') FROM semantic_facts
                 """
             )
-        except (sqlite3.OperationalError, sqlite3.DatabaseError):
-            pass  # FTS5 not available or table missing
+        except (sqlite3.OperationalError, sqlite3.DatabaseError) as exc:
+            logger.warning("[MemoryStore] FTS5 rebuild failed: %s", exc)
 
     def _write_legacy_json(self, agent_id: uuid.UUID, facts: list[dict]) -> None:
         memory_file = self._legacy_json_path(agent_id)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from app.runtime.session import SessionContext
@@ -50,6 +51,7 @@ class InvocationRequest:
     core_tools_only: bool = True
     expand_tools: bool = True
     max_tool_rounds: int | None = None
+    eviction_dir: Path | None = None
 
 
 @dataclass(slots=True)

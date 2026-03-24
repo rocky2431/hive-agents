@@ -586,7 +586,7 @@ def test_maybe_evict_tool_result_truncates_large_output():
     assert _maybe_evict_tool_result("read_file", "call_2", large) == large
     assert _maybe_evict_tool_result("list_files", "call_3", large) == large
 
-    # Non-exempt large result — truncated
+    # Non-exempt large result — truncated (no eviction_dir)
     evicted = _maybe_evict_tool_result("web_search", "call_4", large)
     assert len(evicted) < len(large)
     assert "truncated" in evicted
@@ -594,6 +594,25 @@ def test_maybe_evict_tool_result_truncates_large_output():
     assert "call_4" in evicted
     # Preview should be present (first 800 chars)
     assert evicted.startswith("x" * 800)
+
+
+def test_maybe_evict_writes_file_when_eviction_dir_provided(tmp_path):
+    from app.kernel.engine import _maybe_evict_tool_result
+
+    large = "RESULT_DATA\n" * 1000  # ~12000 chars
+    eviction_dir = tmp_path / "tool_results"
+
+    evicted = _maybe_evict_tool_result("web_search", "call_99", large, eviction_dir=eviction_dir)
+
+    # File should exist with full content
+    written_file = eviction_dir / "call_99.txt"
+    assert written_file.exists()
+    assert written_file.read_text(encoding="utf-8") == large
+
+    # Inline content should have file reference
+    assert "workspace/tool_results/call_99.txt" in evicted
+    assert "read_file" in evicted
+    assert len(evicted) < len(large)
 
 
 @pytest.mark.asyncio
@@ -663,3 +682,125 @@ async def test_large_tool_result_evicted_in_kernel_loop():
     tool_msg = [m for m in second_call_messages if m.role == "tool"][0]
     assert len(tool_msg.content) < len(large_result)
     assert "truncated" in tool_msg.content
+
+
+@pytest.mark.asyncio
+async def test_persist_memory_called_on_max_rounds_exceeded():
+    """persist_memory must be called even when max tool rounds exhausted."""
+    from app.kernel.contracts import InvocationRequest
+    from app.kernel.engine import AgentKernel, KernelDependencies, RuntimeConfig
+
+    model = SimpleNamespace(
+        provider="openai", model="gpt-4.1", api_key="k", base_url=None, max_output_tokens=None,
+    )
+    persist_calls: list[dict] = []
+
+    # 3 rounds of tool calls, max_tool_rounds=2 → will exceed
+    fake_client = _FakeClient([
+        SimpleNamespace(
+            content="",
+            tool_calls=[{"id": f"c{i}", "function": {"name": "list_files", "arguments": '{}'}}],
+            reasoning_content=None,
+            usage={"total_tokens": 3},
+        )
+        for i in range(3)
+    ])
+
+    async def persist_memory(**kwargs):
+        persist_calls.append(kwargs)
+
+    kernel = AgentKernel(
+        KernelDependencies(
+            resolve_runtime_config=lambda *_a, **_kw: RuntimeConfig(
+                tenant_id=uuid4(), max_tool_rounds=2, quota_message=None,
+            ),
+            resolve_current_user_name=lambda *_a, **_kw: "Rocky",
+            build_system_prompt=lambda *_a, **_kw: "SYSTEM",
+            resolve_memory_context=lambda *_a, **_kw: "",
+            get_tools=lambda *_a, **_kw: [
+                {"type": "function", "function": {"name": "list_files", "description": "", "parameters": {"type": "object"}}}
+            ],
+            maybe_compress_messages=lambda messages, **kw: messages,
+            create_client=lambda _m: fake_client,
+            execute_tool=lambda *_a, **_kw: "ok",
+            persist_memory=persist_memory,
+            record_token_usage=lambda *a, **kw: None,
+            get_max_tokens=lambda *a, **kw: 2048,
+            extract_usage_tokens=lambda usage: usage.get("total_tokens"),
+            estimate_tokens_from_chars=lambda c: c // 4,
+        )
+    )
+
+    result = await kernel.handle(
+        InvocationRequest(
+            model=model,
+            messages=[{"role": "user", "content": "keep going"}],
+            agent_name="Agent",
+            role_description="test",
+            agent_id=uuid4(),
+            user_id=uuid4(),
+            memory_session_id="sess-max",
+        )
+    )
+
+    assert "Too many tool call rounds" in result.content
+    assert len(persist_calls) == 1, f"Expected 1 persist call, got {len(persist_calls)}"
+    assert persist_calls[0]["session_id"] == "sess-max"
+
+
+@pytest.mark.asyncio
+async def test_persist_memory_called_on_llm_error():
+    """persist_memory must be called when LLM returns an error (after fallback exhausted)."""
+    from app.kernel.contracts import InvocationRequest
+    from app.kernel.engine import AgentKernel, KernelDependencies, RuntimeConfig
+    from app.services.llm_utils import LLMError
+
+    model = SimpleNamespace(
+        provider="openai", model="gpt-4.1", api_key="k", base_url=None, max_output_tokens=None,
+    )
+    persist_calls: list[dict] = []
+
+    class _ErrorClient:
+        async def stream(self, **kwargs):
+            raise LLMError("rate limit exceeded")
+        async def close(self):
+            pass
+
+    async def persist_memory(**kwargs):
+        persist_calls.append(kwargs)
+
+    kernel = AgentKernel(
+        KernelDependencies(
+            resolve_runtime_config=lambda *_a, **_kw: RuntimeConfig(
+                tenant_id=uuid4(), max_tool_rounds=5, quota_message=None,
+            ),
+            resolve_current_user_name=lambda *_a, **_kw: "Rocky",
+            build_system_prompt=lambda *_a, **_kw: "SYSTEM",
+            resolve_memory_context=lambda *_a, **_kw: "",
+            get_tools=lambda *_a, **_kw: [],
+            maybe_compress_messages=lambda messages, **kw: messages,
+            create_client=lambda _m: _ErrorClient(),
+            execute_tool=lambda *_a, **_kw: "ok",
+            persist_memory=persist_memory,
+            record_token_usage=lambda *a, **kw: None,
+            get_max_tokens=lambda *a, **kw: 2048,
+            extract_usage_tokens=lambda usage: usage.get("total_tokens") if usage else None,
+            estimate_tokens_from_chars=lambda c: c // 4,
+        )
+    )
+
+    result = await kernel.handle(
+        InvocationRequest(
+            model=model,
+            messages=[{"role": "user", "content": "hello"}],
+            agent_name="Agent",
+            role_description="test",
+            agent_id=uuid4(),
+            user_id=uuid4(),
+            memory_session_id="sess-err",
+        )
+    )
+
+    assert "LLM Error" in result.content
+    assert len(persist_calls) == 1
+    assert persist_calls[0]["session_id"] == "sess-err"
