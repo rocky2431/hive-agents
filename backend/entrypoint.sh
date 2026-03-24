@@ -94,6 +94,8 @@ async def main():
         "CREATE INDEX IF NOT EXISTS ix_sec_audit_tenant_type_created ON security_audit_events (tenant_id, event_type, created_at)",
         "CREATE INDEX IF NOT EXISTS ix_sec_audit_actor ON security_audit_events (actor_id)",
         "CREATE INDEX IF NOT EXISTS ix_sec_audit_resource ON security_audit_events (resource_type, resource_id)",
+        # Drop dead autonomy_policy column (was stored but never enforced)
+        "ALTER TABLE agents DROP COLUMN IF EXISTS autonomy_policy",
     ]
 
     from sqlalchemy import text
