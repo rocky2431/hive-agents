@@ -31,17 +31,11 @@ from app.database import async_session
 from app.models.agent import Agent
 from app.services.pack_policy_service import get_tenant_pack_policies, is_pack_enabled
 from app.tools import (
-    CoreToolDependencies,
-    ExtendedToolDependencies,
-    IntegrationToolDependencies,
     ToolExecutionRegistry,
     ToolGovernanceResolver,
     ToolRegistry,
     ToolRuntimeService,
     ensure_workspace,
-    register_core_tool_executors,
-    register_extended_tool_executors,
-    register_integration_tool_executors,
     run_tool_governance,
 )
 from app.tools.packs import make_mcp_server_pack_name, static_pack_names_for_tool
@@ -111,63 +105,6 @@ def _ensure_tool_execution_registry() -> None:
     READ_ONLY_TOOL_NAMES.update(collected.read_only_names)
     PARALLEL_SAFE_TOOL_NAMES.update(collected.parallel_safe_names)
 
-    # Register legacy handlers (not-yet-migrated tools)
-    register_core_tool_executors(
-        _TOOL_EXECUTION_REGISTRY,
-        CoreToolDependencies(
-            list_files=_list_files,
-            read_file=_read_file,
-            load_skill=_load_skill,
-            write_file=_write_file,
-            edit_file=_edit_file,
-            glob_search=_glob_search,
-            grep_search=_grep_search,
-            tool_search=_tool_search,
-            execute_code=_execute_code,
-            set_trigger=_handle_set_trigger,
-            send_feishu_message=_send_feishu_message,
-            send_web_message=_send_web_message,
-            send_message_to_agent=_send_message_to_agent,
-        ),
-    )
-    register_extended_tool_executors(
-        _TOOL_EXECUTION_REGISTRY,
-        ExtendedToolDependencies(
-            read_document=_read_document,
-            delete_file=_delete_file,
-            update_trigger=_handle_update_trigger,
-            cancel_trigger=_handle_cancel_trigger,
-            list_triggers=_handle_list_triggers,
-            web_search=_web_search,
-            jina_search=_jina_search,
-            jina_read=_jina_read,
-            send_channel_file=_send_channel_file,
-            upload_image=_upload_image,
-            discover_resources=_discover_resources,
-            import_mcp_server=_import_mcp_server,
-        ),
-    )
-    register_integration_tool_executors(
-        _TOOL_EXECUTION_REGISTRY,
-        IntegrationToolDependencies(
-            manage_tasks=_manage_tasks,
-            plaza_get_new_posts=_plaza_get_new_posts,
-            plaza_create_post=_plaza_create_post,
-            plaza_add_comment=_plaza_add_comment,
-            feishu_wiki_list=_feishu_wiki_list,
-            feishu_doc_read=_feishu_doc_read,
-            feishu_doc_create=_feishu_doc_create,
-            feishu_doc_append=_feishu_doc_append,
-            feishu_doc_share=_feishu_doc_share,
-            feishu_user_search=_feishu_user_search,
-            feishu_calendar_list=_feishu_calendar_list,
-            feishu_calendar_create=_feishu_calendar_create,
-            feishu_calendar_update=_feishu_calendar_update,
-            feishu_calendar_delete=_feishu_calendar_delete,
-            handle_email_tool=_handle_email_tool,
-            execute_mcp_tool=_execute_mcp_tool,
-        ),
-    )
     _TOOL_EXECUTION_REGISTRY_INITIALIZED = True
 
 
