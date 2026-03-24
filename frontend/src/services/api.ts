@@ -356,12 +356,6 @@ export const messageApi = {
 
     unreadCount: () =>
         request<{ unread_count: number }>('/messages/unread-count'),
-
-    markRead: (messageId: string) =>
-        request<void>(`/messages/${messageId}/read`, { method: 'PUT' }),
-
-    markAllRead: () =>
-        request<void>('/messages/read-all', { method: 'PUT' }),
 };
 
 // ─── Schedules ────────────────────────────────────────

@@ -65,7 +65,7 @@ from app.database import get_db
 from app.models.user import User
 
 
-@router.get("/api/chat/{agent_id}/history")
+@router.get("/chat/{agent_id}/history")
 async def get_chat_history(
     agent_id: uuid.UUID,
     current_user: User = Depends(get_current_user),

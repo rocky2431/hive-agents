@@ -159,14 +159,6 @@ async def create_agent(
         max_tokens_per_month=data.max_tokens_per_month,
         agent_class=data.agent_class,
         security_zone=data.security_zone,
-        autonomy_policy=data.autonomy_policy or {
-            "read_files": "L1",
-            "write_workspace_files": "L2",
-            "delete_files": "L3",
-            "send_feishu_message": "L2",
-            "web_search": "L1",
-            "execute_code": "L2",
-        },
         status="draft",
         expires_at=expires_at,
         max_llm_calls_per_day=max_llm_calls,
@@ -215,13 +207,12 @@ async def create_agent(
     )
 
     # Copy selected skills + mandatory default skills into agent workspace
-    from app.models.skill import Skill, SkillFile
+    from app.models.skill import Skill
     from sqlalchemy.orm import selectinload
-    from pathlib import Path
 
     # Always include default skills
     default_result = await db.execute(
-        select(Skill).where(Skill.is_default == True)
+        select(Skill).where(Skill.is_default)
     )
     default_ids = {s.id for s in default_result.scalars().all()}
 
@@ -730,7 +721,9 @@ async def generate_or_reset_api_key(
     if getattr(agent, "agent_type", "native") != "openclaw":
         raise HTTPException(status_code=400, detail="API keys are only available for OpenClaw agents")
 
-    import secrets, hashlib
+    import hashlib
+    import secrets
+
     raw_key = f"oc-{secrets.token_urlsafe(32)}"
     agent.api_key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
     await db.commit()

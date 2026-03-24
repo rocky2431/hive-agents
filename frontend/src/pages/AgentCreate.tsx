@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { agentApi, enterpriseApi, skillApi } from '../services/api';
-import ChannelConfig from '../components/ChannelConfig';
 
 /* ── Template definitions ─────────────────────────────────────────── */
 
@@ -48,7 +47,7 @@ const AGENT_TEMPLATES: AgentTemplate[] = [
 
 /* ── Phase constants ──────────────────────────────────────────────── */
 
-type Phase = 'templates' | 'identity' | 'abilities' | 'boundaries' | 'success';
+type Phase = 'templates' | 'identity' | 'abilities' | 'success';
 
 export default function AgentCreate() {
     const { t } = useTranslation();
@@ -77,16 +76,7 @@ export default function AgentCreate() {
         permission_scope_type: 'company',
         permission_access_level: 'use',
         security_zone: 'standard',
-        autonomy_policy: {
-            read_files: 'L1',
-            write_workspace_files: 'L2',
-            delete_files: 'L3',
-            send_feishu_message: 'L2',
-            web_search: 'L1',
-            execute_code: 'L2',
-        } as Record<string, string>,
     });
-    const [channelValues, setChannelValues] = useState<Record<string, string>>({});
 
     /* ── Data fetching ────────────────────────────────────────────── */
 
@@ -167,48 +157,6 @@ export default function AgentCreate() {
         setPhase('abilities');
     };
 
-    const handleNextToBoundaries = () => {
-        setError('');
-        setPhase('boundaries');
-    };
-
-    /* ── Channel payload builder ───────────────────────────────────── */
-
-    const buildChannelPayload = () => {
-        const channels: Array<{ channel_type: string; config: Record<string, string> }> = [];
-        if (channelValues.feishu_app_id && channelValues.feishu_app_secret) {
-            channels.push({
-                channel_type: 'feishu',
-                config: {
-                    app_id: channelValues.feishu_app_id,
-                    app_secret: channelValues.feishu_app_secret,
-                    encrypt_key: channelValues.feishu_encrypt_key || '',
-                    connection_mode: channelValues.feishu_connection_mode || 'websocket',
-                },
-            });
-        }
-        if (channelValues.slack_bot_token && channelValues.slack_signing_secret) {
-            channels.push({
-                channel_type: 'slack',
-                config: {
-                    app_id: channelValues.slack_bot_token,
-                    app_secret: channelValues.slack_signing_secret,
-                },
-            });
-        }
-        if (channelValues.discord_bot_token && channelValues.discord_application_id) {
-            channels.push({
-                channel_type: 'discord',
-                config: {
-                    app_id: channelValues.discord_application_id,
-                    app_secret: channelValues.discord_bot_token,
-                    encrypt_key: channelValues.discord_public_key || '',
-                },
-            });
-        }
-        return channels;
-    };
-
     /* ── Submit ────────────────────────────────────────────────────── */
 
     const createMutation = useMutation({
@@ -240,9 +188,7 @@ export default function AgentCreate() {
                 tenant_id: currentTenant || undefined,
                 security_zone: form.security_zone,
                 agent_class: 'internal_tenant',
-                autonomy_policy: form.autonomy_policy,
             },
-            channels: buildChannelPayload(),
         });
     };
 
@@ -317,8 +263,8 @@ export default function AgentCreate() {
 
     /* ── Render: Steps (identity / abilities) ─────────────────────── */
 
-    const stepIndex = phase === 'identity' ? 0 : phase === 'abilities' ? 1 : 2;
-    const stepLabels = [t('wizard.steps.identity'), t('wizard.steps.abilities'), t('wizard.steps.boundaries', 'Permissions & Channels')];
+    const stepIndex = phase === 'identity' ? 0 : 1;
+    const stepLabels = [t('wizard.steps.identity'), t('wizard.steps.abilities')];
 
     return (
         <div>
@@ -346,7 +292,6 @@ export default function AgentCreate() {
                     onClick={() => {
                         if (phase === 'identity') setPhase('templates');
                         else if (phase === 'abilities') setPhase('identity');
-                        else if (phase === 'boundaries') setPhase('abilities');
                     }}
                     disabled={createMutation.isPending}
                 >
@@ -354,10 +299,6 @@ export default function AgentCreate() {
                 </button>
                 {phase === 'identity' ? (
                     <button className="btn btn-primary" onClick={handleNextToAbilities}>
-                        {t('wizard.next')} &rarr;
-                    </button>
-                ) : phase === 'abilities' ? (
-                    <button className="btn btn-primary" onClick={handleNextToBoundaries}>
                         {t('wizard.next')} &rarr;
                     </button>
                 ) : (
@@ -560,89 +501,6 @@ export default function AgentCreate() {
                         <div style={{ marginTop: '20px', padding: '12px', background: 'var(--bg-secondary)', borderRadius: '8px', fontSize: '12px', color: 'var(--text-secondary)' }}>
                             {t('wizard.abilities.approvalHint')}
                         </div>
-                    </div>
-                )}
-
-                {/* Step 3: Boundaries — "Permissions & Channels" */}
-                {phase === 'boundaries' && (
-                    <div>
-                        <h3 style={{ marginBottom: '20px', fontWeight: 600, fontSize: '15px' }}>
-                            {t('wizard.steps.boundaries', '权限与渠道')}
-                        </h3>
-
-                        {/* Access scope */}
-                        <div style={{ marginBottom: '20px' }}>
-                            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '10px' }}>
-                                {t('wizard.boundaries.accessScope', '谁可以使用')}
-                            </label>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                {[
-                                    { value: 'company', label: t('wizard.boundaries.everyone', '全公司'), desc: t('wizard.boundaries.everyoneDesc', '组织内所有用户均可使用') },
-                                    { value: 'user', label: t('wizard.boundaries.selfOnly', '仅自己'), desc: t('wizard.boundaries.selfOnlyDesc', '仅创建者本人可使用') },
-                                ].map((scope) => (
-                                    <label key={scope.value} style={{
-                                        display: 'flex', alignItems: 'center', gap: '12px', padding: '14px',
-                                        background: form.permission_scope_type === scope.value ? 'var(--accent-subtle)' : 'var(--bg-elevated)',
-                                        border: `1px solid ${form.permission_scope_type === scope.value ? 'var(--accent-primary)' : 'var(--border-default)'}`,
-                                        borderRadius: '8px', cursor: 'pointer',
-                                    }}>
-                                        <input type="radio" name="scope" checked={form.permission_scope_type === scope.value}
-                                            onChange={() => setForm({ ...form, permission_scope_type: scope.value })} />
-                                        <div>
-                                            <div style={{ fontWeight: 500, fontSize: '13px' }}>{scope.label}</div>
-                                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{scope.desc}</div>
-                                        </div>
-                                    </label>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* Autonomy policy */}
-                        <div style={{ marginBottom: '20px' }}>
-                            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '10px' }}>
-                                {t('wizard.boundaries.autonomy', '操作自主性')}
-                            </label>
-                            <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
-                                {t('wizard.boundaries.autonomyDesc', '决定数字员工在执行不同操作时的自主程度。')}
-                            </p>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                {[
-                                    { key: 'read_files', label: t('wizard.boundaries.readFiles', '读取文件') },
-                                    { key: 'write_workspace_files', label: t('wizard.boundaries.writeFiles', '写入文件') },
-                                    { key: 'delete_files', label: t('wizard.boundaries.deleteFiles', '删除文件') },
-                                    { key: 'send_feishu_message', label: t('wizard.boundaries.sendMessage', '发送消息') },
-                                    { key: 'web_search', label: t('wizard.boundaries.webSearch', '网络搜索') },
-                                    { key: 'execute_code', label: t('wizard.boundaries.executeCode', '执行代码') },
-                                ].map(({ key, label }) => (
-                                    <div key={key} style={{
-                                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                                        padding: '10px 14px', background: 'var(--bg-elevated)', borderRadius: '8px',
-                                        border: '1px solid var(--border-default)',
-                                    }}>
-                                        <span style={{ fontSize: '13px' }}>{label}</span>
-                                        <select
-                                            style={{ fontSize: '12px', padding: '4px 8px', borderRadius: '6px', border: '1px solid var(--border-default)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }}
-                                            value={form.autonomy_policy[key] || 'L2'}
-                                            onChange={(e) => setForm({ ...form, autonomy_policy: { ...form.autonomy_policy, [key]: e.target.value } })}
-                                        >
-                                            <option value="L1">{t('wizard.boundaries.l1', '自动执行')}</option>
-                                            <option value="L2">{t('wizard.boundaries.l2', '执行并通知')}</option>
-                                            <option value="L3">{t('wizard.boundaries.l3', '需要审批')}</option>
-                                        </select>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* Channel connection — optional */}
-                        <details style={{ marginBottom: '16px' }}>
-                            <summary style={{ cursor: 'pointer', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>
-                                {t('wizard.boundaries.connectChannel', '连接通信渠道（可选）')}
-                            </summary>
-                            <div style={{ paddingTop: '12px' }}>
-                                <ChannelConfig mode="create" values={channelValues} onChange={setChannelValues} />
-                            </div>
-                        </details>
                     </div>
                 )}
             </div>
