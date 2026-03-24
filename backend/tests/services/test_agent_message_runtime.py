@@ -38,7 +38,7 @@ async def test_invoke_agent_message_runtime_delegates_to_runtime(monkeypatch):
         return "target reply"
 
     monkeypatch.setattr(
-        "app.services.agent_tools._build_agent_message_tool_executor",
+        "app.services.agent_tool_domains.messaging._build_agent_message_tool_executor",
         lambda *args, **kwargs: orchestrator_executor,
     )
     monkeypatch.setattr("app.agents.orchestrator.delegate_to_agent", fake_delegate)
@@ -84,7 +84,7 @@ async def test_build_agent_message_tool_executor_persists_tool_calls(monkeypatch
         calls["persist"] = kwargs
 
     monkeypatch.setattr("app.services.agent_tools.execute_tool", fake_execute_tool)
-    monkeypatch.setattr("app.services.agent_tools._persist_agent_tool_call", fake_persist)
+    monkeypatch.setattr("app.services.agent_tool_domains.messaging._persist_agent_tool_call", fake_persist)
 
     executor = _build_agent_message_tool_executor(
         target_agent_id=target_id,
