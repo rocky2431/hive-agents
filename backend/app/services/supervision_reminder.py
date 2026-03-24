@@ -15,8 +15,11 @@ from loguru import logger
 from sqlalchemy import select
 
 from app.database import async_session
+from app.kernel.contracts import ExecutionIdentityRef
 from app.models.task import Task, TaskLog
 from app.models.agent import Agent
+from app.runtime.invoker import AgentInvocationRequest, invoke_agent
+from app.runtime.session import SessionContext
 
 # Schedule JSON format:
 # {"freq": "daily"|"weekly", "interval": N, "time": "HH:MM", "weekdays": [0-6]}
@@ -104,13 +107,6 @@ async def _get_agent_reply(target_agent, message: str, db) -> str | None:
     Returns the reply text, or None if the agent can't respond.
     """
     from app.models.llm import LLMModel
-    from app.services.agent_context import build_agent_context
-    from app.services.llm_utils import (
-        get_provider_base_url,
-        create_llm_client,
-        LLMMessage,
-        LLMError,
-    )
 
     model_id = target_agent.primary_model_id or target_agent.fallback_model_id
     if not model_id:
@@ -122,40 +118,41 @@ async def _get_agent_reply(target_agent, message: str, db) -> str | None:
     if not model:
         return None
 
-    base_url = get_provider_base_url(model.provider, model.base_url)
-    if not base_url:
-        return None
+    fallback_model = None
+    if target_agent.primary_model_id and target_agent.fallback_model_id:
+        fallback_result = await db.execute(_select(LLMModel).where(LLMModel.id == target_agent.fallback_model_id))
+        fallback_model = fallback_result.scalar_one_or_none()
 
-    system_prompt = await build_agent_context(
-        target_agent.id, target_agent.name, target_agent.role_description or ""
-    )
-
-    messages = [
-        LLMMessage(role="system", content=system_prompt),
-        LLMMessage(role="user", content=message),
-    ]
-
-    client = create_llm_client(
-        provider=model.provider,
-        api_key=model.api_key,
-        model=model.model,
-        base_url=base_url,
-        timeout=60.0,
-    )
+    runtime_messages = [{"role": "user", "content": message}]
     try:
-        response = await client.complete(
-            messages=messages,
-            temperature=0.7,
-            max_tokens=512,
+        response = await invoke_agent(
+            AgentInvocationRequest(
+                model=model,
+                fallback_model=fallback_model,
+                messages=runtime_messages,
+                memory_messages=runtime_messages,
+                agent_name=target_agent.name,
+                role_description=target_agent.role_description or "",
+                agent_id=target_agent.id,
+                user_id=target_agent.creator_id,
+                execution_identity=ExecutionIdentityRef(
+                    identity_type="agent_bot",
+                    identity_id=target_agent.id,
+                    label=f"Agent: {target_agent.name} (supervision)",
+                ),
+                session_context=SessionContext(
+                    source="supervision",
+                    channel="supervision",
+                    metadata={"target_agent_id": str(target_agent.id)},
+                ),
+                core_tools_only=True,
+                max_tool_rounds=getattr(target_agent, "max_tool_rounds", None),
+            )
         )
         content = (response.content or "").strip()
         return content if content else None
-    except LLMError as e:
-        logger.error(f"_get_agent_reply LLM error: {e}")
     except Exception as e:
-        logger.error(f"_get_agent_reply LLM call failed: {e}")
-    finally:
-        await client.close()
+        logger.error(f"_get_agent_reply unified runtime call failed: {e}")
     return None
 
 
