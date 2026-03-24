@@ -5,7 +5,7 @@ from datetime import datetime, timezone as tz
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,6 +33,8 @@ def _can_manage_sessions(user: User, agent: Agent, access_level: str) -> bool:
 
 
 class SessionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     agent_id: str
     user_id: str
@@ -46,9 +48,6 @@ class SessionOut(BaseModel):
     peer_agent_id: Optional[str] = None
     peer_agent_name: Optional[str] = None
     participant_type: str = "user"       # 'user' | 'agent'
-
-    class Config:
-        from_attributes = True
 
 
 class CreateSessionIn(BaseModel):
