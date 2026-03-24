@@ -80,6 +80,38 @@ class HandoverRequest(BaseModel):
     new_creator_id: uuid.UUID
 
 
+@router.get("/agents/{agent_id}/handover-candidates")
+async def list_handover_candidates(
+    agent_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List eligible users who can receive ownership of this digital employee."""
+    from app.core.permissions import is_agent_creator
+
+    agent, _access = await check_agent_access(db, current_user, agent_id)
+    if not is_agent_creator(current_user, agent):
+        raise HTTPException(status_code=403, detail="Only creator can view handover candidates")
+
+    result = await db.execute(
+        select(User).where(
+            User.tenant_id == agent.tenant_id,
+            User.is_active == True,
+            User.id != agent.creator_id,
+        ).order_by(User.display_name.asc(), User.username.asc())
+    )
+    users = result.scalars().all()
+    return [
+        {
+            "id": str(user.id),
+            "display_name": user.display_name,
+            "email": user.email,
+            "role": user.role,
+        }
+        for user in users
+    ]
+
+
 @router.post("/agents/{agent_id}/handover")
 async def handover_agent(
     agent_id: uuid.UUID,
@@ -100,6 +132,10 @@ async def handover_agent(
     new_creator = new_creator_result.scalar_one_or_none()
     if not new_creator:
         raise HTTPException(status_code=404, detail="Target user not found")
+    if not new_creator.is_active:
+        raise HTTPException(status_code=400, detail="Target user is inactive")
+    if str(new_creator.tenant_id) != str(agent.tenant_id):
+        raise HTTPException(status_code=400, detail="Target user must belong to the same company")
 
     old_creator_id = agent.creator_id
     agent.creator_id = data.new_creator_id

@@ -188,6 +188,9 @@ export const adminApi = {
 export const agentApi = {
     list: (tenantId?: string) => request<Agent[]>(`/agents/${tenantId ? `?tenant_id=${tenantId}` : ''}`),
 
+    sessions: (id: string, scope: 'mine' | 'all' = 'mine') =>
+        request<any[]>(`/agents/${id}/sessions?scope=${scope}`),
+
     get: (id: string) => request<Agent>(`/agents/${id}`),
 
     create: (data: AgentCreateInput) =>
@@ -210,6 +213,18 @@ export const agentApi = {
 
     collaborators: (id: string) =>
         request<any[]>(`/agents/${id}/collaborators`),
+
+    delegateTask: (id: string, data: { to_agent_id: string; task_title: string; task_description?: string }) =>
+        request<any>(`/agents/${id}/collaborate/delegate`, { method: 'POST', body: JSON.stringify(data) }),
+
+    sendCollaborationMessage: (id: string, data: { to_agent_id: string; message: string; msg_type?: string }) =>
+        request<any>(`/agents/${id}/collaborate/message`, { method: 'POST', body: JSON.stringify(data) }),
+
+    handoverCandidates: (id: string) =>
+        request<any[]>(`/agents/${id}/handover-candidates`),
+
+    handover: (id: string, newCreatorId: string) =>
+        request<any>(`/agents/${id}/handover`, { method: 'POST', body: JSON.stringify({ new_creator_id: newCreatorId }) }),
 
     // OpenClaw gateway
     generateApiKey: (id: string) =>
@@ -330,6 +345,10 @@ export const enterpriseApi = {
     memoryConfig: () => request<any>('/enterprise/memory/config'),
     updateMemoryConfig: (data: any) =>
         request<any>('/enterprise/memory/config', { method: 'PUT', body: JSON.stringify(data) }),
+    agentMemory: (agentId: string) =>
+        request<{ facts: any[] }>(`/enterprise/memory/agents/${agentId}/memory`),
+    sessionSummary: (sessionId: string) =>
+        request<{ session_id: string; summary: string | null; title: string | null }>(`/enterprise/memory/sessions/${sessionId}/summary`),
 };
 
 // ─── Feature Flags ────────────────────────────────────

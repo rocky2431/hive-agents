@@ -10,6 +10,7 @@ import ChannelConfig from '../components/ChannelConfig';
 import MarkdownRenderer from '../components/MarkdownRenderer';
 import PromptModal from '../components/PromptModal';
 import { applyStreamEvent, hydrateTimelineMessage, type TimelineMessage } from '../lib/chatParts.ts';
+import { normalizeMemoryFacts } from '../lib/memoryInsights.ts';
 import { activityApi, agentApi, capabilityApi, channelApi, enterpriseApi, fileApi, packApi, scheduleApi, skillApi, taskApi, triggerApi, uploadFileWithProgress } from '../services/api';
 import { useAuthStore } from '../stores';
 
@@ -149,6 +150,579 @@ function ConfigVersionHistory({ agentId }: { agentId: string }) {
                 ))}
             </div>
         </details>
+    );
+}
+
+function CollaborationPanel({ agentId, agent }: { agentId: string; agent: any }) {
+    const { t } = useTranslation();
+    const qc = useQueryClient();
+    const currentUser = useAuthStore((s) => s.user);
+    const isCreator = currentUser?.id === agent.creator_id;
+    const [delegateTargetId, setDelegateTargetId] = useState('');
+    const [delegateTitle, setDelegateTitle] = useState('');
+    const [delegateDescription, setDelegateDescription] = useState('');
+    const [messageTargetId, setMessageTargetId] = useState('');
+    const [messageBody, setMessageBody] = useState('');
+    const [messageType, setMessageType] = useState('notify');
+    const [handoverUserId, setHandoverUserId] = useState('');
+    const [notice, setNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+    const showNotice = (message: string, type: 'success' | 'error' = 'success') => {
+        setNotice({ message, type });
+        setTimeout(() => setNotice(null), 2500);
+    };
+
+    const { data: collaborators = [], isLoading: collaboratorsLoading } = useQuery({
+        queryKey: ['collaborators', agentId],
+        queryFn: () => agentApi.collaborators(agentId),
+        enabled: !!agentId,
+    });
+    const { data: tenantUsers = [] } = useQuery({
+        queryKey: ['agent-handover-users', agentId],
+        queryFn: () => agentApi.handoverCandidates(agentId),
+        enabled: isCreator,
+    });
+
+    useEffect(() => {
+        if (!delegateTargetId && collaborators[0]?.id) setDelegateTargetId(collaborators[0].id);
+        if (!messageTargetId && collaborators[0]?.id) setMessageTargetId(collaborators[0].id);
+    }, [collaborators, delegateTargetId, messageTargetId]);
+
+    const eligibleUsers = tenantUsers.filter((user: any) => user.id !== agent.creator_id && user.is_active);
+
+    const delegateMutation = useMutation({
+        mutationFn: () => agentApi.delegateTask(agentId, {
+            to_agent_id: delegateTargetId,
+            task_title: delegateTitle.trim(),
+            task_description: delegateDescription.trim(),
+        }),
+        onSuccess: (result: any) => {
+            setDelegateTitle('');
+            setDelegateDescription('');
+            showNotice(
+                t('agentDetail.delegateSuccess', {
+                    agent: result?.to_agent || collaborators.find((item: any) => item.id === delegateTargetId)?.name || '',
+                }),
+            );
+        },
+        onError: (error: any) => showNotice(error?.message || 'Delegate failed', 'error'),
+    });
+    const messageMutation = useMutation({
+        mutationFn: () => agentApi.sendCollaborationMessage(agentId, {
+            to_agent_id: messageTargetId,
+            message: messageBody.trim(),
+            msg_type: messageType,
+        }),
+        onSuccess: () => {
+            setMessageBody('');
+            showNotice(t('agentDetail.messageSent', 'Message sent'));
+        },
+        onError: (error: any) => showNotice(error?.message || 'Send failed', 'error'),
+    });
+    const handoverMutation = useMutation({
+        mutationFn: () => agentApi.handover(agentId, handoverUserId),
+        onSuccess: async (result: any) => {
+            setHandoverUserId('');
+            await qc.invalidateQueries({ queryKey: ['agent', agentId] });
+            showNotice(
+                t('agentDetail.handoverSuccess', {
+                    user: result?.new_creator || eligibleUsers.find((item: any) => item.id === handoverUserId)?.display_name || '',
+                }),
+            );
+        },
+        onError: (error: any) => showNotice(error?.message || 'Handover failed', 'error'),
+    });
+
+    return (
+        <div className="card" style={{ padding: '16px', marginBottom: '24px' }}>
+            <div style={{ marginBottom: '12px' }}>
+                <div style={{ fontWeight: 600, fontSize: '14px', marginBottom: '4px' }}>
+                    {t('agentDetail.collaborationTitle', 'Agent Collaboration')}
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                    {t('agentDetail.collaborationDesc', 'Coordinate work with other digital employees in the same company.')}
+                </div>
+            </div>
+
+            {notice && (
+                <div
+                    style={{
+                        marginBottom: '12px',
+                        padding: '10px 12px',
+                        borderRadius: '8px',
+                        fontSize: '12px',
+                        background: notice.type === 'success' ? 'rgba(16,185,129,0.10)' : 'rgba(239,68,68,0.10)',
+                        border: `1px solid ${notice.type === 'success' ? 'rgba(16,185,129,0.25)' : 'rgba(239,68,68,0.25)'}`,
+                        color: notice.type === 'success' ? 'var(--success, #10b981)' : 'var(--status-error, #ef4444)',
+                    }}
+                >
+                    {notice.message}
+                </div>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 0.9fr) minmax(320px, 1.1fr)', gap: '16px' }}>
+                <div>
+                    <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px' }}>
+                        {t('agentDetail.availableCollaborators', 'Available Collaborators')}
+                    </div>
+                    {collaboratorsLoading ? (
+                        <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{t('common.loading')}</div>
+                    ) : collaborators.length > 0 ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {collaborators.map((collaborator: any) => (
+                                <div
+                                    key={collaborator.id}
+                                    style={{
+                                        padding: '10px 12px',
+                                        borderRadius: '8px',
+                                        border: '1px solid var(--border-subtle)',
+                                        background: 'var(--bg-secondary)',
+                                    }}
+                                >
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center' }}>
+                                        <div style={{ fontSize: '13px', fontWeight: 600 }}>{collaborator.name}</div>
+                                        <span style={{ fontSize: '11px', color: collaborator.status === 'running' ? 'var(--success, #10b981)' : 'var(--text-tertiary)' }}>
+                                            {String(t(`agent.status.${collaborator.status}`, collaborator.status))}
+                                        </span>
+                                    </div>
+                                    {collaborator.role && (
+                                        <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
+                                            {collaborator.role}
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                            {t('agentDetail.noCollaborators', 'No other digital employees are available yet.')}
+                        </div>
+                    )}
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <div className="card" style={{ padding: '12px', margin: 0, background: 'var(--bg-secondary)' }}>
+                        <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px' }}>
+                            {t('agentDetail.delegateTask', 'Delegate Task')}
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            <select className="form-input" value={delegateTargetId} onChange={e => setDelegateTargetId(e.target.value)}>
+                                <option value="">{t('agentDetail.targetAgent', 'Select target agent')}</option>
+                                {collaborators.map((collaborator: any) => (
+                                    <option key={collaborator.id} value={collaborator.id}>
+                                        {collaborator.name}
+                                    </option>
+                                ))}
+                            </select>
+                            <input
+                                className="form-input"
+                                value={delegateTitle}
+                                onChange={e => setDelegateTitle(e.target.value)}
+                                placeholder={t('agentDetail.taskTitle', 'Task title')}
+                            />
+                            <textarea
+                                className="form-input"
+                                value={delegateDescription}
+                                onChange={e => setDelegateDescription(e.target.value)}
+                                placeholder={t('agentDetail.taskDescription', 'Task description')}
+                                style={{ minHeight: '84px', resize: 'vertical' }}
+                            />
+                            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                                <button
+                                    className="btn btn-primary"
+                                    onClick={() => delegateMutation.mutate()}
+                                    disabled={!delegateTargetId || !delegateTitle.trim() || delegateMutation.isPending}
+                                >
+                                    {delegateMutation.isPending ? t('common.loading') : t('agentDetail.delegateTask', 'Delegate Task')}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="card" style={{ padding: '12px', margin: 0, background: 'var(--bg-secondary)' }}>
+                        <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px' }}>
+                            {t('agentDetail.sendMessage', 'Send Message')}
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            <select className="form-input" value={messageTargetId} onChange={e => setMessageTargetId(e.target.value)}>
+                                <option value="">{t('agentDetail.targetAgent', 'Select target agent')}</option>
+                                {collaborators.map((collaborator: any) => (
+                                    <option key={collaborator.id} value={collaborator.id}>
+                                        {collaborator.name}
+                                    </option>
+                                ))}
+                            </select>
+                            <select className="form-input" value={messageType} onChange={e => setMessageType(e.target.value)}>
+                                <option value="notify">{t('agentDetail.messageTypeNotify', 'Notify')}</option>
+                                <option value="consult">{t('agentDetail.messageTypeConsult', 'Consult')}</option>
+                            </select>
+                            <textarea
+                                className="form-input"
+                                value={messageBody}
+                                onChange={e => setMessageBody(e.target.value)}
+                                placeholder={t('agentDetail.messagePlaceholder', 'Write a message to another digital employee')}
+                                style={{ minHeight: '84px', resize: 'vertical' }}
+                            />
+                            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                                <button
+                                    className="btn btn-primary"
+                                    onClick={() => messageMutation.mutate()}
+                                    disabled={!messageTargetId || !messageBody.trim() || messageMutation.isPending}
+                                >
+                                    {messageMutation.isPending ? t('common.loading') : t('agentDetail.sendMessage', 'Send Message')}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {isCreator && (
+                <div className="card" style={{ padding: '12px', margin: '16px 0 0', background: 'var(--bg-secondary)' }}>
+                    <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px' }}>
+                        {t('agentDetail.handoverAgent', 'Transfer Ownership')}
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <select className="form-input" value={handoverUserId} onChange={e => setHandoverUserId(e.target.value)}>
+                            <option value="">{t('agentDetail.targetUser', 'Select target user')}</option>
+                            {eligibleUsers.map((user: any) => (
+                                <option key={user.id} value={user.id}>
+                                    {user.display_name || user.username}
+                                </option>
+                            ))}
+                        </select>
+                        {eligibleUsers.length === 0 && (
+                            <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                                {t('agentDetail.noEligibleUsers', 'No eligible users are available for transfer.')}
+                            </div>
+                        )}
+                        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                            <button
+                                className="btn"
+                                onClick={() => {
+                                    if (!handoverUserId) return;
+                                    if (!confirm(t('agentDetail.handoverConfirm', 'Transfer this digital employee to the selected user?'))) return;
+                                    handoverMutation.mutate();
+                                }}
+                                disabled={!handoverUserId || handoverMutation.isPending}
+                            >
+                                {handoverMutation.isPending ? t('common.loading') : t('agentDetail.handoverAgent', 'Transfer Ownership')}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+function OpenClawGatewayPanel({ agentId, agent }: { agentId: string; agent: any }) {
+    const { t } = useTranslation();
+    const currentUser = useAuthStore((s) => s.user);
+    const canManageGateway = currentUser?.id === agent.creator_id || currentUser?.role === 'platform_admin' || currentUser?.role === 'org_admin';
+    const [generatedApiKey, setGeneratedApiKey] = useState('');
+    const [setupGuide, setSetupGuide] = useState<any | null>(null);
+    const [notice, setNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+    const showNotice = (message: string, type: 'success' | 'error' = 'success') => {
+        setNotice({ message, type });
+        setTimeout(() => setNotice(null), 2500);
+    };
+
+    const { data: gatewayMessages = [], isLoading: gatewayLoading } = useQuery({
+        queryKey: ['gateway-messages', agentId],
+        queryFn: () => agentApi.gatewayMessages(agentId),
+        enabled: !!agentId,
+    });
+
+    const apiKeyMutation = useMutation({
+        mutationFn: async () => {
+            const keyResult = await agentApi.generateApiKey(agentId);
+            const guideResponse = await fetch(`/api/v1/gateway/setup-guide/${agentId}`, {
+                headers: { 'X-Api-Key': keyResult.api_key },
+            });
+            if (!guideResponse.ok) {
+                const error = await guideResponse.json().catch(() => ({ detail: 'Failed to load setup guide' }));
+                throw new Error(error.detail || 'Failed to load setup guide');
+            }
+            const guide = await guideResponse.json();
+            return { ...keyResult, guide };
+        },
+        onSuccess: (result: any) => {
+            setGeneratedApiKey(result.api_key);
+            setSetupGuide(result.guide);
+            showNotice(result.message || t('agentDetail.apiKeyVisibleOnce', 'This API key is only shown once.'));
+        },
+        onError: (error: any) => showNotice(error?.message || 'Failed to generate API key', 'error'),
+    });
+
+    return (
+        <div className="card" style={{ padding: '16px', marginBottom: '24px' }}>
+            <div style={{ marginBottom: '12px' }}>
+                <div style={{ fontWeight: 600, fontSize: '14px', marginBottom: '4px' }}>
+                    {t('agentDetail.openclawConnection', 'OpenClaw Connection')}
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                    {t('agentDetail.managedByOpenclaw', 'Managed by OpenClaw')}
+                </div>
+            </div>
+
+            {notice && (
+                <div
+                    style={{
+                        marginBottom: '12px',
+                        padding: '10px 12px',
+                        borderRadius: '8px',
+                        fontSize: '12px',
+                        background: notice.type === 'success' ? 'rgba(16,185,129,0.10)' : 'rgba(239,68,68,0.10)',
+                        border: `1px solid ${notice.type === 'success' ? 'rgba(16,185,129,0.25)' : 'rgba(239,68,68,0.25)'}`,
+                        color: notice.type === 'success' ? 'var(--success, #10b981)' : 'var(--status-error, #ef4444)',
+                    }}
+                >
+                    {notice.message}
+                </div>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 1fr) minmax(320px, 1.2fr)', gap: '16px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <div className="card" style={{ padding: '12px', margin: 0, background: 'var(--bg-secondary)' }}>
+                        <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px' }}>
+                            {t('agentDetail.gatewayMessages', 'Gateway Messages')}
+                        </div>
+                        {gatewayLoading ? (
+                            <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{t('common.loading')}</div>
+                        ) : gatewayMessages.length > 0 ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '320px', overflowY: 'auto' }}>
+                                {gatewayMessages.map((message: any) => (
+                                    <div
+                                        key={message.id}
+                                        style={{
+                                            padding: '10px 12px',
+                                            borderRadius: '8px',
+                                            border: '1px solid var(--border-subtle)',
+                                            background: 'var(--bg-primary)',
+                                        }}
+                                    >
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', marginBottom: '4px' }}>
+                                            <span style={{ fontSize: '12px', fontWeight: 600 }}>
+                                                {message.sender_agent_name || t('agentDetail.gatewaySystem', 'Platform')}
+                                            </span>
+                                            <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                                                {message.created_at ? new Date(message.created_at).toLocaleString() : ''}
+                                            </span>
+                                        </div>
+                                        <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                                            {message.status}
+                                        </div>
+                                        <div style={{ fontSize: '12px', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                                            {message.content}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                                {t('agentDetail.noGatewayMessages', 'No gateway messages yet.')}
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    {canManageGateway && (
+                        <div className="card" style={{ padding: '12px', margin: 0, background: 'var(--bg-secondary)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+                                <div>
+                                    <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>
+                                        {t('agentDetail.generateApiKey', 'Generate API Key')}
+                                    </div>
+                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                                        {t('agentDetail.apiKeyVisibleOnce', 'This API key is only shown once.')}
+                                    </div>
+                                </div>
+                                <button
+                                    className="btn"
+                                    onClick={() => apiKeyMutation.mutate()}
+                                    disabled={apiKeyMutation.isPending}
+                                >
+                                    {apiKeyMutation.isPending ? t('common.loading') : t('agentDetail.generateApiKey', 'Generate API Key')}
+                                </button>
+                            </div>
+
+                            {generatedApiKey && (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                    <textarea
+                                        className="form-input"
+                                        readOnly
+                                        value={generatedApiKey}
+                                        rows={3}
+                                        style={{ fontFamily: 'var(--font-mono)', resize: 'none' }}
+                                    />
+                                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                                        <button className="btn" onClick={() => navigator.clipboard.writeText(generatedApiKey)}>
+                                            {t('common.copy', 'Copy')}
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {setupGuide && (
+                        <div className="card" style={{ padding: '12px', margin: 0, background: 'var(--bg-secondary)' }}>
+                            <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px' }}>
+                                {t('openclaw.setupInstruction', 'Setup Instruction')}
+                            </div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '8px' }}>
+                                {t('openclaw.keyNote', 'The API key is already embedded in the instruction above. Save it separately if needed for manual configuration.')}
+                            </div>
+                            <textarea
+                                className="form-input"
+                                readOnly
+                                value={setupGuide.skill_content || ''}
+                                rows={12}
+                                style={{ fontFamily: 'var(--font-mono)', resize: 'vertical', marginBottom: '8px' }}
+                            />
+                            <textarea
+                                className="form-input"
+                                readOnly
+                                value={setupGuide.heartbeat_addition || ''}
+                                rows={3}
+                                style={{ fontFamily: 'var(--font-mono)', resize: 'none' }}
+                            />
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function MemoryInsightsPanel({ agentId }: { agentId: string }) {
+    const { t } = useTranslation();
+    const { data: memoryResponse, isLoading: memoryLoading } = useQuery({
+        queryKey: ['agent-memory-facts', agentId],
+        queryFn: () => enterpriseApi.agentMemory(agentId),
+        enabled: !!agentId,
+    });
+    const { data: ownSessions = [], isLoading: sessionsLoading } = useQuery({
+        queryKey: ['agent-owned-sessions', agentId],
+        queryFn: () => agentApi.sessions(agentId, 'mine'),
+        enabled: !!agentId,
+    });
+    const latestSessionId = ownSessions[0]?.id as string | undefined;
+    const { data: latestSessionSummary, isLoading: summaryLoading } = useQuery({
+        queryKey: ['agent-session-summary', latestSessionId],
+        queryFn: () => enterpriseApi.sessionSummary(latestSessionId!),
+        enabled: !!latestSessionId,
+    });
+
+    const facts = normalizeMemoryFacts(memoryResponse?.facts);
+    const sessionSummary = typeof latestSessionSummary?.summary === 'string' ? latestSessionSummary.summary.trim() : '';
+    const sessionTitle = typeof latestSessionSummary?.title === 'string' && latestSessionSummary.title.trim()
+        ? latestSessionSummary.title.trim()
+        : t('agentDetail.sessionSummaryTitleFallback', 'Untitled session');
+
+    return (
+        <div className="card" style={{ padding: '16px', marginBottom: '24px' }}>
+            <div style={{ marginBottom: '12px' }}>
+                <div style={{ fontWeight: 600, fontSize: '14px', marginBottom: '4px' }}>
+                    {t('agentDetail.structuredMemory', 'Structured Memory')}
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                    {t('agentDetail.structuredMemoryDesc', 'Knowledge extracted into reusable facts and the latest personal session summary.')}
+                </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(300px, 1.2fr) minmax(280px, 0.8fr)', gap: '16px' }}>
+                <div className="card" style={{ padding: '12px', margin: 0, background: 'var(--bg-secondary)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center', marginBottom: '8px' }}>
+                        <div style={{ fontSize: '12px', fontWeight: 600 }}>
+                            {t('agentDetail.structuredMemory', 'Structured Memory')}
+                        </div>
+                        <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{facts.length}</span>
+                    </div>
+                    {memoryLoading ? (
+                        <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{t('common.loading')}</div>
+                    ) : facts.length > 0 ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {facts.map((fact) => (
+                                <div
+                                    key={fact.id}
+                                    style={{
+                                        padding: '10px 12px',
+                                        borderRadius: '8px',
+                                        border: '1px solid var(--border-subtle)',
+                                        background: 'var(--bg-primary)',
+                                    }}
+                                >
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center', marginBottom: '6px' }}>
+                                        <span
+                                            style={{
+                                                fontSize: '11px',
+                                                padding: '2px 8px',
+                                                borderRadius: '999px',
+                                                background: 'rgba(59,130,246,0.12)',
+                                                color: '#60a5fa',
+                                                border: '1px solid rgba(59,130,246,0.20)',
+                                            }}
+                                        >
+                                            {fact.label}
+                                        </span>
+                                        {fact.timestamp && (
+                                            <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                                                {new Date(fact.timestamp).toLocaleString()}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div style={{ fontSize: '13px', color: 'var(--text-primary)', lineHeight: 1.5 }}>
+                                        {fact.content}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                            {t('agentDetail.noStructuredMemory', 'No structured memory facts yet.')}
+                        </div>
+                    )}
+                </div>
+
+                <div className="card" style={{ padding: '12px', margin: 0, background: 'var(--bg-secondary)' }}>
+                    <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px' }}>
+                        {t('agentDetail.sessionSummary', 'Latest Session Summary')}
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '10px' }}>
+                        {t('agentDetail.sessionSummaryDesc', 'Only your own latest session summary is visible here.')}
+                    </div>
+                    {sessionsLoading || (latestSessionId && summaryLoading) ? (
+                        <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{t('common.loading')}</div>
+                    ) : !latestSessionId ? (
+                        <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                            {t('agentDetail.noSessionHistory', 'No personal sessions yet.')}
+                        </div>
+                    ) : sessionSummary ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            <div style={{ fontSize: '13px', fontWeight: 600 }}>{sessionTitle}</div>
+                            <div
+                                style={{
+                                    fontSize: '13px',
+                                    color: 'var(--text-secondary)',
+                                    lineHeight: 1.6,
+                                    whiteSpace: 'pre-wrap',
+                                }}
+                            >
+                                {sessionSummary}
+                            </div>
+                        </div>
+                    ) : (
+                        <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                            {t('agentDetail.noSessionSummary', 'This session does not have a summary yet.')}
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
     );
 }
 
@@ -2125,6 +2699,10 @@ function AgentDetailInner() {
                                     <div style={{ fontSize: '22px', fontWeight: 600 }}>{formatTokens((agent as any).tokens_used_total || 0)}</div>
                                 </div>
                             </div>
+
+                            {(agent as any)?.agent_type === 'openclaw' && <OpenClawGatewayPanel agentId={id!} agent={agent} />}
+                            <MemoryInsightsPanel agentId={id!} />
+                            <CollaborationPanel agentId={id!} agent={agent} />
 
                             {/* 5 MD file editor cards */}
                             <FileEditorCard agentId={id!} path="soul.md" title={t('agent.overview.personality')} />
