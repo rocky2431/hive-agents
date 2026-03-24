@@ -478,7 +478,7 @@ async def delete_agent(
 ):
     """Delete a digital employee (creator only)."""
     agent, _access = await check_agent_access(db, current_user, agent_id)
-    if not is_agent_creator(current_user, agent) and current_user.role not in ("super_admin", "org_admin", "platform_admin"):
+    if not is_agent_creator(current_user, agent) and current_user.role not in ("org_admin", "platform_admin"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only creator or admin can delete agent")
 
     # Stop container and archive files (best effort)
@@ -517,7 +517,6 @@ async def delete_agent(
     secondary_fk_cleanups = [
         "DELETE FROM chat_sessions WHERE peer_agent_id = :aid",
         "DELETE FROM gateway_messages WHERE sender_agent_id = :aid",
-        "UPDATE chat_messages SET sender_agent_id = NULL WHERE sender_agent_id = :aid",
     ]
     for sql in secondary_fk_cleanups:
         try:

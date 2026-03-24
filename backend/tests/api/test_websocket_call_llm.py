@@ -62,3 +62,53 @@ async def test_call_llm_delegates_to_runtime_invoker(monkeypatch):
     assert captured["request"].session_context.session_id == "session-1"
     assert captured["request"].session_context.source == "websocket"
     assert captured["request"].session_context.channel == "web"
+
+
+@pytest.mark.asyncio
+async def test_call_llm_strips_upstream_system_messages_and_passes_execution_identity(monkeypatch):
+    from app.api.websocket import call_llm
+    from app.kernel.contracts import ExecutionIdentityRef
+
+    captured = {}
+
+    async def fake_invoke_agent(request):
+        captured["request"] = request
+        return SimpleNamespace(content="runtime-result")
+
+    monkeypatch.setattr("app.api.websocket.invoke_agent", fake_invoke_agent)
+
+    model = SimpleNamespace(
+        provider="openai",
+        model="gpt-4.1",
+        api_key="key",
+        base_url=None,
+        max_output_tokens=None,
+    )
+    execution_identity = ExecutionIdentityRef(
+        identity_type="delegated_user",
+        identity_id=uuid4(),
+        label="Rocky via web",
+    )
+
+    result = await call_llm(
+        model=model,
+        messages=[
+            {"role": "system", "content": "legacy system prompt"},
+            {"role": "user", "content": "hello"},
+        ],
+        agent_name="Agent",
+        role_description="desc",
+        agent_id=uuid4(),
+        user_id=uuid4(),
+        session_id="session-2",
+        memory_messages=[
+            {"role": "system", "content": "legacy system prompt"},
+            {"role": "user", "content": "hello"},
+        ],
+        execution_identity=execution_identity,
+    )
+
+    assert result == "runtime-result"
+    assert captured["request"].messages == [{"role": "user", "content": "hello"}]
+    assert captured["request"].memory_messages == [{"role": "user", "content": "hello"}]
+    assert captured["request"].execution_identity is execution_identity

@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security import decode_access_token
 from app.core.permissions import check_agent_access, is_agent_expired
 from app.database import async_session
+from app.kernel.contracts import ExecutionIdentityRef
 from app.models.agent import Agent
 from app.models.audit import ChatMessage
 from app.models.llm import LLMModel
@@ -74,6 +75,7 @@ async def get_chat_history(
     """Return web chat message history for this user + agent."""
     from app.services.chat_message_parts import serialize_chat_message
 
+    await check_agent_access(db, current_user, agent_id)
     conv_id = f"web_{current_user.id}"
     result = await db.execute(
         select(ChatMessage)
@@ -105,24 +107,31 @@ async def call_llm(
     memory_messages: list[dict] | None = None,
     memory_context: str = "",
     cancel_event: asyncio.Event | None = None,
+    execution_identity: ExecutionIdentityRef | None = None,
 ) -> str:
     """Call LLM via the unified agent runtime."""
+    runtime_messages = [msg for msg in messages if msg.get("role") != "system"]
+    runtime_memory_messages = None
+    if memory_messages is not None:
+        runtime_memory_messages = [msg for msg in memory_messages if msg.get("role") != "system"]
+
     result = await invoke_agent(
         AgentInvocationRequest(
             model=model,
             fallback_model=fallback_model,
-            messages=messages,
+            messages=runtime_messages,
             agent_name=agent_name,
             role_description=role_description,
             agent_id=agent_id,
             user_id=user_id,
+            execution_identity=execution_identity,
             on_chunk=on_chunk,
             on_tool_call=on_tool_call,
             on_thinking=on_thinking,
             on_event=on_event,
             supports_vision=supports_vision,
             memory_session_id=session_id,
-            memory_messages=memory_messages,
+            memory_messages=runtime_memory_messages,
             memory_context=memory_context,
             cancel_event=cancel_event,
             session_context=SessionContext(
@@ -536,6 +545,11 @@ async def websocket_chat(
                         session_id=conv_id,
                         memory_messages=conversation,
                         cancel_event=cancel_event,
+                        execution_identity=ExecutionIdentityRef(
+                            identity_type="delegated_user",
+                            identity_id=user.id,
+                            label=f"{user.display_name or user.username} via web",
+                        ),
                     ))
 
                     # Listen for abort while LLM is running

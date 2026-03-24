@@ -117,3 +117,7 @@ async def test_execute_heartbeat_passes_memory_messages_to_runtime(monkeypatch):
     assert request.session_context.source == "heartbeat"
     assert request.session_context.channel == "heartbeat"
     assert request.session_context.metadata["agent_id"] == str(agent_id)
+    assert request.execution_identity is not None
+    assert request.execution_identity.identity_type == "agent_bot"
+    assert request.execution_identity.identity_id == agent_id
+    assert request.execution_identity.label == "Agent: Heartbeat Agent (heartbeat)"

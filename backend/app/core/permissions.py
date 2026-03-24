@@ -8,6 +8,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.policy import check_permission
 from app.models.agent import Agent, AgentPermission
 from app.models.user import User
 
@@ -51,6 +52,27 @@ async def check_agent_access(db: AsyncSession, user: User, agent_id: uuid.UUID) 
         if perm.scope_type == "department" and user.department_id:
             if perm.scope_id == user.department_id:
                 return agent, perm.access_level or "use"
+
+    resource_principals: list[tuple[str, uuid.UUID]] = [("user", user.id)]
+    if user.department_id:
+        resource_principals.append(("department", user.department_id))
+
+    for action, access_level in (("manage", "manage"), ("execute", "use"), ("read", "use")):
+        for principal_type, principal_id in resource_principals:
+            try:
+                allowed = await check_permission(
+                    db,
+                    principal_type=principal_type,
+                    principal_id=principal_id,
+                    resource_type="agent",
+                    resource_id=agent_id,
+                    action=action,
+                    context={"tenant_id": str(user.tenant_id) if user.tenant_id else None},
+                )
+            except Exception:
+                allowed = False
+            if allowed:
+                return agent, access_level
 
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No access to this agent")
 

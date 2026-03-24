@@ -363,7 +363,7 @@ async def _invoke_agent_for_triggers(agent_id: uuid.UUID, triggers: list[AgentTr
     Creates a Reflection Session and calls the LLM.
     """
     from app.api.websocket import call_llm
-    from app.services.agent_context import build_agent_context
+    from app.kernel.contracts import ExecutionIdentityRef
     from app.models.llm import LLMModel
     from app.models.audit import ChatMessage
     from app.models.chat_session import ChatSession
@@ -437,15 +437,8 @@ async def _invoke_agent_for_triggers(agent_id: uuid.UUID, triggers: list[AgentTr
             await db.flush()
             session_id = session.id
 
-            # Build system prompt
-            system_prompt = await build_agent_context(agent_id, agent.name, agent.role_description or "")
-
-            # Messages: system + trigger context
             memory_messages = [{"role": "user", "content": trigger_context}]
-            messages = [
-                {"role": "system", "content": system_prompt},
-                memory_messages[0],
-            ]
+            messages = list(memory_messages)
 
             # Store trigger context as a message in the session
             db.add(ChatMessage(
@@ -470,22 +463,19 @@ async def _invoke_agent_for_triggers(agent_id: uuid.UUID, triggers: list[AgentTr
         async def on_tool_call(data):
             try:
                 async with async_session() as _tc_db:
-                    if data["status"] == "running":
-                        _tc_db.add(ChatMessage(
-                            agent_id=agent_id,
-                            conversation_id=str(session_id),
-                            role="tool_call",
-                            content=_json.dumps({"name": data["name"], "args": data["args"]}, ensure_ascii=False, default=str),
-                            user_id=agent.creator_id,
-                            participant_id=agent_participant_id,
-                        ))
-                    elif data["status"] == "done":
+                    if data["status"] == "done":
                         result_str = str(data.get("result", ""))[:2000]
                         _tc_db.add(ChatMessage(
                             agent_id=agent_id,
                             conversation_id=str(session_id),
-                            role="tool_result",
-                            content=_json.dumps({"name": data["name"], "result": result_str}, ensure_ascii=False, default=str),
+                            role="tool_call",
+                            content=_json.dumps({
+                                "name": data["name"],
+                                "args": data.get("args"),
+                                "status": "done",
+                                "result": result_str,
+                                "reasoning_content": data.get("reasoning_content"),
+                            }, ensure_ascii=False, default=str),
                             user_id=agent.creator_id,
                             participant_id=agent_participant_id,
                         ))
@@ -504,6 +494,11 @@ async def _invoke_agent_for_triggers(agent_id: uuid.UUID, triggers: list[AgentTr
             on_tool_call=on_tool_call,
             session_id=str(session_id),
             memory_messages=memory_messages,
+            execution_identity=ExecutionIdentityRef(
+                identity_type="agent_bot",
+                identity_id=agent_id,
+                label=f"Agent: {agent.name} (trigger)",
+            ),
         )
 
         # Save assistant reply to Reflection session

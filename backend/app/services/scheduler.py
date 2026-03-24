@@ -13,6 +13,7 @@ from loguru import logger
 from sqlalchemy import select, update
 
 from app.database import async_session
+from app.kernel.contracts import ExecutionIdentityRef
 from app.runtime.invoker import AgentInvocationRequest, invoke_agent
 from app.runtime.session import SessionContext
 
@@ -75,6 +76,11 @@ async def _execute_schedule(schedule_id: uuid.UUID, agent_id: uuid.UUID, instruc
                         role_description=agent.role_description or "",
                         agent_id=agent_id,
                         user_id=agent.creator_id,
+                        execution_identity=ExecutionIdentityRef(
+                            identity_type="agent_bot",
+                            identity_id=agent_id,
+                            label=f"Agent: {agent.name} (schedule)",
+                        ),
                         session_context=SessionContext(
                             source="schedule",
                             channel="schedule",

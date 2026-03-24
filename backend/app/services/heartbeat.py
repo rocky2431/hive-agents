@@ -14,6 +14,7 @@ from datetime import datetime, timezone, timedelta
 from loguru import logger
 from sqlalchemy import select
 
+from app.kernel.contracts import ExecutionIdentityRef
 from app.runtime.invoker import AgentInvocationRequest, invoke_agent
 from app.runtime.session import SessionContext
 from app.services.agent_tools import execute_tool
@@ -251,6 +252,11 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
                     role_description=agent.role_description or "",
                     agent_id=agent_id,
                     user_id=agent.creator_id,
+                    execution_identity=ExecutionIdentityRef(
+                        identity_type="agent_bot",
+                        identity_id=agent_id,
+                        label=f"Agent: {agent.name} (heartbeat)",
+                    ),
                     session_context=SessionContext(
                         source="heartbeat",
                         channel="heartbeat",

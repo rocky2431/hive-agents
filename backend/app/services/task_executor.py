@@ -7,6 +7,7 @@ from loguru import logger
 from sqlalchemy import select
 
 from app.database import async_session
+from app.kernel.contracts import ExecutionIdentityRef
 from app.models.agent import Agent
 from app.models.llm import LLMModel
 from app.models.task import Task, TaskLog
@@ -124,6 +125,11 @@ async def execute_task(task_id: uuid.UUID, agent_id: uuid.UUID) -> None:
                 role_description=agent.role_description or "",
                 agent_id=agent_id,
                 user_id=creator_id,
+                execution_identity=ExecutionIdentityRef(
+                    identity_type="agent_bot",
+                    identity_id=agent_id,
+                    label=f"Agent: {agent_name} (task)",
+                ),
                 system_prompt_suffix=TASK_EXECUTION_ADDENDUM,
                 session_context=SessionContext(
                     source="task",

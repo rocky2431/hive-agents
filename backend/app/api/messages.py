@@ -9,18 +9,56 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import get_current_user
 from app.database import get_db
-from app.models.agent import Agent
+from app.models.agent import Agent, AgentPermission
 from app.models.audit import ChatMessage
 from app.models.chat_session import ChatSession
 from app.models.participant import Participant
 from app.models.user import User
 
 router = APIRouter(tags=["messages"])
+
+
+async def _list_accessible_agent_ids(db: AsyncSession, current_user: User) -> list[uuid.UUID]:
+    if current_user.role == "platform_admin":
+        stmt = select(Agent.id)
+        if current_user.tenant_id:
+            stmt = stmt.where(Agent.tenant_id == current_user.tenant_id)
+        result = await db.execute(stmt)
+        return [row[0] for row in result.fetchall()]
+
+    if current_user.role == "org_admin" and current_user.tenant_id:
+        result = await db.execute(select(Agent.id).where(Agent.tenant_id == current_user.tenant_id))
+        return [row[0] for row in result.fetchall()]
+
+    created_result = await db.execute(select(Agent.id).where(Agent.creator_id == current_user.id))
+    created_ids = [row[0] for row in created_result.fetchall()]
+
+    permission_filters = [
+        AgentPermission.scope_type == "company",
+        (AgentPermission.scope_type == "user") & (AgentPermission.scope_id == current_user.id),
+    ]
+    if current_user.department_id:
+        permission_filters.append(
+            (AgentPermission.scope_type == "department") & (AgentPermission.scope_id == current_user.department_id)
+        )
+
+    permission_stmt = select(AgentPermission).where(or_(*permission_filters))
+    permission_result = await db.execute(permission_stmt)
+    permission_rows = permission_result.scalars().all()
+
+    ordered_ids: list[uuid.UUID] = []
+    seen_ids: set[uuid.UUID] = set()
+    for agent_id in created_ids + [row.agent_id for row in permission_rows]:
+        if agent_id in seen_ids:
+            continue
+        seen_ids.add(agent_id)
+        ordered_ids.append(agent_id)
+    return ordered_ids
 
 
 @router.get("/messages/inbox")
@@ -34,9 +72,7 @@ async def get_inbox(
     Returns recent messages from ChatSessions with source_channel='agent'
     where the user's agents are participants.
     """
-    # Find agents the current user created
-    agent_ids_q = await db.execute(select(Agent.id).where(Agent.creator_id == current_user.id))
-    my_agent_ids = [r[0] for r in agent_ids_q.fetchall()]
+    my_agent_ids = await _list_accessible_agent_ids(db, current_user)
 
     if not my_agent_ids:
         return []
@@ -88,8 +124,7 @@ async def get_unread_count(
     db: AsyncSession = Depends(get_db),
 ):
     """Get count of unread agent-to-agent messages for the current user's agents."""
-    agent_ids_q = await db.execute(select(Agent.id).where(Agent.creator_id == current_user.id))
-    my_agent_ids = [r[0] for r in agent_ids_q.fetchall()]
+    my_agent_ids = await _list_accessible_agent_ids(db, current_user)
 
     if not my_agent_ids:
         return {"unread_count": 0}

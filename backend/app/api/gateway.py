@@ -326,7 +326,7 @@ async def _send_to_agent_background(
     logger.info(f"[Gateway] _send_to_agent_background started: {source_agent_name} -> {target_agent_name}")
     try:
         from app.api.websocket import call_llm
-        from app.services.agent_context import build_agent_context
+        from app.kernel.contracts import ExecutionIdentityRef
         from app.models.llm import LLMModel
         from app.models.audit import ChatMessage
         from app.models.chat_session import ChatSession
@@ -384,11 +384,6 @@ async def _send_to_agent_background(
             from datetime import datetime, timezone
             session.last_message_at = datetime.now(timezone.utc)
 
-            # Build system prompt for target agent
-            system_prompt = await build_agent_context(
-                target_agent_id, target_agent_name, target_role_description
-            )
-
             # Load recent conversation history for context
             hist_result = await db.execute(
                 select(ChatMessage)
@@ -399,7 +394,7 @@ async def _send_to_agent_background(
             hist_msgs = list(reversed(hist_result.scalars().all()))
 
             memory_messages: list[dict] = []
-            messages = [{"role": "system", "content": system_prompt}]
+            messages: list[dict] = []
             for h in hist_msgs:
                 history_entry = {"role": h.role, "content": h.content or ""}
                 messages.append(history_entry)
@@ -436,6 +431,11 @@ async def _send_to_agent_background(
             on_chunk=on_chunk,
             session_id=conv_id,
             memory_messages=memory_messages,
+            execution_identity=ExecutionIdentityRef(
+                identity_type="agent_bot",
+                identity_id=uuid.UUID(str(source_agent_id)),
+                label=f"Agent: {source_agent_name} (agent_message)",
+            ),
         )
         final_reply = reply or "".join(collected)
 

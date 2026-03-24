@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.permissions import check_agent_access
 from app.core.security import get_current_user
 from app.database import get_db
 from app.models.audit import ChatMessage
@@ -25,6 +26,10 @@ def _is_admin_or_creator(user: User, agent: Agent) -> bool:
         user.role in ("platform_admin", "org_admin")
         or str(agent.creator_id) == str(user.id)
     )
+
+
+def _can_manage_sessions(user: User, agent: Agent, access_level: str) -> bool:
+    return _is_admin_or_creator(user, agent) or access_level == "manage"
 
 
 class SessionOut(BaseModel):
@@ -62,14 +67,10 @@ async def list_sessions(
     db: AsyncSession = Depends(get_db),
 ):
     """List chat sessions for an agent. 'all' requires admin or creator role."""
-    # Verify agent exists
-    agent_result = await db.execute(select(Agent).where(Agent.id == agent_id))
-    agent = agent_result.scalar_one_or_none()
-    if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
+    agent, access_level = await check_agent_access(db, current_user, agent_id)
 
     if scope == "all":
-        if not _is_admin_or_creator(current_user, agent):
+        if not _can_manage_sessions(current_user, agent, access_level):
             raise HTTPException(status_code=403, detail="Not authorized to view all sessions")
 
         # Fetch all sessions (including agent-to-agent where this agent is peer)
@@ -187,10 +188,7 @@ async def create_session(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new chat session for the current user."""
-    agent_result = await db.execute(select(Agent).where(Agent.id == agent_id))
-    agent = agent_result.scalar_one_or_none()
-    if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
+    await check_agent_access(db, current_user, agent_id)
 
     now = datetime.now(tz.utc)
     new_id = uuid.uuid4()
@@ -231,10 +229,8 @@ async def rename_session(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    agent_result = await db.execute(select(Agent).where(Agent.id == agent_id))
-    agent = agent_result.scalar_one_or_none()
-
-    if str(session.user_id) != str(current_user.id) and not _is_admin_or_creator(current_user, agent):
+    agent, access_level = await check_agent_access(db, current_user, agent_id)
+    if str(session.user_id) != str(current_user.id) and not _can_manage_sessions(current_user, agent, access_level):
         raise HTTPException(status_code=403, detail="Not authorized")
 
     session.title = body.title
@@ -257,10 +253,8 @@ async def delete_session(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    agent_result = await db.execute(select(Agent).where(Agent.id == agent_id))
-    agent = agent_result.scalar_one_or_none()
-
-    if str(session.user_id) != str(current_user.id) and not _is_admin_or_creator(current_user, agent):
+    agent, access_level = await check_agent_access(db, current_user, agent_id)
+    if str(session.user_id) != str(current_user.id) and not _can_manage_sessions(current_user, agent, access_level):
         raise HTTPException(status_code=403, detail="Not authorized")
 
     # Delete associated messages first
@@ -290,10 +284,8 @@ async def get_session_messages(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    # Permission: owner, admin, or creator can view
-    agent_result = await db.execute(select(Agent).where(Agent.id == agent_id))
-    agent = agent_result.scalar_one_or_none()
-    if str(session.user_id) != str(current_user.id) and not _is_admin_or_creator(current_user, agent):
+    agent, access_level = await check_agent_access(db, current_user, agent_id)
+    if str(session.user_id) != str(current_user.id) and not _can_manage_sessions(current_user, agent, access_level):
         raise HTTPException(status_code=403, detail="Not authorized to view this session")
 
     # Query messages by conversation_id only (agent-to-agent uses session_agent_id)

@@ -111,6 +111,10 @@ async def test_execute_task_delegates_to_runtime_invoker(monkeypatch):
     assert request.session_context.channel == "task"
     assert request.session_context.metadata["task_id"] == str(task_id)
     assert request.session_context.metadata["task_type"] == "todo"
+    assert request.execution_identity is not None
+    assert request.execution_identity.identity_type == "agent_bot"
+    assert request.execution_identity.identity_id == agent_id
+    assert request.execution_identity.label == "Agent: Ops Agent (task)"
 
     assert task.status == "done"
     assert task.completed_at is not None

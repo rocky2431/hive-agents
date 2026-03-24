@@ -84,4 +84,8 @@ async def test_execute_schedule_delegates_to_runtime_invoker(monkeypatch):
     assert request.session_context.source == "schedule"
     assert request.session_context.channel == "schedule"
     assert request.session_context.metadata["schedule_id"] == str(schedule_id)
+    assert request.execution_identity is not None
+    assert request.execution_identity.identity_type == "agent_bot"
+    assert request.execution_identity.identity_id == agent_id
+    assert request.execution_identity.label == "Agent: Scheduler Agent (schedule)"
     assert activity_calls

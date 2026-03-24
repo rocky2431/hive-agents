@@ -49,3 +49,13 @@ def test_agent_create_schema_rejects_legacy_agent_class_value():
 
     payload = AgentCreate(name="测试员工", agent_class="internal_tenant")
     assert payload.agent_class == "internal_tenant"
+
+
+def test_agent_runtime_surface_removes_legacy_role_and_message_cleanup_paths():
+    project_root = Path(__file__).resolve().parents[3]
+    agents_api_source = (project_root / "backend/app/api/agents.py").read_text(encoding="utf-8")
+    trigger_source = (project_root / "backend/app/services/trigger_daemon.py").read_text(encoding="utf-8")
+
+    assert '"super_admin"' not in agents_api_source
+    assert "sender_agent_id = NULL" not in agents_api_source
+    assert 'role="tool_result"' not in trigger_source
