@@ -1015,11 +1015,6 @@ function AgentDetailInner() {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
     const location = useLocation();
-    const [bootstrapChannelFailures, setBootstrapChannelFailures] = useState<any[]>(
-        Array.isArray((location.state as any)?.bootstrapChannelFailures)
-            ? (location.state as any).bootstrapChannelFailures
-            : [],
-    );
     const validTabs = ['chat', 'overview', 'skills', 'activity', 'settings'];
     const hashTab = location.hash?.replace('#', '');
     const [activeTab, setActiveTabRaw] = useState<string>(hashTab && validTabs.includes(hashTab) ? hashTab : 'chat');
@@ -1891,44 +1886,6 @@ function AgentDetailInner() {
     return (
         <>
             <div>
-                {bootstrapChannelFailures.length > 0 && (
-                    <div
-                        style={{
-                            marginBottom: '16px',
-                            padding: '12px 14px',
-                            borderRadius: '8px',
-                            background: 'rgba(245,158,11,0.10)',
-                            border: '1px solid rgba(245,158,11,0.28)',
-                            color: 'var(--text-primary)',
-                        }}
-                    >
-                        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
-                            <div>
-                                <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>
-                                    {t('wizard.stepChannel.partialFailure', 'Agent created, but some channels failed to configure: {{channels}}').replace(
-                                        '{{channels}}',
-                                        bootstrapChannelFailures.map((item: any) => item.channel_type).join(', '),
-                                    )}
-                                </div>
-                                <div style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-                                    {bootstrapChannelFailures.map((item: any, index: number) => (
-                                        <div key={`${item.channel_type}-${index}`}>
-                                            <strong>{item.channel_type}</strong>
-                                            {item.detail ? `: ${item.detail}` : ''}
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                            <button
-                                className="btn btn-secondary"
-                                style={{ fontSize: '12px', padding: '4px 10px', whiteSpace: 'nowrap' }}
-                                onClick={() => setBootstrapChannelFailures([])}
-                            >
-                                {t('common.close', '关闭')}
-                            </button>
-                        </div>
-                    </div>
-                )}
                 {/* Header */}
                 <div className="page-header">
                     <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>

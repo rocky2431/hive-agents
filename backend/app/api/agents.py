@@ -13,7 +13,7 @@ from app.database import get_db
 from app.domain.agent_lifecycle import InvalidTransitionError, TransitionContext, transition
 from app.models.agent import Agent, AgentPermission
 from app.models.user import User
-from app.schemas.schemas import AgentBootstrapCreate, AgentBootstrapOut, AgentCreate, AgentOut, AgentUpdate
+from app.schemas.schemas import AgentCreate, AgentOut, AgentUpdate
 
 logger = logging.getLogger(__name__)
 
@@ -255,26 +255,6 @@ async def create_agent(
         logger.warning("Audit write failed for agent.created", exc_info=True)
 
     return AgentOut.model_validate(agent)
-
-
-@router.post("/bootstrap", response_model=AgentBootstrapOut, status_code=status.HTTP_201_CREATED)
-async def bootstrap_agent(
-    data: AgentBootstrapCreate,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Create a native agent and configure requested channels in one bootstrap flow."""
-    from app.services.agent_bootstrap_service import configure_bootstrap_channels
-
-    agent_out = await create_agent(data.agent, current_user, db)
-    channel_results = await configure_bootstrap_channels(
-        agent_id=agent_out.id,
-        channels=[channel.model_dump() for channel in data.channels],
-        current_user=current_user,
-        db=db,
-    )
-    return AgentBootstrapOut(agent=agent_out, channel_results=channel_results)
-
 
 @router.get("/{agent_id}")
 async def get_agent(

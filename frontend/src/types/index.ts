@@ -43,6 +43,27 @@ export interface Agent {
     last_active_at?: string;
 }
 
+export interface AgentCreateInput {
+    name: string;
+    role_description: string;
+    bio?: string;
+    welcome_message?: string;
+    avatar_url?: string;
+    personality?: string;
+    boundaries?: string;
+    primary_model_id?: string;
+    fallback_model_id?: string;
+    permission_scope_type?: 'company' | 'user';
+    permission_scope_ids?: string[];
+    permission_access_level?: 'use' | 'manage';
+    tenant_id?: string;
+    max_tokens_per_day?: number;
+    max_tokens_per_month?: number;
+    agent_class?: 'internal_system' | 'internal_tenant' | 'external_gateway' | 'external_api';
+    security_zone?: 'standard' | 'restricted' | 'public';
+    skill_ids?: string[];
+}
+
 export interface Task {
     id: string;
     agent_id: string;

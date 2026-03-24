@@ -61,10 +61,11 @@ test('AgentCreate removed legacy wizard elements', () => {
     assert.doesNotMatch(source, /agentType/);
 });
 
-test('AgentCreate still calls agentApi.bootstrap with smart defaults', () => {
+test('AgentCreate calls agentApi.create with smart defaults', () => {
     const source = read();
 
-    assert.match(source, /agentApi\.bootstrap/);
+    assert.match(source, /agentApi\.create/);
+    assert.doesNotMatch(source, /agentApi\.bootstrap/);
     assert.match(source, /security_zone:\s*'standard'/);
     assert.match(source, /permission_scope_type:\s*'company'/);
     assert.match(source, /agent_class:\s*'internal_tenant'/);

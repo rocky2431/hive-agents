@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { agentApi, enterpriseApi, skillApi } from '../services/api';
+import type { Agent, AgentCreateInput } from '../types';
 
 /* ── Template definitions ─────────────────────────────────────────── */
 
@@ -12,6 +13,18 @@ interface AgentTemplate {
     icon: string;
     role: string;
     personality: string;
+}
+
+interface AgentCreateFormState {
+    name: string;
+    role_description: string;
+    personality: string;
+    boundaries: string;
+    primary_model_id: string;
+    skill_ids: string[];
+    permission_scope_type: 'company' | 'user';
+    permission_access_level: 'use' | 'manage';
+    security_zone: 'standard' | 'restricted' | 'public';
 }
 
 const AGENT_TEMPLATES: AgentTemplate[] = [
@@ -66,7 +79,7 @@ export default function AgentCreate() {
     const [createdAgentName, setCreatedAgentName] = useState('');
     const [createdAgentId, setCreatedAgentId] = useState('');
 
-    const [form, setForm] = useState({
+    const [form, setForm] = useState<AgentCreateFormState>({
         name: '',
         role_description: '',
         personality: '',
@@ -160,11 +173,10 @@ export default function AgentCreate() {
     /* ── Submit ────────────────────────────────────────────────────── */
 
     const createMutation = useMutation({
-        mutationFn: async (data: any) => {
-            return await agentApi.bootstrap(data);
+        mutationFn: async (data: AgentCreateInput) => {
+            return await agentApi.create(data);
         },
-        onSuccess: async (result) => {
-            const agent = result.agent;
+        onSuccess: async (agent: Agent) => {
             queryClient.invalidateQueries({ queryKey: ['agents'] });
             setCreatedAgentName(agent.name || form.name);
             setCreatedAgentId(agent.id);
@@ -176,19 +188,17 @@ export default function AgentCreate() {
     const handleCreate = () => {
         setError('');
         createMutation.mutate({
-            agent: {
-                name: form.name,
-                role_description: form.role_description,
-                personality: form.personality,
-                boundaries: form.boundaries,
-                primary_model_id: form.primary_model_id || undefined,
-                skill_ids: form.skill_ids,
-                permission_scope_type: form.permission_scope_type,
-                permission_access_level: form.permission_access_level,
-                tenant_id: currentTenant || undefined,
-                security_zone: form.security_zone,
-                agent_class: 'internal_tenant',
-            },
+            name: form.name,
+            role_description: form.role_description,
+            personality: form.personality,
+            boundaries: form.boundaries,
+            primary_model_id: form.primary_model_id || undefined,
+            skill_ids: form.skill_ids,
+            permission_scope_type: form.permission_scope_type,
+            permission_access_level: form.permission_access_level,
+            tenant_id: currentTenant || undefined,
+            security_zone: form.security_zone,
+            agent_class: 'internal_tenant',
         });
     };
 

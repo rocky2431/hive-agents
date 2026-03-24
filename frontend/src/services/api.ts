@@ -1,6 +1,6 @@
 /** API service layer */
 
-import type { Agent, TokenResponse, User, Task, ChatMessage } from '../types';
+import type { Agent, AgentCreateInput, TokenResponse, User, Task, ChatMessage } from '../types';
 
 const API_BASE = '/api/v1';
 
@@ -190,8 +190,8 @@ export const agentApi = {
 
     get: (id: string) => request<Agent>(`/agents/${id}`),
 
-    bootstrap: (data: any) =>
-        request<any>('/agents/bootstrap', { method: 'POST', body: JSON.stringify(data) }),
+    create: (data: AgentCreateInput) =>
+        request<Agent>('/agents/', { method: 'POST', body: JSON.stringify(data) }),
 
     update: (id: string, data: Partial<Agent>) =>
         request<Agent>(`/agents/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),

@@ -15,8 +15,11 @@ def test_agent_and_template_api_surface_no_longer_exposes_legacy_autonomy_fields
     template_seeder_source = (project_root / "backend/app/services/template_seeder.py").read_text()
     approval_service_path = project_root / "backend/app/services/approval_service.py"
     autonomy_service_path = project_root / "backend/app/services/autonomy_service.py"
+    bootstrap_service_path = project_root / "backend/app/services/agent_bootstrap_service.py"
 
     assert "autonomy_policy:" not in schemas_source
+    assert "class AgentBootstrapCreate" not in schemas_source
+    assert "class AgentBootstrapOut" not in schemas_source
     assert "default_autonomy_policy" not in advanced_api_source
     assert '"default_autonomy_policy"' not in agents_api_source
     assert "if data.autonomy_policy" not in agents_api_source
@@ -31,7 +34,9 @@ def test_agent_and_template_api_surface_no_longer_exposes_legacy_autonomy_fields
     assert "template_id=data.template_id" not in agents_api_source
     assert 'if agent.agent_type == "openclaw":' not in agents_api_source
     assert 'agent_type=data.agent_type or "native"' not in agents_api_source
-    assert '@router.post("/bootstrap"' in agents_api_source
+    assert '@router.post("/bootstrap"' not in agents_api_source
+    assert "configure_bootstrap_channels" not in agents_api_source
+    assert not bootstrap_service_path.exists()
     assert '@router.get("/templates"' not in advanced_api_source
     assert "seed_agent_templates" not in main_source
 

@@ -5,6 +5,7 @@ import path from 'node:path';
 
 const apiPath = path.resolve(process.cwd(), 'src/services/api.ts');
 const messagesPagePath = path.resolve(process.cwd(), 'src/pages/Messages.tsx');
+const bootstrapHelperPath = path.resolve(process.cwd(), 'src/lib/agentBootstrap.ts');
 
 const read = (filePath: string) => fs.readFileSync(filePath, 'utf8');
 
@@ -30,4 +31,13 @@ test('messages page renders inbox items instead of notification-style read state
     assert.doesNotMatch(source, /msg_type/);
     assert.match(source, /session_title/);
     assert.match(source, /sender_name/);
+});
+
+test('agent api surface uses direct create instead of legacy bootstrap flow', () => {
+    const apiSource = read(apiPath);
+
+    assert.match(apiSource, /create:\s*\(data:/);
+    assert.doesNotMatch(apiSource, /bootstrap:\s*\(/);
+    assert.doesNotMatch(apiSource, /\/agents\/bootstrap/);
+    assert.equal(fs.existsSync(bootstrapHelperPath), false);
 });

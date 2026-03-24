@@ -60,10 +60,8 @@ test('AgentDetail uses productized capability sections and normalized versioned 
     assert.match(source, /\/api\/v1\/agents\/\$\{id\}\/sessions/);
 });
 
-test('AgentDetail reads bootstrap channel failure state and renders a post-create warning banner', () => {
+test('AgentDetail does not contain dead bootstrap channel failure code', () => {
     const source = read(agentDetailPath);
 
-    assert.match(source, /location\.state/);
-    assert.match(source, /bootstrapChannelFailures/);
-    assert.match(source, /wizard\.stepChannel\.partialFailure/);
+    assert.doesNotMatch(source, /bootstrapChannelFailures/);
 });

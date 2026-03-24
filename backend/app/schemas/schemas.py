@@ -85,28 +85,6 @@ class AgentCreate(BaseModel):
     # Skills to copy into agent workspace
     skill_ids: list[uuid.UUID] = []
 
-
-class AgentBootstrapChannelIn(BaseModel):
-    channel_type: str
-    config: dict = Field(default_factory=dict)
-
-
-class AgentBootstrapCreate(BaseModel):
-    agent: AgentCreate
-    channels: list[AgentBootstrapChannelIn] = Field(default_factory=list)
-
-
-class AgentBootstrapChannelResult(BaseModel):
-    channel_type: str
-    status: str
-    detail: str | None = None
-
-
-class AgentBootstrapOut(BaseModel):
-    agent: "AgentOut"
-    channel_results: list[AgentBootstrapChannelResult] = Field(default_factory=list)
-
-
 class AgentOut(BaseModel):
     id: uuid.UUID
     name: str
@@ -145,10 +123,6 @@ class AgentOut(BaseModel):
     last_active_at: datetime | None = None
 
     model_config = {"from_attributes": True}
-
-
-AgentBootstrapOut.model_rebuild()
-
 
 class AgentUpdate(BaseModel):
     name: str | None = None
