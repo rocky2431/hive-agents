@@ -49,6 +49,9 @@ type ChatMsg = TimelineMessage;
 
 function ConfigVersionHistory({ agentId }: { agentId: string }) {
     const { t } = useTranslation();
+    const qc = useQueryClient();
+    const user = useAuthStore((s) => s.user);
+    const canRollback = user?.role === 'platform_admin' || user?.role === 'org_admin';
     const tkn = localStorage.getItem('token');
     const { data: configHistory = [] } = useQuery({
         queryKey: ['config-history', agentId],
@@ -56,6 +59,39 @@ function ConfigVersionHistory({ agentId }: { agentId: string }) {
         enabled: !!agentId,
     });
     const [expandedVersion, setExpandedVersion] = useState<number | null>(null);
+    const { data: expandedRevision } = useQuery({
+        queryKey: ['config-history', agentId, expandedVersion],
+        queryFn: () => fetch(`/api/v1/config-history/agent/${agentId}/${expandedVersion}`, {
+            headers: { Authorization: `Bearer ${tkn}` },
+        }).then(r => r.ok ? r.json() : null),
+        enabled: !!agentId && expandedVersion !== null,
+    });
+    const rollbackMutation = useMutation({
+        mutationFn: async (targetVersion: number) => {
+            const res = await fetch(`/api/v1/config-history/agent/${agentId}/rollback`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(tkn ? { Authorization: `Bearer ${tkn}` } : {}),
+                },
+                body: JSON.stringify({ target_version: targetVersion }),
+            });
+            if (!res.ok) {
+                const error = await res.json().catch(() => ({ detail: 'Rollback failed' }));
+                throw new Error(error.detail || 'Rollback failed');
+            }
+            return res.json();
+        },
+        onSuccess: async () => {
+            setExpandedVersion(null);
+            await qc.invalidateQueries({ queryKey: ['config-history', agentId] });
+            await qc.invalidateQueries({ queryKey: ['agent', agentId] });
+            alert(t('agentDetail.rolledBack', 'Rolled back successfully'));
+        },
+        onError: (error: any) => {
+            alert(error?.message || 'Rollback failed');
+        },
+    });
     if (!configHistory.length) return null;
     return (
         <details className="card" style={{ marginBottom: '12px' }}>
@@ -82,12 +118,32 @@ function ConfigVersionHistory({ agentId }: { agentId: string }) {
                                 {rev.created_at ? new Date(rev.created_at).toLocaleString() : ''}
                             </span>
                         </div>
-                        {expandedVersion === rev.version && rev.snapshot && (
-                            <pre style={{
-                                marginTop: '8px', padding: '8px', background: 'var(--bg-primary)',
-                                borderRadius: '4px', fontSize: '11px', overflow: 'auto',
-                                maxHeight: '200px', border: '1px solid var(--border-subtle)',
-                            }}>{JSON.stringify(rev.snapshot, null, 2)}</pre>
+                        {expandedVersion === rev.version && (
+                            <>
+                                <pre style={{
+                                    marginTop: '8px', padding: '8px', background: 'var(--bg-primary)',
+                                    borderRadius: '4px', fontSize: '11px', overflow: 'auto',
+                                    maxHeight: '200px', border: '1px solid var(--border-subtle)',
+                                }}>{JSON.stringify(expandedRevision?.snapshot ?? rev.snapshot ?? {}, null, 2)}</pre>
+                                {canRollback && (
+                                    <div style={{ marginTop: '8px', display: 'flex', justifyContent: 'flex-end' }}>
+                                        <button
+                                            className="btn"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (!confirm(t('agentDetail.rollbackConfirm', { version: rev.version }))) return;
+                                                rollbackMutation.mutate(rev.version);
+                                            }}
+                                            disabled={rollbackMutation.isPending}
+                                            style={{ fontSize: '12px' }}
+                                        >
+                                            {rollbackMutation.isPending
+                                                ? t('common.loading')
+                                                : t('agentDetail.rollback', 'Rollback')}
+                                        </button>
+                                    </div>
+                                )}
+                            </>
                         )}
                     </div>
                 ))}

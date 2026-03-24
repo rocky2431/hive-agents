@@ -736,6 +736,14 @@
       "description": "Describe your company's mission, products, and culture. This information is included as context in every agent conversation.",
       "hint": "This content appears in every agent's system prompt"
     },
+    "companyLifecycle": {
+      "title": "Company Lifecycle",
+      "description": "Disabling a company blocks user access and pauses running digital employees. Re-enable it when the company should become active again.",
+      "platformOnly": "Company lifecycle actions are managed by platform admins.",
+      "disableConfirm": "Disable this company? Its users will lose access and running digital employees will be paused.",
+      "enableConfirm": "Enable this company again? Users will be able to access it again.",
+      "toggleFailed": "Failed to update company status"
+    },
     "kb": {
       "title": "Company Knowledge Base",
       "description": "Shared files accessible to all agents via the enterprise_info/ directory.",

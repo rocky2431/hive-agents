@@ -747,6 +747,14 @@
       "description": "描述你的公司使命、产品和文化。此信息会作为上下文包含在每次 Agent 对话中。",
       "hint": "此内容会出现在每个 Agent 的系统提示词中"
     },
+    "companyLifecycle": {
+      "title": "公司状态",
+      "description": "停用公司会阻止该公司的用户访问，并暂停运行中的数字员工。需要恢复时可以重新启用。",
+      "platformOnly": "公司状态变更仅由平台管理员操作。",
+      "disableConfirm": "停用此公司？该公司的用户将无法访问，运行中的数字员工会被暂停。",
+      "enableConfirm": "重新启用此公司？该公司的用户将恢复访问。",
+      "toggleFailed": "更新公司状态失败"
+    },
     "kb": {
       "title": "公司知识库",
       "description": "共享文件，所有 Agent 可通过 enterprise_info/ 目录访问。",

@@ -1,11 +1,13 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { enterpriseApi, skillApi, featureFlagApi, auditApi, capabilityApi, onboardingApi, oidcApi, packApi } from '../services/api';
+import { adminApi, enterpriseApi, skillApi, featureFlagApi, auditApi, capabilityApi, onboardingApi, oidcApi, packApi } from '../services/api';
 import PromptModal from '../components/PromptModal';
 import FileBrowser from '../components/FileBrowser';
 import type { FileBrowserApi } from '../components/FileBrowser';
 import { saveAccentColor, getSavedAccentColor, resetAccentColor, PRESET_COLORS } from '../utils/theme';
+import { useAuthStore } from '../stores';
+import { canEditCompanyProfile, canManageCompanyLifecycle } from '../lib/companyPermissions';
 import UserManagement from './UserManagement';
 import InvitationCodes from './InvitationCodes';
 
@@ -949,11 +951,14 @@ function NotificationBarConfig() {
 // ─── Company Name Editor ───────────────────────────
 function CompanyNameEditor() {
     const { t } = useTranslation();
+    const user = useAuthStore((s) => s.user);
     const qc = useQueryClient();
     const tenantId = localStorage.getItem('current_tenant_id') || '';
     const [name, setName] = useState('');
     const [saving, setSaving] = useState(false);
     const [saved, setSaved] = useState(false);
+
+    if (!canEditCompanyProfile(user?.role)) return null;
 
     useEffect(() => {
         if (!tenantId) return;
@@ -969,6 +974,7 @@ function CompanyNameEditor() {
             await fetchJson(`/tenants/${tenantId}`, {
                 method: 'PUT', body: JSON.stringify({ name: name.trim() }),
             });
+            qc.invalidateQueries({ queryKey: ['tenant-detail', tenantId] });
             qc.invalidateQueries({ queryKey: ['tenants'] });
             setSaved(true);
             setTimeout(() => setSaved(false), 2000);
@@ -1021,10 +1027,14 @@ const COMMON_TIMEZONES = [
 
 function CompanyTimezoneEditor() {
     const { t } = useTranslation();
+    const user = useAuthStore((s) => s.user);
+    const qc = useQueryClient();
     const tenantId = localStorage.getItem('current_tenant_id') || '';
     const [timezone, setTimezone] = useState('UTC');
     const [saving, setSaving] = useState(false);
     const [saved, setSaved] = useState(false);
+
+    if (!canEditCompanyProfile(user?.role)) return null;
 
     useEffect(() => {
         if (!tenantId) return;
@@ -1041,6 +1051,7 @@ function CompanyTimezoneEditor() {
             await fetchJson(`/tenants/${tenantId}`, {
                 method: 'PUT', body: JSON.stringify({ timezone: tz }),
             });
+            qc.invalidateQueries({ queryKey: ['tenant-detail', tenantId] });
             setSaved(true);
             setTimeout(() => setSaved(false), 2000);
         } catch (e: any) { console.error('[EnterpriseSettings] save failed:', e?.message || e); }
@@ -1318,6 +1329,7 @@ function MemoryTab({ models }: { models: LLMModel[] }) {
 export default function EnterpriseSettings() {
     const { t } = useTranslation();
     const qc = useQueryClient();
+    const user = useAuthStore((s) => s.user);
     type TabKey = 'info' | 'llm' | 'org' | 'approvals' | 'audit' | 'mcp' | 'skills' | 'quotas' | 'users' | 'flags' | 'invites' | 'memory' | 'sso' | 'capabilities' | 'config' | 'kb';
 
     interface SidebarGroup {
@@ -1345,6 +1357,7 @@ export default function EnterpriseSettings() {
 
     // Track selected tenant as state so page refreshes on company switch
     const [selectedTenantId, setSelectedTenantId] = useState(localStorage.getItem('current_tenant_id') || '');
+    const [companyLifecycleSaving, setCompanyLifecycleSaving] = useState(false);
     useEffect(() => {
         const handler = (e: StorageEvent) => {
             if (e.key === 'current_tenant_id') {
@@ -1354,6 +1367,11 @@ export default function EnterpriseSettings() {
         window.addEventListener('storage', handler);
         return () => window.removeEventListener('storage', handler);
     }, []);
+    const { data: selectedTenant } = useQuery({
+        queryKey: ['tenant-detail', selectedTenantId],
+        queryFn: () => fetchJson<any>(`/tenants/${selectedTenantId}`),
+        enabled: !!selectedTenantId && canEditCompanyProfile(user?.role),
+    });
 
     // Tenant quota defaults
     const [quotaForm, setQuotaForm] = useState({
@@ -1411,6 +1429,23 @@ export default function EnterpriseSettings() {
             setTimeout(() => setCompanyIntroSaved(false), 2000);
         } catch (e: any) { console.error('[EnterpriseSettings] save failed:', e?.message || e); }
         setCompanyIntroSaving(false);
+    };
+    const handleToggleCompanyLifecycle = async () => {
+        if (!selectedTenantId || !selectedTenant || !canManageCompanyLifecycle(user?.role)) return;
+        const isDisabling = selectedTenant.is_active !== false;
+        const confirmMessage = isDisabling
+            ? t('enterprise.companyLifecycle.disableConfirm', 'Disable this company? Its users will lose access and running digital employees will be paused.')
+            : t('enterprise.companyLifecycle.enableConfirm', 'Enable this company again? Users will be able to access it again.');
+        if (!confirm(confirmMessage)) return;
+        setCompanyLifecycleSaving(true);
+        try {
+            await adminApi.toggleCompany(selectedTenantId);
+            qc.invalidateQueries({ queryKey: ['tenant-detail', selectedTenantId] });
+            qc.invalidateQueries({ queryKey: ['tenants'] });
+        } catch (e: any) {
+            alert(e.message || t('enterprise.companyLifecycle.toggleFailed', 'Failed to update company status'));
+        }
+        setCompanyLifecycleSaving(false);
     };
     const [auditFilter, setAuditFilter] = useState<'all' | 'background' | 'actions'>('all');
     // ─── New Audit state (rich search/filter/pagination)
@@ -2670,35 +2705,39 @@ export default function EnterpriseSettings() {
                         <PlatformSettings />
                         <ThemeColorPicker />
 
-                        {/* ── Danger Zone: Delete Company ── */}
-                        <div style={{ marginTop: '32px', padding: '16px', border: '1px solid var(--status-error, #e53e3e)', borderRadius: '8px' }}>
-                            <h3 style={{ marginBottom: '4px', color: 'var(--status-error, #e53e3e)' }}>{t('enterprise.dangerZone', 'Danger Zone')}</h3>
+                        {/* ── Company Lifecycle ── */}
+                        <div style={{ marginTop: '32px', padding: '16px', border: '1px solid var(--status-warning, #d97706)', borderRadius: '8px' }}>
+                            <h3 style={{ marginBottom: '4px', color: 'var(--status-warning, #d97706)' }}>{t('enterprise.companyLifecycle.title', 'Company Lifecycle')}</h3>
                             <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
-                                {t('enterprise.deleteCompanyDesc', 'Permanently delete this company and all its data including agents, models, tools, and skills. This action cannot be undone.')}
+                                {t('enterprise.companyLifecycle.description', 'Disabling a company blocks user access and pauses running digital employees. Re-enable it when the company should become active again.')}
                             </p>
-                            <button
-                                className="btn"
-                                onClick={async () => {
-                                    if (!confirm(t('enterprise.deleteCompanyConfirm', 'Are you sure you want to delete this company and ALL its data? This cannot be undone.'))) return;
-                                    try {
-                                        const res = await fetchJson<any>(`/tenants/${selectedTenantId}`, { method: 'DELETE' });
-                                        const fallbackId = res.fallback_tenant_id;
-                                        localStorage.setItem('current_tenant_id', fallbackId);
-                                        setSelectedTenantId(fallbackId);
-                                        window.dispatchEvent(new StorageEvent('storage', { key: 'current_tenant_id', newValue: fallbackId }));
-                                        qc.invalidateQueries({ queryKey: ['tenants'] });
-                                    } catch (e: any) {
-                                        alert(e.message || 'Delete failed');
-                                    }
-                                }}
-                                style={{
-                                    background: 'transparent', color: 'var(--status-error, #e53e3e)',
-                                    border: '1px solid var(--status-error, #e53e3e)', borderRadius: '6px',
-                                    padding: '6px 16px', fontSize: '13px', cursor: 'pointer',
-                                }}
-                            >
-                                {t('enterprise.deleteCompany', 'Delete This Company')}
-                            </button>
+                            {canManageCompanyLifecycle(user?.role) ? (
+                                <button
+                                    className="btn"
+                                    onClick={handleToggleCompanyLifecycle}
+                                    disabled={!selectedTenant || companyLifecycleSaving || selectedTenant?.slug === 'default'}
+                                    title={selectedTenant?.slug === 'default' ? t('admin.cannotDisableDefault', 'Cannot disable the default company — platform admin would be locked out') : undefined}
+                                    style={{
+                                        background: 'transparent',
+                                        color: selectedTenant?.is_active === false ? 'var(--success, #34c759)' : 'var(--status-warning, #d97706)',
+                                        border: `1px solid ${selectedTenant?.is_active === false ? 'var(--success, #34c759)' : 'var(--status-warning, #d97706)'}`,
+                                        borderRadius: '6px',
+                                        padding: '6px 16px',
+                                        fontSize: '13px',
+                                        cursor: 'pointer',
+                                    }}
+                                >
+                                    {companyLifecycleSaving
+                                        ? t('common.loading')
+                                        : selectedTenant?.is_active === false
+                                            ? t('admin.enable', 'Enable')
+                                            : t('admin.disable', 'Disable')}
+                                </button>
+                            ) : (
+                                <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                                    {t('enterprise.companyLifecycle.platformOnly', 'Company lifecycle actions are managed by platform admins.')}
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}

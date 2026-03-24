@@ -222,16 +222,35 @@ async def get_tenant(
 async def update_tenant(
     tenant_id: uuid.UUID,
     data: TenantUpdate,
-    current_user: User = Depends(require_role("platform_admin")),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Update tenant settings."""
+    """Update tenant settings.
+
+    Platform admins can update any tenant field.
+    Org admins can update only their own tenant's basic profile fields.
+    """
+    if current_user.role not in ("platform_admin", "org_admin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    if current_user.role == "org_admin" and str(current_user.tenant_id) != str(tenant_id):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    updates = data.model_dump(exclude_unset=True)
+    if current_user.role == "org_admin":
+        allowed_fields = {"name", "timezone"}
+        disallowed = sorted(set(updates) - allowed_fields)
+        if disallowed:
+            raise HTTPException(
+                status_code=403,
+                detail="Org admins can only update company name and timezone",
+            )
+
     result = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
     tenant = result.scalar_one_or_none()
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant not found")
 
-    for field, value in data.model_dump(exclude_unset=True).items():
+    for field, value in updates.items():
         setattr(tenant, field, value)
     await db.flush()
     return TenantOut.model_validate(tenant)
