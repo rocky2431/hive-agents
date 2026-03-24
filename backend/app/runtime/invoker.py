@@ -31,7 +31,7 @@ from app.runtime.prompt_builder import build_frozen_prompt_prefix
 from app.runtime.session import SessionContext
 from app.skills import SkillParser, SkillRegistry, WorkspaceSkillLoader
 from app.services.agent_context import build_agent_context
-from app.services.agent_tools import AGENT_TOOLS, CORE_TOOL_NAMES, execute_tool, get_agent_tools_for_llm
+from app.services.agent_tools import CORE_TOOL_NAMES, execute_tool, get_agent_tools_for_llm, get_combined_openai_tools
 from app.services.knowledge_inject import fetch_relevant_knowledge
 from app.services.llm_client import apply_prompt_cache_hints
 from app.services.llm_utils import LLMMessage, create_llm_client, get_max_tokens
@@ -587,7 +587,7 @@ async def invoke_agent(request: AgentInvocationRequest) -> AgentInvocationResult
         system_prompt_suffix=request.system_prompt_suffix,
         tool_executor=request.tool_executor,
         cancel_event=request.cancel_event,
-        initial_tools=request.initial_tools or (AGENT_TOOLS if request.agent_id is None else None),
+        initial_tools=request.initial_tools or (get_combined_openai_tools() if request.agent_id is None else None),
         core_tools_only=request.core_tools_only,
         expand_tools=request.expand_tools,
         max_tool_rounds=request.max_tool_rounds,

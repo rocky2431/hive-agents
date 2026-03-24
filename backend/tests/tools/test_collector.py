@@ -82,6 +82,11 @@ def test_collect_builds_seed_list():
     assert web_seed["display_name"] == "Web Search"
     assert web_seed["category"] == "search"
     assert web_seed["icon"] == "\U0001f50d"
+    assert web_seed["parameters_schema"] == {
+        "type": "object",
+        "properties": {"q": {"type": "string"}},
+        "required": ["q"],
+    }
 
 
 def test_collect_builds_governance_sets():

@@ -82,3 +82,29 @@ async def test_execute_tool_direct_falls_back_to_execute_code(monkeypatch):
     assert result == "ok"
     assert called["ws"] == workspace
     assert called["arguments"] == {"language": "python", "code": "print('hi')"}
+
+
+@pytest.mark.asyncio
+async def test_get_agent_tools_for_llm_db_failure_falls_back_to_combined_tools(monkeypatch):
+    from app.services import agent_tools as agent_tools_module
+
+    class BrokenSession:
+        async def __aenter__(self):
+            raise RuntimeError("db down")
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    def broken_async_session():
+        return BrokenSession()
+
+    monkeypatch.setattr(agent_tools_module, "async_session", broken_async_session)
+    monkeypatch.setattr(agent_tools_module, "_always_core_tools", None)
+    monkeypatch.setattr(agent_tools_module, "_feishu_tools", None)
+
+    tools = await agent_tools_module.get_agent_tools_for_llm(uuid4())
+    names = {tool["function"]["name"] for tool in tools}
+
+    assert "read_file" in names
+    assert "load_skill" in names
+    assert "web_search" in names

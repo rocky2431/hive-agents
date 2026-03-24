@@ -1,7 +1,8 @@
-"""Central tool registry for compatibility-friendly tool lookup."""
+"""Central tool registry and metadata lookup."""
 
 from __future__ import annotations
 
+from collections.abc import Iterator, Set
 from collections import OrderedDict
 from typing import Iterable
 
@@ -24,7 +25,7 @@ _SCHEDULED = {"set_trigger", "update_trigger", "cancel_trigger", "list_triggers"
 _CHANNEL = {"send_feishu_message", "send_web_message", "send_message_to_agent", "send_channel_file"}
 _WEB = {"jina_search", "jina_read", "web_search"}
 
-READ_ONLY_TOOL_NAMES: set[str] = {
+_STATIC_READ_ONLY_TOOL_NAMES = {
     "read_file",
     "glob_search",
     "grep_search",
@@ -40,7 +41,7 @@ READ_ONLY_TOOL_NAMES: set[str] = {
     "read_mcp_resource",
 }
 
-PARALLEL_SAFE_TOOL_NAMES: set[str] = {
+_STATIC_PARALLEL_SAFE_TOOL_NAMES = {
     "read_file",
     "glob_search",
     "grep_search",
@@ -51,6 +52,43 @@ PARALLEL_SAFE_TOOL_NAMES: set[str] = {
     "jina_search",
     "jina_read",
 }
+
+
+def _resolve_collected_registry_names() -> tuple[frozenset[str], frozenset[str]]:
+    from .collector import collect_tools
+
+    collected = collect_tools()
+    return collected.read_only_names, collected.parallel_safe_names
+
+
+class _LazyToolNameSet(Set[str]):
+    def __init__(self, static_names: set[str], kind: str) -> None:
+        self._static_names = frozenset(static_names)
+        self._kind = kind
+        self._resolved: frozenset[str] | None = None
+
+    def _ensure(self) -> frozenset[str]:
+        if self._resolved is None:
+            read_only, parallel_safe = _resolve_collected_registry_names()
+            dynamic = read_only if self._kind == "read_only" else parallel_safe
+            self._resolved = frozenset(set(self._static_names) | set(dynamic))
+        return self._resolved
+
+    def __contains__(self, item: object) -> bool:
+        return item in self._ensure()
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._ensure())
+
+    def __len__(self) -> int:
+        return len(self._ensure())
+
+    def __repr__(self) -> str:
+        return repr(self._ensure())
+
+
+READ_ONLY_TOOL_NAMES: Set[str] = _LazyToolNameSet(_STATIC_READ_ONLY_TOOL_NAMES, "read_only")
+PARALLEL_SAFE_TOOL_NAMES: Set[str] = _LazyToolNameSet(_STATIC_PARALLEL_SAFE_TOOL_NAMES, "parallel_safe")
 
 
 def is_read_only_tool(name: str) -> bool:

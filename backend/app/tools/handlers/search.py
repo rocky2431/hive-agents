@@ -4,6 +4,93 @@ from __future__ import annotations
 
 from app.tools.decorator import ToolMeta, tool
 
+# ── web_search ───────────────────────────────────────────────────────
+
+@tool(ToolMeta(
+    name="web_search",
+    description=(
+        "Search the internet via DuckDuckGo. May be unavailable on some networks. "
+        "Use this as a general web search tool when you need public information and "
+        "do not specifically need Jina full-page retrieval."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "Search keywords",
+            },
+            "max_results": {
+                "type": "integer",
+                "description": "Number of results to return",
+            },
+        },
+        "required": ["query"],
+    },
+    category="search",
+    display_name="DuckDuckGo Search",
+    icon="\U0001f986",
+    is_default=True,
+    read_only=True,
+    parallel_safe=True,
+    governance="safe",
+    pack="web_pack",
+    adapter="args_only",
+    config={
+        "search_engine": "duckduckgo",
+        "max_results": 5,
+        "language": "en",
+        "api_key": "",
+    },
+    config_schema={
+        "fields": [
+            {
+                "key": "search_engine",
+                "label": "Search Engine",
+                "type": "select",
+                "options": [
+                    {"value": "duckduckgo", "label": "DuckDuckGo (free, no API key)"},
+                    {"value": "tavily", "label": "Tavily (AI search, needs API key)"},
+                    {"value": "google", "label": "Google Custom Search (needs API key)"},
+                    {"value": "bing", "label": "Bing Search API (needs API key)"},
+                ],
+                "default": "duckduckgo",
+            },
+            {
+                "key": "api_key",
+                "label": "API Key",
+                "type": "password",
+                "default": "",
+                "placeholder": "Required for engines that need an API key",
+                "depends_on": {"search_engine": ["tavily", "google", "bing"]},
+            },
+            {
+                "key": "max_results",
+                "label": "Default results count",
+                "type": "number",
+                "default": 5,
+                "min": 1,
+                "max": 20,
+            },
+            {
+                "key": "language",
+                "label": "Search language",
+                "type": "select",
+                "options": [
+                    {"value": "en", "label": "English"},
+                    {"value": "zh-CN", "label": "中文"},
+                    {"value": "ja", "label": "日本語"},
+                ],
+                "default": "en",
+            },
+        ]
+    },
+))
+async def web_search(arguments: dict) -> str:
+    from app.services.agent_tool_domains.web_mcp import _web_search
+    return await _web_search(arguments)
+
+
 # ── jina_search ──────────────────────────────────────────────────────
 
 @tool(ToolMeta(

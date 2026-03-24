@@ -26,7 +26,6 @@ from app.services.pack_policy_service import get_tenant_pack_policies, is_pack_e
 from app.tools import (
     ToolExecutionRegistry,
     ToolGovernanceResolver,
-    ToolRegistry,
     ToolRuntimeService,
     run_tool_governance,
 )
@@ -48,13 +47,6 @@ channel_web_agent_id: ContextVar = ContextVar('channel_web_agent_id', default=No
 channel_feishu_sender_open_id: ContextVar = ContextVar('channel_feishu_sender_open_id', default=None)
 ToolEventCallback = Callable[[dict], Awaitable[None] | None]
 
-# ─── Tool Definitions (OpenAI function-calling format) ──────────
-# All tools migrated to tools/handlers/. This list is kept empty for backward
-# compatibility with code that references AGENT_TOOLS by name.
-
-AGENT_TOOLS: list[dict] = []
-
-_LEGACY_TOOL_REGISTRY = ToolRegistry.from_openai_tools(AGENT_TOOLS)
 _TOOL_EXECUTION_REGISTRY = ToolExecutionRegistry()
 _TOOL_EXECUTION_REGISTRY_INITIALIZED = False
 _TOOL_RUNTIME_SERVICE: ToolRuntimeService | None = None
@@ -71,11 +63,9 @@ def _get_collected_tools():
 
 
 def get_combined_openai_tools() -> list[dict]:
-    """Return OpenAI tool schemas: collected (decorator) + legacy (hardcoded)."""
+    """Return the canonical OpenAI tool surface collected from decorators."""
     collected = _get_collected_tools()
-    collected_names = {t["function"]["name"] for t in collected.openai_tools}
-    legacy = [t for t in AGENT_TOOLS if t["function"]["name"] not in collected_names]
-    return collected.openai_tools + legacy
+    return collected.openai_tools
 
 
 def _ensure_tool_execution_registry() -> None:
@@ -87,14 +77,6 @@ def _ensure_tool_execution_registry() -> None:
     collected = _get_collected_tools()
     for name, executor in collected.exec_registry._executors.items():
         _TOOL_EXECUTION_REGISTRY.register(name, executor)
-
-    # Extend governance/registry sets with collected metadata
-    from app.tools.governance import SAFE_TOOLS, SENSITIVE_TOOLS
-    from app.tools.registry import READ_ONLY_TOOL_NAMES, PARALLEL_SAFE_TOOL_NAMES
-    SAFE_TOOLS.update(collected.safe_tools)
-    SENSITIVE_TOOLS.update(collected.sensitive_tools)
-    READ_ONLY_TOOL_NAMES.update(collected.read_only_names)
-    PARALLEL_SAFE_TOOL_NAMES.update(collected.parallel_safe_names)
 
     _TOOL_EXECUTION_REGISTRY_INITIALIZED = True
 
@@ -234,7 +216,7 @@ async def get_agent_tools_for_llm(
         requested_names: When provided, return kernel tools plus only the requested
                    non-kernel tools that are available to the agent.
 
-    Falls back to hardcoded AGENT_TOOLS if DB not ready.
+    Falls back to the collected tool surface if DB is not ready.
     Always includes core system tools (send_channel_file, write_file).
     Feishu tools are only included when the agent has a configured Feishu channel.
     """
@@ -304,8 +286,8 @@ async def get_agent_tools_for_llm(
     except Exception as e:
         logger.error(f"[Tools] DB load failed, using fallback: {e}")
 
-    # Fallback to hardcoded tools
-    fallback = _LEGACY_TOOL_REGISTRY.to_openai_tools()
+    # Fallback to the collected tool surface when DB is unavailable.
+    fallback = get_combined_openai_tools()
     if core_only:
         fallback = [t for t in fallback if t["function"]["name"] in CORE_TOOL_NAMES]
     elif requested_set:

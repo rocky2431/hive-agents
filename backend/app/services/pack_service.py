@@ -20,7 +20,7 @@ from app.tools.packs import TOOL_PACKS, ToolPackSpec, infer_static_pack_names, p
 logger = logging.getLogger(__name__)
 
 # Kernel tools must mirror the runtime's real minimal toolset.
-# Lazy-computed from collected tools (handlers/) since AGENT_TOOLS is now empty.
+# Lazy-computed from the canonical collected tool surface.
 _KERNEL_TOOLS: tuple[str, ...] | None = None
 
 
@@ -35,7 +35,7 @@ def _compute_kernel_tools() -> tuple[str, ...]:
     return _KERNEL_TOOLS
 
 
-# Public alias kept for backward-compat imports; resolved lazily on first access.
+# Public tuple-like export resolved lazily on first access.
 class _LazyKernelTools(tuple):
     """Tuple subclass that populates on first iteration / membership test."""
 

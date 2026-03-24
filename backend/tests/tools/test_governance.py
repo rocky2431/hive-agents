@@ -52,6 +52,45 @@ async def test_governance_blocks_unsafe_tool_in_public_zone():
 
 
 @pytest.mark.asyncio
+async def test_governance_allows_collected_safe_tool_without_registry_init():
+    from app.tools.governance import GovernanceDependencies, ToolGovernanceContext, run_tool_governance
+
+    events = []
+
+    async def resolve_security_zone(_agent_id):
+        return "public"
+
+    async def check_capability(*_args, **_kwargs):
+        raise AssertionError("capability check should not run for safe tool in public zone")
+
+    async def write_audit(**_kwargs):
+        raise AssertionError("audit should not run for safe tool in public zone")
+
+    async def request_approval(*_args, **_kwargs):
+        raise AssertionError("approval should not run for safe tool in public zone")
+
+    message = await run_tool_governance(
+        ToolGovernanceContext(
+            agent_id=uuid4(),
+            user_id=uuid4(),
+            tenant_id=None,
+            tool_name="discover_resources",
+            arguments={"query": "send email"},
+        ),
+        GovernanceDependencies(
+            resolve_security_zone=resolve_security_zone,
+            check_capability=check_capability,
+            write_audit_event=write_audit,
+            request_approval=request_approval,
+        ),
+        event_callback=events.append,
+    )
+
+    assert message is None
+    assert events == []
+
+
+@pytest.mark.asyncio
 async def test_governance_emits_capability_denied_and_audit():
     from app.services.capability_gate import CapabilityCheckResult
     from app.tools.governance import GovernanceDependencies, ToolGovernanceContext, run_tool_governance

@@ -53,14 +53,7 @@ def _meta_to_seed_dict(meta: ToolMeta) -> dict[str, Any]:
         "category": meta.category,
         "icon": meta.icon,
         "is_default": meta.is_default,
-        "parameters_schema": {
-            "type": "function",
-            "function": {
-                "name": meta.name,
-                "description": meta.description,
-                "parameters": meta.parameters,
-            },
-        },
+        "parameters_schema": meta.parameters,
         "config": meta.config,
         "config_schema": meta.config_schema,
     }

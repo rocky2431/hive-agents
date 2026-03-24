@@ -5,6 +5,7 @@ from __future__ import annotations
 import inspect
 import logging
 import uuid
+from collections.abc import Iterator, Set
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
@@ -12,8 +13,8 @@ logger = logging.getLogger(__name__)
 
 EventCallback = Callable[[dict[str, Any]], Awaitable[None] | None]
 
-SENSITIVE_TOOLS: set[str] = {"send_feishu_message", "send_email", "delete_file", "write_file", "reply_email"}
-SAFE_TOOLS: set[str] = {
+_STATIC_SENSITIVE_TOOLS = {"send_feishu_message", "send_email", "delete_file", "write_file", "reply_email"}
+_STATIC_SAFE_TOOLS = {
     "list_files",
     "read_file",
     "load_skill",
@@ -24,6 +25,43 @@ SAFE_TOOLS: set[str] = {
     "list_tasks",
     "get_task",
 }
+
+
+def _resolve_collected_governance_names() -> tuple[frozenset[str], frozenset[str]]:
+    from app.tools.collector import collect_tools
+
+    collected = collect_tools()
+    return collected.safe_tools, collected.sensitive_tools
+
+
+class _LazyToolNameSet(Set[str]):
+    def __init__(self, static_names: set[str], kind: str) -> None:
+        self._static_names = frozenset(static_names)
+        self._kind = kind
+        self._resolved: frozenset[str] | None = None
+
+    def _ensure(self) -> frozenset[str]:
+        if self._resolved is None:
+            safe, sensitive = _resolve_collected_governance_names()
+            dynamic = safe if self._kind == "safe" else sensitive
+            self._resolved = frozenset(set(self._static_names) | set(dynamic))
+        return self._resolved
+
+    def __contains__(self, item: object) -> bool:
+        return item in self._ensure()
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._ensure())
+
+    def __len__(self) -> int:
+        return len(self._ensure())
+
+    def __repr__(self) -> str:
+        return repr(self._ensure())
+
+
+SAFE_TOOLS: Set[str] = _LazyToolNameSet(_STATIC_SAFE_TOOLS, "safe")
+SENSITIVE_TOOLS: Set[str] = _LazyToolNameSet(_STATIC_SENSITIVE_TOOLS, "sensitive")
 
 
 @dataclass(slots=True)
