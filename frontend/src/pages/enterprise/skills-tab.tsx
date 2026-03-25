@@ -133,8 +133,9 @@ export function SkillsTab() {
                             }
                         }}
                         title="Settings"
+                        aria-label="Settings"
                     >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                             <circle cx="12" cy="12" r="3"/>
                             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
                         </svg>
@@ -331,7 +332,7 @@ export function SkillsTab() {
                         <div className="px-6 pt-5 pb-4 border-b border-edge-subtle">
                             <div className="flex justify-between items-center mb-3">
                                 <h3 className="m-0 text-base">{t('agent.capability.skillsLibrary')}</h3>
-                                <button className="btn btn-ghost px-2 py-1 text-base leading-none" onClick={() => setShowClawhubModal(false)}>x</button>
+                                <button className="btn btn-ghost px-2 py-1 text-base leading-none" onClick={() => setShowClawhubModal(false)} aria-label={t('common.close', 'Close')}>x</button>
                             </div>
                             <div className="flex gap-2">
                                 <input
@@ -391,7 +392,7 @@ export function SkillsTab() {
                         <div className="px-6 pt-5 pb-4 border-b border-edge-subtle">
                             <div className="flex justify-between items-center mb-3">
                                                 <h3 className="m-0 text-base">{t('agent.capability.skillsUrl')}</h3>
-                                                <button className="btn btn-ghost px-2 py-1 text-base leading-none" onClick={() => setShowUrlModal(false)}>x</button>
+                                                <button className="btn btn-ghost px-2 py-1 text-base leading-none" onClick={() => setShowUrlModal(false)} aria-label={t('common.close', 'Close')}>x</button>
                                             </div>
                                             <p className="text-xs text-content-tertiary mb-3">
                                                 贴入一个包含 `SKILL.md` 的 GitHub 技能目录链接，系统会先预览再导入。

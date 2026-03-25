@@ -50,7 +50,7 @@ export function OverviewTab({ agentId, agent }: OverviewTabProps) {
                         {agent.role_description && (
                             <span className="text-xs text-content-secondary">{agent.role_description}</span>
                         )}
-                        <span className={`status-dot ${statusKey}`} />
+                        <span className={`status-dot ${statusKey}`} aria-hidden="true" />
                     </div>
                     <div className="text-[11px] text-content-tertiary mt-0.5 flex gap-3 flex-wrap">
                         <span>{agent.created_at ? formatDate(agent.created_at) : ''}</span>

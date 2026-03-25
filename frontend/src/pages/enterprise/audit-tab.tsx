@@ -80,19 +80,19 @@ export function AuditTab() {
             <div className="card p-4 mb-4">
                 <div className="flex gap-3 flex-wrap items-end">
                     <div className="flex-[2_1_200px]">
-                        <label className="text-xs font-medium block mb-1">{t('enterprise.audit.search')}</label>
-                        <input className="input text-[13px]" value={auditSearch} onChange={e => { setAuditSearch(e.target.value); setAuditPage(1); }} placeholder={t('enterprise.audit.search')} />
+                        <label htmlFor="audit-search" className="text-xs font-medium block mb-1">{t('enterprise.audit.search')}</label>
+                        <input id="audit-search" className="input text-[13px]" value={auditSearch} onChange={e => { setAuditSearch(e.target.value); setAuditPage(1); }} placeholder={t('enterprise.audit.search')} autoComplete="off" />
                     </div>
                     <div className="flex-[1_1_160px]">
-                        <label className="text-xs font-medium block mb-1">{t('enterprise.audit.eventType')}</label>
-                        <select className="input text-[13px]" value={auditEventType} onChange={e => { setAuditEventType(e.target.value); setAuditPage(1); }}>
+                        <label htmlFor="audit-event-type" className="text-xs font-medium block mb-1">{t('enterprise.audit.eventType')}</label>
+                        <select id="audit-event-type" className="input text-[13px]" value={auditEventType} onChange={e => { setAuditEventType(e.target.value); setAuditPage(1); }}>
                             <option value="">{t('enterprise.audit.filterAll')}</option>
                             {EVENT_TYPES.map(et => <option key={et} value={et}>{et}</option>)}
                         </select>
                     </div>
                     <div className="flex-[1_1_120px]">
-                        <label className="text-xs font-medium block mb-1">{t('enterprise.audit.severity')}</label>
-                        <select className="input text-[13px]" value={auditSeverity} onChange={e => { setAuditSeverity(e.target.value); setAuditPage(1); }}>
+                        <label htmlFor="audit-severity" className="text-xs font-medium block mb-1">{t('enterprise.audit.severity')}</label>
+                        <select id="audit-severity" className="input text-[13px]" value={auditSeverity} onChange={e => { setAuditSeverity(e.target.value); setAuditPage(1); }}>
                             <option value="">{t('enterprise.audit.filterAll')}</option>
                             <option value="info">Info</option>
                             <option value="warn">Warn</option>
@@ -100,12 +100,12 @@ export function AuditTab() {
                         </select>
                     </div>
                     <div className="flex-[1_1_140px]">
-                        <label className="text-xs font-medium block mb-1">{t('enterprise.audit.dateRange')}</label>
-                        <input type="date" className="input text-[13px]" value={auditDateFrom} onChange={e => { setAuditDateFrom(e.target.value); setAuditPage(1); }} />
+                        <label htmlFor="audit-date-from" className="text-xs font-medium block mb-1">{t('enterprise.audit.dateRange')}</label>
+                        <input id="audit-date-from" type="date" className="input text-[13px]" value={auditDateFrom} onChange={e => { setAuditDateFrom(e.target.value); setAuditPage(1); }} />
                     </div>
                     <div className="flex-[1_1_140px]">
-                        <label className="text-xs font-medium block mb-1">&nbsp;</label>
-                        <input type="date" className="input text-[13px]" value={auditDateTo} onChange={e => { setAuditDateTo(e.target.value); setAuditPage(1); }} />
+                        <label htmlFor="audit-date-to" className="text-xs font-medium block mb-1">&nbsp;</label>
+                        <input id="audit-date-to" type="date" className="input text-[13px]" value={auditDateTo} onChange={e => { setAuditDateTo(e.target.value); setAuditPage(1); }} />
                     </div>
                     <button className="btn btn-secondary text-[13px] whitespace-nowrap" onClick={handleAuditExport}>
                         {t('enterprise.audit.export')}
@@ -190,9 +190,9 @@ export function AuditTab() {
             {/* Pagination */}
             {auditTotalPages > 1 && (
                 <div className="flex justify-center gap-2 mt-4 items-center">
-                    <button className="btn btn-ghost text-xs" disabled={auditPage <= 1} onClick={() => setAuditPage(p => p - 1)}>&laquo;</button>
+                    <button className="btn btn-ghost text-xs" disabled={auditPage <= 1} onClick={() => setAuditPage(p => p - 1)} aria-label={t('admin.prev', 'Previous page')}>&laquo;</button>
                     <span className="text-xs text-content-secondary">{auditPage} / {auditTotalPages}</span>
-                    <button className="btn btn-ghost text-xs" disabled={auditPage >= auditTotalPages} onClick={() => setAuditPage(p => p + 1)}>&raquo;</button>
+                    <button className="btn btn-ghost text-xs" disabled={auditPage >= auditTotalPages} onClick={() => setAuditPage(p => p + 1)} aria-label={t('admin.next', 'Next page')}>&raquo;</button>
                 </div>
             )}
         </div>

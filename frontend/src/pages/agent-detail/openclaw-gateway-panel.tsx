@@ -57,6 +57,8 @@ export function OpenClawGatewayPanel({ agentId, agent }: OpenClawGatewayPanelPro
 
             {notice && (
                 <div
+                    role="alert"
+                    aria-live="assertive"
                     className={cn(
                         'mb-3 px-3 py-2.5 rounded-lg text-xs',
                         notice.type === 'success'

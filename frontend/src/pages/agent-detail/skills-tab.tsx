@@ -103,18 +103,19 @@ export function SkillsTab({ agentId, canManage }: SkillsTabProps) {
                                 const isExpanded = expandedSkill === item.path;
                                 return (
                                     <div key={item.path} className="card p-3.5">
-                                        <div className="flex items-center gap-3 cursor-pointer"
-                                             onClick={() => setExpandedSkill(isExpanded ? null : item.path)}>
-                                            <span>{item.is_dir ? '\uD83D\uDCC1' : '\uD83D\uDCC4'}</span>
+                                        <button type="button" className="flex items-center gap-3 cursor-pointer w-full bg-transparent border-none text-left p-0"
+                                             onClick={() => setExpandedSkill(isExpanded ? null : item.path)}
+                                             aria-expanded={isExpanded}>
+                                            <span aria-hidden="true">{item.is_dir ? '\uD83D\uDCC1' : '\uD83D\uDCC4'}</span>
                                             <div className="flex-1">
                                                 <div className="font-medium text-[13px]">{item.name}</div>
                                                 <div className="text-xs text-content-tertiary">
                                                     {item.is_dir ? t('agent.skills.folderFormat') : t('agent.skills.flatFormat')}
                                                 </div>
                                             </div>
-                                            <span className="text-xs text-[var(--success)]">{'\u2713'}</span>
-                                            <span className="text-[11px] text-content-tertiary">{isExpanded ? '\u25BC' : '\u25B6'}</span>
-                                        </div>
+                                            <span className="text-xs text-[var(--success)]" aria-hidden="true">{'\u2713'}</span>
+                                            <span className="text-[11px] text-content-tertiary" aria-hidden="true">{isExpanded ? '\u25BC' : '\u25B6'}</span>
+                                        </button>
                                         {isExpanded && (
                                             <div className="mt-3 p-3 bg-surface-secondary rounded-lg">
                                                 {item.is_dir ? (
@@ -139,10 +140,10 @@ export function SkillsTab({ agentId, canManage }: SkillsTabProps) {
                     {/* ClawHub modal */}
                     {showAgentClawhub && (
                         <div className="fixed inset-0 bg-black/50 z-[1000] flex items-center justify-center" onClick={() => setShowAgentClawhub(false)}>
-                            <div onClick={e => e.stopPropagation()} className="bg-surface-primary rounded-xl p-6 max-w-[600px] w-[90%] max-h-[70vh] flex flex-col shadow-[0_20px_60px_rgba(0,0,0,0.3)]">
+                            <div role="dialog" aria-modal="true" aria-label={t('agent.capability.skillsLibrary')} onClick={e => e.stopPropagation()} className="bg-surface-primary rounded-xl p-6 max-w-[600px] w-[90%] max-h-[70vh] flex flex-col shadow-[0_20px_60px_rgba(0,0,0,0.3)]">
                                 <div className="flex justify-between items-center mb-3">
                                     <h3>{t('agent.capability.skillsLibrary')}</h3>
-                                    <button onClick={() => setShowAgentClawhub(false)} className="bg-transparent border-none text-lg cursor-pointer text-content-secondary px-2 py-1">x</button>
+                                    <button onClick={() => setShowAgentClawhub(false)} className="bg-transparent border-none text-lg cursor-pointer text-content-secondary px-2 py-1" aria-label={t('common.close', 'Close')}><span aria-hidden="true">x</span></button>
                                 </div>
                                 <div className="flex gap-2 mb-4">
                                     <input className="input flex-1 text-[13px]" placeholder={t('common.search')} value={agentClawhubQuery} onChange={e => setAgentClawhubQuery(e.target.value)}
@@ -177,10 +178,10 @@ export function SkillsTab({ agentId, canManage }: SkillsTabProps) {
                     {/* URL import modal */}
                     {showAgentUrlImport && (
                         <div className="fixed inset-0 bg-black/50 z-[1000] flex items-center justify-center" onClick={() => setShowAgentUrlImport(false)}>
-                            <div onClick={e => e.stopPropagation()} className="bg-surface-primary rounded-xl p-6 max-w-[500px] w-[90%] shadow-[0_20px_60px_rgba(0,0,0,0.3)]">
+                            <div role="dialog" aria-modal="true" aria-label={t('agent.capability.skillsUrl')} onClick={e => e.stopPropagation()} className="bg-surface-primary rounded-xl p-6 max-w-[500px] w-[90%] shadow-[0_20px_60px_rgba(0,0,0,0.3)]">
                                 <div className="flex justify-between items-center mb-3">
                                     <h3>{t('agent.capability.skillsUrl')}</h3>
-                                    <button onClick={() => setShowAgentUrlImport(false)} className="bg-transparent border-none text-lg cursor-pointer text-content-secondary px-2 py-1">x</button>
+                                    <button onClick={() => setShowAgentUrlImport(false)} className="bg-transparent border-none text-lg cursor-pointer text-content-secondary px-2 py-1" aria-label={t('common.close', 'Close')}><span aria-hidden="true">x</span></button>
                                 </div>
                                 <input className="input w-full text-[13px] mb-3 box-border" placeholder="https://github.com/owner/repo/tree/main/path/to/skill" value={agentUrlInput} onChange={e => setAgentUrlInput(e.target.value)} />
                                 <div className="flex justify-end gap-2">
@@ -197,10 +198,10 @@ export function SkillsTab({ agentId, canManage }: SkillsTabProps) {
                     {/* Preset import modal */}
                     {showImportSkillModal && (
                         <div className="fixed inset-0 bg-black/50 z-[1000] flex items-center justify-center" onClick={() => setShowImportSkillModal(false)}>
-                            <div onClick={e => e.stopPropagation()} className="bg-surface-primary rounded-xl p-6 max-w-[600px] w-[90%] max-h-[70vh] flex flex-col shadow-[0_20px_60px_rgba(0,0,0,0.3)]">
+                            <div role="dialog" aria-modal="true" aria-label={t('agent.capability.skillsPreset')} onClick={e => e.stopPropagation()} className="bg-surface-primary rounded-xl p-6 max-w-[600px] w-[90%] max-h-[70vh] flex flex-col shadow-[0_20px_60px_rgba(0,0,0,0.3)]">
                                 <div className="flex justify-between items-center mb-3">
                                     <h3>{t('agent.capability.skillsPreset')}</h3>
-                                    <button onClick={() => setShowImportSkillModal(false)} className="bg-transparent border-none text-lg cursor-pointer text-content-secondary px-2 py-1">x</button>
+                                    <button onClick={() => setShowImportSkillModal(false)} className="bg-transparent border-none text-lg cursor-pointer text-content-secondary px-2 py-1" aria-label={t('common.close', 'Close')}><span aria-hidden="true">x</span></button>
                                 </div>
                                 <div className="flex-1 overflow-y-auto">
                                     {!globalSkillsForImport ? (
@@ -212,7 +213,7 @@ export function SkillsTab({ agentId, canManage }: SkillsTabProps) {
                                             <div key={skill.id}
                                                 className="flex items-center justify-between px-3.5 py-3 rounded-lg mb-2 border border-edge-subtle bg-surface-secondary transition-colors duration-150 hover:border-accent-primary">
                                                 <div className="flex items-center gap-2.5 flex-1">
-                                                    <span className="text-xl">{skill.icon || '\uD83D\uDCCB'}</span>
+                                                    <span className="text-xl" aria-hidden="true">{skill.icon || '\uD83D\uDCCB'}</span>
                                                     <div>
                                                         <div className="font-semibold text-sm">{skill.name}</div>
                                                         <div className="text-xs text-content-tertiary mt-0.5">{skill.description?.substring(0, 100)}{skill.description?.length > 100 ? '...' : ''}</div>
@@ -282,7 +283,7 @@ export function SkillsTab({ agentId, canManage }: SkillsTabProps) {
                         </div>
                         <details className="card">
                             <summary className="cursor-pointer font-semibold text-sm list-none flex items-center gap-2">
-                                <span className="transition-transform duration-150 inline-block text-xs">{'\u25B6'}</span>
+                                <span className="transition-transform duration-150 inline-block text-xs" aria-hidden="true">{'\u25B6'}</span>
                                 enterprise_info/
                             </summary>
                             <div className="mt-3">

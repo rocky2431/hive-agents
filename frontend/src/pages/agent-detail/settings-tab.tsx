@@ -308,9 +308,9 @@ export function SettingsTab({ agentId, agent, canManage }: SettingsTabProps) {
                 <div className="sticky top-0 z-10 flex items-center justify-between bg-surface-primary pt-1 pb-3 mb-4 border-b border-edge-subtle">
                     <h3 className="m-0">{t('agent.settings.title')}</h3>
                     <div className="flex items-center gap-2.5">
-                        {settingsSaved && <span className="text-xs text-[var(--success)]">{t('agent.settings.saved', 'Saved')}</span>}
+                        {settingsSaved && <span className="text-xs text-[var(--success)]" role="status" aria-live="polite">{t('agent.settings.saved', 'Saved')}</span>}
                         {settingsError && (
-                            <span className={`text-xs whitespace-pre-line ${settingsError.includes('adjusted') ? 'text-[var(--warning)]' : 'text-[var(--error)]'}`}>
+                            <span role="alert" className={`text-xs whitespace-pre-line ${settingsError.includes('adjusted') ? 'text-[var(--warning)]' : 'text-[var(--error)]'}`}>
                                 {settingsError}
                             </span>
                         )}
@@ -332,8 +332,9 @@ export function SettingsTab({ agentId, agent, canManage }: SettingsTabProps) {
                     <h4 className="mb-3">{t('agent.settings.profile', 'Profile')}</h4>
                     <div className="flex flex-col gap-3">
                         <div>
-                            <label className="block text-[13px] font-medium mb-1.5">{t('agent.settings.bio', 'Bio / Background')}</label>
+                            <label htmlFor="settings-bio" className="block text-[13px] font-medium mb-1.5">{t('agent.settings.bio', 'Bio / Background')}</label>
                             <textarea
+                                id="settings-bio"
                                 className="input w-full min-h-[60px] resize-y font-[inherit] text-[13px]"
                                 rows={3}
                                 value={settingsForm.bio}
@@ -342,8 +343,9 @@ export function SettingsTab({ agentId, agent, canManage }: SettingsTabProps) {
                             />
                         </div>
                         <div>
-                            <label className="block text-[13px] font-medium mb-1.5">{t('agent.settings.avatarUrl', 'Avatar URL')}</label>
+                            <label htmlFor="settings-avatar-url" className="block text-[13px] font-medium mb-1.5">{t('agent.settings.avatarUrl', 'Avatar URL')}</label>
                             <input
+                                id="settings-avatar-url"
                                 className="input w-full"
                                 type="text"
                                 value={settingsForm.avatar_url}
@@ -360,10 +362,11 @@ export function SettingsTab({ agentId, agent, canManage }: SettingsTabProps) {
                     <h4 className="mb-3">{t('agent.settings.governance', 'Governance')}</h4>
                     <div className="grid grid-cols-2 gap-3">
                         <div>
-                            <label className="block text-[13px] font-medium mb-1.5">
+                            <label htmlFor="settings-agent-class" className="block text-[13px] font-medium mb-1.5">
                                 {t('agent.settings.agentClass', 'Agent class')}
                             </label>
                             <select
+                                id="settings-agent-class"
                                 className="input"
                                 value={settingsForm.agent_class}
                                 onChange={(e) => setSettingsForm(f => ({ ...f, agent_class: e.target.value }))}
@@ -375,10 +378,11 @@ export function SettingsTab({ agentId, agent, canManage }: SettingsTabProps) {
                             </select>
                         </div>
                         <div>
-                            <label className="block text-[13px] font-medium mb-1.5">
+                            <label htmlFor="settings-security-zone" className="block text-[13px] font-medium mb-1.5">
                                 {t('agent.settings.securityZone', 'Security zone')}
                             </label>
                             <select
+                                id="settings-security-zone"
                                 className="input"
                                 value={settingsForm.security_zone}
                                 onChange={(e) => setSettingsForm(f => ({ ...f, security_zone: e.target.value }))}
@@ -397,8 +401,9 @@ export function SettingsTab({ agentId, agent, canManage }: SettingsTabProps) {
                     <h4 className="mb-3">{t('agent.settings.modelConfig')}</h4>
                     <div className="flex flex-col gap-3">
                         <div>
-                            <label className="block text-[13px] font-medium mb-1.5">{t('agent.settings.primaryModel')}</label>
+                            <label htmlFor="settings-primary-model" className="block text-[13px] font-medium mb-1.5">{t('agent.settings.primaryModel')}</label>
                             <select
+                                id="settings-primary-model"
                                 className="input"
                                 value={settingsForm.primary_model_id}
                                 onChange={(e) => setSettingsForm(f => ({ ...f, primary_model_id: e.target.value }))}
@@ -411,8 +416,9 @@ export function SettingsTab({ agentId, agent, canManage }: SettingsTabProps) {
                             <div className="text-[11px] text-content-tertiary mt-1">{t('agent.settings.primaryModel')}</div>
                         </div>
                         <div>
-                            <label className="block text-[13px] font-medium mb-1.5">{t('agent.settings.fallbackModel')}</label>
+                            <label htmlFor="settings-fallback-model" className="block text-[13px] font-medium mb-1.5">{t('agent.settings.fallbackModel')}</label>
                             <select
+                                id="settings-fallback-model"
                                 className="input"
                                 value={settingsForm.fallback_model_id}
                                 onChange={(e) => setSettingsForm(f => ({ ...f, fallback_model_id: e.target.value }))}
@@ -433,8 +439,9 @@ export function SettingsTab({ agentId, agent, canManage }: SettingsTabProps) {
                 <div className="card mb-3">
                     <h4 className="mb-3">{t('agent.settings.conversationContext')}</h4>
                     <div>
-                        <label className="block text-[13px] font-medium mb-1.5">{t('agent.settings.maxRounds')}</label>
+                        <label htmlFor="settings-max-rounds" className="block text-[13px] font-medium mb-1.5">{t('agent.settings.maxRounds')}</label>
                         <input
+                            id="settings-max-rounds"
                             className="input w-[120px]"
                             type="number"
                             min={10}
@@ -450,8 +457,9 @@ export function SettingsTab({ agentId, agent, canManage }: SettingsTabProps) {
                 <div className="card mb-3">
                     <h4 className="mb-3">{t('agent.settings.maxToolRounds', 'Max Tool Call Rounds')}</h4>
                     <div>
-                        <label className="block text-[13px] font-medium mb-1.5">{t('agent.settings.maxToolRoundsLabel', 'Maximum rounds per message')}</label>
+                        <label htmlFor="settings-max-tool-rounds" className="block text-[13px] font-medium mb-1.5">{t('agent.settings.maxToolRoundsLabel', 'Maximum rounds per message')}</label>
                         <input
+                            id="settings-max-tool-rounds"
                             className="input w-[120px]"
                             type="number"
                             min={5}
@@ -469,8 +477,9 @@ export function SettingsTab({ agentId, agent, canManage }: SettingsTabProps) {
                     <h4 className="mb-3">{t('agent.settings.tokenLimits')}</h4>
                     <div className="grid grid-cols-2 gap-3">
                         <div>
-                            <label className="block text-[13px] font-medium mb-1.5">{t('agent.settings.dailyLimit')}</label>
+                            <label htmlFor="settings-daily-limit" className="block text-[13px] font-medium mb-1.5">{t('agent.settings.dailyLimit')}</label>
                             <input
+                                id="settings-daily-limit"
                                 className="input"
                                 type="number"
                                 value={settingsForm.max_tokens_per_day}
@@ -482,8 +491,9 @@ export function SettingsTab({ agentId, agent, canManage }: SettingsTabProps) {
                             </div>
                         </div>
                         <div>
-                            <label className="block text-[13px] font-medium mb-1.5">{t('agent.settings.monthlyLimit')}</label>
+                            <label htmlFor="settings-monthly-limit" className="block text-[13px] font-medium mb-1.5">{t('agent.settings.monthlyLimit')}</label>
                             <input
+                                id="settings-monthly-limit"
                                 className="input"
                                 type="number"
                                 value={settingsForm.max_tokens_per_month}
@@ -506,10 +516,11 @@ export function SettingsTab({ agentId, agent, canManage }: SettingsTabProps) {
                         </p>
                         <div className="grid grid-cols-3 gap-3">
                             <div>
-                                <label className="block text-[13px] font-medium mb-1.5">
+                                <label htmlFor="settings-max-triggers" className="block text-[13px] font-medium mb-1.5">
                                     {t('agentDetail.maxTriggers')}
                                 </label>
                                 <input
+                                    id="settings-max-triggers"
                                     className="input w-full"
                                     type="number"
                                     min={1}
@@ -522,10 +533,11 @@ export function SettingsTab({ agentId, agent, canManage }: SettingsTabProps) {
                                 </div>
                             </div>
                             <div>
-                                <label className="block text-[13px] font-medium mb-1.5">
+                                <label htmlFor="settings-min-poll" className="block text-[13px] font-medium mb-1.5">
                                     {t('agentDetail.minPollInterval')}
                                 </label>
                                 <input
+                                    id="settings-min-poll"
                                     className="input w-full"
                                     type="number"
                                     min={1}
@@ -538,10 +550,11 @@ export function SettingsTab({ agentId, agent, canManage }: SettingsTabProps) {
                                 </div>
                             </div>
                             <div>
-                                <label className="block text-[13px] font-medium mb-1.5">
+                                <label htmlFor="settings-webhook-rate" className="block text-[13px] font-medium mb-1.5">
                                     {t('agentDetail.webhookRateLimit')}
                                 </label>
                                 <input
+                                    id="settings-webhook-rate"
                                     className="input w-full"
                                     type="number"
                                     min={1}
@@ -561,7 +574,7 @@ export function SettingsTab({ agentId, agent, canManage }: SettingsTabProps) {
                 <div className="card mb-3">
                     <div className="flex items-center justify-between mb-1">
                         <h4 className="m-0">{t('agentDetail.welcomeMessage')}</h4>
-                        {wmSaved && <span className="text-xs text-[var(--success)]">&#10003; {t('agentDetail.saved')}</span>}
+                        {wmSaved && <span className="text-xs text-[var(--success)]" role="status" aria-live="polite">&#10003; {t('agentDetail.saved')}</span>}
                     </div>
                     <p className="text-xs text-content-tertiary mb-3">
                         {t('agentDetail.welcomeMessageDesc', 'Greeting message sent automatically when a user starts a new web conversation. Supports Markdown. Leave empty to disable.')}
@@ -747,6 +760,7 @@ export function SettingsTab({ agentId, agent, canManage }: SettingsTabProps) {
                             <label className={cn('relative inline-block w-[44px] h-[24px]', canManage ? 'cursor-pointer' : 'cursor-default')}>
                                 <input
                                     type="checkbox"
+                                    aria-label={t('agent.settings.heartbeat.enabled', 'Enable Heartbeat')}
                                     checked={agent?.heartbeat_enabled ?? true}
                                     disabled={!canManage}
                                     onChange={async (e) => {
@@ -967,6 +981,8 @@ export function SettingsTab({ agentId, agent, canManage }: SettingsTabProps) {
             {/* Toast notification */}
             {uploadToast && (
                 <div
+                    role="alert"
+                    aria-live="assertive"
                     className={cn(
                         'fixed top-5 right-5 z-[20000] px-5 py-3 rounded-lg text-white text-sm font-medium shadow-lg',
                         uploadToast.type === 'success' ? 'bg-green-500/90' : 'bg-red-500/90',

@@ -77,7 +77,7 @@ export function ActivityTab({ agentId, agent }: ActivityTabProps) {
                 {filterBtn('backend', '\u2699\uFE0F ' + t('agent.activityLog.backendServices', 'Backend Services'))}
                 {(logFilter === 'backend' || logFilter === 'heartbeat' || logFilter === 'schedule' || logFilter === 'messages') && (
                     <>
-                        <span className="text-content-tertiary text-[11px]">{'\u2502'}</span>
+                        <span className="text-content-tertiary text-[11px]" aria-hidden="true">{'\u2502'}</span>
                         {filterBtn('heartbeat', '\uD83D\uDC93 Heartbeat', true)}
                         {filterBtn('schedule', '\u23F0 Schedule/Cron', true)}
                         {filterBtn('messages', '\uD83D\uDCE8 Messages', true)}
@@ -101,7 +101,11 @@ export function ActivityTab({ agentId, agent }: ActivityTabProps) {
                         const isExpanded = expandedLogId === log.id;
                         return (
                             <div key={log.id}
+                                role="button"
+                                tabIndex={0}
+                                aria-expanded={isExpanded}
                                 onClick={() => setExpandedLogId(isExpanded ? null : log.id)}
+                                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpandedLogId(isExpanded ? null : log.id); } }}
                                 className={`p-[10px_14px] rounded-lg cursor-pointer text-[13px] transition-all duration-150 ${
                                     isExpanded
                                         ? 'bg-[var(--bg-elevated)] border border-accent-primary'
@@ -109,7 +113,7 @@ export function ActivityTab({ agentId, agent }: ActivityTabProps) {
                                 }`}
                             >
                                 <div className="flex items-start gap-2.5">
-                                    <span className="text-base shrink-0 mt-px">
+                                    <span className="text-base shrink-0 mt-px" aria-hidden="true">
                                         {icons[log.action_type] || '\u00B7'}
                                     </span>
                                     <div className="flex-1 min-w-0">

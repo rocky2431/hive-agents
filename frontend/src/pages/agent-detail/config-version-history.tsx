@@ -43,7 +43,7 @@ export function ConfigVersionHistory({ agentId }: ConfigVersionHistoryProps) {
     return (
         <details className="card mb-3">
             <summary className="cursor-pointer font-semibold text-sm list-none flex items-center gap-2">
-                <span>&#9656;</span> {t('agentDetail.configHistory', 'Config History')}
+                <span aria-hidden="true">&#9656;</span> {t('agentDetail.configHistory', 'Config History')}
                 <span className="text-[11px] text-content-tertiary font-normal">({configHistory.length})</span>
             </summary>
             <p className="text-xs text-content-tertiary mt-2 mb-3">
@@ -51,10 +51,10 @@ export function ConfigVersionHistory({ agentId }: ConfigVersionHistoryProps) {
             </p>
             <div className="flex flex-col gap-1.5">
                 {configHistory.map((rev: any) => (
-                    <div key={rev.version} className={cn(
+                    <div key={rev.version} role="button" tabIndex={0} aria-expanded={expandedVersion === rev.version} className={cn(
                         'px-3 py-2.5 rounded-md border border-edge-subtle cursor-pointer',
                         expandedVersion === rev.version ? 'bg-surface-secondary' : 'bg-surface-elevated',
-                    )} onClick={() => setExpandedVersion(expandedVersion === rev.version ? null : rev.version)}>
+                    )} onClick={() => setExpandedVersion(expandedVersion === rev.version ? null : rev.version)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpandedVersion(expandedVersion === rev.version ? null : rev.version); } }}>
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
                                 <span className="font-semibold text-[13px]">v{rev.version}</span>

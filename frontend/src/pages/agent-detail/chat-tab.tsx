@@ -649,8 +649,9 @@ export function ChatTab({ agentId, agent, canManage }: ChatTabProps) {
                                         className="del-btn absolute top-1 right-1 bg-transparent border-none cursor-pointer px-1 py-0.5 opacity-0 text-sm text-content-tertiary leading-none transition-opacity hover:!opacity-100 hover:!text-status-error"
                                         onClick={(e) => { e.stopPropagation(); deleteSession(s.id); }}
                                         title={t('chat.deleteSession', 'Delete session')}
+                                        aria-label={t('chat.deleteSession', 'Delete session')}
                                     >
-                                        {'\u00D7'}
+                                        <span aria-hidden="true">{'\u00D7'}</span>
                                     </button>
                                 </div>
                             );
@@ -733,7 +734,7 @@ export function ChatTab({ agentId, agent, canManage }: ChatTabProps) {
                 ) : (activeSession.user_id && currentUser && activeSession.user_id !== String(currentUser.id)) || activeSession.source_channel === 'agent' || activeSession.participant_type === 'agent' ? (
                     /* ── Read-only history view ── */
                     <>
-                        <div ref={historyContainerRef} onScroll={handleHistoryScroll} className="flex-1 overflow-y-auto px-4 py-3">
+                        <div ref={historyContainerRef} onScroll={handleHistoryScroll} className="flex-1 overflow-y-auto px-4 py-3" role="log" aria-label="Chat history">
                             <div className="text-[11px] text-content-tertiary mb-3 px-2 py-1 bg-surface-secondary rounded inline-block">
                                 {activeSession.source_channel === 'agent' ? `\uD83E\uDD16 Agent Conversation \u00B7 ${activeSession.username || 'Agents'}` : `Read-only \u00B7 ${activeSession.username || 'User'}`}
                             </div>
@@ -780,15 +781,16 @@ export function ChatTab({ agentId, agent, canManage }: ChatTabProps) {
                                 className="absolute bottom-5 right-5 w-8 h-8 rounded-full bg-surface-elevated border border-edge-default text-content-secondary cursor-pointer flex items-center justify-center text-base z-10"
                                 style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.3)' }}
                                 title="Scroll to bottom"
+                                aria-label="Scroll to bottom"
                             >
-                                {'\u2193'}
+                                <span aria-hidden="true">{'\u2193'}</span>
                             </button>
                         )}
                     </>
                 ) : (
                     /* ── Live WebSocket chat (own session) ── */
                     <>
-                        <div ref={chatContainerRef} onScroll={handleChatScroll} className="flex-1 overflow-y-auto px-4 py-3">
+                        <div ref={chatContainerRef} onScroll={handleChatScroll} className="flex-1 overflow-y-auto px-4 py-3" role="log" aria-label="Live chat">
                             {chatMessages.length === 0 && (
                                 <div className="text-center py-15 px-5 text-content-tertiary">
                                     <div className="text-[13px] mb-1">{activeSession?.title || t('agent.chat.startChat')}</div>
@@ -864,18 +866,19 @@ export function ChatTab({ agentId, agent, canManage }: ChatTabProps) {
                                 className="absolute bottom-[70px] right-5 w-8 h-8 rounded-full bg-surface-elevated border border-edge-default text-content-secondary cursor-pointer flex items-center justify-center text-base z-10"
                                 style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.3)' }}
                                 title="Scroll to bottom"
+                                aria-label="Scroll to bottom"
                             >
-                                {'\u2193'}
+                                <span aria-hidden="true">{'\u2193'}</span>
                             </button>
                         )}
                         {agentExpired ? (
-                            <div className="px-4 py-[7px] border-t border-[rgba(245,158,11,0.3)] bg-[rgba(245,158,11,0.08)] flex items-center gap-2 text-xs text-[rgb(180,100,0)]">
-                                <span>{'\u23F8'}</span>
+                            <div role="alert" className="px-4 py-[7px] border-t border-[rgba(245,158,11,0.3)] bg-[rgba(245,158,11,0.08)] flex items-center gap-2 text-xs text-[rgb(180,100,0)]">
+                                <span aria-hidden="true">{'\u23F8'}</span>
                                 <span>This Agent has <strong>expired</strong> and is off duty. Contact your admin to extend its service.</span>
                             </div>
                         ) : !wsConnected && (!activeSession?.user_id || !currentUser || activeSession.user_id === String(currentUser?.id)) ? (
-                            <div className="px-4 py-[3px] flex items-center gap-1.5 text-[11px] text-content-tertiary">
-                                <span className="inline-block w-[5px] h-[5px] rounded-full bg-accent-primary opacity-80 animate-pulse" />
+                            <div role="status" aria-live="polite" className="px-4 py-[3px] flex items-center gap-1.5 text-[11px] text-content-tertiary">
+                                <span className="inline-block w-[5px] h-[5px] rounded-full bg-accent-primary opacity-80 animate-pulse" aria-hidden="true" />
                                 Connecting...
                             </div>
                         ) : null}
@@ -889,7 +892,7 @@ export function ChatTab({ agentId, agent, canManage }: ChatTabProps) {
                                             <span>{'\uD83D\uDCCE'}</span>
                                         )}
                                         <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{file.name}</span>
-                                        <button onClick={() => setAttachedFiles(prev => prev.filter((_, i) => i !== idx))} className="bg-transparent border-none text-content-tertiary cursor-pointer text-sm px-0.5" title="Remove file">{'\u2715'}</button>
+                                        <button onClick={() => setAttachedFiles(prev => prev.filter((_, i) => i !== idx))} className="bg-transparent border-none text-content-tertiary cursor-pointer text-sm px-0.5" title="Remove file" aria-label={`Remove ${file.name}`}><span aria-hidden="true">{'\u2715'}</span></button>
                                     </div>
                                 ))}
                             </div>
@@ -900,8 +903,9 @@ export function ChatTab({ agentId, agent, canManage }: ChatTabProps) {
                                 className={`btn btn-secondary px-2.5 py-1.5 text-sm min-w-0 ${(!wsConnected || uploading || isWaiting || isStreaming) ? 'cursor-not-allowed opacity-40' : ''}`}
                                 onClick={() => fileInputRef.current?.click()}
                                 disabled={!wsConnected || uploading || isWaiting || isStreaming || attachedFiles.length >= 10}
+                                aria-label={uploading ? t('common.loading') : t('agent.chat.attachFile', 'Attach file')}
                             >
-                                {uploading ? '\u23F3' : '\u29B9'}
+                                <span aria-hidden="true">{uploading ? '\u23F3' : '\u29B9'}</span>
                             </button>
                             {uploading && uploadProgress >= 0 && (
                                 <div className="flex items-center gap-1.5 flex-[0_0_140px]">
@@ -918,7 +922,7 @@ export function ChatTab({ agentId, agent, canManage }: ChatTabProps) {
                                             <span className="text-[11px] text-content-tertiary whitespace-nowrap">Processing...</span>
                                         </div>
                                     )}
-                                    <button onClick={() => { uploadAbortRef.current?.(); }} className="bg-transparent border-none text-content-tertiary cursor-pointer text-xs px-0.5 leading-none" title="Cancel upload">{'\u2715'}</button>
+                                    <button onClick={() => { uploadAbortRef.current?.(); }} className="bg-transparent border-none text-content-tertiary cursor-pointer text-xs px-0.5 leading-none" title="Cancel upload" aria-label="Cancel upload"><span aria-hidden="true">{'\u2715'}</span></button>
                                 </div>
                             )}
                             <input
@@ -933,8 +937,8 @@ export function ChatTab({ agentId, agent, canManage }: ChatTabProps) {
                                 autoFocus
                             />
                             {(isStreaming || isWaiting) ? (
-                                <button className="btn btn-stop-generation px-4 py-1.5" onClick={() => { if (wsRef.current?.readyState === WebSocket.OPEN) { wsRef.current.send(JSON.stringify({ type: 'abort' })); setIsStreaming(false); setIsWaiting(false); } }} title={t('chat.stop', 'Stop')}>
-                                    <span className="stop-icon" />
+                                <button className="btn btn-stop-generation px-4 py-1.5" onClick={() => { if (wsRef.current?.readyState === WebSocket.OPEN) { wsRef.current.send(JSON.stringify({ type: 'abort' })); setIsStreaming(false); setIsWaiting(false); } }} title={t('chat.stop', 'Stop')} aria-label={t('chat.stop', 'Stop generation')}>
+                                    <span className="stop-icon" aria-hidden="true" />
                                 </button>
                             ) : (
                                 <button className="btn btn-primary px-4 py-1.5" onClick={sendChatMsg} disabled={!wsConnected || (!chatInput.trim() && attachedFiles.length === 0)}>{t('chat.send')}</button>

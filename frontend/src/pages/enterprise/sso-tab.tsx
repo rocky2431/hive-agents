@@ -61,26 +61,26 @@ export function SsoTab({ selectedTenantId }: { selectedTenantId?: string }) {
 
                 <div className="flex flex-col gap-3">
                     <div className="form-group">
-                        <label className="form-label">{t('enterprise.sso.issuerUrl')}</label>
-                        <input className="form-input" value={ssoForm.issuer_url} onChange={e => setSsoForm(f => ({ ...f, issuer_url: e.target.value }))} placeholder={t('enterprise.sso.issuerUrlPlaceholder')} />
+                        <label htmlFor="sso-issuer-url" className="form-label">{t('enterprise.sso.issuerUrl')}</label>
+                        <input id="sso-issuer-url" className="form-input" value={ssoForm.issuer_url} onChange={e => setSsoForm(f => ({ ...f, issuer_url: e.target.value }))} placeholder={t('enterprise.sso.issuerUrlPlaceholder')} autoComplete="url" spellCheck={false} />
                     </div>
                     <div className="flex gap-3">
                         <div className="form-group flex-1">
-                            <label className="form-label">{t('enterprise.sso.clientId')}</label>
-                            <input className="form-input" value={ssoForm.client_id} onChange={e => setSsoForm(f => ({ ...f, client_id: e.target.value }))} placeholder={t('enterprise.sso.clientIdPlaceholder')} />
+                            <label htmlFor="sso-client-id" className="form-label">{t('enterprise.sso.clientId')}</label>
+                            <input id="sso-client-id" className="form-input" value={ssoForm.client_id} onChange={e => setSsoForm(f => ({ ...f, client_id: e.target.value }))} placeholder={t('enterprise.sso.clientIdPlaceholder')} autoComplete="off" spellCheck={false} />
                         </div>
                         <div className="form-group flex-1">
-                            <label className="form-label">{t('enterprise.sso.clientSecret')}</label>
-                            <input className="form-input" type="password" value={ssoForm.client_secret} onChange={e => setSsoForm(f => ({ ...f, client_secret: e.target.value }))} placeholder={t('enterprise.sso.clientSecretPlaceholder')} />
+                            <label htmlFor="sso-client-secret" className="form-label">{t('enterprise.sso.clientSecret')}</label>
+                            <input id="sso-client-secret" className="form-input" type="password" value={ssoForm.client_secret} onChange={e => setSsoForm(f => ({ ...f, client_secret: e.target.value }))} placeholder={t('enterprise.sso.clientSecretPlaceholder')} autoComplete="off" />
                         </div>
                     </div>
                     <div className="form-group">
-                        <label className="form-label">{t('enterprise.sso.scopes')}</label>
-                        <input className="form-input" value={ssoForm.scopes} onChange={e => setSsoForm(f => ({ ...f, scopes: e.target.value }))} placeholder={t('enterprise.sso.scopesPlaceholder')} />
+                        <label htmlFor="sso-scopes" className="form-label">{t('enterprise.sso.scopes')}</label>
+                        <input id="sso-scopes" className="form-input" value={ssoForm.scopes} onChange={e => setSsoForm(f => ({ ...f, scopes: e.target.value }))} placeholder={t('enterprise.sso.scopesPlaceholder')} autoComplete="off" spellCheck={false} />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">{t('enterprise.sso.displayName')}</label>
-                        <input className="form-input" value={ssoForm.display_name} onChange={e => setSsoForm(f => ({ ...f, display_name: e.target.value }))} placeholder={t('enterprise.sso.displayNamePlaceholder')} />
+                        <label htmlFor="sso-display-name" className="form-label">{t('enterprise.sso.displayName')}</label>
+                        <input id="sso-display-name" className="form-input" value={ssoForm.display_name} onChange={e => setSsoForm(f => ({ ...f, display_name: e.target.value }))} placeholder={t('enterprise.sso.displayNamePlaceholder')} autoComplete="off" />
                     </div>
                     <div className="flex items-center gap-2">
                         <input type="checkbox" id="sso-auto-provision" checked={ssoForm.auto_provision} onChange={e => setSsoForm(f => ({ ...f, auto_provision: e.target.checked }))} />

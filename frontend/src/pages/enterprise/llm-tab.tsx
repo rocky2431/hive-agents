@@ -88,8 +88,8 @@ function ModelForm({
             <h3 className="mb-4">{editingModelId ? 'Edit Model' : t('enterprise.llm.addModel')}</h3>
             <div className="grid grid-cols-2 gap-3">
                 <div className="form-group">
-                    <label className="form-label">Provider</label>
-                    <select className="form-input" value={form.provider} onChange={e => handleProviderChange(e.target.value)}>
+                    <label htmlFor="llm-provider" className="form-label">Provider</label>
+                    <select id="llm-provider" className="form-input" value={form.provider} onChange={e => handleProviderChange(e.target.value)}>
                         {providerOptions.map(p => (
                             <option key={p.provider} value={p.provider}>{p.display_name}</option>
                         ))}
@@ -99,25 +99,28 @@ function ModelForm({
                     </select>
                 </div>
                 <div className="form-group">
-                    <label className="form-label">Model</label>
-                    <input className="form-input" placeholder="claude-sonnet-4-5" value={form.model} onChange={e => setForm(f => ({ ...f, model: e.target.value }))} />
+                    <label htmlFor="llm-model" className="form-label">Model</label>
+                    <input id="llm-model" className="form-input" placeholder="claude-sonnet-4-5" value={form.model} onChange={e => setForm(f => ({ ...f, model: e.target.value }))} autoComplete="off" spellCheck={false} />
                 </div>
                 <div className="form-group">
-                    <label className="form-label">{t('enterprise.llm.label')}</label>
-                    <input className="form-input" placeholder="Claude Sonnet" value={form.label} onChange={e => setForm(f => ({ ...f, label: e.target.value }))} />
+                    <label htmlFor="llm-label" className="form-label">{t('enterprise.llm.label')}</label>
+                    <input id="llm-label" className="form-input" placeholder="Claude Sonnet" value={form.label} onChange={e => setForm(f => ({ ...f, label: e.target.value }))} autoComplete="off" />
                 </div>
                 <div className="form-group">
-                    <label className="form-label">{t('enterprise.llm.baseUrl')}</label>
-                    <input className="form-input" placeholder="https://api.custom.com/v1" value={form.base_url} onChange={e => setForm(f => ({ ...f, base_url: e.target.value }))} />
+                    <label htmlFor="llm-base-url" className="form-label">{t('enterprise.llm.baseUrl')}</label>
+                    <input id="llm-base-url" className="form-input" placeholder="https://api.custom.com/v1" value={form.base_url} onChange={e => setForm(f => ({ ...f, base_url: e.target.value }))} autoComplete="url" spellCheck={false} />
                 </div>
                 <div className="form-group col-span-2">
-                    <label className="form-label">API Key</label>
+                    <label htmlFor="llm-api-key" className="form-label">API Key</label>
                     <input
+                        id="llm-api-key"
                         className="form-input"
                         type="password"
                         placeholder={editingModelId ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022 (Leave blank to keep unchanged)' : 'Enter API Key'}
                         value={form.api_key}
                         onChange={e => setForm(f => ({ ...f, api_key: e.target.value }))}
+                        autoComplete="off"
+                        spellCheck={false}
                     />
                 </div>
                 <div className="form-group col-span-2">
@@ -130,13 +133,13 @@ function ModelForm({
                     </label>
                 </div>
                 <div className="form-group">
-                    <label className="form-label">Max Output Tokens</label>
-                    <input className="form-input" type="number" placeholder="Provider default" value={form.max_output_tokens} onChange={e => setForm(f => ({ ...f, max_output_tokens: e.target.value }))} />
+                    <label htmlFor="llm-max-output" className="form-label">Max Output Tokens</label>
+                    <input id="llm-max-output" className="form-input" type="number" placeholder="Provider default" value={form.max_output_tokens} onChange={e => setForm(f => ({ ...f, max_output_tokens: e.target.value }))} autoComplete="off" />
                     <div className="text-[11px] text-content-tertiary mt-1">Override the default output token limit. Auto-filled from provider; adjust as needed.</div>
                 </div>
                 <div className="form-group">
-                    <label className="form-label">Max Input Tokens (Context Window)</label>
-                    <input className="form-input" type="number" placeholder="Provider default" value={form.max_input_tokens} onChange={e => setForm(f => ({ ...f, max_input_tokens: e.target.value }))} />
+                    <label htmlFor="llm-max-input" className="form-label">Max Input Tokens (Context Window)</label>
+                    <input id="llm-max-input" className="form-input" type="number" placeholder="Provider default" value={form.max_input_tokens} onChange={e => setForm(f => ({ ...f, max_input_tokens: e.target.value }))} autoComplete="off" />
                     <div className="text-[11px] text-content-tertiary mt-1">Override the context window size. Used for conversation compression timing.</div>
                 </div>
             </div>

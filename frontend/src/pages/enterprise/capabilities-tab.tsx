@@ -82,6 +82,7 @@ export function CapabilitiesTab() {
                                             checked={requiresApproval}
                                             disabled={isSaving}
                                             onChange={e => handleCapUpsert(def.capability, isAllowed, e.target.checked)}
+                                            aria-label={`${t('enterprise.capabilities.requiresApproval')} - ${def.capability}`}
                                         />
                                     </td>
                                     <td>

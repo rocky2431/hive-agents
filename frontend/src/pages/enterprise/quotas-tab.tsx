@@ -53,14 +53,14 @@ export function QuotasTab({ selectedTenantId }: { selectedTenantId?: string }) {
                 <div className="text-xs font-semibold text-content-secondary mb-2.5">{t('enterprise.quotas.conversationLimits', 'Conversation Limits')}</div>
                 <div className="grid grid-cols-2 gap-4 mb-5">
                     <div className="form-group">
-                        <label className="form-label">{t('enterprise.quotas.messageLimit', 'Message Limit')}</label>
-                        <input className="form-input" type="number" min={0} value={quotaForm.default_message_limit}
-                            onChange={e => setQuotaForm({ ...quotaForm, default_message_limit: Number(e.target.value) })} />
+                        <label htmlFor="quota-msg-limit" className="form-label">{t('enterprise.quotas.messageLimit', 'Message Limit')}</label>
+                        <input id="quota-msg-limit" className="form-input" type="number" min={0} value={quotaForm.default_message_limit}
+                            onChange={e => setQuotaForm({ ...quotaForm, default_message_limit: Number(e.target.value) })} autoComplete="off" />
                         <div className="text-[11px] text-content-tertiary mt-1">{t('enterprise.quotas.messageLimitDesc', 'Max messages per period')}</div>
                     </div>
                     <div className="form-group">
-                        <label className="form-label">{t('enterprise.quotas.messagePeriod', 'Message Period')}</label>
-                        <select className="form-input" value={quotaForm.default_message_period}
+                        <label htmlFor="quota-msg-period" className="form-label">{t('enterprise.quotas.messagePeriod', 'Message Period')}</label>
+                        <select id="quota-msg-period" className="form-input" value={quotaForm.default_message_period}
                             onChange={e => setQuotaForm({ ...quotaForm, default_message_period: e.target.value })}>
                             <option value="permanent">{t('enterprise.quotas.permanent', 'Permanent')}</option>
                             <option value="daily">{t('enterprise.quotas.daily', 'Daily')}</option>
@@ -74,21 +74,21 @@ export function QuotasTab({ selectedTenantId }: { selectedTenantId?: string }) {
                 <div className="text-xs font-semibold text-content-secondary mb-2.5">{t('enterprise.quotas.agentLimits', 'Agent Limits')}</div>
                 <div className="grid grid-cols-3 gap-4 mb-5">
                     <div className="form-group">
-                        <label className="form-label">{t('enterprise.quotas.maxAgents', 'Max Agents')}</label>
-                        <input className="form-input" type="number" min={0} value={quotaForm.default_max_agents}
-                            onChange={e => setQuotaForm({ ...quotaForm, default_max_agents: Number(e.target.value) })} />
+                        <label htmlFor="quota-max-agents" className="form-label">{t('enterprise.quotas.maxAgents', 'Max Agents')}</label>
+                        <input id="quota-max-agents" className="form-input" type="number" min={0} value={quotaForm.default_max_agents}
+                            onChange={e => setQuotaForm({ ...quotaForm, default_max_agents: Number(e.target.value) })} autoComplete="off" />
                         <div className="text-[11px] text-content-tertiary mt-1">{t('enterprise.quotas.maxAgentsDesc', 'Agents a user can create')}</div>
                     </div>
                     <div className="form-group">
-                        <label className="form-label">{t('enterprise.quotas.agentTTL', 'Agent TTL (hours)')}</label>
-                        <input className="form-input" type="number" min={1} value={quotaForm.default_agent_ttl_hours}
-                            onChange={e => setQuotaForm({ ...quotaForm, default_agent_ttl_hours: Number(e.target.value) })} />
+                        <label htmlFor="quota-agent-ttl" className="form-label">{t('enterprise.quotas.agentTTL', 'Agent TTL (hours)')}</label>
+                        <input id="quota-agent-ttl" className="form-input" type="number" min={1} value={quotaForm.default_agent_ttl_hours}
+                            onChange={e => setQuotaForm({ ...quotaForm, default_agent_ttl_hours: Number(e.target.value) })} autoComplete="off" />
                         <div className="text-[11px] text-content-tertiary mt-1">{t('enterprise.quotas.agentTTLDesc', 'Agent auto-expiry time from creation')}</div>
                     </div>
                     <div className="form-group">
-                        <label className="form-label">{t('enterprise.quotas.dailyLLMCalls', 'Daily LLM Calls / Agent')}</label>
-                        <input className="form-input" type="number" min={0} value={quotaForm.default_max_llm_calls_per_day}
-                            onChange={e => setQuotaForm({ ...quotaForm, default_max_llm_calls_per_day: Number(e.target.value) })} />
+                        <label htmlFor="quota-daily-llm" className="form-label">{t('enterprise.quotas.dailyLLMCalls', 'Daily LLM Calls / Agent')}</label>
+                        <input id="quota-daily-llm" className="form-input" type="number" min={0} value={quotaForm.default_max_llm_calls_per_day}
+                            onChange={e => setQuotaForm({ ...quotaForm, default_max_llm_calls_per_day: Number(e.target.value) })} autoComplete="off" />
                         <div className="text-[11px] text-content-tertiary mt-1">{t('enterprise.quotas.dailyLLMCallsDesc', 'Max LLM calls per agent per day')}</div>
                     </div>
                 </div>
@@ -97,9 +97,9 @@ export function QuotasTab({ selectedTenantId }: { selectedTenantId?: string }) {
                 <div className="text-xs font-semibold text-content-secondary mb-2.5">{t('enterprise.quotas.system', 'System')}</div>
                 <div className="grid grid-cols-3 gap-4">
                     <div className="form-group">
-                        <label className="form-label">{t('enterprise.quotas.minHeartbeat', 'Min Heartbeat Interval (min)')}</label>
-                        <input className="form-input" type="number" min={1} value={quotaForm.min_heartbeat_interval_minutes}
-                            onChange={e => setQuotaForm({ ...quotaForm, min_heartbeat_interval_minutes: Number(e.target.value) })} />
+                        <label htmlFor="quota-heartbeat" className="form-label">{t('enterprise.quotas.minHeartbeat', 'Min Heartbeat Interval (min)')}</label>
+                        <input id="quota-heartbeat" className="form-input" type="number" min={1} value={quotaForm.min_heartbeat_interval_minutes}
+                            onChange={e => setQuotaForm({ ...quotaForm, min_heartbeat_interval_minutes: Number(e.target.value) })} autoComplete="off" />
                         <div className="text-[11px] text-content-tertiary mt-1">{t('enterprise.quotas.minHeartbeatDesc', 'Minimum heartbeat interval for all agents')}</div>
                     </div>
                 </div>
@@ -108,21 +108,21 @@ export function QuotasTab({ selectedTenantId }: { selectedTenantId?: string }) {
                 <div className="text-xs font-semibold text-content-secondary mb-2.5 mt-5">Trigger Limits</div>
                 <div className="grid grid-cols-3 gap-4 mb-5">
                     <div className="form-group">
-                        <label className="form-label">{t('enterprise.quotas.defaultMaxTriggers', 'Default Max Triggers')}</label>
-                        <input className="form-input" type="number" min={1} max={100} value={quotaForm.default_max_triggers}
-                            onChange={e => setQuotaForm({ ...quotaForm, default_max_triggers: Number(e.target.value) })} />
+                        <label htmlFor="quota-max-triggers" className="form-label">{t('enterprise.quotas.defaultMaxTriggers', 'Default Max Triggers')}</label>
+                        <input id="quota-max-triggers" className="form-input" type="number" min={1} max={100} value={quotaForm.default_max_triggers}
+                            onChange={e => setQuotaForm({ ...quotaForm, default_max_triggers: Number(e.target.value) })} autoComplete="off" />
                         <div className="text-[11px] text-content-tertiary mt-1">{t('enterprise.quotas.defaultMaxTriggersDesc', 'Default trigger limit for new agents')}</div>
                     </div>
                     <div className="form-group">
-                        <label className="form-label">{t('enterprise.quotas.minPollInterval', 'Min Poll Interval (min)')}</label>
-                        <input className="form-input" type="number" min={1} max={60} value={quotaForm.min_poll_interval_floor}
-                            onChange={e => setQuotaForm({ ...quotaForm, min_poll_interval_floor: Number(e.target.value) })} />
+                        <label htmlFor="quota-poll-interval" className="form-label">{t('enterprise.quotas.minPollInterval', 'Min Poll Interval (min)')}</label>
+                        <input id="quota-poll-interval" className="form-input" type="number" min={1} max={60} value={quotaForm.min_poll_interval_floor}
+                            onChange={e => setQuotaForm({ ...quotaForm, min_poll_interval_floor: Number(e.target.value) })} autoComplete="off" />
                         <div className="text-[11px] text-content-tertiary mt-1">{t('enterprise.quotas.minPollIntervalDesc', 'Company-wide floor: agents cannot poll faster than this')}</div>
                     </div>
                     <div className="form-group">
-                        <label className="form-label">{t('enterprise.quotas.maxWebhookRate', 'Max Webhook Rate (/min)')}</label>
-                        <input className="form-input" type="number" min={1} max={60} value={quotaForm.max_webhook_rate_ceiling}
-                            onChange={e => setQuotaForm({ ...quotaForm, max_webhook_rate_ceiling: Number(e.target.value) })} />
+                        <label htmlFor="quota-webhook-rate" className="form-label">{t('enterprise.quotas.maxWebhookRate', 'Max Webhook Rate (/min)')}</label>
+                        <input id="quota-webhook-rate" className="form-input" type="number" min={1} max={60} value={quotaForm.max_webhook_rate_ceiling}
+                            onChange={e => setQuotaForm({ ...quotaForm, max_webhook_rate_ceiling: Number(e.target.value) })} autoComplete="off" />
                         <div className="text-[11px] text-content-tertiary mt-1">{t('enterprise.quotas.maxWebhookRateDesc', 'Company-wide ceiling: max webhook hits per minute per agent')}</div>
                     </div>
                 </div>

@@ -95,12 +95,12 @@ export default function InvitationCodes({ tenantId: tenantIdProp }: { tenantId?:
                 <CardContent>
                     <div className="flex items-end gap-3">
                         <div className="flex-1">
-                            <Label className="text-xs text-content-tertiary">{t('enterprise.invites.count', 'Number of Codes')}</Label>
-                            <Input type="number" min={1} max={100} value={batchCount} onChange={e => setBatchCount(Number(e.target.value))} className="mt-1" />
+                            <Label htmlFor="invite-batch-count" className="text-xs text-content-tertiary">{t('enterprise.invites.count', 'Number of Codes')}</Label>
+                            <Input id="invite-batch-count" type="number" min={1} max={100} value={batchCount} onChange={e => setBatchCount(Number(e.target.value))} className="mt-1" autoComplete="off" />
                         </div>
                         <div className="flex-1">
-                            <Label className="text-xs text-content-tertiary">{t('enterprise.invites.maxUses', 'Max Uses per Code')}</Label>
-                            <Input type="number" min={1} value={maxUses} onChange={e => setMaxUses(Number(e.target.value))} className="mt-1" />
+                            <Label htmlFor="invite-max-uses" className="text-xs text-content-tertiary">{t('enterprise.invites.maxUses', 'Max Uses per Code')}</Label>
+                            <Input id="invite-max-uses" type="number" min={1} value={maxUses} onChange={e => setMaxUses(Number(e.target.value))} className="mt-1" autoComplete="off" />
                         </div>
                         <Button onClick={createBatch} disabled={creating} loading={creating} className="shrink-0">
                             {t('enterprise.invites.createBtn', 'Generate')}

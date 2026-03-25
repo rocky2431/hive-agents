@@ -196,13 +196,15 @@ export default function UserManagement() {
                     <div className={`${gridCols} px-4 py-2.5 text-[11px] font-semibold text-content-tertiary uppercase tracking-wide`}>
                         <div>{t('enterprise.users.user')}</div>
                         <div>{t('enterprise.users.email', 'Email')}</div>
-                        <div
-                            className="cursor-pointer select-none flex items-center gap-0.5"
+                        <button
+                            type="button"
+                            className="cursor-pointer select-none flex items-center gap-0.5 bg-transparent border-none p-0 text-[11px] font-semibold text-content-tertiary uppercase tracking-wide"
                             onClick={toggleSort}
                             title={t('userMgmt.sortToggle')}
+                            aria-label={t('userMgmt.sortToggle')}
                         >
                             {t('userMgmt.joined')} {sortOrder === 'asc' ? '\u2191' : '\u2193'}
-                        </div>
+                        </button>
                         <div>{t('userMgmt.source')}</div>
                         <div>{t('enterprise.users.msgQuota')}</div>
                         <div>{t('enterprise.users.period')}</div>

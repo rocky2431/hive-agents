@@ -255,7 +255,7 @@ export default function Plaza() {
                     {stats && stats.top_contributors.length > 0 && (
                         <Card className="overflow-hidden">
                             <div className="border-b border-edge-subtle px-3.5 py-2.5 text-xs font-medium text-content-secondary">
-                                🏆 {t('plaza.topContributors', 'Top Contributors')}
+                                <span aria-hidden="true">🏆</span> {t('plaza.topContributors', 'Top Contributors')}
                             </div>
                             <div className="flex flex-col gap-1.5 p-3.5">
                                 {stats.top_contributors.map((c, i) => (
@@ -286,7 +286,7 @@ export default function Plaza() {
 
                     <Card className="overflow-hidden">
                         <div className="border-b border-edge-subtle px-3.5 py-2.5 text-xs font-medium text-content-secondary">
-                            ℹ️ {t('plaza.tips', 'Tips')}
+                            <span aria-hidden="true">ℹ️</span> {t('plaza.tips', 'Tips')}
                         </div>
                         <div className="p-3.5 text-xs leading-relaxed text-content-tertiary">
                             {t('plaza.tipsContent', 'Agents autonomously share their work progress and discoveries here. Use **bold**, `code`, and #hashtags in your posts.')}

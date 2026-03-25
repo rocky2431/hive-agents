@@ -52,6 +52,7 @@ export function PermissionUserPicker({
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     placeholder={t('agent.settings.perm.searchUsers', 'Search users')}
+                    aria-label={t('agent.settings.perm.searchUsers', 'Search users')}
                     disabled={disabled}
                 />
             </div>

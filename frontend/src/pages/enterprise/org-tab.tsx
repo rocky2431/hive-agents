@@ -16,8 +16,9 @@ function DeptTree({ departments, selectedDept, onSelect, level }: {
         <>
             {departments.map((d: any) => (
                 <div key={d.id}>
-                    <div
-                        className="py-[5px] px-2 rounded cursor-pointer text-[13px] mb-px"
+                    <button
+                        type="button"
+                        className="w-full text-left py-[5px] px-2 rounded cursor-pointer text-[13px] mb-px bg-transparent border-none"
                         style={{ paddingLeft: `${8 + level * 16}px`, background: selectedDept === d.id ? 'rgba(224,238,238,0.12)' : 'transparent' }}
                         onClick={() => onSelect(d.id)}
                     >
@@ -26,7 +27,7 @@ function DeptTree({ departments, selectedDept, onSelect, level }: {
                         </span>
                         {d.name}
                         {d.member_count > 0 && <span className="text-[10px] text-content-tertiary ml-1">({d.member_count})</span>}
-                    </div>
+                    </button>
                     {d.children?.length > 0 && (
                         <DeptTree departments={d.children} selectedDept={selectedDept} onSelect={onSelect} level={level + 1} />
                     )}
@@ -201,12 +202,12 @@ export default function OrgTab({ tenantId }: { tenantId?: string }) {
                 </p>
                 <div className="flex gap-3 mb-3">
                     <div className="flex-1">
-                        <label className="text-xs font-medium block mb-1">App ID</label>
-                        <input className="input" value={syncForm.app_id} onChange={e => setSyncForm({ ...syncForm, app_id: e.target.value })} placeholder="cli_xxxxxxxx" />
+                        <label htmlFor="org-app-id" className="text-xs font-medium block mb-1">App ID</label>
+                        <input id="org-app-id" className="input" value={syncForm.app_id} onChange={e => setSyncForm({ ...syncForm, app_id: e.target.value })} placeholder="cli_xxxxxxxx" autoComplete="off" spellCheck={false} />
                     </div>
                     <div className="flex-1">
-                        <label className="text-xs font-medium block mb-1">App Secret</label>
-                        <input className="input" type="password" value={syncForm.app_secret} onChange={e => setSyncForm({ ...syncForm, app_secret: e.target.value })} placeholder={config?.value?.app_id ? '' : ''} />
+                        <label htmlFor="org-app-secret" className="text-xs font-medium block mb-1">App Secret</label>
+                        <input id="org-app-secret" className="input" type="password" value={syncForm.app_secret} onChange={e => setSyncForm({ ...syncForm, app_secret: e.target.value })} placeholder={config?.value?.app_id ? '' : ''} autoComplete="off" />
                     </div>
                 </div>
                 <div className="flex gap-2 items-center">
@@ -241,17 +242,20 @@ export default function OrgTab({ tenantId }: { tenantId?: string }) {
 
                 <div className="grid grid-cols-[1.2fr_1fr_1fr] gap-3 mb-3">
                     <div>
-                        <label className="form-label">{t('enterprise.org.departmentName', 'Department name')}</label>
+                        <label htmlFor="org-dept-name" className="form-label">{t('enterprise.org.departmentName', 'Department name')}</label>
                         <input
+                            id="org-dept-name"
                             className="form-input"
                             value={deptForm.name}
                             onChange={(e) => setDeptForm((prev) => ({ ...prev, name: e.target.value }))}
                             placeholder={t('enterprise.org.departmentNamePlaceholder', 'e.g. Operations')}
+                            autoComplete="off"
                         />
                     </div>
                     <div>
-                        <label className="form-label">{t('enterprise.org.parentDepartment', 'Parent department')}</label>
+                        <label htmlFor="org-parent-dept" className="form-label">{t('enterprise.org.parentDepartment', 'Parent department')}</label>
                         <select
+                            id="org-parent-dept"
                             className="form-input"
                             value={deptForm.parent_id}
                             onChange={(e) => setDeptForm((prev) => ({ ...prev, parent_id: e.target.value }))}
@@ -268,8 +272,9 @@ export default function OrgTab({ tenantId }: { tenantId?: string }) {
                         </select>
                     </div>
                     <div>
-                        <label className="form-label">{t('enterprise.org.manager', 'Manager')}</label>
+                        <label htmlFor="org-manager" className="form-label">{t('enterprise.org.manager', 'Manager')}</label>
                         <select
+                            id="org-manager"
                             className="form-input"
                             value={deptForm.manager_id}
                             onChange={(e) => setDeptForm((prev) => ({ ...prev, manager_id: e.target.value }))}
@@ -308,13 +313,14 @@ export default function OrgTab({ tenantId }: { tenantId?: string }) {
                 <div className="flex gap-4">
                     <div className="w-[260px] border-r border-edge-subtle pr-4 max-h-[500px] overflow-y-auto">
                         <div className="text-xs font-semibold mb-2 text-content-secondary">{t('enterprise.org.allDepartments')}</div>
-                        <div
-                            className="px-2 py-1.5 rounded cursor-pointer text-[13px] mb-0.5"
+                        <button
+                            type="button"
+                            className="w-full text-left px-2 py-1.5 rounded cursor-pointer text-[13px] mb-0.5 bg-transparent border-none"
                             style={{ background: !selectedDept ? 'rgba(224,238,238,0.1)' : 'transparent' }}
                             onClick={() => setSelectedDept(null)}
                         >
                             {t('common.all')}
-                        </div>
+                        </button>
                         <DeptTree departments={departments as any[]} selectedDept={selectedDept} onSelect={setSelectedDept} level={0} />
                         {departments.length === 0 && <div className="text-xs text-content-tertiary p-2">{t('common.noData')}</div>}
                     </div>

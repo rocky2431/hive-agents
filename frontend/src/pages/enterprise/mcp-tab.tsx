@@ -69,20 +69,20 @@ export function McpTab() {
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                     <div className="form-group">
-                        <label className="form-label">{t('enterprise.importedTools.smitheryId')}</label>
-                        <input className="form-input" value={mcpForm.server_id} onChange={e => setMcpForm(f => ({ ...f, server_id: e.target.value }))} placeholder="github / gmail / notion" />
+                        <label htmlFor="mcp-server-id" className="form-label">{t('enterprise.importedTools.smitheryId')}</label>
+                        <input id="mcp-server-id" className="form-input" value={mcpForm.server_id} onChange={e => setMcpForm(f => ({ ...f, server_id: e.target.value }))} placeholder="github / gmail / notion" autoComplete="off" spellCheck={false} />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">{t('enterprise.importedTools.directUrl')}</label>
-                        <input className="form-input" value={mcpForm.mcp_url} onChange={e => setMcpForm(f => ({ ...f, mcp_url: e.target.value }))} placeholder="https://example.com/mcp" />
+                        <label htmlFor="mcp-url" className="form-label">{t('enterprise.importedTools.directUrl')}</label>
+                        <input id="mcp-url" className="form-input" value={mcpForm.mcp_url} onChange={e => setMcpForm(f => ({ ...f, mcp_url: e.target.value }))} placeholder="https://example.com/mcp" autoComplete="url" spellCheck={false} />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">{t('enterprise.importedTools.displayName')}</label>
-                        <input className="form-input" value={mcpForm.server_name} onChange={e => setMcpForm(f => ({ ...f, server_name: e.target.value }))} placeholder="GitHub MCP" />
+                        <label htmlFor="mcp-display-name" className="form-label">{t('enterprise.importedTools.displayName')}</label>
+                        <input id="mcp-display-name" className="form-input" value={mcpForm.server_name} onChange={e => setMcpForm(f => ({ ...f, server_name: e.target.value }))} placeholder="GitHub MCP" autoComplete="off" />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">{t('enterprise.importedTools.apiKey')}</label>
-                        <input className="form-input" type="password" value={mcpForm.api_key} onChange={e => setMcpForm(f => ({ ...f, api_key: e.target.value }))} placeholder="Optional server credential" />
+                        <label htmlFor="mcp-api-key" className="form-label">{t('enterprise.importedTools.apiKey')}</label>
+                        <input id="mcp-api-key" className="form-input" type="password" value={mcpForm.api_key} onChange={e => setMcpForm(f => ({ ...f, api_key: e.target.value }))} placeholder="Optional server credential" autoComplete="off" />
                     </div>
                 </div>
                 {mcpError && <div className="text-[var(--error)] text-xs mb-2">{mcpError}</div>}

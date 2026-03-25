@@ -155,7 +155,7 @@ export function CapabilitiesView({ agentId, canManage }: CapabilitiesViewProps) 
                 <summary
                     className="cursor-pointer font-semibold text-sm list-none flex items-center gap-2 select-none"
                 >
-                    <span className="inline-block text-xs transition-transform duration-150" style={{ transform: sessionExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>&#x25B6;</span>
+                    <span className="inline-block text-xs transition-transform duration-150" aria-hidden="true" style={{ transform: sessionExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>&#x25B6;</span>
                     {t('agent.capability.sections.advanced')}
                 </summary>
                 {!latestSessionId ? (

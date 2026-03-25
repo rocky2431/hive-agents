@@ -330,8 +330,8 @@ export default function AdminCompanies() {
                         {t('enterprise.notificationBar.enabled', 'Enable notification bar')}
                     </label>
                     <div className="mb-3">
-                        <label className="form-label">{t('enterprise.notificationBar.text', 'Notification text')}</label>
-                        <Input value={nbText} onChange={e => setNbText(e.target.value)}
+                        <label htmlFor="admin-nb-text" className="form-label">{t('enterprise.notificationBar.text', 'Notification text')}</label>
+                        <Input id="admin-nb-text" value={nbText} onChange={e => setNbText(e.target.value)}
                             placeholder={t('enterprise.notificationBar.textPlaceholder', 'e.g. v2.1 released with new features!')} />
                     </div>
                     <div className="flex items-center gap-2">

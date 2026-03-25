@@ -104,6 +104,8 @@ export function CollaborationPanel({ agentId, agent }: CollaborationPanelProps) 
 
             {notice && (
                 <div
+                    role="alert"
+                    aria-live="assertive"
                     className={cn(
                         'mb-3 px-3 py-2.5 rounded-lg text-xs',
                         notice.type === 'success'
@@ -155,11 +157,11 @@ export function CollaborationPanel({ agentId, agent }: CollaborationPanelProps) 
 
                 <div className="flex flex-col gap-3">
                     <div className="card p-3 !m-0 bg-surface-secondary">
-                        <div className="text-xs font-semibold mb-2">
+                        <div className="text-xs font-semibold mb-2" id="delegate-task-heading">
                             {t('agentDetail.delegateTask', 'Delegate Task')}
                         </div>
-                        <div className="flex flex-col gap-2">
-                            <select className="form-input" value={delegateTargetId} onChange={e => setDelegateTargetId(e.target.value)}>
+                        <div className="flex flex-col gap-2" role="group" aria-labelledby="delegate-task-heading">
+                            <select className="form-input" value={delegateTargetId} onChange={e => setDelegateTargetId(e.target.value)} aria-label={t('agentDetail.targetAgent', 'Select target agent')}>
                                 <option value="">{t('agentDetail.targetAgent', 'Select target agent')}</option>
                                 {collaborators.map((collaborator: any) => (
                                     <option key={collaborator.id} value={collaborator.id}>
@@ -192,11 +194,11 @@ export function CollaborationPanel({ agentId, agent }: CollaborationPanelProps) 
                     </div>
 
                     <div className="card p-3 !m-0 bg-surface-secondary">
-                        <div className="text-xs font-semibold mb-2">
+                        <div className="text-xs font-semibold mb-2" id="send-message-heading">
                             {t('agentDetail.sendMessage', 'Send Message')}
                         </div>
-                        <div className="flex flex-col gap-2">
-                            <select className="form-input" value={messageTargetId} onChange={e => setMessageTargetId(e.target.value)}>
+                        <div className="flex flex-col gap-2" role="group" aria-labelledby="send-message-heading">
+                            <select className="form-input" value={messageTargetId} onChange={e => setMessageTargetId(e.target.value)} aria-label={t('agentDetail.targetAgent', 'Select target agent')}>
                                 <option value="">{t('agentDetail.targetAgent', 'Select target agent')}</option>
                                 {collaborators.map((collaborator: any) => (
                                     <option key={collaborator.id} value={collaborator.id}>
@@ -230,11 +232,11 @@ export function CollaborationPanel({ agentId, agent }: CollaborationPanelProps) 
 
             {isCreator && (
                 <div className="card p-3 !m-0 mt-4 bg-surface-secondary">
-                    <div className="text-xs font-semibold mb-2">
+                    <div className="text-xs font-semibold mb-2" id="handover-heading">
                         {t('agentDetail.handoverAgent', 'Transfer Ownership')}
                     </div>
-                    <div className="flex flex-col gap-2">
-                        <select className="form-input" value={handoverUserId} onChange={e => setHandoverUserId(e.target.value)}>
+                    <div className="flex flex-col gap-2" role="group" aria-labelledby="handover-heading">
+                        <select className="form-input" value={handoverUserId} onChange={e => setHandoverUserId(e.target.value)} aria-label={t('agentDetail.targetUser', 'Select target user')}>
                             <option value="">{t('agentDetail.targetUser', 'Select target user')}</option>
                             {eligibleUsers.map((user: any) => (
                                 <option key={user.id} value={user.id}>

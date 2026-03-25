@@ -187,14 +187,15 @@ export default function Dashboard() {
     });
 
     const hour = new Date().getHours();
-    const greeting = hour < 6 ? '🌙 ' + t('dashboard.greeting.lateNight') : hour < 12 ? '☀️ ' + t('dashboard.greeting.morning') : hour < 18 ? '🌤️ ' + t('dashboard.greeting.afternoon') : '🌙 ' + t('dashboard.greeting.evening');
+    const greetingIcon = hour < 6 ? '\uD83C\uDF19' : hour < 12 ? '\u2600\uFE0F' : hour < 18 ? '\uD83C\uDF24\uFE0F' : '\uD83C\uDF19';
+    const greetingText = hour < 6 ? t('dashboard.greeting.lateNight') : hour < 12 ? t('dashboard.greeting.morning') : hour < 18 ? t('dashboard.greeting.afternoon') : t('dashboard.greeting.evening');
 
     return (
         <div>
             {/* Header */}
             <div className="mb-7 flex items-center justify-between">
                 <div>
-                    <h1 className="text-xl font-semibold tracking-tight">{greeting}</h1>
+                    <h1 className="text-xl font-semibold tracking-tight"><span aria-hidden="true">{greetingIcon} </span>{greetingText}</h1>
                     <p className="text-sm text-content-tertiary">{t('dashboard.totalAgents', { count: agents.length })}</p>
                 </div>
                 <Button onClick={() => navigate('/agents/new')}>

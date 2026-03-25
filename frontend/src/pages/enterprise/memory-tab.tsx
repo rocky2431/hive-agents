@@ -60,8 +60,9 @@ export function MemoryTab({ models, tenantId }: { models: LLMModel[]; tenantId?:
             <div className="flex flex-col gap-5">
                 {/* Summary Model */}
                 <div className="form-group">
-                    <label className="form-label">{t('enterprise.memory.summaryModel')}</label>
+                    <label htmlFor="memory-summary-model" className="form-label">{t('enterprise.memory.summaryModel')}</label>
                     <select
+                        id="memory-summary-model"
                         className="form-input"
                         value={config.summary_model_id}
                         onChange={e => setConfig(c => ({ ...c, summary_model_id: e.target.value }))}
@@ -78,15 +79,17 @@ export function MemoryTab({ models, tenantId }: { models: LLMModel[]; tenantId?:
 
                 {/* Compress Threshold */}
                 <div className="form-group">
-                    <label className="form-label">{t('enterprise.memory.compressThreshold')}</label>
+                    <label htmlFor="memory-compress" className="form-label">{t('enterprise.memory.compressThreshold')}</label>
                     <div className="flex items-center gap-2">
                         <input
+                            id="memory-compress"
                             className="form-input w-[100px]"
                             type="number"
                             min={30}
                             max={95}
                             value={config.compress_threshold}
                             onChange={e => setConfig(c => ({ ...c, compress_threshold: Number(e.target.value) }))}
+                            autoComplete="off"
                         />
                         <span className="text-content-secondary">%</span>
                     </div>
@@ -97,15 +100,17 @@ export function MemoryTab({ models, tenantId }: { models: LLMModel[]; tenantId?:
 
                 {/* Keep Recent */}
                 <div className="form-group">
-                    <label className="form-label">{t('enterprise.memory.keepRecent')}</label>
+                    <label htmlFor="memory-keep-recent" className="form-label">{t('enterprise.memory.keepRecent')}</label>
                     <div className="flex items-center gap-2">
                         <input
+                            id="memory-keep-recent"
                             className="form-input w-[100px]"
                             type="number"
                             min={2}
                             max={50}
                             value={config.keep_recent}
                             onChange={e => setConfig(c => ({ ...c, keep_recent: Number(e.target.value) }))}
+                            autoComplete="off"
                         />
                     </div>
                     <div className="text-[11px] text-content-tertiary mt-1">

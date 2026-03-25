@@ -190,7 +190,7 @@ export function AgentOperationsPanel({ agentId, agent }: AgentOperationsPanelPro
     return (
         <div className="flex flex-col gap-4 mb-6">
             {notice && (
-                <div className={cn(
+                <div role="alert" aria-live="assertive" className={cn(
                     'px-3 py-2.5 rounded-lg text-xs',
                     notice.type === 'success'
                         ? 'bg-emerald-500/10 border border-emerald-500/25 text-success'

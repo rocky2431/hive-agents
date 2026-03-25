@@ -329,7 +329,7 @@ export default function AgentCreate() {
             </div>
 
             {error && (
-                <div className="bg-error-subtle text-error px-3 py-2 rounded-md text-xs mb-4 max-w-[760px]">
+                <div className="bg-error-subtle text-error px-3 py-2 rounded-md text-xs mb-4 max-w-[760px]" role="alert">
                     {error}
                 </div>
             )}
@@ -476,12 +476,13 @@ export default function AgentCreate() {
                                 {enabledModels.length === 0 && (
                                     <div className="p-4 bg-surface-elevated rounded-lg text-xs text-content-tertiary text-center">
                                         {t('wizard.step1.noModels')}{' '}
-                                        <span
-                                            className="text-accent-primary cursor-pointer"
+                                        <button
+                                            type="button"
+                                            className="text-accent-primary cursor-pointer bg-transparent border-none p-0 text-xs"
                                             onClick={() => navigate('/enterprise')}
                                         >
                                             {t('wizard.step1.enterpriseSettings')}
-                                        </span>{' '}
+                                        </button>{' '}
                                         {t('wizard.step1.addModels')}
                                     </div>
                                 )}
@@ -725,7 +726,7 @@ export default function AgentCreate() {
                                                     }
                                                 }}
                                             />
-                                            <div className="text-lg">{skill.icon}</div>
+                                            <div className="text-lg" aria-hidden="true">{skill.icon}</div>
                                             <div className="flex-1">
                                                 <div className="flex items-center gap-1.5">
                                                     <span className="font-medium text-xs">{skill.name}</span>

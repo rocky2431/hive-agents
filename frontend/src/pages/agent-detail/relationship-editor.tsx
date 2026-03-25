@@ -151,15 +151,15 @@ export function RelationshipEditor({ agentId, readOnly = false }: { agentId: str
                 )}
                 {!readOnly && !adding && (
                     <div className="relative">
-                        <input className="input text-[13px]" placeholder={t("agent.detail.searchMembers")} value={search} onChange={e => setSearch(e.target.value)} />
+                        <input className="input text-[13px]" placeholder={t("agent.detail.searchMembers")} value={search} onChange={e => setSearch(e.target.value)} aria-label={t("agent.detail.searchMembers")} />
                         {searchResults.length > 0 && (
                             <div className="absolute top-full left-0 right-0 bg-surface-primary border border-edge-subtle rounded-md mt-1 max-h-[200px] overflow-y-auto z-10 shadow-lg">
                                 {searchResults.map((m: any) => (
-                                    <div key={m.id} className="px-3 py-2 cursor-pointer text-[13px] border-b border-edge-subtle hover:bg-surface-elevated"
+                                    <button key={m.id} type="button" className="px-3 py-2 cursor-pointer text-[13px] border-b border-edge-subtle hover:bg-surface-elevated w-full text-left bg-transparent border-x-0 border-t-0"
                                         onClick={() => { setAdding(m); setSearch(''); setSearchResults([]); }}>
                                         <div className="font-medium">{m.name}</div>
                                         <div className="text-[11px] text-content-tertiary">{m.title} · {m.department_path}</div>
-                                    </div>
+                                    </button>
                                 ))}
                             </div>
                         )}

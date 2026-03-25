@@ -82,7 +82,8 @@ export function InfoTab({
                     {/* Onboarding items */}
                     <div className="flex flex-col gap-1.5">
                         {onboardingData.items.map((item: any, idx: number) => (
-                            <div
+                            <button
+                                type="button"
                                 key={idx}
                                 onClick={() => {
                                     if (item.link) {
@@ -93,7 +94,7 @@ export function InfoTab({
                                         }
                                     }
                                 }}
-                                className="flex items-center gap-2.5 px-3 py-2 rounded-md border border-edge-subtle transition-colors"
+                                className="w-full text-left flex items-center gap-2.5 px-3 py-2 rounded-md border border-edge-subtle transition-colors bg-transparent"
                                 style={{
                                     background: item.completed ? 'rgba(34,197,94,0.06)' : 'transparent',
                                     cursor: item.link || item.tab ? 'pointer' : 'default',
@@ -112,9 +113,9 @@ export function InfoTab({
                                     {t(`enterprise.onboarding.step_${item.key}`, item.title || item.key) as string}
                                 </span>
                                 {(item.link || item.tab) && !item.completed && (
-                                    <span className="ml-auto text-[11px] text-[var(--accent-primary,#6366f1)]">&rarr;</span>
+                                    <span className="ml-auto text-[11px] text-[var(--accent-primary,#6366f1)]" aria-hidden="true">&rarr;</span>
                                 )}
-                            </div>
+                            </button>
                         ))}
                     </div>
                 </div>
@@ -135,6 +136,7 @@ export function InfoTab({
             <div className="card p-4 mb-6">
                 <textarea
                     className="form-input min-h-[200px] resize-y font-mono text-[13px] leading-relaxed whitespace-pre-wrap"
+                    aria-label={t('enterprise.companyIntro.title', 'Company Intro')}
                     value={companyIntro}
                     onChange={e => setCompanyIntro(e.target.value)}
                     placeholder={`# Company Name\nClawith\n\n# About\nOpenClaw\uD83E\uDD9E For Teams\nOpen Source \u00B7 Multi-OpenClaw Collaboration\n\nOpenClaw empowers individuals.\nClawith scales it to frontier organizations.`}

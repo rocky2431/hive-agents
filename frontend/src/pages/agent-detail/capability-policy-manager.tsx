@@ -199,8 +199,9 @@ export function CapabilityPolicyManager({ agentId }: { agentId: string }) {
                             <button
                                 className="bg-transparent border-none cursor-pointer text-content-tertiary text-base leading-none"
                                 onClick={() => { setAddingCapability(false); setSelectedNewCap(''); }}
+                                aria-label={t('common.close', 'Close')}
                             >
-                                x
+                                <span aria-hidden="true">x</span>
                             </button>
                         </div>
                     ) : unconfiguredDefs.length > 0 && (

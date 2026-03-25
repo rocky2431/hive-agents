@@ -107,12 +107,12 @@ function AccountSettingsModal({ user, onClose }: { user: any; onClose: () => voi
                 <h4 className="m-0 mb-3 text-[13px] text-content-secondary">{t('account.profile')}</h4>
                 <div className="flex flex-col gap-2.5 mb-5">
                     <div>
-                        <label className="block text-xs font-medium mb-1 text-content-secondary">{t('account.username')}</label>
-                        <input className="form-input w-full text-[13px]" value={username} onChange={e => setUsername(e.target.value)} />
+                        <label htmlFor="account-username" className="block text-xs font-medium mb-1 text-content-secondary">{t('account.username')}</label>
+                        <input id="account-username" className="form-input w-full text-[13px]" value={username} onChange={e => setUsername(e.target.value)} autoComplete="username" spellCheck={false} />
                     </div>
                     <div>
-                        <label className="block text-xs font-medium mb-1 text-content-secondary">{t('account.displayName')}</label>
-                        <input className="form-input w-full text-[13px]" value={displayName} onChange={e => setDisplayName(e.target.value)} />
+                        <label htmlFor="account-display-name" className="block text-xs font-medium mb-1 text-content-secondary">{t('account.displayName')}</label>
+                        <input id="account-display-name" className="form-input w-full text-[13px]" value={displayName} onChange={e => setDisplayName(e.target.value)} autoComplete="name" />
                     </div>
                     <div className="flex justify-end">
                         <Button size="sm" onClick={handleSaveProfile} disabled={saving}>
@@ -125,16 +125,16 @@ function AccountSettingsModal({ user, onClose }: { user: any; onClose: () => voi
                 <h4 className="m-0 mb-3 text-[13px] text-content-secondary">{t('account.changePassword')}</h4>
                 <div className="flex flex-col gap-2.5">
                     <div>
-                        <label className="block text-xs font-medium mb-1 text-content-secondary">{t('account.currentPassword')}</label>
-                        <input className="form-input w-full text-[13px]" type="password" value={oldPassword} onChange={e => setOldPassword(e.target.value)} />
+                        <label htmlFor="account-current-password" className="block text-xs font-medium mb-1 text-content-secondary">{t('account.currentPassword')}</label>
+                        <input id="account-current-password" className="form-input w-full text-[13px]" type="password" value={oldPassword} onChange={e => setOldPassword(e.target.value)} autoComplete="current-password" />
                     </div>
                     <div>
-                        <label className="block text-xs font-medium mb-1 text-content-secondary">{t('account.newPassword')}</label>
-                        <input className="form-input w-full text-[13px]" type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder={t('account.newPasswordPlaceholder')} />
+                        <label htmlFor="account-new-password" className="block text-xs font-medium mb-1 text-content-secondary">{t('account.newPassword')}</label>
+                        <input id="account-new-password" className="form-input w-full text-[13px]" type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder={t('account.newPasswordPlaceholder')} autoComplete="new-password" />
                     </div>
                     <div>
-                        <label className="block text-xs font-medium mb-1 text-content-secondary">{t('account.confirmPassword')}</label>
-                        <input className="form-input w-full text-[13px]" type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} />
+                        <label htmlFor="account-confirm-password" className="block text-xs font-medium mb-1 text-content-secondary">{t('account.confirmPassword')}</label>
+                        <input id="account-confirm-password" className="form-input w-full text-[13px]" type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} autoComplete="new-password" />
                     </div>
                     <div className="flex justify-end">
                         <Button size="sm" onClick={handleChangePassword} disabled={saving}>
@@ -299,6 +299,9 @@ export default function Layout() {
                                 value={sidebarSearch}
                                 onChange={e => setSidebarSearch(e.target.value)}
                                 placeholder={t('layout.search')}
+                                aria-label={t('layout.search')}
+                                spellCheck={false}
+                                autoComplete="off"
                                 className="w-full rounded-md border border-edge-subtle bg-surface-secondary text-content-primary text-xs outline-none box-border py-[5px] pr-6 pl-7 focus:border-accent-primary"
                             />
                             {sidebarSearch && (
@@ -441,6 +444,7 @@ export default function Layout() {
                             <select
                                 value={currentTenant}
                                 onChange={e => switchTenant(e.target.value)}
+                                aria-label={t('layout.switchTenant', 'Switch company')}
                                 className="w-full rounded-md border border-edge-subtle bg-surface-tertiary text-content-primary text-xs cursor-pointer px-2 py-1.5 mb-2"
                             >
                                 {tenants.map(t => (
@@ -449,10 +453,12 @@ export default function Layout() {
                             </select>
                         )}
                         <div className="flex items-center gap-2">
-                            <div
-                                className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer rounded-md p-1.5 transition-colors hover:bg-surface-tertiary"
+                            <button
+                                type="button"
+                                className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer rounded-md p-1.5 transition-colors hover:bg-surface-tertiary bg-transparent border-none text-left"
                                 onClick={() => setShowAccountSettings(true)}
                                 title={t('account.title')}
+                                aria-label={t('account.title')}
                             >
                                 <div className="w-7 h-7 rounded-md bg-surface-tertiary border border-edge-subtle flex items-center justify-center text-content-tertiary shrink-0">
                                     {SidebarIcons.user}
@@ -467,7 +473,7 @@ export default function Layout() {
                                                 user?.role === 'agent_admin' ? t('roles.agentAdmin') : t('roles.member')}
                                     </div>
                                 </div>
-                            </div>
+                            </button>
                             <Button variant="ghost" size="icon" onClick={handleLogout} className="h-7 w-7 text-content-tertiary shrink-0" aria-label={t('layout.logout', 'Logout')}>
                                 {SidebarIcons.logout}
                             </Button>
@@ -513,13 +519,14 @@ export default function Layout() {
                             </div>
                         )}
                         {(notifications as any[]).map((n: any) => (
-                            <div
+                            <button
+                                type="button"
                                 key={n.id}
                                 onClick={() => {
                                     if (!n.is_read) markOneRead(n.id);
                                     if (n.link) { navigate(n.link); setShowNotifications(false); }
                                 }}
-                                className={`px-5 py-3 border-b border-edge-subtle transition-colors hover:bg-surface-tertiary ${n.link ? 'cursor-pointer' : 'cursor-default'} ${n.is_read ? 'bg-transparent' : 'bg-surface-secondary'}`}
+                                className={`w-full text-left px-5 py-3 border-b border-edge-subtle transition-colors hover:bg-surface-tertiary bg-transparent border-x-0 border-t-0 ${n.link ? 'cursor-pointer' : 'cursor-default'} ${n.is_read ? '' : 'bg-surface-secondary'}`}
                             >
                                 <div className="flex items-center gap-1.5 mb-1">
                                     {!n.is_read && <span className="w-1.5 h-1.5 rounded-full bg-accent-primary shrink-0" />}
@@ -529,12 +536,12 @@ export default function Layout() {
                                 <div className="text-[10px] text-content-tertiary/60 mt-1">
                                     {formatRelative(n.created_at)}
                                 </div>
-                            </div>
+                            </button>
                         ))}
                     </div>
                 </div>
             )}
-            {showNotifications && <div className="fixed inset-0 z-[9998]" onClick={() => setShowNotifications(false)} />}
+            {showNotifications && <div className="fixed inset-0 z-[9998]" onClick={() => setShowNotifications(false)} aria-hidden="true" />}
 
             <main id="main-content" className="main-content">
                 <Outlet />
