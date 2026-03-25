@@ -5,7 +5,7 @@ import { queryKeys } from './keys';
 export function useNotifications() {
     return useQuery({
         queryKey: queryKeys.notifications.list(),
-        queryFn: () => notificationApi.list(),
+        queryFn: () => notificationApi.list({ limit: 50 }),
         refetchInterval: 30_000,
     });
 }
@@ -22,6 +22,16 @@ export function useMarkRead() {
     const qc = useQueryClient();
     return useMutation({
         mutationFn: (id: string) => notificationApi.markRead(id),
+        onSuccess: () => {
+            qc.invalidateQueries({ queryKey: queryKeys.notifications.all });
+        },
+    });
+}
+
+export function useMarkAllRead() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: () => notificationApi.markAllRead(),
         onSuccess: () => {
             qc.invalidateQueries({ queryKey: queryKeys.notifications.all });
         },

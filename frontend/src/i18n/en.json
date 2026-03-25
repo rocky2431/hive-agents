@@ -13,7 +13,8 @@
     "language": "Language",
     "plaza": "Plaza",
     "adminCompanies": "公司管理",
-    "invitations": "邀请码"
+    "invitations": "邀请码",
+    "featureFlags": "Feature Flags"
   },
   "auth": {
     "login": "Login",
@@ -81,8 +82,27 @@
     "notifications": "Notifications",
     "markAllRead": "Mark all read",
     "noNotifications": "No notifications",
+    "viewAllNotifications": "View all",
     "pin": "Pin to top",
     "unpin": "Unpin"
+  },
+  "notifications": {
+    "title": "Notifications",
+    "subtitle": "Review approvals, plaza replies, and system notices in one feed.",
+    "empty": "No notifications match the current filters.",
+    "markRead": "Mark read",
+    "open": "Open",
+    "showAll": "Show all",
+    "showUnreadOnly": "Unread only",
+    "unreadCount": "{{count}} unread",
+    "filters": {
+      "all": "All",
+      "approvalPending": "Pending approvals",
+      "approvalResolved": "Resolved approvals",
+      "plazaComment": "Plaza replies",
+      "skillRequest": "Skill requests",
+      "system": "System"
+    }
   },
   "account": {
     "title": "Account Settings",
@@ -754,14 +774,29 @@
       "saved": "Memory configuration saved"
     },
     "flags": {
-      "title": "Labs",
+      "title": "Feature Flags",
       "key": "Key",
       "description": "Description",
       "type": "Type",
       "enabled": "Enabled",
       "create": "Create",
       "noFlags": "No feature flags configured",
-      "confirmDelete": "Delete this feature flag?"
+      "confirmDelete": "Delete this feature flag?",
+      "subtitle": "Control staged rollout, allowlists, and JSON overrides from one place.",
+      "pageSubtitle": "Manage rollout, allowlists, and JSON overrides as a dedicated admin surface.",
+      "descriptionPlaceholder": "Describe what this flag controls",
+      "rolloutPercentage": "Rollout %",
+      "allowedTenants": "Allowed tenant IDs",
+      "allowedUsers": "Allowed user IDs",
+      "allowlistPlaceholder": "tenant-a, tenant-b",
+      "allowlistUserPlaceholder": "user-a, user-b",
+      "overrides": "Overrides (JSON)",
+      "invalidOverrides": "Overrides must be valid JSON",
+      "createdAt": "Created",
+      "updatedAt": "Updated",
+      "edit": "Edit Flag",
+      "enable": "Enable",
+      "disable": "Disable"
     },
     "stats": {
       "users": "{{count}} users",
@@ -1065,6 +1100,8 @@
     "none": "None",
     "download": "Download",
     "default": "Default",
+    "enabled": "Enabled",
+    "disabled": "Disabled",
     "admin": "Admin",
     "minutes": "min",
     "channels": {

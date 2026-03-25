@@ -16,6 +16,8 @@ const Messages = lazy(() => import('./pages/Messages'));
 const EnterpriseSettings = lazy(() => import('./pages/EnterpriseSettings'));
 const InvitationCodes = lazy(() => import('./pages/InvitationCodes'));
 const AdminCompanies = lazy(() => import('./pages/AdminCompanies'));
+const NotificationCenter = lazy(() => import('./pages/NotificationCenter'));
+const FeatureFlagsPage = lazy(() => import('./pages/FeatureFlagsPage'));
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
     const token = useAuthStore((s) => s.token);
@@ -23,6 +25,20 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     if (!token) return <Navigate to="/login" replace />;
     // Force company setup for users without a tenant
     if (user && !user.tenant_id) return <Navigate to="/setup-company" replace />;
+    return <>{children}</>;
+}
+
+function RoleRoute({
+    children,
+    allowedRoles,
+}: {
+    children: React.ReactNode;
+    allowedRoles: string[];
+}) {
+    const user = useAuthStore((s) => s.user);
+    if (!user || !allowedRoles.includes(user.role)) {
+        return <Navigate to="/plaza" replace />;
+    }
     return <>{children}</>;
 }
 
@@ -125,9 +141,23 @@ export default function App() {
                     <Route path="agents/:id" element={<AgentDetail />} />
                     <Route path="agents/:id/chat" element={<Chat />} />
                     <Route path="messages" element={<Messages />} />
-                    <Route path="enterprise" element={<EnterpriseSettings />} />
-                    <Route path="invitations" element={<InvitationCodes />} />
-                    <Route path="admin/companies" element={<AdminCompanies />} />
+                    <Route path="notifications" element={<NotificationCenter />} />
+                    <Route
+                        path="enterprise"
+                        element={<RoleRoute allowedRoles={['platform_admin', 'org_admin']}><EnterpriseSettings /></RoleRoute>}
+                    />
+                    <Route
+                        path="invitations"
+                        element={<RoleRoute allowedRoles={['platform_admin', 'org_admin']}><InvitationCodes /></RoleRoute>}
+                    />
+                    <Route
+                        path="admin/companies"
+                        element={<RoleRoute allowedRoles={['platform_admin']}><AdminCompanies /></RoleRoute>}
+                    />
+                    <Route
+                        path="admin/feature-flags"
+                        element={<RoleRoute allowedRoles={['platform_admin']}><FeatureFlagsPage /></RoleRoute>}
+                    />
                 </Route>
             </Routes>
         </Suspense>

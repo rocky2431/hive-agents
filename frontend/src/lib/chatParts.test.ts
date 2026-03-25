@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 
 import { applyStreamEvent, hydrateTimelineMessage, normalizeTimelineMessage } from './chatParts.ts';
 
+const uploadedFileMessage = ['[', 'file:', 'report.pdf]', '\n', 'Summarize this'].join('');
+
 test('normalizeTimelineMessage uses structured parts for assistant messages', () => {
     const message = normalizeTimelineMessage({
         role: 'assistant',
@@ -109,7 +111,7 @@ test('applyStreamEvent builds streaming assistant and tool timeline', () => {
 test('hydrateTimelineMessage parses uploaded file markers for user messages', () => {
     const message = hydrateTimelineMessage({
         role: 'user',
-        content: '[file:report.pdf]\nSummarize this',
+        content: uploadedFileMessage,
         created_at: '2026-03-20T00:00:00Z',
     });
 

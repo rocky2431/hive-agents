@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, Component, ErrorInfo } from 'react';
-import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { parseAsStringLiteral, useQueryState } from 'nuqs';
 import { useTranslation } from 'react-i18next';
 
 import ConfirmModal from '../components/ConfirmModal';
@@ -60,16 +61,10 @@ function AgentDetailInner() {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
     const queryClient = useQueryClient();
-    const location = useLocation();
-    const validTabs = ['chat', 'overview', 'skills', 'activity', 'settings'];
-    const hashTab = location.hash?.replace('#', '');
-    const [activeTab, setActiveTabRaw] = useState<string>(hashTab && validTabs.includes(hashTab) ? hashTab : 'chat');
-
-    // Sync URL hash when tab changes
-    const setActiveTab = (tab: string) => {
-        setActiveTabRaw(tab);
-        window.history.replaceState(null, '', `#${tab}`);
-    };
+    const [activeTab, setActiveTab] = useQueryState(
+        'tab',
+        parseAsStringLiteral(TABS).withDefault('chat'),
+    );
 
     const { data: agent, isLoading } = useQuery({
         queryKey: ['agent', id],
@@ -300,8 +295,6 @@ function AgentDetailInner() {
             setWmSaved(false);
             // Invalidate all queries for the old agent to force fresh data
             queryClient.invalidateQueries({ queryKey: ['agent', id] });
-            // Re-apply hash so refresh preserves the current tab
-            window.history.replaceState(null, '', `#${activeTab}`);
         }
     }, [id]);
 

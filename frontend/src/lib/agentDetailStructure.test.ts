@@ -26,8 +26,11 @@ test('AgentDetail uses capabilities tab instead of legacy tools tab', () => {
     const source = readAgentDetailModule();
 
     assert.match(source, /const TABS = \['chat', 'overview', 'skills', 'activity', 'settings'\]/);
-    assert.match(source, /useState<string>\(hashTab && validTabs\.includes\(hashTab\) \? hashTab : 'chat'\)/);
+    assert.match(source, /import \{ parseAsStringLiteral, useQueryState \} from 'nuqs';/);
+    assert.match(source, /const \[activeTab, setActiveTab\] = useQueryState\(\s*'tab',\s*parseAsStringLiteral\(TABS\)\.withDefault\('chat'\),/s);
     assert.doesNotMatch(source, /const TABS = \['status', 'aware', 'mind', 'capabilities'/);
+    assert.doesNotMatch(source, /location\.hash/);
+    assert.doesNotMatch(source, /window\.history\.replaceState/);
     assert.doesNotMatch(source, /activeTab === 'tools'/);
     assert.doesNotMatch(source, /function ToolsManager\(/);
     assert.doesNotMatch(source, /activeTab === 'status'/);

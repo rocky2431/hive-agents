@@ -5,6 +5,8 @@ import type {
     AgentCreateInput,
     ChatAttachment,
     ChatMessage,
+    FeatureFlag,
+    Notification,
     PlazaComment,
     PlazaPost,
     PlazaStats,
@@ -12,6 +14,7 @@ import type {
     TokenResponse,
     User,
 } from '../types';
+import { extractUnreadCount, type NotificationUnreadCountPayload } from '../lib/notifications';
 
 const API_BASE = '/api/v1';
 
@@ -577,9 +580,18 @@ export const orgApi = {
 
 // ─── Notifications ───────────────────────────────────
 export const notificationApi = {
-    list: () => request<any[]>('/notifications/'),
+    list: (params?: { limit?: number; offset?: number; unreadOnly?: boolean }) => {
+        const qs = new URLSearchParams();
+        if (params?.limit) qs.set('limit', String(params.limit));
+        if (params?.offset) qs.set('offset', String(params.offset));
+        if (params?.unreadOnly) qs.set('unread_only', 'true');
+        return request<Notification[]>(`/notifications${qs.size ? `?${qs}` : ''}`);
+    },
 
-    unreadCount: () => request<{ count: number }>('/notifications/unread-count'),
+    unreadCount: async () => {
+        const payload = await request<NotificationUnreadCountPayload>('/notifications/unread-count');
+        return extractUnreadCount(payload);
+    },
 
     markRead: (id: string) =>
         request<void>(`/notifications/${id}/read`, { method: 'POST' }),
@@ -590,11 +602,11 @@ export const notificationApi = {
 
 // ─── Feature Flags ────────────────────────────────────
 export const featureFlagApi = {
-    list: () => request<any[]>('/feature-flags/'),
-    create: (data: { key: string; description?: string; flag_type?: string; enabled?: boolean }) =>
-        request<any>('/feature-flags/', { method: 'POST', body: JSON.stringify(data) }),
+    list: () => request<FeatureFlag[]>('/feature-flags/'),
+    create: (data: Record<string, unknown>) =>
+        request<FeatureFlag>('/feature-flags/', { method: 'POST', body: JSON.stringify(data) }),
     update: (flagId: string, data: Record<string, unknown>) =>
-        request<any>(`/feature-flags/${flagId}`, { method: 'PATCH', body: JSON.stringify(data) }),
+        request<FeatureFlag>(`/feature-flags/${flagId}`, { method: 'PATCH', body: JSON.stringify(data) }),
     delete: (flagId: string) =>
         request<void>(`/feature-flags/${flagId}`, { method: 'DELETE' }),
 };

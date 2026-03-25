@@ -177,12 +177,16 @@ function isImageFile(fileName: string): boolean {
     return ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'].includes(ext);
 }
 
+const USER_FILE_MARKER_PREFIX = 'file:';
+const USER_FILE_MARKER_REGEX = new RegExp(String.raw`^\[${USER_FILE_MARKER_PREFIX}([^\]]+)\]\n?`);
+
 function parseUserFileMarker(message: TimelineMessage): TimelineMessage {
     if (message.role !== 'user') {
         return message;
     }
 
-    const newFmt = message.content.match(/^\[file:([^\]]+)\]\n?/);
+    // Keep the marker parser dynamic so Tailwind does not treat the file-upload marker syntax as a class candidate during build.
+    const newFmt = message.content.match(USER_FILE_MARKER_REGEX);
     if (newFmt) {
         return {
             ...message,

@@ -1,17 +1,184 @@
 import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+
 import { featureFlagApi } from '@/services/api';
+import type { FeatureFlag } from '@/types';
+import { buildFeatureFlagPayload, EMPTY_FEATURE_FLAG_FORM, featureFlagToFormState, type FeatureFlagFormState } from '@/lib/featureFlags';
+import { formatDateTime } from '@/lib/date';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
+
+function FeatureFlagEditor({
+    form,
+    onChange,
+    isEditing,
+    error,
+}: {
+    form: FeatureFlagFormState;
+    onChange: (next: FeatureFlagFormState) => void;
+    isEditing: boolean;
+    error: string;
+}) {
+    const { t } = useTranslation();
+
+    return (
+        <div className="grid gap-4">
+            {!isEditing && (
+                <div className="grid gap-2">
+                    <Label htmlFor="feature-flag-key">{t('enterprise.flags.key', 'Key')}</Label>
+                    <Input
+                        id="feature-flag-key"
+                        value={form.key}
+                        onChange={(e) => onChange({ ...form, key: e.target.value })}
+                        placeholder="unified_agent_runtime"
+                        autoComplete="off"
+                        spellCheck={false}
+                    />
+                </div>
+            )}
+
+            <div className="grid gap-2">
+                <Label htmlFor="feature-flag-description">{t('enterprise.flags.description', 'Description')}</Label>
+                <Input
+                    id="feature-flag-description"
+                    value={form.description}
+                    onChange={(e) => onChange({ ...form, description: e.target.value })}
+                    placeholder={t('enterprise.flags.descriptionPlaceholder', 'Describe what this flag controls')}
+                />
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+                <div className="grid gap-2">
+                    <Label htmlFor="feature-flag-type">{t('enterprise.flags.type', 'Type')}</Label>
+                    <select
+                        id="feature-flag-type"
+                        className="form-input"
+                        value={form.flag_type}
+                        onChange={(e) => onChange({ ...form, flag_type: e.target.value })}
+                    >
+                        <option value="boolean">Boolean</option>
+                        <option value="percentage">Percentage</option>
+                        <option value="tenant_gate">Tenant Gate</option>
+                        <option value="allowlist">Allowlist</option>
+                    </select>
+                </div>
+
+                <div className="grid gap-2">
+                    <Label htmlFor="feature-flag-rollout">{t('enterprise.flags.rolloutPercentage', 'Rollout %')}</Label>
+                    <Input
+                        id="feature-flag-rollout"
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={form.rollout_percentage}
+                        onChange={(e) => onChange({ ...form, rollout_percentage: e.target.value })}
+                        placeholder="25"
+                    />
+                </div>
+            </div>
+
+            <div className="grid gap-2">
+                <Label htmlFor="feature-flag-enabled">{t('enterprise.flags.enabled', 'Enabled')}</Label>
+                <div className="flex items-center gap-3 rounded-md border border-edge-subtle bg-surface-secondary px-3 py-2">
+                    <Switch
+                        id="feature-flag-enabled"
+                        checked={form.enabled}
+                        onCheckedChange={(checked) => onChange({ ...form, enabled: checked })}
+                    />
+                    <span className="text-sm text-content-secondary">
+                        {form.enabled ? t('common.enabled', 'Enabled') : t('common.disabled', 'Disabled')}
+                    </span>
+                </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+                <div className="grid gap-2">
+                    <Label htmlFor="feature-flag-tenants">{t('enterprise.flags.allowedTenants', 'Allowed tenant IDs')}</Label>
+                    <Textarea
+                        id="feature-flag-tenants"
+                        value={form.allowed_tenant_ids}
+                        onChange={(e) => onChange({ ...form, allowed_tenant_ids: e.target.value })}
+                        placeholder={t('enterprise.flags.allowlistPlaceholder', 'tenant-a, tenant-b')}
+                        className="min-h-[96px]"
+                    />
+                </div>
+
+                <div className="grid gap-2">
+                    <Label htmlFor="feature-flag-users">{t('enterprise.flags.allowedUsers', 'Allowed user IDs')}</Label>
+                    <Textarea
+                        id="feature-flag-users"
+                        value={form.allowed_user_ids}
+                        onChange={(e) => onChange({ ...form, allowed_user_ids: e.target.value })}
+                        placeholder={t('enterprise.flags.allowlistUserPlaceholder', 'user-a, user-b')}
+                        className="min-h-[96px]"
+                    />
+                </div>
+            </div>
+
+            <div className="grid gap-2">
+                <Label htmlFor="feature-flag-overrides">{t('enterprise.flags.overrides', 'Overrides (JSON)')}</Label>
+                <Textarea
+                    id="feature-flag-overrides"
+                    value={form.overrides}
+                    onChange={(e) => onChange({ ...form, overrides: e.target.value })}
+                    placeholder={'{\n  "region": "apac"\n}'}
+                    className="min-h-[120px] font-mono text-xs"
+                    spellCheck={false}
+                />
+            </div>
+
+            {error && (
+                <div className="rounded-md border border-error/30 bg-error-subtle px-3 py-2 text-sm text-error">
+                    {error}
+                </div>
+            )}
+        </div>
+    );
+}
 
 export function FeatureFlagsTab() {
     const { t } = useTranslation();
     const qc = useQueryClient();
+    const [draft, setDraft] = useState<FeatureFlagFormState>({ ...EMPTY_FEATURE_FLAG_FORM });
     const [showCreate, setShowCreate] = useState(false);
-    const [form, setForm] = useState({ key: '', description: '', flag_type: 'boolean', enabled: false });
+    const [editingId, setEditingId] = useState<string | null>(null);
+    const [error, setError] = useState('');
 
     const { data: flags = [], isLoading } = useQuery({
         queryKey: ['feature-flags'],
         queryFn: featureFlagApi.list,
+    });
+
+    const resetDraft = () => {
+        setDraft({ ...EMPTY_FEATURE_FLAG_FORM });
+        setShowCreate(false);
+        setEditingId(null);
+        setError('');
+    };
+
+    const createMutation = useMutation({
+        mutationFn: (data: Record<string, unknown>) => featureFlagApi.create(data),
+        onSuccess: () => {
+            qc.invalidateQueries({ queryKey: ['feature-flags'] });
+            resetDraft();
+        },
+        onError: (err: Error) => setError(err.message),
+    });
+
+    const updateMutation = useMutation({
+        mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
+            featureFlagApi.update(id, data),
+        onSuccess: () => {
+            qc.invalidateQueries({ queryKey: ['feature-flags'] });
+            resetDraft();
+        },
+        onError: (err: Error) => setError(err.message),
     });
 
     const toggleMutation = useMutation({
@@ -25,85 +192,159 @@ export function FeatureFlagsTab() {
         onSuccess: () => qc.invalidateQueries({ queryKey: ['feature-flags'] }),
     });
 
-    const createMutation = useMutation({
-        mutationFn: () => featureFlagApi.create(form),
-        onSuccess: () => {
-            qc.invalidateQueries({ queryKey: ['feature-flags'] });
-            setShowCreate(false);
-            setForm({ key: '', description: '', flag_type: 'boolean', enabled: false });
-        },
-    });
+    const startCreate = () => {
+        setDraft({ ...EMPTY_FEATURE_FLAG_FORM });
+        setShowCreate(true);
+        setEditingId(null);
+        setError('');
+    };
 
-    if (isLoading) return <div style={{ padding: '20px', opacity: 0.5 }}>Loading...</div>;
+    const startEdit = (flag: FeatureFlag) => {
+        setDraft(featureFlagToFormState(flag));
+        setEditingId(flag.id);
+        setShowCreate(false);
+        setError('');
+    };
+
+    const handleSubmit = () => {
+        try {
+            const payload = buildFeatureFlagPayload(draft, { includeKey: !editingId });
+            if (editingId) {
+                updateMutation.mutate({ id: editingId, data: payload });
+            } else {
+                createMutation.mutate(payload);
+            }
+        } catch (err) {
+            setError(err instanceof Error ? err.message : t('enterprise.flags.invalidOverrides', 'Overrides must be valid JSON'));
+        }
+    };
+
+    if (isLoading) {
+        return <div className="px-5 py-8 text-sm text-content-tertiary">{t('common.loading', 'Loading...')}</div>;
+    }
 
     return (
-        <div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '16px' }}>
-                <button className="btn btn-primary" onClick={() => setShowCreate(true)}>+ {t('enterprise.flags.create')}</button>
+        <div className="grid gap-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                    <h2 className="text-lg font-semibold text-content-primary">{t('enterprise.flags.title', 'Feature Flags')}</h2>
+                    <p className="text-sm text-content-tertiary">
+                        {t('enterprise.flags.subtitle', 'Control staged rollout, allowlists, and JSON overrides from one place.')}
+                    </p>
+                </div>
+                <Button onClick={startCreate}>{t('enterprise.flags.create', 'Create Flag')}</Button>
             </div>
 
-            {showCreate && (
-                <div className="card" style={{ marginBottom: '16px', padding: '16px' }}>
-                    <h3 style={{ marginBottom: '12px' }}>{t('enterprise.flags.create')}</h3>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
-                        <input className="input" placeholder="Flag key (e.g. unified_agent_runtime)" value={form.key}
-                            onChange={e => setForm({ ...form, key: e.target.value })} />
-                        <select className="input" value={form.flag_type}
-                            onChange={e => setForm({ ...form, flag_type: e.target.value })}>
-                            <option value="boolean">Boolean</option>
-                            <option value="percentage">Percentage</option>
-                            <option value="tenant_gate">Tenant Gate</option>
-                            <option value="allowlist">Allowlist</option>
-                        </select>
-                    </div>
-                    <input className="input" placeholder={t('enterprise.flags.description')} value={form.description}
-                        onChange={e => setForm({ ...form, description: e.target.value })} style={{ marginBottom: '12px', width: '100%' }} />
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                        <button className="btn btn-primary" onClick={() => createMutation.mutate()} disabled={!form.key}>
-                            {t('enterprise.flags.create')}
-                        </button>
-                        <button className="btn" onClick={() => setShowCreate(false)}>{t('common.cancel', 'Cancel')}</button>
-                    </div>
-                </div>
+            {(showCreate || editingId) && (
+                <Card>
+                    <CardHeader>
+                        <CardTitle>
+                            {editingId ? t('enterprise.flags.edit', 'Edit Flag') : t('enterprise.flags.create', 'Create Flag')}
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent className="grid gap-4">
+                        <FeatureFlagEditor
+                            form={draft}
+                            onChange={setDraft}
+                            isEditing={!!editingId}
+                            error={error}
+                        />
+                        <div className="flex flex-wrap gap-2">
+                            <Button
+                                onClick={handleSubmit}
+                                loading={createMutation.isPending || updateMutation.isPending}
+                            >
+                                {editingId ? t('common.save', 'Save') : t('enterprise.flags.create', 'Create Flag')}
+                            </Button>
+                            <Button variant="secondary" onClick={resetDraft}>
+                                {t('common.cancel', 'Cancel')}
+                            </Button>
+                        </div>
+                    </CardContent>
+                </Card>
             )}
 
             {flags.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '40px', opacity: 0.5 }}>{t('enterprise.flags.noFlags')}</div>
+                <Card>
+                    <CardContent className="pt-4 text-sm text-content-tertiary">
+                        {t('enterprise.flags.noFlags', 'No feature flags yet.')}
+                    </CardContent>
+                </Card>
             ) : (
-                <table className="table" style={{ width: '100%' }}>
-                    <thead>
-                        <tr>
-                            <th>{t('enterprise.flags.key')}</th>
-                            <th>{t('enterprise.flags.description')}</th>
-                            <th>{t('enterprise.flags.type')}</th>
-                            <th>{t('enterprise.flags.enabled')}</th>
-                            <th></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {flags.map((f: any) => (
-                            <tr key={f.id}>
-                                <td><code style={{ fontSize: '12px', background: 'rgba(255,255,255,0.06)', padding: '2px 6px', borderRadius: '4px' }}>{f.key}</code></td>
-                                <td style={{ fontSize: '13px', opacity: 0.7 }}>{f.description || '—'}</td>
-                                <td><span className="badge">{f.flag_type}</span></td>
-                                <td>
-                                    <label style={{ cursor: 'pointer' }}>
-                                        <input type="checkbox" checked={f.enabled}
-                                            onChange={() => toggleMutation.mutate({ id: f.id, enabled: !f.enabled })} />
-                                    </label>
-                                </td>
-                                <td>
-                                    <button className="btn btn-sm" style={{ color: 'var(--danger, #ef4444)', fontSize: '12px' }}
-                                        onClick={() => { if (confirm(t('enterprise.flags.confirmDelete'))) deleteMutation.mutate(f.id); }}>
-                                        Delete
-                                    </button>
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
+                flags.map((flag) => (
+                    <Card key={flag.id}>
+                        <CardHeader className="gap-3 md:flex-row md:items-start md:justify-between">
+                            <div className="grid gap-2">
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <CardTitle className="font-mono text-sm">{flag.key}</CardTitle>
+                                    <Badge variant={flag.enabled ? 'success' : 'secondary'}>
+                                        {flag.enabled ? t('common.enabled', 'Enabled') : t('common.disabled', 'Disabled')}
+                                    </Badge>
+                                    <Badge variant="outline">{flag.flag_type}</Badge>
+                                    {typeof flag.rollout_percentage === 'number' && (
+                                        <Badge variant="warning">{flag.rollout_percentage}%</Badge>
+                                    )}
+                                </div>
+                                <p className="text-sm text-content-secondary">{flag.description || t('common.noData', 'No data')}</p>
+                                <div className="flex flex-wrap gap-3 text-xs text-content-tertiary">
+                                    <span>{t('enterprise.flags.createdAt', 'Created')}: {formatDateTime(flag.created_at)}</span>
+                                    <span>{t('enterprise.flags.updatedAt', 'Updated')}: {formatDateTime(flag.updated_at)}</span>
+                                </div>
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-2">
+                                <div className="flex items-center gap-2 rounded-md border border-edge-subtle px-3 py-2">
+                                    <Switch
+                                        checked={flag.enabled}
+                                        onCheckedChange={(checked) =>
+                                            toggleMutation.mutate({ id: flag.id, enabled: checked })
+                                        }
+                                        aria-label={t('enterprise.flags.enabled', 'Enabled')}
+                                    />
+                                    <span className="text-xs text-content-secondary">
+                                        {flag.enabled ? t('enterprise.flags.disable', 'Disable') : t('enterprise.flags.enable', 'Enable')}
+                                    </span>
+                                </div>
+                                <Button variant="secondary" onClick={() => startEdit(flag)}>
+                                    {t('common.edit', 'Edit')}
+                                </Button>
+                                <Button
+                                    variant="destructive"
+                                    onClick={() => {
+                                        if (confirm(t('enterprise.flags.confirmDelete', 'Delete this flag?'))) {
+                                            deleteMutation.mutate(flag.id);
+                                        }
+                                    }}
+                                >
+                                    {t('common.delete', 'Delete')}
+                                </Button>
+                            </div>
+                        </CardHeader>
+                        <CardContent className="grid gap-3">
+                            <div className="grid gap-3 md:grid-cols-3">
+                                <div className="rounded-md border border-edge-subtle bg-surface-primary p-3">
+                                    <div className="text-xs text-content-tertiary">{t('enterprise.flags.allowedTenants', 'Allowed tenant IDs')}</div>
+                                    <div className="mt-2 text-sm text-content-primary">
+                                        {flag.allowed_tenant_ids?.length ? flag.allowed_tenant_ids.join(', ') : '—'}
+                                    </div>
+                                </div>
+                                <div className="rounded-md border border-edge-subtle bg-surface-primary p-3">
+                                    <div className="text-xs text-content-tertiary">{t('enterprise.flags.allowedUsers', 'Allowed user IDs')}</div>
+                                    <div className="mt-2 text-sm text-content-primary">
+                                        {flag.allowed_user_ids?.length ? flag.allowed_user_ids.join(', ') : '—'}
+                                    </div>
+                                </div>
+                                <div className="rounded-md border border-edge-subtle bg-surface-primary p-3">
+                                    <div className="text-xs text-content-tertiary">{t('enterprise.flags.overrides', 'Overrides (JSON)')}</div>
+                                    <pre className="mt-2 whitespace-pre-wrap break-words text-xs text-content-primary">
+                                        {flag.overrides ? JSON.stringify(flag.overrides, null, 2) : '—'}
+                                    </pre>
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
+                ))
             )}
         </div>
     );
 }
-

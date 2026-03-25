@@ -13,7 +13,8 @@
     "adminCompanies": "公司管理",
     "language": "语言",
     "plaza": "广场",
-    "invitations": "邀请码"
+    "invitations": "邀请码",
+    "featureFlags": "功能开关"
   },
   "auth": {
     "login": "登录",
@@ -81,8 +82,27 @@
     "notifications": "通知",
     "markAllRead": "全部已读",
     "noNotifications": "暂无通知",
+    "viewAllNotifications": "查看全部",
     "pin": "置顶",
     "unpin": "取消置顶"
+  },
+  "notifications": {
+    "title": "通知中心",
+    "subtitle": "在一个统一列表里查看审批、广场回复和系统通知。",
+    "empty": "当前筛选条件下没有通知。",
+    "markRead": "标为已读",
+    "open": "打开",
+    "showAll": "查看全部",
+    "showUnreadOnly": "只看未读",
+    "unreadCount": "{{count}} 条未读",
+    "filters": {
+      "all": "全部",
+      "approvalPending": "待审批",
+      "approvalResolved": "已处理审批",
+      "plazaComment": "广场回复",
+      "skillRequest": "技能请求",
+      "system": "系统"
+    }
   },
   "account": {
     "title": "账户设置",
@@ -754,14 +774,29 @@
       "saved": "记忆配置已保存"
     },
     "flags": {
-      "title": "实验功能",
+      "title": "功能开关",
       "key": "标识",
       "description": "描述",
       "type": "类型",
       "enabled": "已启用",
       "create": "创建",
       "noFlags": "暂无实验功能",
-      "confirmDelete": "确定删除此实验功能？"
+      "confirmDelete": "确定删除此实验功能？",
+      "subtitle": "在一个界面里管理灰度比例、允许名单和 JSON 覆盖配置。",
+      "pageSubtitle": "作为独立的管理员页面管理灰度、允许名单和 JSON 覆盖。",
+      "descriptionPlaceholder": "描述这个功能开关控制什么",
+      "rolloutPercentage": "灰度百分比",
+      "allowedTenants": "允许的租户 ID",
+      "allowedUsers": "允许的用户 ID",
+      "allowlistPlaceholder": "tenant-a, tenant-b",
+      "allowlistUserPlaceholder": "user-a, user-b",
+      "overrides": "覆盖配置（JSON）",
+      "invalidOverrides": "覆盖配置必须是合法的 JSON 对象",
+      "createdAt": "创建时间",
+      "updatedAt": "更新时间",
+      "edit": "编辑开关",
+      "enable": "启用",
+      "disable": "停用"
     },
     "stats": {
       "users": "{{count}} 用户",
@@ -1067,6 +1102,8 @@
     "none": "无",
     "download": "下载",
     "default": "默认",
+    "enabled": "已启用",
+    "disabled": "已停用",
     "admin": "管理员",
     "minutes": "分钟",
     "channels": {

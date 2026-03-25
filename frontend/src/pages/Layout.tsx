@@ -158,16 +158,13 @@ export default function Layout() {
     // Notification polling
     const { data: unreadCount = 0 } = useQuery({
         queryKey: ['notifications-unread'],
-        queryFn: async () => {
-            const res = await notificationApi.unreadCount();
-            return res?.count || 0;
-        },
+        queryFn: () => notificationApi.unreadCount(),
         refetchInterval: 30000,
         enabled: !!user,
     });
     const { data: notifications = [], refetch: refetchNotifications } = useQuery({
         queryKey: ['notifications'],
-        queryFn: () => notificationApi.list(),
+        queryFn: () => notificationApi.list({ limit: 20 }),
         enabled: !!user && showNotifications,
     });
     const markAllRead = async () => {
@@ -402,6 +399,12 @@ export default function Layout() {
                                 <span className="sidebar-item-text">{t('nav.adminCompanies', 'Companies')}</span>
                             </NavLink>
                         )}
+                        {user && user.role === 'platform_admin' && (
+                            <NavLink to="/admin/feature-flags" className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`} title={t('nav.featureFlags', 'Feature Flags')}>
+                                <span className="sidebar-item-icon flex">{SidebarIcons.settings}</span>
+                                <span className="sidebar-item-text">{t('nav.featureFlags', 'Feature Flags')}</span>
+                            </NavLink>
+                        )}
                     </div>
 
                     <div className="sidebar-footer">
@@ -488,6 +491,17 @@ export default function Layout() {
                                 {t('layout.markAllRead')}
                             </Button>
                         )}
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                                navigate('/notifications');
+                                setShowNotifications(false);
+                            }}
+                            className="text-[11px]"
+                        >
+                            {t('layout.viewAllNotifications', 'View all')}
+                        </Button>
                         <Button variant="ghost" size="icon" onClick={() => setShowNotifications(false)} className="h-7 w-7" aria-label={t('common.close', 'Close')}>
                             ×
                         </Button>

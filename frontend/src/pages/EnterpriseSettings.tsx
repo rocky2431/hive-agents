@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { parseAsStringLiteral, useQueryState } from 'nuqs';
 import { useTranslation } from 'react-i18next';
 import { adminApi, enterpriseApi, auditApi, capabilityApi, onboardingApi, oidcApi, packApi } from '../services/api';
 import PromptModal from '../components/PromptModal';
@@ -29,7 +30,8 @@ export default function EnterpriseSettings() {
     const { t } = useTranslation();
     const qc = useQueryClient();
     const user = useAuthStore((s) => s.user);
-    type TabKey = 'info' | 'llm' | 'org' | 'approvals' | 'audit' | 'mcp' | 'skills' | 'quotas' | 'users' | 'flags' | 'invites' | 'memory' | 'sso' | 'capabilities' | 'config' | 'kb';
+    const TAB_KEYS = ['info', 'llm', 'org', 'approvals', 'audit', 'mcp', 'skills', 'quotas', 'users', 'flags', 'invites', 'memory', 'sso', 'capabilities', 'config', 'kb'] as const;
+    type TabKey = (typeof TAB_KEYS)[number];
 
     interface SidebarGroup {
         key: string;
@@ -44,7 +46,10 @@ export default function EnterpriseSettings() {
         { key: 'platform', tabs: ['config', 'kb', 'flags'] },
     ];
 
-    const [activeTab, setActiveTab] = useState<TabKey>('info');
+    const [activeTab, setActiveTab] = useQueryState(
+        'tab',
+        parseAsStringLiteral(TAB_KEYS).withDefault('info'),
+    );
 
     // OpenViking status for KB tab
     const { data: vikingStatus } = useQuery({
