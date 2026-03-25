@@ -1,8 +1,8 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { agentApi, enterpriseApi, skillApi } from '../services/api';
+import { agentApi, enterpriseApi, orgApi, skillApi } from '../services/api';
 import type { Agent, AgentCreateInput } from '../types';
 
 interface AgentCreateFormState {
@@ -17,13 +17,82 @@ interface AgentCreateFormState {
     fallback_model_id: string;
     skill_ids: string[];
     permission_scope_type: 'company' | 'user';
+    permission_scope_ids: string[];
     permission_access_level: 'use' | 'manage';
+    max_tokens_per_day: string | number;
+    max_tokens_per_month: string | number;
+    agent_class: 'internal_tenant' | 'external_gateway' | 'external_api' | 'internal_system';
     security_zone: 'standard' | 'restricted' | 'public';
 }
 
-/* ── Phase constants ──────────────────────────────────────────────── */
-
 type Phase = 'identity' | 'abilities' | 'success';
+
+const AGENT_CLASS_OPTIONS: Array<{
+    value: AgentCreateFormState['agent_class'];
+    labelKey: string;
+    descKey: string;
+    fallbackLabel: string;
+    fallbackDesc: string;
+}> = [
+    {
+        value: 'internal_tenant',
+        labelKey: 'wizard.abilities.agentClassInternalTenant',
+        descKey: 'wizard.abilities.agentClassInternalTenantDesc',
+        fallbackLabel: 'Tenant employee',
+        fallbackDesc: 'Runs as a company-managed internal employee.',
+    },
+    {
+        value: 'internal_system',
+        labelKey: 'wizard.abilities.agentClassInternalSystem',
+        descKey: 'wizard.abilities.agentClassInternalSystemDesc',
+        fallbackLabel: 'System agent',
+        fallbackDesc: 'Reserved for platform-managed system workflows.',
+    },
+    {
+        value: 'external_gateway',
+        labelKey: 'wizard.abilities.agentClassExternalGateway',
+        descKey: 'wizard.abilities.agentClassExternalGatewayDesc',
+        fallbackLabel: 'Gateway worker',
+        fallbackDesc: 'Connected through an external gateway runtime.',
+    },
+    {
+        value: 'external_api',
+        labelKey: 'wizard.abilities.agentClassExternalApi',
+        descKey: 'wizard.abilities.agentClassExternalApiDesc',
+        fallbackLabel: 'API-backed agent',
+        fallbackDesc: 'Backed by an external API or integration.',
+    },
+];
+
+const SECURITY_ZONE_OPTIONS: Array<{
+    value: AgentCreateFormState['security_zone'];
+    labelKey: string;
+    descKey: string;
+    fallbackLabel: string;
+    fallbackDesc: string;
+}> = [
+    {
+        value: 'public',
+        labelKey: 'wizard.abilities.securityZonePublic',
+        descKey: 'wizard.abilities.securityZonePublicDesc',
+        fallbackLabel: 'Public',
+        fallbackDesc: 'Appropriate for broad discovery and low-risk usage.',
+    },
+    {
+        value: 'standard',
+        labelKey: 'wizard.abilities.securityZoneStandard',
+        descKey: 'wizard.abilities.securityZoneStandardDesc',
+        fallbackLabel: 'Standard',
+        fallbackDesc: 'Default company security posture.',
+    },
+    {
+        value: 'restricted',
+        labelKey: 'wizard.abilities.securityZoneRestricted',
+        descKey: 'wizard.abilities.securityZoneRestrictedDesc',
+        fallbackLabel: 'Restricted',
+        fallbackDesc: 'For sensitive or tightly governed workloads.',
+    },
+];
 
 export default function AgentCreate() {
     const { t } = useTranslation();
@@ -32,15 +101,17 @@ export default function AgentCreate() {
     const [phase, setPhase] = useState<Phase>('identity');
     const [error, setError] = useState('');
     const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-    const clearFieldError = (field: string) =>
-        setFieldErrors((prev) => {
-            const n = { ...prev };
-            delete n[field];
-            return n;
-        });
+    const [memberSearch, setMemberSearch] = useState('');
     const [currentTenant] = useState<string | null>(() => localStorage.getItem('current_tenant_id'));
     const [createdAgentName, setCreatedAgentName] = useState('');
     const [createdAgentId, setCreatedAgentId] = useState('');
+
+    const clearFieldError = (field: string) =>
+        setFieldErrors((prev) => {
+            const next = { ...prev };
+            delete next[field];
+            return next;
+        });
 
     const [form, setForm] = useState<AgentCreateFormState>({
         name: '',
@@ -50,15 +121,17 @@ export default function AgentCreate() {
         welcome_message: '',
         personality: '',
         boundaries: '',
-        primary_model_id: '' as string,
+        primary_model_id: '',
         fallback_model_id: '',
-        skill_ids: [] as string[],
+        skill_ids: [],
         permission_scope_type: 'company',
+        permission_scope_ids: [],
         permission_access_level: 'use',
+        max_tokens_per_day: '' as string | number,
+        max_tokens_per_month: '' as string | number,
+        agent_class: 'internal_tenant',
         security_zone: 'standard',
     });
-
-    /* ── Data fetching ────────────────────────────────────────────── */
 
     const { data: models = [] } = useQuery({
         queryKey: ['llm-models'],
@@ -70,7 +143,12 @@ export default function AgentCreate() {
         queryFn: skillApi.list,
     });
 
-    // Auto-select first enabled model
+    const { data: orgUsers = [] } = useQuery({
+        queryKey: ['agent-create-org-users', currentTenant],
+        queryFn: () => orgApi.listUsers(currentTenant ? { tenant_id: currentTenant } : {}),
+        enabled: !!currentTenant,
+    });
+
     useEffect(() => {
         if (models.length > 0 && !form.primary_model_id) {
             const firstEnabled = (models as any[]).find((m: any) => m.enabled);
@@ -80,7 +158,6 @@ export default function AgentCreate() {
         }
     }, [models, form.primary_model_id]);
 
-    // Auto-select default skills
     useEffect(() => {
         if (globalSkills.length > 0) {
             const defaultIds = globalSkills.filter((s: any) => s.is_default).map((s: any) => s.id);
@@ -93,28 +170,40 @@ export default function AgentCreate() {
         }
     }, [globalSkills]);
 
-    /* ── Validation ───────────────────────────────────────────────── */
+    const enabledModels = useMemo(() => (models as any[]).filter((m: any) => m.enabled), [models]);
+    const filteredOrgUsers = useMemo(() => {
+        if (!memberSearch.trim()) return orgUsers;
+        const query = memberSearch.trim().toLowerCase();
+        return (orgUsers as any[]).filter((user: any) =>
+            [user.display_name, user.username, user.email]
+                .filter(Boolean)
+                .some((value) => String(value).toLowerCase().includes(query)),
+        );
+    }, [memberSearch, orgUsers]);
 
     const validateIdentity = (): boolean => {
         const errors: Record<string, string> = {};
         const name = form.name.trim();
+
         if (!name) {
-            errors.name = t('wizard.errors.nameRequired', '\u667A\u80FD\u4F53\u540D\u79F0\u4E0D\u80FD\u4E3A\u7A7A');
+            errors.name = t('wizard.errors.nameRequired', '智能体名称不能为空');
         } else if (name.length < 2) {
-            errors.name = t('wizard.errors.nameTooShort', '\u540D\u79F0\u81F3\u5C11\u9700\u8981 2 \u4E2A\u5B57\u7B26');
+            errors.name = t('wizard.errors.nameTooShort', '名称至少需要 2 个字符');
         } else if (name.length > 100) {
-            errors.name = t('wizard.errors.nameTooLong', '\u540D\u79F0\u4E0D\u80FD\u8D85\u8FC7 100 \u4E2A\u5B57\u7B26');
+            errors.name = t('wizard.errors.nameTooLong', '名称不能超过 100 个字符');
         }
+
         if (form.role_description.length > 500) {
-            errors.role_description = t('wizard.errors.roleDescTooLong', '\u89D2\u8272\u63CF\u8FF0\u4E0D\u80FD\u8D85\u8FC7 500 \u4E2A\u5B57\u7B26\uFF08\u5F53\u524D {{count}} \u5B57\u7B26\uFF09').replace(
-                '{{count}}',
-                String(form.role_description.length),
-            );
+            errors.role_description = t(
+                'wizard.errors.roleDescTooLong',
+                '角色描述不能超过 500 个字符（当前 {{count}} 字符）',
+            ).replace('{{count}}', String(form.role_description.length));
         }
-        const enabledModels = (models as any[]).filter((m: any) => m.enabled);
+
         if (enabledModels.length > 0 && !form.primary_model_id) {
-            errors.primary_model_id = t('wizard.errors.modelRequired', '\u8BF7\u9009\u62E9\u4E00\u4E2A\u4E3B\u6A21\u578B');
+            errors.primary_model_id = t('wizard.errors.modelRequired', '请选择一个主模型');
         }
+
         setFieldErrors(errors);
         return Object.keys(errors).length === 0;
     };
@@ -125,20 +214,25 @@ export default function AgentCreate() {
         setPhase('abilities');
     };
 
-    /* ── Submit ────────────────────────────────────────────────────── */
-
     const createMutation = useMutation({
-        mutationFn: async (data: AgentCreateInput) => {
-            return await agentApi.create(data);
-        },
+        mutationFn: async (data: AgentCreateInput) => agentApi.create(data),
         onSuccess: async (agent: Agent) => {
-            queryClient.invalidateQueries({ queryKey: ['agents'] });
+            await queryClient.invalidateQueries({ queryKey: ['agents'] });
             setCreatedAgentName(agent.name || form.name);
             setCreatedAgentId(agent.id);
             setPhase('success');
         },
         onError: (err: any) => setError(err.message),
     });
+
+    const togglePermissionUser = (userId: string) => {
+        setForm((prev) => ({
+            ...prev,
+            permission_scope_ids: prev.permission_scope_ids.includes(userId)
+                ? prev.permission_scope_ids.filter((id) => id !== userId)
+                : [...prev.permission_scope_ids, userId],
+        }));
+    };
 
     const handleCreate = () => {
         setError('');
@@ -154,18 +248,15 @@ export default function AgentCreate() {
             fallback_model_id: form.fallback_model_id || undefined,
             skill_ids: form.skill_ids,
             permission_scope_type: form.permission_scope_type,
+            permission_scope_ids: form.permission_scope_type === 'user' ? form.permission_scope_ids : [],
             permission_access_level: form.permission_access_level,
             tenant_id: currentTenant || undefined,
+            max_tokens_per_day: form.max_tokens_per_day === '' ? undefined : Number(form.max_tokens_per_day),
+            max_tokens_per_month: form.max_tokens_per_month === '' ? undefined : Number(form.max_tokens_per_month),
             security_zone: form.security_zone,
-            agent_class: 'internal_tenant',
+            agent_class: form.agent_class,
         });
     };
-
-    /* ── Derived values ───────────────────────────────────────────── */
-
-    const enabledModels = useMemo(() => (models as any[]).filter((m: any) => m.enabled), [models]);
-
-    /* ── Render: Success Screen ───────────────────────────────────── */
 
     if (phase === 'success') {
         return (
@@ -192,8 +283,6 @@ export default function AgentCreate() {
         );
     }
 
-    /* ── Render: Steps (identity / abilities) ─────────────────────── */
-
     const stepIndex = phase === 'identity' ? 0 : 1;
     const stepLabels = [t('wizard.steps.identity'), t('wizard.steps.abilities')];
 
@@ -203,7 +292,6 @@ export default function AgentCreate() {
                 <h1 className="page-title">{t('nav.newAgent')}</h1>
             </div>
 
-            {/* Stepper — 2 steps */}
             <div className="wizard-steps">
                 {stepLabels.map((label, i) => (
                     <div key={i} style={{ display: 'contents' }}>
@@ -216,8 +304,7 @@ export default function AgentCreate() {
                 ))}
             </div>
 
-            {/* Navigation */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', maxWidth: '640px', marginBottom: '16px', position: 'sticky', top: 0, zIndex: 10, background: 'var(--bg-primary)', paddingTop: '4px', paddingBottom: '4px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', maxWidth: '760px', marginBottom: '16px', position: 'sticky', top: 0, zIndex: 10, background: 'var(--bg-primary)', paddingTop: '4px', paddingBottom: '4px' }}>
                 <button
                     className="btn btn-secondary"
                     onClick={() => {
@@ -240,20 +327,18 @@ export default function AgentCreate() {
             </div>
 
             {error && (
-                <div style={{ background: 'var(--error-subtle)', color: 'var(--error)', padding: '8px 12px', borderRadius: '6px', fontSize: '13px', marginBottom: '16px' }}>
+                <div style={{ background: 'var(--error-subtle)', color: 'var(--error)', padding: '8px 12px', borderRadius: '6px', fontSize: '13px', marginBottom: '16px', maxWidth: '760px' }}>
                     {error}
                 </div>
             )}
 
-            <div className="card" style={{ maxWidth: '640px' }}>
-                {/* Step 1: Identity — "Who is this?" */}
+            <div className="card" style={{ maxWidth: '760px' }}>
                 {phase === 'identity' && (
                     <div>
                         <h3 style={{ marginBottom: '20px', fontWeight: 600, fontSize: '15px' }}>
                             {t('wizard.step1New.title')}
                         </h3>
 
-                        {/* Name */}
                         <div className="form-group">
                             <label className="form-label">{t('agent.fields.name')} *</label>
                             <input
@@ -271,7 +356,6 @@ export default function AgentCreate() {
                             )}
                         </div>
 
-                        {/* Role */}
                         <div className="form-group">
                             <label className="form-label">{t('agent.fields.role')} *</label>
                             <textarea
@@ -289,7 +373,6 @@ export default function AgentCreate() {
                             )}
                         </div>
 
-                        {/* Profile extras — collapsible */}
                         <details style={{ marginBottom: '16px' }}>
                             <summary style={{ cursor: 'pointer', fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)', marginBottom: '8px' }}>
                                 {t('wizard.identity.profileExtras', 'Profile extras (bio, avatar, welcome message)')}
@@ -336,7 +419,6 @@ export default function AgentCreate() {
                             </div>
                         </details>
 
-                        {/* Communication style — collapsible */}
                         <details style={{ marginBottom: '16px' }}>
                             <summary style={{ cursor: 'pointer', fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)', marginBottom: '8px' }}>
                                 {t('wizard.identity.communicationStyle')}
@@ -365,7 +447,6 @@ export default function AgentCreate() {
                             </div>
                         </details>
 
-                        {/* AI Model — single dropdown */}
                         <div className="form-group">
                             <label className="form-label">{t('wizard.identity.aiModel')} *</label>
                             {enabledModels.length > 0 ? (
@@ -402,7 +483,6 @@ export default function AgentCreate() {
                     </div>
                 )}
 
-                {/* Step 2: Abilities — "What can they do?" */}
                 {phase === 'abilities' && (
                     <div>
                         <h3 style={{ marginBottom: '6px', fontWeight: 600, fontSize: '15px' }}>
@@ -412,7 +492,6 @@ export default function AgentCreate() {
                             {t('wizard.abilities.description')}
                         </p>
 
-                        {/* Fallback model */}
                         {enabledModels.length > 0 && (
                             <div className="form-group" style={{ marginBottom: '20px' }}>
                                 <label className="form-label">
@@ -433,6 +512,161 @@ export default function AgentCreate() {
                                 </select>
                             </div>
                         )}
+
+                        <div className="form-group" style={{ marginBottom: '20px' }}>
+                            <label className="form-label">{t('wizard.abilities.agentClass', 'Agent class')}</label>
+                            <select
+                                className="form-select"
+                                value={form.agent_class}
+                                onChange={(e) => setForm({ ...form, agent_class: e.target.value as AgentCreateFormState['agent_class'] })}
+                            >
+                                {AGENT_CLASS_OPTIONS.map((option) => (
+                                    <option key={option.value} value={option.value}>
+                                        {t(option.labelKey, option.fallbackLabel)}
+                                    </option>
+                                ))}
+                            </select>
+                            <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                                {t(
+                                    AGENT_CLASS_OPTIONS.find((option) => option.value === form.agent_class)?.descKey || 'wizard.abilities.agentClassInternalTenantDesc',
+                                    AGENT_CLASS_OPTIONS.find((option) => option.value === form.agent_class)?.fallbackDesc || '',
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="form-group" style={{ marginBottom: '20px' }}>
+                            <label className="form-label">{t('wizard.abilities.securityZone', 'Security zone')}</label>
+                            <select
+                                className="form-select"
+                                value={form.security_zone}
+                                onChange={(e) => setForm({ ...form, security_zone: e.target.value as AgentCreateFormState['security_zone'] })}
+                            >
+                                {SECURITY_ZONE_OPTIONS.map((option) => (
+                                    <option key={option.value} value={option.value}>
+                                        {t(option.labelKey, option.fallbackLabel)}
+                                    </option>
+                                ))}
+                            </select>
+                            <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                                {t(
+                                    SECURITY_ZONE_OPTIONS.find((option) => option.value === form.security_zone)?.descKey || 'wizard.abilities.securityZoneStandardDesc',
+                                    SECURITY_ZONE_OPTIONS.find((option) => option.value === form.security_zone)?.fallbackDesc || '',
+                                )}
+                            </div>
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px' }}>
+                            <div className="form-group" style={{ marginBottom: 0 }}>
+                                <label className="form-label">{t('wizard.abilities.dailyTokenLimit', 'Daily token limit')}</label>
+                                <input
+                                    className="form-input"
+                                    type="number"
+                                    min={0}
+                                    value={form.max_tokens_per_day}
+                                    onChange={(e) => setForm({ ...form, max_tokens_per_day: e.target.value ? Number(e.target.value) : '' })}
+                                    placeholder={t('wizard.abilities.unlimitedPlaceholder', 'Leave empty for unlimited')}
+                                />
+                            </div>
+                            <div className="form-group" style={{ marginBottom: 0 }}>
+                                <label className="form-label">{t('wizard.abilities.monthlyTokenLimit', 'Monthly token limit')}</label>
+                                <input
+                                    className="form-input"
+                                    type="number"
+                                    min={0}
+                                    value={form.max_tokens_per_month}
+                                    onChange={(e) => setForm({ ...form, max_tokens_per_month: e.target.value ? Number(e.target.value) : '' })}
+                                    placeholder={t('wizard.abilities.unlimitedPlaceholder', 'Leave empty for unlimited')}
+                                />
+                            </div>
+                        </div>
+
+                        <div className="form-group" style={{ marginBottom: '20px' }}>
+                            <label className="form-label">{t('wizard.abilities.permissionScope', 'Who can access this agent')}</label>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                <label style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', padding: '12px', borderRadius: '8px', border: form.permission_scope_type === 'company' ? '1px solid var(--accent-primary)' : '1px solid var(--border-default)', background: form.permission_scope_type === 'company' ? 'var(--accent-subtle)' : 'var(--bg-elevated)' }}>
+                                    <input
+                                        type="radio"
+                                        name="permission_scope_type"
+                                        checked={form.permission_scope_type === 'company'}
+                                        onChange={() => setForm((prev) => ({ ...prev, permission_scope_type: 'company' }))}
+                                    />
+                                    <div>
+                                        <div style={{ fontWeight: 500, fontSize: '13px' }}>{t('wizard.abilities.companyScope', 'Entire company')}</div>
+                                        <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '2px' }}>
+                                            {t('wizard.abilities.companyScopeDesc', 'Everyone in the current workspace can discover and use this agent.')}
+                                        </div>
+                                    </div>
+                                </label>
+                                <label style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', padding: '12px', borderRadius: '8px', border: form.permission_scope_type === 'user' ? '1px solid var(--accent-primary)' : '1px solid var(--border-default)', background: form.permission_scope_type === 'user' ? 'var(--accent-subtle)' : 'var(--bg-elevated)' }}>
+                                    <input
+                                        type="radio"
+                                        name="permission_scope_type"
+                                        checked={form.permission_scope_type === 'user'}
+                                        onChange={() => setForm((prev) => ({ ...prev, permission_scope_type: 'user' }))}
+                                    />
+                                    <div>
+                                        <div style={{ fontWeight: 500, fontSize: '13px' }}>{t('wizard.abilities.shareWithUsers', 'Specific users only')}</div>
+                                        <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '2px' }}>
+                                            {t('wizard.abilities.shareWithUsersDesc', 'Select exactly who should have access. Leave the list empty to keep it creator-only.')}
+                                        </div>
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+
+                        {form.permission_scope_type === 'user' && (
+                            <div className="card" style={{ marginBottom: '20px', padding: '12px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center', marginBottom: '10px' }}>
+                                    <div>
+                                        <div style={{ fontSize: '13px', fontWeight: 600 }}>{t('wizard.abilities.shareWithUsers', 'Specific users only')}</div>
+                                        <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
+                                            {t('wizard.abilities.creatorOnlyFallback', 'If you do not select anyone, only the creator will be granted manage access.')}
+                                        </div>
+                                    </div>
+                                    <input
+                                        className="form-input"
+                                        value={memberSearch}
+                                        onChange={(e) => setMemberSearch(e.target.value)}
+                                        placeholder={t('wizard.abilities.searchUsers', 'Search users by name or email')}
+                                        style={{ maxWidth: '260px' }}
+                                    />
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '8px', maxHeight: '220px', overflowY: 'auto' }}>
+                                    {filteredOrgUsers.map((user: any) => (
+                                        <label key={user.id} style={{ display: 'flex', gap: '8px', alignItems: 'flex-start', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-default)', background: form.permission_scope_ids.includes(user.id) ? 'var(--accent-subtle)' : 'var(--bg-elevated)' }}>
+                                            <input
+                                                type="checkbox"
+                                                checked={form.permission_scope_ids.includes(user.id)}
+                                                onChange={() => togglePermissionUser(user.id)}
+                                            />
+                                            <div style={{ minWidth: 0 }}>
+                                                <div style={{ fontSize: '13px', fontWeight: 500 }}>{user.display_name || user.username}</div>
+                                                <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                    {user.email}
+                                                </div>
+                                            </div>
+                                        </label>
+                                    ))}
+                                    {filteredOrgUsers.length === 0 && (
+                                        <div style={{ gridColumn: '1 / -1', padding: '16px', textAlign: 'center', fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                                            {t('wizard.abilities.noUsersFound', 'No matching users found in the current workspace.')}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="form-group" style={{ marginBottom: '20px' }}>
+                            <label className="form-label">{t('wizard.abilities.defaultAccessLevel', 'Default access level')}</label>
+                            <select
+                                className="form-select"
+                                value={form.permission_access_level}
+                                onChange={(e) => setForm({ ...form, permission_access_level: e.target.value as AgentCreateFormState['permission_access_level'] })}
+                            >
+                                <option value="use">{t('wizard.abilities.accessUse', 'Use')}</option>
+                                <option value="manage">{t('wizard.abilities.accessManage', 'Manage')}</option>
+                            </select>
+                        </div>
 
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                             {globalSkills.map((skill: any) => {

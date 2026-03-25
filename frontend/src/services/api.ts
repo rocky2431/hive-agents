@@ -169,6 +169,9 @@ export const authApi = {
 
     changePassword: (data: { current_password: string; new_password: string }) =>
         request<any>('/auth/me/password', { method: 'PUT', body: JSON.stringify(data) }),
+
+    registrationConfig: () =>
+        request<{ invitation_code_required: boolean }>('/auth/registration-config'),
 };
 
 // ─── OIDC SSO ────────────────────────────────────────
@@ -536,6 +539,40 @@ export const enterpriseApi = {
             headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
     },
+};
+
+// ─── Organization ─────────────────────────────────────
+export const orgApi = {
+    listDepartments: (tenantId?: string) =>
+        request<any[]>(`/org/departments${tenantId ? `?tenant_id=${tenantId}` : ''}`),
+
+    createDepartment: (data: any, tenantId?: string) =>
+        request<any>(`/org/departments${tenantId ? `?tenant_id=${tenantId}` : ''}`, {
+            method: 'POST',
+            body: JSON.stringify(data),
+        }),
+
+    updateDepartment: (deptId: string, data: any, tenantId?: string) =>
+        request<any>(`/org/departments/${deptId}${tenantId ? `?tenant_id=${tenantId}` : ''}`, {
+            method: 'PATCH',
+            body: JSON.stringify(data),
+        }),
+
+    deleteDepartment: (deptId: string, tenantId?: string) =>
+        request<void>(`/org/departments/${deptId}${tenantId ? `?tenant_id=${tenantId}` : ''}`, {
+            method: 'DELETE',
+        }),
+
+    listUsers: (params?: Record<string, string>) => {
+        const qs = params ? new URLSearchParams(params) : '';
+        return request<any[]>(`/org/users${qs ? `?${qs}` : ''}`);
+    },
+
+    updateUser: (userId: string, data: any) =>
+        request<any>(`/org/users/${userId}`, {
+            method: 'PATCH',
+            body: JSON.stringify(data),
+        }),
 };
 
 // ─── Notifications ───────────────────────────────────

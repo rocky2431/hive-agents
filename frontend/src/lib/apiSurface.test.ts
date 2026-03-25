@@ -27,6 +27,7 @@ test('frontend api surface no longer exports legacy toolApi', () => {
 });
 
 test('frontend pages normalize legacy direct API paths to /api/v1', () => {
+    const apiSource = readFile(apiPath);
     const chatSource = readFile(chatPath);
     const agentDetailSource = readFile(agentDetailPath);
     const plazaSource = readFile(plazaPath);
@@ -39,14 +40,21 @@ test('frontend pages normalize legacy direct API paths to /api/v1', () => {
     assert.doesNotMatch(plazaSource, /\/api\/plaza\//);
     assert.doesNotMatch(plazaSource, /\/api\/agents'/);
     assert.doesNotMatch(adminCompaniesSource, /\/api\/enterprise\/system-settings\/notification_bar/);
+    assert.doesNotMatch(adminCompaniesSource, /\/api\/v1\/enterprise\/system-settings\/notification_bar/);
     assert.doesNotMatch(enterpriseSettingsSource, /\/api\/enterprise\/llm-test/);
+    assert.doesNotMatch(enterpriseSettingsSource, /\/api\/v1\/enterprise\/llm-test/);
     assert.doesNotMatch(channelConfigSource, /\/api\/channel\//);
 
+    assert.match(apiSource, /const API_BASE = '\/api\/v1'/);
     assert.match(chatSource, /`\/api\/v1\/agents\/\$\{id\}\/files\/download/);
     assert.match(agentDetailSource, /`\/api\/v1\/agents\/\$\{id\}\/files\/download/);
     assert.match(plazaSource, /plazaApi\./);
     assert.match(plazaSource, /agentApi\./);
-    assert.match(adminCompaniesSource, /\/api\/v1\/enterprise\/system-settings\/notification_bar/);
-    assert.match(enterpriseSettingsSource, /\/api\/v1\/enterprise\/llm-test/);
+    assert.match(adminCompaniesSource, /enterpriseApi\.getSystemSetting\('notification_bar'\)/);
+    assert.match(adminCompaniesSource, /enterpriseApi\.updateSystemSetting\('notification_bar', \{ value: \{ enabled: nbEnabled, text: nbText \} \}\)/);
+    assert.match(apiSource, /getSystemSetting:\s*\(key: string,\s*tenantId\?: string\)\s*=>\s*request<any>\(`\/enterprise\/system-settings\/\$\{key\}\$\{tenantId \? `\?tenant_id=\$\{tenantId\}` : ''\}`\)/);
+    assert.match(apiSource, /updateSystemSetting:\s*\(key: string,\s*data: any,\s*tenantId\?: string\)\s*=>\s*request<any>\(`\/enterprise\/system-settings\/\$\{key\}\$\{tenantId \? `\?tenant_id=\$\{tenantId\}` : ''\}`,\s*\{/);
+    assert.match(enterpriseSettingsSource, /enterpriseApi\.llmTest\(/);
+    assert.match(apiSource, /llmTest:\s*\(data: any,\s*tenantId\?: string\)\s*=>\s*request<any>\(`\/enterprise\/llm-test\$\{tenantId \? `\?tenant_id=\$\{tenantId\}` : ''\}`/);
     assert.match(channelConfigSource, /\/api\/v1\/channel\//);
 });

@@ -37,17 +37,25 @@ test('EnterpriseSettings scopes tenant config tabs to the selected tenant', () =
 
 test('EnterpriseSettings scopes llm test update and delete requests to the selected tenant', () => {
     const source = read(enterpriseSettingsPath);
+    const apiSource = read(apiPath);
 
-    assert.match(source, /\/api\/v1\/enterprise\/llm-test\$\{selectedTenantId \? `\?tenant_id=\$\{selectedTenantId\}` : ''\}/);
+    assert.match(source, /enterpriseApi\.llmTest\(testData,\s*selectedTenantId \|\| undefined\)/);
     assert.match(source, /\/enterprise\/llm-models\/\$\{id\}\$\{selectedTenantId \? `\?tenant_id=\$\{selectedTenantId\}` : ''\}/);
     assert.match(source, /\/api\/v1\/enterprise\/llm-models\/\$\{id\}\?force=true&tenant_id=\$\{selectedTenantId\}/);
+    assert.match(apiSource, /llmTest:\s*\(data: any,\s*tenantId\?: string\)\s*=>\s*request<any>\(`\/enterprise\/llm-test\$\{tenantId \? `\?tenant_id=\$\{tenantId\}` : ''\}`/);
 });
 
 test('InvitationCodes scopes CRUD requests to the selected tenant', () => {
     const source = read(invitationCodesPath);
+    const apiSource = read(apiPath);
 
     assert.match(source, /params\.set\('tenant_id', tenantId\)/);
-    assert.match(source, /\/api\/v1\/enterprise\/invitation-codes\$\{tenantId \? `\?tenant_id=\$\{tenantId\}` : ''\}/);
-    assert.match(source, /\/api\/v1\/enterprise\/invitation-codes\/\$\{id\}\$\{tenantId \? `\?tenant_id=\$\{tenantId\}` : ''\}/);
-    assert.match(source, /\/api\/v1\/enterprise\/invitation-codes\/export\$\{tenantId \? `\?tenant_id=\$\{tenantId\}` : ''\}/);
+    assert.match(source, /enterpriseApi\.listInvitationCodes\(Object\.fromEntries\(params\.entries\(\)\)\)/);
+    assert.match(source, /enterpriseApi\.createInvitationCodes\(\{ count: batchCount, max_uses: maxUses \}, tenantId \|\| undefined\)/);
+    assert.match(source, /enterpriseApi\.deleteInvitationCode\(id, tenantId \|\| undefined\)/);
+    assert.match(source, /enterpriseApi\.exportInvitationCodes\(tenantId \|\| undefined\)/);
+    assert.match(apiSource, /\/enterprise\/invitation-codes\$\{qs \? `\?\$\{qs\}` : ''\}/);
+    assert.match(apiSource, /\/enterprise\/invitation-codes\$\{tenantId \? `\?tenant_id=\$\{tenantId\}` : ''\}/);
+    assert.match(apiSource, /\/enterprise\/invitation-codes\/\$\{id\}\$\{tenantId \? `\?tenant_id=\$\{tenantId\}` : ''\}/);
+    assert.match(apiSource, /\/enterprise\/invitation-codes\/export\$\{tenantId \? `\?tenant_id=\$\{tenantId\}` : ''\}/);
 });

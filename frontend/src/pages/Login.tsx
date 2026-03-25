@@ -13,6 +13,7 @@ export default function Login() {
     const [loading, setLoading] = useState(false);
 
     const [ssoConfig, setSsoConfig] = useState<any>(null);
+    const [registrationConfig, setRegistrationConfig] = useState<{ invitation_code_required: boolean }>({ invitation_code_required: false });
 
     const [form, setForm] = useState({
         username: '',
@@ -30,6 +31,9 @@ export default function Login() {
         oidcApi.config().then(cfg => {
             if (cfg.configured) setSsoConfig(cfg);
         }).catch(() => { /* non-critical: SSO button hidden if config unavailable */ });
+        authApi.registrationConfig()
+            .then(setRegistrationConfig)
+            .catch(() => { /* ignore */ });
     }, []);
 
     // Handle OIDC callback — check URL for ?code= parameter with CSRF state verification
@@ -275,6 +279,12 @@ export default function Login() {
                             {isRegister ? t('auth.goLogin') : t('auth.goRegister')}
                         </a>
                     </div>
+
+                    {isRegister && registrationConfig.invitation_code_required && (
+                        <div style={{ marginTop: '12px', fontSize: '12px', color: 'var(--text-tertiary)', lineHeight: 1.5 }}>
+                            {t('auth.invitationRequiredHint', 'Registration is open, but joining a workspace currently requires an invitation code from an administrator.')}
+                        </div>
+                    )}
                 </div>
             </div>
         </div>

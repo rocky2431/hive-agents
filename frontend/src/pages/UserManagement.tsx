@@ -3,6 +3,7 @@
  */
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import { orgApi } from '../services/api';
 
 interface UserInfo {
     id: string;
@@ -10,6 +11,8 @@ interface UserInfo {
     email: string;
     display_name: string;
     role: string;
+    department_id?: string;
+    title?: string;
     is_active: boolean;
     quota_message_limit: number;
     quota_message_period: string;
@@ -46,6 +49,9 @@ export default function UserManagement() {
     const [loading, setLoading] = useState(true);
     const [editingUserId, setEditingUserId] = useState<string | null>(null);
     const [editForm, setEditForm] = useState({
+        display_name: '',
+        title: '',
+        department_id: '',
         quota_message_limit: 50,
         quota_message_period: 'permanent',
         quota_max_agents: 2,
@@ -58,11 +64,13 @@ export default function UserManagement() {
     const [searchQuery, setSearchQuery] = useState('');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
     const [page, setPage] = useState(1);
+    const [departments, setDepartments] = useState<any[]>([]);
+
+    const tenantId = localStorage.getItem('current_tenant_id') || '';
 
     const loadUsers = async () => {
         setLoading(true);
         try {
-            const tenantId = localStorage.getItem('current_tenant_id') || '';
             const data = await fetchJson<UserInfo[]>(`/users/${tenantId ? `?tenant_id=${tenantId}` : ''}`);
             setUsers(data);
         } catch (e) {
@@ -71,11 +79,34 @@ export default function UserManagement() {
         setLoading(false);
     };
 
-    useEffect(() => { loadUsers(); }, []);
+    const loadDepartments = async () => {
+        try {
+            const data = await orgApi.listDepartments(tenantId || undefined);
+            const flattened: any[] = [];
+            const walk = (items: any[], level = 0) => {
+                items.forEach((item) => {
+                    flattened.push({ ...item, level });
+                    if (item.children?.length) walk(item.children, level + 1);
+                });
+            };
+            walk(data);
+            setDepartments(flattened);
+        } catch (e) {
+            console.error('Failed to load departments', e);
+        }
+    };
+
+    useEffect(() => {
+        loadUsers();
+        loadDepartments();
+    }, []);
 
     const startEdit = (user: UserInfo) => {
         setEditingUserId(user.id);
         setEditForm({
+            display_name: user.display_name || '',
+            title: user.title || '',
+            department_id: user.department_id || '',
             quota_message_limit: user.quota_message_limit,
             quota_message_period: user.quota_message_period,
             quota_max_agents: user.quota_max_agents,
@@ -87,9 +118,19 @@ export default function UserManagement() {
         if (!editingUserId) return;
         setSaving(true);
         try {
+            await orgApi.updateUser(editingUserId, {
+                display_name: editForm.display_name,
+                title: editForm.title || null,
+                department_id: editForm.department_id || null,
+            });
             await fetchJson(`/users/${editingUserId}/quota`, {
                 method: 'PATCH',
-                body: JSON.stringify(editForm),
+                body: JSON.stringify({
+                    quota_message_limit: editForm.quota_message_limit,
+                    quota_message_period: editForm.quota_message_period,
+                    quota_max_agents: editForm.quota_max_agents,
+                    quota_agent_ttl_hours: editForm.quota_agent_ttl_hours,
+                }),
             });
             setToast(`✅ ${t('userMgmt.quotaUpdated')}`);
             setTimeout(() => setToast(''), 2000);
@@ -260,6 +301,56 @@ export default function UserManagement() {
                                     background: 'var(--bg-secondary)',
                                     borderLeft: '3px solid var(--accent-color)',
                                 }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '16px', marginBottom: '12px' }}>
+                                        <div className="form-group">
+                                            <label className="form-label" style={{ fontSize: '11px' }}>
+                                                {t('userMgmt.displayName', 'Display name')}
+                                            </label>
+                                            <input
+                                                className="form-input"
+                                                value={editForm.display_name}
+                                                onChange={e => setEditForm({ ...editForm, display_name: e.target.value })}
+                                            />
+                                        </div>
+                                        <div className="form-group">
+                                            <label className="form-label" style={{ fontSize: '11px' }}>
+                                                {t('userMgmt.title', 'Title')}
+                                            </label>
+                                            <input
+                                                className="form-input"
+                                                value={editForm.title}
+                                                onChange={e => setEditForm({ ...editForm, title: e.target.value })}
+                                            />
+                                        </div>
+                                        <div className="form-group">
+                                            <label className="form-label" style={{ fontSize: '11px' }}>
+                                                {t('userMgmt.department', 'Department')}
+                                            </label>
+                                            <select
+                                                className="form-input"
+                                                value={editForm.department_id}
+                                                onChange={e => setEditForm({ ...editForm, department_id: e.target.value })}
+                                            >
+                                                <option value="">{t('common.none', 'None')}</option>
+                                                {departments.map((dept) => (
+                                                    <option key={dept.id} value={dept.id}>
+                                                        {'— '.repeat(dept.level)}
+                                                        {dept.name}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div className="form-group">
+                                            <label className="form-label" style={{ fontSize: '11px' }}>
+                                                {t('userMgmt.role', 'Role')}
+                                            </label>
+                                            <input
+                                                className="form-input"
+                                                value={user.role}
+                                                disabled
+                                            />
+                                        </div>
+                                    </div>
                                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '16px' }}>
                                         <div className="form-group">
                                             <label className="form-label" style={{ fontSize: '11px' }}>

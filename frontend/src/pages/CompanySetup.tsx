@@ -9,6 +9,7 @@ export default function CompanySetup() {
     const navigate = useNavigate();
     const { user, setAuth } = useAuthStore();
     const [allowCreate, setAllowCreate] = useState(true);
+    const [invitationCodeRequired, setInvitationCodeRequired] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
 
@@ -18,10 +19,13 @@ export default function CompanySetup() {
     const [companyName, setCompanyName] = useState('');
 
     useEffect(() => {
-        // Check if self-creation is allowed
-        tenantApi.registrationConfig().then((d: any) => {
-            setAllowCreate(d.allow_self_create_company);
-        }).catch(() => { /* non-critical: defaults to allowCreate=true if config unavailable */ });
+        Promise.all([
+            tenantApi.registrationConfig().catch(() => ({ allow_self_create_company: true })),
+            authApi.registrationConfig().catch(() => ({ invitation_code_required: false })),
+        ]).then(([tenantConfig, authConfig]) => {
+            setAllowCreate(tenantConfig.allow_self_create_company);
+            setInvitationCodeRequired(!!authConfig.invitation_code_required);
+        }).catch(() => { /* ignore */ });
     }, []);
 
     // If user already has a company, redirect home
@@ -74,6 +78,8 @@ export default function CompanySetup() {
         i18n.changeLanguage(i18n.language === 'zh' ? 'en' : 'zh');
     };
 
+    const canCreateCompany = allowCreate && !invitationCodeRequired;
+
     return (
         <div className="company-setup-page">
             {/* Language Switcher */}
@@ -103,7 +109,13 @@ export default function CompanySetup() {
                     </div>
                 )}
 
-                <div className={`company-setup-panels ${!allowCreate ? 'single' : ''}`}>
+                {invitationCodeRequired && (
+                    <div className="login-error" style={{ marginBottom: 16 }}>
+                        <span>⚠</span> {t('companySetup.invitationRequired')}
+                    </div>
+                )}
+
+                <div className={`company-setup-panels ${!canCreateCompany ? 'single' : ''}`}>
                     {/* ── Join Company Panel ── */}
                     <form className="company-setup-panel" onSubmit={handleJoin}>
                         <div className="company-setup-panel-header">
@@ -115,7 +127,12 @@ export default function CompanySetup() {
                             <h3>{t('companySetup.joinTitle', 'Join a Company')}</h3>
                         </div>
                         <p className="company-setup-panel-desc">
-                            {t('companySetup.joinDesc', 'Enter the invitation code provided by your company administrator.')}
+                            {t(
+                                invitationCodeRequired ? 'companySetup.joinDescRequired' : 'companySetup.joinDesc',
+                                invitationCodeRequired
+                                    ? 'Workspace access is invitation-only. Enter the invitation code from your administrator.'
+                                    : 'Enter the invitation code provided by your company administrator.',
+                            )}
                         </p>
                         <div className="login-field">
                             <label>{t('companySetup.inviteCode', 'Invitation Code')}</label>
@@ -133,7 +150,7 @@ export default function CompanySetup() {
                     </form>
 
                     {/* ── Create Company Panel ── */}
-                    {allowCreate && (
+                    {canCreateCompany && (
                         <>
                             <div className="company-setup-divider">
                                 <span>{t('companySetup.or', 'OR')}</span>
@@ -166,9 +183,14 @@ export default function CompanySetup() {
                     )}
                 </div>
 
-                {!allowCreate && (
+                {!canCreateCompany && (
                     <p className="company-setup-hint">
-                        {t('companySetup.contactAdmin', 'Contact your platform administrator for an invitation code.')}
+                        {t(
+                            invitationCodeRequired ? 'companySetup.contactAdminInviteOnly' : 'companySetup.contactAdmin',
+                            invitationCodeRequired
+                                ? 'Self-service workspace creation is disabled while invitation-only access is enabled. Contact your administrator for an invitation code.'
+                                : 'Contact your platform administrator for an invitation code.',
+                        )}
                     </p>
                 )}
             </div>

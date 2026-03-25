@@ -46,28 +46,37 @@ test('AgentCreate removed legacy wizard elements', () => {
     // No governed actions hint
     assert.doesNotMatch(source, /governedActionsHint/);
 
-    // No security zone selection
-    assert.doesNotMatch(source, /security_zone.*radio|agent\.zone\./);
-
-    // No token limits in creation
-    assert.doesNotMatch(source, /max_tokens_per_day|max_tokens_per_month/);
-
-    // No agent class selector
-    assert.doesNotMatch(source, /agent_class.*select|agent_class.*radio/);
-
     // No legacy openclaw
     assert.doesNotMatch(source, /const OPENCLAW_STEPS/);
     assert.doesNotMatch(source, /agentType/);
 });
 
-test('AgentCreate calls agentApi.create with smart defaults', () => {
+test('AgentCreate aligns create payload with backend schema coverage', () => {
     const source = read();
 
     assert.match(source, /agentApi\.create/);
     assert.doesNotMatch(source, /agentApi\.bootstrap/);
-    assert.match(source, /security_zone:\s*'standard'/);
     assert.match(source, /permission_scope_type:\s*'company'/);
-    assert.match(source, /agent_class:\s*'internal_tenant'/);
+    assert.match(source, /permission_scope_ids:/);
+    assert.match(source, /max_tokens_per_day:/);
+    assert.match(source, /max_tokens_per_month:/);
+    assert.match(source, /security_zone:\s*form\.security_zone/);
+    assert.match(source, /agent_class:\s*form\.agent_class/);
+});
+
+test('AgentCreate exposes backend governance controls in the form state and UI', () => {
+    const source = read();
+
+    assert.match(source, /agent_class:\s*'internal_tenant' \| 'external_gateway' \| 'external_api' \| 'internal_system'/);
+    assert.match(source, /permission_scope_ids:\s*string\[\]/);
+    assert.match(source, /max_tokens_per_day:\s*'' as string \| number/);
+    assert.match(source, /max_tokens_per_month:\s*'' as string \| number/);
+    assert.match(source, /wizard\.abilities\.agentClass/);
+    assert.match(source, /wizard\.abilities\.securityZone/);
+    assert.match(source, /wizard\.abilities\.dailyTokenLimit/);
+    assert.match(source, /wizard\.abilities\.monthlyTokenLimit/);
+    assert.match(source, /wizard\.abilities\.shareWithUsers/);
+    assert.match(source, /orgApi\.listUsers/);
 });
 
 test('AgentCreate has success screen with navigation', () => {

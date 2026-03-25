@@ -18,13 +18,12 @@ export default function InvitationCodes({ tenantId: tenantIdProp }: { tenantId?:
     const loadCodes = useCallback(async (p?: number, q?: string) => {
         const currentPage = p ?? page;
         const currentSearch = q ?? search;
-        const params: Record<string, string> = {
-            page: String(currentPage),
-            page_size: String(pageSize),
-        };
-        if (currentSearch) params.search = currentSearch;
-        if (tenantId) params.tenant_id = tenantId;
-        const data = await enterpriseApi.listInvitationCodes(params);
+        const params = new URLSearchParams();
+        params.set('page', String(currentPage));
+        params.set('page_size', String(pageSize));
+        if (currentSearch) params.set('search', currentSearch);
+        if (tenantId) params.set('tenant_id', tenantId);
+        const data = await enterpriseApi.listInvitationCodes(Object.fromEntries(params.entries()));
         setCodes(data.items || []);
         setTotal(data.total || 0);
     }, [page, search, tenantId]);

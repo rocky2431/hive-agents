@@ -13,7 +13,7 @@ test('AgentDetail exposes OpenClaw gateway management actions', () => {
 
     assert.match(source, /agentApi\.generateApiKey/);
     assert.match(source, /agentApi\.gatewayMessages/);
-    assert.match(source, /\/api\/v1\/gateway\/setup-guide\/\$\{agentId\}/);
+    assert.match(source, /agentApi\.gatewaySetupGuideWithKey/);
     assert.match(source, /agentDetail\.generateApiKey/);
     assert.match(source, /agentDetail\.gatewayMessages/);
 });

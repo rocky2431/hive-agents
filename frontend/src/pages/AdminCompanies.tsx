@@ -337,6 +337,7 @@ export default function AdminCompanies() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                     {[
                         { key: 'allow_self_create_company', label: t('admin.allowSelfCreate', 'Allow users to create their own companies'), desc: t('admin.allowSelfCreateDesc', 'When disabled, only platform admins can create companies.') },
+                        { key: 'invitation_code_enabled', label: t('admin.invitationCodeEnabled', 'Require invitation code for workspace access'), desc: t('admin.invitationCodeEnabledDesc', 'When enabled, users must join an existing company with an invitation code before they can start using the platform.') },
                     ].map(s => (
                         <div key={s.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0' }}>
                             <div>

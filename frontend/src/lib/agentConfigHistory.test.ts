@@ -9,8 +9,8 @@ const read = () => fs.readFileSync(agentDetailPath, 'utf8');
 test('AgentDetail fetches config revision details and exposes rollback action', () => {
     const source = read();
 
-    assert.match(source, /\/config-history\/agent\/\$\{agentId\}\/\$\{expandedVersion\}/);
-    assert.match(source, /\/config-history\/agent\/\$\{agentId\}\/rollback/);
+    assert.match(source, /configHistoryApi\.getVersion\(agentId,\s*String\(expandedVersion\)\)/);
+    assert.match(source, /configHistoryApi\.rollback\(agentId,\s*\{\s*target_version:\s*targetVersion\s*\}\)/);
     assert.match(source, /agentDetail\.rollback/);
     assert.match(source, /agentDetail\.rollbackConfirm/);
 });

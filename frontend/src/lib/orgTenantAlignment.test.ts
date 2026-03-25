@@ -5,6 +5,7 @@ import path from 'node:path';
 
 const enterpriseSettingsPath = path.resolve(process.cwd(), 'src/pages/EnterpriseSettings.tsx');
 const agentDetailPath = path.resolve(process.cwd(), 'src/pages/AgentDetail.tsx');
+const apiPath = path.resolve(process.cwd(), 'src/services/api.ts');
 const typesPath = path.resolve(process.cwd(), 'src/types/index.ts');
 
 const read = (filePath: string) => fs.readFileSync(filePath, 'utf8');
@@ -19,11 +20,13 @@ test('EnterpriseSettings scopes org sync config and trigger requests to the sele
 
 test('AgentDetail scopes relationship searches and candidate agents to the agent tenant', () => {
     const source = read(agentDetailPath);
+    const apiSource = read(apiPath);
 
     assert.match(source, /const relationshipTenantId = localStorage\.getItem\('current_tenant_id'\) \|\| '';/);
     assert.match(source, /queryKey:\s*\['agents-for-rel', relationshipTenantId\]/);
-    assert.match(source, /\/agents\/\$\{relationshipTenantId \? `\?tenant_id=\$\{relationshipTenantId\}` : ''\}/);
+    assert.match(source, /agentApi\.list\(relationshipTenantId \|\| undefined\)/);
     assert.match(source, /params\.set\('tenant_id', relationshipTenantId\)/);
+    assert.match(apiSource, /list:\s*\(tenantId\?: string\)\s*=>\s*request<Agent\[]>\(`\/agents\/\$\{tenantId \? `\?tenant_id=\$\{tenantId\}` : ''\}`\)/);
 });
 
 test('frontend Agent type exposes tenant_id for tenant-scoped detail flows', () => {

@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { adminApi, enterpriseApi, skillApi, featureFlagApi, auditApi, capabilityApi, onboardingApi, oidcApi, packApi } from '../services/api';
+import { adminApi, enterpriseApi, skillApi, featureFlagApi, auditApi, capabilityApi, onboardingApi, oidcApi, orgApi, packApi } from '../services/api';
 import PromptModal from '../components/PromptModal';
 import FileBrowser from '../components/FileBrowser';
 import type { FileBrowserApi } from '../components/FileBrowser';
@@ -60,17 +60,16 @@ const FALLBACK_LLM_PROVIDERS: LLMProviderSpec[] = [
 
 
 // ─── Department Tree ───────────────────────────────
-function DeptTree({ departments, parentId, selectedDept, onSelect, level }: {
-    departments: any[]; parentId: string | null; selectedDept: string | null;
-    onSelect: (id: string | null) => void; level: number;
+function DeptTree({ departments, selectedDept, onSelect, level }: {
+    departments: any[];
+    selectedDept: string | null;
+    onSelect: (id: string | null) => void;
+    level: number;
 }) {
-    const children = departments.filter((d: any) =>
-        parentId === null ? !d.parent_id : d.parent_id === parentId
-    );
-    if (children.length === 0) return null;
+    if (departments.length === 0) return null;
     return (
         <>
-            {children.map((d: any) => (
+            {departments.map((d: any) => (
                 <div key={d.id}>
                     <div
                         style={{
@@ -81,12 +80,14 @@ function DeptTree({ departments, parentId, selectedDept, onSelect, level }: {
                         onClick={() => onSelect(d.id)}
                     >
                         <span style={{ color: 'var(--text-tertiary)', marginRight: '4px', fontSize: '11px' }}>
-                            {departments.some((c: any) => c.parent_id === d.id) ? '▸' : '·'}
+                            {d.children?.length ? '▸' : '·'}
                         </span>
                         {d.name}
                         {d.member_count > 0 && <span style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginLeft: '4px' }}>({d.member_count})</span>}
                     </div>
-                    <DeptTree departments={departments} parentId={d.id} selectedDept={selectedDept} onSelect={onSelect} level={level + 1} />
+                    {d.children?.length > 0 && (
+                        <DeptTree departments={d.children} selectedDept={selectedDept} onSelect={onSelect} level={level + 1} />
+                    )}
                 </div>
             ))}
         </>
@@ -94,15 +95,19 @@ function DeptTree({ departments, parentId, selectedDept, onSelect, level }: {
 }
 
 // ─── Org Structure Tab ─────────────────────────────
-function OrgTab() {
+function OrgTab({ tenantId }: { tenantId?: string }) {
     const { t } = useTranslation();
     const qc = useQueryClient();
-    const currentTenantId = localStorage.getItem('current_tenant_id') || '';
+    const currentTenantId = tenantId || localStorage.getItem('current_tenant_id') || '';
     const [syncForm, setSyncForm] = useState({ app_id: '', app_secret: '' });
     const [syncing, setSyncing] = useState(false);
     const [syncResult, setSyncResult] = useState<any>(null);
     const [memberSearch, setMemberSearch] = useState('');
     const [selectedDept, setSelectedDept] = useState<string | null>(null);
+    const [deptForm, setDeptForm] = useState({ name: '', parent_id: '', manager_id: '' });
+    const [deptSaving, setDeptSaving] = useState(false);
+    const [deptDeleting, setDeptDeleting] = useState(false);
+    const [deptError, setDeptError] = useState('');
 
     const { data: config } = useQuery({
         queryKey: ['system-settings', 'feishu_org_sync', currentTenantId],
@@ -117,18 +122,58 @@ function OrgTab() {
 
     const { data: departments = [] } = useQuery({
         queryKey: ['org-departments', currentTenantId],
-        queryFn: () => fetchJson<any[]>(`/enterprise/org/departments${currentTenantId ? `?tenant_id=${currentTenantId}` : ''}`),
+        queryFn: () => orgApi.listDepartments(currentTenantId || undefined),
     });
-    const { data: members = [] } = useQuery({
-        queryKey: ['org-members', selectedDept, memberSearch, currentTenantId],
+    const { data: allUsers = [] } = useQuery({
+        queryKey: ['org-users', currentTenantId],
         queryFn: () => {
-            const params = new URLSearchParams();
-            if (selectedDept) params.set('department_id', selectedDept);
-            if (memberSearch) params.set('search', memberSearch);
-            if (currentTenantId) params.set('tenant_id', currentTenantId);
-            return fetchJson<any[]>(`/enterprise/org/members?${params}`);
+            const params: Record<string, string> = {};
+            if (currentTenantId) params.tenant_id = currentTenantId;
+            return orgApi.listUsers(params);
         },
+        enabled: !!currentTenantId,
     });
+
+    const flatDepartments = useMemo(() => {
+        const flattened: any[] = [];
+        const walk = (items: any[], level = 0) => {
+            items.forEach((item) => {
+                flattened.push({ ...item, level });
+                if (item.children?.length) walk(item.children, level + 1);
+            });
+        };
+        walk(departments as any[]);
+        return flattened;
+    }, [departments]);
+
+    const tenantUsers = useMemo(() => {
+        if (!selectedDept) return allUsers;
+        return (allUsers as any[]).filter((member: any) => member.department_id === selectedDept);
+    }, [allUsers, selectedDept]);
+
+    const members = useMemo(() => {
+        if (!memberSearch.trim()) return tenantUsers;
+        const query = memberSearch.trim().toLowerCase();
+        return (tenantUsers as any[]).filter((member: any) =>
+            [member.display_name, member.username, member.email, member.title]
+                .filter(Boolean)
+                .some((value) => String(value).toLowerCase().includes(query)),
+        );
+    }, [memberSearch, tenantUsers]);
+
+    useEffect(() => {
+        if (!selectedDept) {
+            setDeptForm({ name: '', parent_id: '', manager_id: '' });
+            return;
+        }
+        const dept = flatDepartments.find((item) => item.id === selectedDept);
+        if (!dept) return;
+        setDeptForm({
+            name: dept.name || '',
+            parent_id: dept.parent_id || '',
+            manager_id: dept.manager_id || '',
+        });
+    }, [flatDepartments, selectedDept]);
 
     const saveConfig = async () => {
         await fetchJson(`/enterprise/system-settings/feishu_org_sync${currentTenantId ? `?tenant_id=${currentTenantId}` : ''}`, {
@@ -151,6 +196,57 @@ function OrgTab() {
             setSyncResult({ error: e.message });
         }
         setSyncing(false);
+    };
+
+    const resetDeptForm = () => {
+        setSelectedDept(null);
+        setDeptForm({ name: '', parent_id: '', manager_id: '' });
+        setDeptError('');
+    };
+
+    const saveDepartment = async () => {
+        if (!deptForm.name.trim()) {
+            setDeptError(t('enterprise.org.departmentNameRequired', 'Department name is required.'));
+            return;
+        }
+        setDeptSaving(true);
+        setDeptError('');
+        const payload = {
+            name: deptForm.name.trim(),
+            parent_id: deptForm.parent_id || null,
+            manager_id: deptForm.manager_id || null,
+        };
+        try {
+            if (selectedDept) {
+                await orgApi.updateDepartment(selectedDept, payload, currentTenantId || undefined);
+            } else {
+                await orgApi.createDepartment(payload, currentTenantId || undefined);
+            }
+            await qc.invalidateQueries({ queryKey: ['org-departments', currentTenantId] });
+            await qc.invalidateQueries({ queryKey: ['org-users'] });
+            resetDeptForm();
+        } catch (e: any) {
+            setDeptError(e.message || 'Failed to save department');
+        } finally {
+            setDeptSaving(false);
+        }
+    };
+
+    const deleteDepartment = async () => {
+        if (!selectedDept) return;
+        if (!confirm(t('enterprise.org.deleteDepartmentConfirm', 'Delete this department?'))) return;
+        setDeptDeleting(true);
+        setDeptError('');
+        try {
+            await orgApi.deleteDepartment(selectedDept, currentTenantId || undefined);
+            await qc.invalidateQueries({ queryKey: ['org-departments', currentTenantId] });
+            await qc.invalidateQueries({ queryKey: ['org-users'] });
+            resetDeptForm();
+        } catch (e: any) {
+            setDeptError(e.message || 'Failed to delete department');
+        } finally {
+            setDeptDeleting(false);
+        }
     };
 
     return (
@@ -188,6 +284,82 @@ function OrgTab() {
                 )}
             </div>
 
+            <div className="card" style={{ marginBottom: '16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '12px' }}>
+                    <div>
+                        <h4 style={{ marginBottom: '4px' }}>{t('enterprise.org.createDepartment', 'Department management')}</h4>
+                        <p style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                            {t('enterprise.org.editDepartment', 'Create, edit, and delete tenant departments that can be assigned to users.')}
+                        </p>
+                    </div>
+                    <button className="btn btn-secondary" onClick={resetDeptForm}>
+                        {t('enterprise.org.newDepartment', 'New department')}
+                    </button>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                    <div>
+                        <label className="form-label">{t('enterprise.org.departmentName', 'Department name')}</label>
+                        <input
+                            className="form-input"
+                            value={deptForm.name}
+                            onChange={(e) => setDeptForm((prev) => ({ ...prev, name: e.target.value }))}
+                            placeholder={t('enterprise.org.departmentNamePlaceholder', 'e.g. Operations')}
+                        />
+                    </div>
+                    <div>
+                        <label className="form-label">{t('enterprise.org.parentDepartment', 'Parent department')}</label>
+                        <select
+                            className="form-input"
+                            value={deptForm.parent_id}
+                            onChange={(e) => setDeptForm((prev) => ({ ...prev, parent_id: e.target.value }))}
+                        >
+                            <option value="">{t('enterprise.org.noParent', 'No parent')}</option>
+                            {flatDepartments
+                                .filter((dept) => dept.id !== selectedDept)
+                                .map((dept) => (
+                                    <option key={dept.id} value={dept.id}>
+                                        {'— '.repeat(dept.level)}
+                                        {dept.name}
+                                    </option>
+                                ))}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="form-label">{t('enterprise.org.manager', 'Manager')}</label>
+                        <select
+                            className="form-input"
+                            value={deptForm.manager_id}
+                            onChange={(e) => setDeptForm((prev) => ({ ...prev, manager_id: e.target.value }))}
+                        >
+                            <option value="">{t('enterprise.org.noManager', 'Unassigned')}</option>
+                            {(allUsers as any[]).map((user: any) => (
+                                <option key={user.id} value={user.id}>
+                                    {user.display_name || user.username}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                </div>
+
+                {deptError && (
+                    <div style={{ marginBottom: '12px', fontSize: '12px', color: 'var(--error)' }}>
+                        {deptError}
+                    </div>
+                )}
+
+                <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                    {selectedDept && (
+                        <button className="btn btn-danger" onClick={deleteDepartment} disabled={deptDeleting}>
+                            {deptDeleting ? t('common.loading') : t('common.delete', 'Delete')}
+                        </button>
+                    )}
+                    <button className="btn btn-primary" onClick={saveDepartment} disabled={deptSaving}>
+                        {deptSaving ? t('common.loading') : t(selectedDept ? 'common.save' : 'enterprise.org.createDepartment', selectedDept ? 'Save' : 'Create department')}
+                    </button>
+                </div>
+            </div>
+
             {/* Department & Members Browser */}
             <div className="card">
                 <h4 style={{ marginBottom: '12px' }}>{t('enterprise.org.orgBrowser')}</h4>
@@ -200,7 +372,7 @@ function OrgTab() {
                         >
                             {t('common.all')}
                         </div>
-                        <DeptTree departments={departments} parentId={null} selectedDept={selectedDept} onSelect={setSelectedDept} level={0} />
+                        <DeptTree departments={departments as any[]} selectedDept={selectedDept} onSelect={setSelectedDept} level={0} />
                         {departments.length === 0 && <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', padding: '8px' }}>{t('common.noData')}</div>}
                     </div>
 
@@ -213,9 +385,9 @@ function OrgTab() {
                                         {m.name?.[0] || '?'}
                                     </div>
                                     <div>
-                                        <div style={{ fontWeight: 500, fontSize: '13px' }}>{m.name}</div>
+                                        <div style={{ fontWeight: 500, fontSize: '13px' }}>{m.display_name || m.username}</div>
                                         <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
-                                            {m.title || '-'} · {m.department_path || '-'}
+                                            {m.title || '-'}
                                             {m.email && ` · ${m.email}`}
                                         </div>
                                     </div>
@@ -2012,7 +2184,7 @@ export default function EnterpriseSettings() {
                 )}
 
                 {/* ── Org Structure ── */}
-                {activeTab === 'org' && <OrgTab />}
+                {activeTab === 'org' && <OrgTab tenantId={selectedTenantId || undefined} />}
 
                 {/* ── Approvals ── */}
                 {activeTab === 'approvals' && (
