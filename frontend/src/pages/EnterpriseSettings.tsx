@@ -106,7 +106,7 @@ function OrgTab() {
 
     const { data: config } = useQuery({
         queryKey: ['system-settings', 'feishu_org_sync', currentTenantId],
-        queryFn: () => fetchJson<any>(`/enterprise/system-settings/feishu_org_sync${currentTenantId ? `?tenant_id=${currentTenantId}` : ''}`),
+        queryFn: () => enterpriseApi.getSystemSetting('feishu_org_sync', currentTenantId || undefined),
     });
 
     useEffect(() => {
@@ -1873,15 +1873,9 @@ export default function EnterpriseSettings() {
                                         const origText = btn?.textContent || '';
                                         if (btn) btn.textContent = 'Testing...';
                                         try {
-                                            const token = localStorage.getItem('token');
                                             const testData: any = { provider: modelForm.provider, model: modelForm.model, base_url: modelForm.base_url || undefined };
                                             if (modelForm.api_key) testData.api_key = modelForm.api_key;
-                                            const res = await fetch(`/api/v1/enterprise/llm-test${selectedTenantId ? `?tenant_id=${selectedTenantId}` : ''}`, {
-                                                method: 'POST',
-                                                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                                                body: JSON.stringify(testData),
-                                            });
-                                            const result = await res.json();
+                                            const result = await enterpriseApi.llmTest(testData, selectedTenantId || undefined);
                                             if (result.success) {
                                                 if (btn) { btn.textContent = `OK (${result.latency_ms}ms)`; btn.style.color = 'var(--success)'; }
                                                 setTimeout(() => { if (btn) { btn.textContent = origText; btn.style.color = ''; } }, 3000);
@@ -1962,16 +1956,10 @@ export default function EnterpriseSettings() {
                                                     const origText = btn?.textContent || '';
                                                     if (btn) btn.textContent = 'Testing...';
                                                     try {
-                                                        const token = localStorage.getItem('token');
                                                         const testData: any = { provider: modelForm.provider, model: modelForm.model, base_url: modelForm.base_url || undefined };
                                                         if (modelForm.api_key) testData.api_key = modelForm.api_key;
                                                         testData.model_id = editingModelId;
-                                                        const res = await fetch(`/api/v1/enterprise/llm-test${selectedTenantId ? `?tenant_id=${selectedTenantId}` : ''}`, {
-                                                            method: 'POST',
-                                                            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                                                            body: JSON.stringify(testData),
-                                                        });
-                                                        const result = await res.json();
+                                                        const result = await enterpriseApi.llmTest(testData, selectedTenantId || undefined);
                                                         if (result.success) {
                                                             if (btn) { btn.textContent = `OK (${result.latency_ms}ms)`; btn.style.color = 'var(--success)'; }
                                                             setTimeout(() => { if (btn) { btn.textContent = origText; btn.style.color = ''; } }, 3000);

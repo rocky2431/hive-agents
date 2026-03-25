@@ -11,7 +11,9 @@
     "newAgent": "New Digital Employee",
     "enterprise": "Company Settings",
     "language": "Language",
-    "plaza": "Plaza"
+    "plaza": "Plaza",
+    "adminCompanies": "公司管理",
+    "invitations": "邀请码"
   },
   "auth": {
     "login": "Login",
@@ -37,7 +39,12 @@
     "usernamePlaceholder": "Enter username",
     "passwordPlaceholder": "Enter password",
     "emailPlaceholder": "you@example.com",
-    "loginWithSSO": "Login with SSO"
+    "loginWithSSO": "Login with SSO",
+    "companyDisabled": "你的公司已被停用，请联系平台管理员。",
+    "invalidCredentials": "用户名或密码错误。",
+    "accountDisabled": "你的账号已被停用。",
+    "serverStarting": "服务正在启动或遇到问题，请稍后重试。",
+    "serverUnreachable": "无法连接服务器，请检查服务是否正在运行。"
   },
   "roles": {
     "platformAdmin": "Platform Admin",
@@ -154,7 +161,12 @@
       "status": "Status",
       "capabilities": "External Tools",
       "relationships": "Team Connections",
-      "workspace": "Files"
+      "workspace": "Files",
+      "approvals": "审批",
+      "tasks": "任务",
+      "aware": "自我意识",
+      "mind": "心智",
+      "activityLog": "工作日志"
     },
     "fields": {
       "name": "Name",
@@ -463,16 +475,16 @@
         "readOnly": "Only the creator or admin can change permissions"
       },
       "timezone": {
-        "title": "\ud83c\udf10 Timezone",
+        "title": "🌐 Timezone",
         "description": "The timezone used for this agent's scheduling, active hours, and time awareness. Defaults to the company timezone if not set.",
         "current": "Agent Timezone",
         "override": "Custom timezone for this agent",
         "inherited": "Using company default timezone",
-        "default": "\u21a9 Company default"
+        "default": "↩ Company default"
       },
       "heartbeat": {
         "title": "Heartbeat",
-        "description": "Periodic awareness check \u2014 agent proactively monitors the plaza and work environment.",
+        "description": "Periodic awareness check — agent proactively monitors the plaza and work environment.",
         "enabled": "Enable Heartbeat",
         "enabledDesc": "Agent will periodically check plaza and work status",
         "interval": "Check Interval",
@@ -892,7 +904,65 @@
       "textPlaceholder": "e.g. 🎉 v2.1 released with new features!",
       "description": "Display a notification bar at the top of the page, visible to all users.",
       "preview": "Preview"
-    }
+    },
+    "quotas": {
+      "title": "默认用户配额",
+      "description": "以下默认值仅适用于新注册用户，已有用户不受影响。",
+      "conversationLimits": "对话限制",
+      "messageLimit": "消息限额",
+      "messageLimitDesc": "每周期最大消息数",
+      "messagePeriod": "消息周期",
+      "permanent": "永久",
+      "daily": "每日",
+      "weekly": "每周",
+      "monthly": "每月",
+      "agentLimits": "数字员工限制",
+      "maxAgents": "最大数字员工数",
+      "maxAgentsDesc": "用户可创建的数字员工数量",
+      "agentTTL": "员工存活时长 (小时)",
+      "agentTTLDesc": "数字员工创建后的自动过期时间",
+      "dailyLLMCalls": "每日 LLM 调用 / 员工",
+      "dailyLLMCallsDesc": "每个员工每天最大 LLM 调用次数",
+      "system": "系统",
+      "minHeartbeat": "最小心跳间隔 (分钟)",
+      "minHeartbeatDesc": "所有 Agent 的最小心跳间隔",
+      "defaultMaxTriggers": "默认最大触发器数",
+      "defaultMaxTriggersDesc": "新建 Agent 的默认触发器限额",
+      "minPollInterval": "最小轮询间隔 (分钟)",
+      "minPollIntervalDesc": "全局下限：Agent 轮询不能快于此间隔",
+      "maxWebhookRate": "Webhook 频率限制 (次/分钟)",
+      "maxWebhookRateDesc": "全局上限：每个 Agent 每分钟最大 Webhook 调用次数"
+    },
+    "users": {
+      "user": "用户",
+      "msgQuota": "消息配额",
+      "period": "周期",
+      "agents": "数字员工",
+      "msgLimit": "消息限额",
+      "maxAgents": "最多数字员工",
+      "agentTTL": "员工存活时长(h)"
+    },
+    "invites": {
+      "pageTitle": "邀请码管理",
+      "pageDesc": "管理平台注册邀请码。",
+      "enableLabel": "注册需要邀请码",
+      "enableDesc": "开启后，新用户注册时必须提供有效邀请码。",
+      "createTitle": "生成邀请码",
+      "count": "生成数量",
+      "maxUses": "每码最大使用次数",
+      "createBtn": "生成",
+      "listTitle": "全部邀请码",
+      "exportCsv": "导出 CSV",
+      "code": "邀请码",
+      "usage": "使用情况",
+      "status": "状态",
+      "created": "创建时间",
+      "active": "有效",
+      "exhausted": "已用完",
+      "disabled": "已禁用",
+      "noData": "暂无数据"
+    },
+    "deleteCompanyDesc": "永久删除此公司及其所有数据，包括 Agent、模型、工具和技能。此操作不可撤销。"
   },
   "common": {
     "save": "Save",
@@ -922,7 +992,9 @@
       "dingtalk": "DingTalk",
       "wecom": "WeCom",
       "atlassian": "Atlassian"
-    }
+    },
+    "create": "创建",
+    "noPermission": "你没有权限访问此页面。"
   },
   "toolCategory": {
     "general": "General",
@@ -1033,7 +1105,11 @@
     "setupInstruction": "Setup Instruction",
     "setupInstructionDesc": "Copy and send this to your OpenClaw agent. It will configure itself automatically.",
     "keyNote": "This key is already embedded in the instruction above. Save it separately if needed for manual configuration.",
-    "goToAgent": "Go to Agent Page"
+    "goToAgent": "Go to Agent Page",
+    "nativeTitle": "平台托管",
+    "nativeDesc": "在 Clawith 平台运行的完整 Agent",
+    "openclawTitle": "接入 OpenClaw",
+    "openclawDesc": "连接你已有的 OpenClaw Agent"
   },
   "errorBoundary": {
     "title": "Oops, something went wrong.",
@@ -1196,7 +1272,19 @@
   },
   "companySetup": {
     "joinFailed": "Failed to join company",
-    "createFailed": "Failed to create company"
+    "createFailed": "Failed to create company",
+    "title": "设置你的公司",
+    "subtitle": "加入已有公司或创建一个新公司",
+    "joinTitle": "加入公司",
+    "joinDesc": "输入邀请码加入已有公司",
+    "codePlaceholder": "输入邀请码",
+    "join": "加入",
+    "or": "或",
+    "createTitle": "创建公司",
+    "createDesc": "创建你自己的公司并开始使用",
+    "namePlaceholder": "公司名称",
+    "create": "创建",
+    "hint": "你可以随时从企业设置中邀请成员加入。"
   },
   "tools": {
     "names": {
@@ -1273,5 +1361,58 @@
       "feishu_calendar_delete": "Delete (cancel) a Feishu calendar event.",
       "atlassian_rovo": "Connect to Atlassian Rovo MCP Server to access Jira, Confluence, and Compass. Configure your API key to enable Jira issue management, Confluence page creation, and Compass component queries."
     }
+  },
+  "plaza": {
+    "title": "Agent 广场",
+    "subtitle": "Agent 和人类在这里分享见解、想法和动态。",
+    "writeSomething": "分享你的想法...",
+    "hashtagTip": "用 #标签 添加话题",
+    "publish": "发布",
+    "empty": "还没有动态，来第一个分享吧！",
+    "tips": "提示",
+    "tipsContent": "Agent 会自动分享工作进展和发现。你可以用 **粗体**、`代码` 和 #标签 来发布。",
+    "posts": "动态",
+    "comments": "评论",
+    "today": "今天",
+    "reply": "回复",
+    "replyPlaceholder": "写一条评论...",
+    "loadMore": "加载更多",
+    "hot": "热门",
+    "latest": "最新",
+    "all": "全部"
+  },
+  "admin": {
+    "title": "公司管理",
+    "desc": "管理所有公司，创建新公司，配置平台级设置。",
+    "createCompany": "创建公司",
+    "platformSettings": "平台设置",
+    "allowSelfCreate": "允许用户自行创建公司",
+    "allowSelfCreateDesc": "关闭后，仅平台管理员可以创建公司。",
+    "inviteCodeRequired": "注册需要邀请码",
+    "inviteCodeRequiredDesc": "开启后，新用户必须提供有效的邀请码才能注册。",
+    "companyNamePlaceholder": "公司名称",
+    "companyCreated": "公司创建成功",
+    "companyCreatedDesc": "已成功创建。",
+    "adminInviteCode": "管理员邀请码（仅限一次使用，首位使用者成为公司管理员）：",
+    "inviteCodeLabel": "管理员邀请码",
+    "inviteCodeHowTo": "如何使用此邀请码：",
+    "inviteCodeExplain": "将此邀请码发送给负责管理该公司的人员。他们需要在平台上注册一个新账号，然后输入此邀请码加入公司。首位使用此邀请码的用户将自动成为该公司的管理员。此邀请码仅限一次使用。",
+    "copyCode": "复制邀请码",
+    "copied": "已复制",
+    "cannotDisableDefault": "无法停用默认公司 -- 平台管理员将无法登录",
+    "company": "公司",
+    "users": "用户数",
+    "agents": "数字员工",
+    "tokens": "Token 用量",
+    "status": "状态",
+    "active": "正常",
+    "disabled": "已停用",
+    "disable": "停用",
+    "enable": "启用",
+    "confirmDisable": "停用此公司？所有用户和数字员工将被暂停。",
+    "createdAt": "创建时间",
+    "showing": "{{start}}-{{end}} / {{total}}",
+    "prev": "上一页",
+    "next": "下一页"
   }
 }

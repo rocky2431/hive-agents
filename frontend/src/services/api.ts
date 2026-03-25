@@ -166,6 +166,9 @@ export const authApi = {
 
     updateMe: (data: Partial<User>) =>
         request<User>('/auth/me', { method: 'PATCH', body: JSON.stringify(data) }),
+
+    changePassword: (data: { current_password: string; new_password: string }) =>
+        request<any>('/auth/me/password', { method: 'PUT', body: JSON.stringify(data) }),
 };
 
 // ─── OIDC SSO ────────────────────────────────────────
@@ -262,6 +265,92 @@ export const agentApi = {
 
     gatewayMessages: (id: string) =>
         request<any[]>(`/agents/${id}/gateway-messages`),
+
+    gatewaySetupGuide: (id: string) =>
+        request<any>(`/gateway/setup-guide/${id}`),
+
+    gatewaySetupGuideWithKey: async (id: string, apiKey: string) => {
+        const res = await fetch(`${API_BASE}/gateway/setup-guide/${id}`, {
+            headers: { 'X-Api-Key': apiKey },
+        });
+        if (!res.ok) {
+            const error = await res.json().catch(() => ({ detail: 'Failed to load setup guide' }));
+            throw new Error(error.detail || 'Failed to load setup guide');
+        }
+        return res.json();
+    },
+
+    createSession: (id: string, title?: string) =>
+        request<any>(`/agents/${id}/sessions`, {
+            method: 'POST',
+            body: JSON.stringify(title ? { title } : {}),
+        }),
+
+    deleteSession: (id: string, sessionId: string) =>
+        request<void>(`/agents/${id}/sessions/${sessionId}`, { method: 'DELETE' }),
+
+    getSessionMessages: (id: string, sessionId: string) =>
+        request<any[]>(`/agents/${id}/sessions/${sessionId}/messages`),
+
+    resolveApproval: (id: string, approvalId: string, data: { action: string; reason?: string }) =>
+        request<any>(`/agents/${id}/approvals/${approvalId}/resolve`, {
+            method: 'POST',
+            body: JSON.stringify(data),
+        }),
+
+    listApprovals: (id: string) =>
+        request<any[]>(`/agents/${id}/approvals`),
+
+    // Permissions
+    getPermissions: (id: string) =>
+        request<any>(`/agents/${id}/permissions`),
+
+    updatePermissions: (id: string, data: { scope_type: string; scope_ids: string[]; access_level: string }) =>
+        request<any>(`/agents/${id}/permissions`, {
+            method: 'PUT',
+            body: JSON.stringify(data),
+        }),
+
+    // Relationships (human)
+    listRelationships: (id: string) =>
+        request<any[]>(`/agents/${id}/relationships/`),
+
+    updateRelationships: (id: string, data: { relationships: any[] }) =>
+        request<any>(`/agents/${id}/relationships/`, {
+            method: 'PUT',
+            body: JSON.stringify(data),
+        }),
+
+    deleteRelationship: (id: string, relId: string) =>
+        request<void>(`/agents/${id}/relationships/${relId}`, { method: 'DELETE' }),
+
+    // Relationships (agent-to-agent)
+    listAgentRelationships: (id: string) =>
+        request<any[]>(`/agents/${id}/relationships/agents`),
+
+    updateAgentRelationships: (id: string, data: { relationships: any[] }) =>
+        request<any>(`/agents/${id}/relationships/agents`, {
+            method: 'PUT',
+            body: JSON.stringify(data),
+        }),
+
+    deleteAgentRelationship: (id: string, relId: string) =>
+        request<void>(`/agents/${id}/relationships/agents/${relId}`, { method: 'DELETE' }),
+};
+
+// ─── Config History ──────────────────────────────────
+export const configHistoryApi = {
+    list: (agentId: string) =>
+        request<any[]>(`/config-history/agent/${agentId}`),
+
+    getVersion: (agentId: string, version: string) =>
+        request<any>(`/config-history/agent/${agentId}/${version}`),
+
+    rollback: (agentId: string, data: { target_version: number }) =>
+        request<any>(`/config-history/agent/${agentId}/rollback`, {
+            method: 'POST',
+            body: JSON.stringify(data),
+        }),
 };
 
 // ─── Tasks ────────────────────────────────────────────
@@ -323,6 +412,9 @@ export const fileApi = {
 };
 
 export const chatApi = {
+    history: (sessionId: string) =>
+        request<any[]>(`/chat/${sessionId}/history`),
+
     uploadAttachment: (file: File, agentId?: string, onProgress?: (pct: number) => void): CancelableRequest<ChatAttachment> => {
         const extraFields = agentId ? { agent_id: agentId } : undefined;
         if (onProgress) {
@@ -397,6 +489,66 @@ export const enterpriseApi = {
         request<{ facts: any[] }>(`/enterprise/memory/agents/${agentId}/memory`),
     sessionSummary: (sessionId: string) =>
         request<{ session_id: string; summary: string | null; title: string | null }>(`/enterprise/memory/sessions/${sessionId}/summary`),
+
+    // Org members search
+    searchOrgMembers: (params: Record<string, string>) => {
+        const qs = new URLSearchParams(params);
+        return request<any[]>(`/enterprise/org/members?${qs}`);
+    },
+
+    // LLM test
+    llmTest: (data: any, tenantId?: string) =>
+        request<any>(`/enterprise/llm-test${tenantId ? `?tenant_id=${tenantId}` : ''}`, {
+            method: 'POST',
+            body: JSON.stringify(data),
+        }),
+
+    // System settings
+    getSystemSetting: (key: string, tenantId?: string) =>
+        request<any>(`/enterprise/system-settings/${key}${tenantId ? `?tenant_id=${tenantId}` : ''}`),
+
+    updateSystemSetting: (key: string, data: any, tenantId?: string) =>
+        request<any>(`/enterprise/system-settings/${key}${tenantId ? `?tenant_id=${tenantId}` : ''}`, {
+            method: 'PUT',
+            body: JSON.stringify(data),
+        }),
+
+    // Invitation codes
+    listInvitationCodes: (params?: Record<string, string>) => {
+        const qs = params ? new URLSearchParams(params) : '';
+        return request<any>(`/enterprise/invitation-codes${qs ? `?${qs}` : ''}`);
+    },
+
+    createInvitationCodes: (data: any, tenantId?: string) =>
+        request<any>(`/enterprise/invitation-codes${tenantId ? `?tenant_id=${tenantId}` : ''}`, {
+            method: 'POST',
+            body: JSON.stringify(data),
+        }),
+
+    deleteInvitationCode: (id: string, tenantId?: string) =>
+        request<void>(`/enterprise/invitation-codes/${id}${tenantId ? `?tenant_id=${tenantId}` : ''}`, {
+            method: 'DELETE',
+        }),
+
+    exportInvitationCodes: (tenantId?: string) => {
+        const token = localStorage.getItem('token');
+        return fetch(`${API_BASE}/enterprise/invitation-codes/export${tenantId ? `?tenant_id=${tenantId}` : ''}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+    },
+};
+
+// ─── Notifications ───────────────────────────────────
+export const notificationApi = {
+    list: () => request<any[]>('/notifications/'),
+
+    unreadCount: () => request<{ count: number }>('/notifications/unread-count'),
+
+    markRead: (id: string) =>
+        request<void>(`/notifications/${id}/read`, { method: 'POST' }),
+
+    markAllRead: () =>
+        request<void>('/notifications/read-all', { method: 'POST' }),
 };
 
 // ─── Feature Flags ────────────────────────────────────

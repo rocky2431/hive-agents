@@ -43,7 +43,8 @@
     "invalidCredentials": "用户名或密码错误。",
     "accountDisabled": "你的账号已被停用。",
     "serverStarting": "服务正在启动或遇到问题，请稍后重试。",
-    "serverUnreachable": "无法连接服务器，请检查服务是否正在运行。"
+    "serverUnreachable": "无法连接服务器，请检查服务是否正在运行。",
+    "loginWithSSO": "Login with SSO"
   },
   "roles": {
     "platformAdmin": "超级管理员",
@@ -474,12 +475,12 @@
         "readOnly": "仅创建者或管理员可更改权限"
       },
       "timezone": {
-        "title": "\ud83c\udf10 时区",
+        "title": "🌐 时区",
         "description": "用于此数字员工调度、活跃时段和时间感知的时区。未设置时使用公司默认时区。",
         "current": "员工时区",
         "override": "此员工使用自定义时区",
         "inherited": "使用公司默认时区",
-        "default": "\u21a9 公司默认"
+        "default": "↩ 公司默认"
       },
       "heartbeat": {
         "title": "心跳",
@@ -813,7 +814,8 @@
       "saved": "SSO 配置已保存",
       "notConfigured": "SSO 未配置",
       "configured": "SSO 已配置",
-      "loginWithSSO": "SSO 登录"
+      "loginWithSSO": "SSO 登录",
+      "testConnection": "Test Connection"
     },
     "capabilities": {
       "title": "操作权限",
