@@ -1802,6 +1802,8 @@ function AgentDetailInner() {
         max_triggers: 20,
         min_poll_interval_min: 5,
         webhook_rate_limit: 5,
+        bio: '',
+        avatar_url: '',
     });
     const [settingsSaving, setSettingsSaving] = useState(false);
     const [settingsSaved, setSettingsSaved] = useState(false);
@@ -1821,6 +1823,8 @@ function AgentDetailInner() {
                 max_triggers: (agent as any).max_triggers ?? 20,
                 min_poll_interval_min: (agent as any).min_poll_interval_min ?? 5,
                 webhook_rate_limit: (agent as any).webhook_rate_limit ?? 5,
+                bio: (agent as any).bio || '',
+                avatar_url: (agent as any).avatar_url || '',
             });
             settingsInitRef.current = true;
         }
@@ -3502,7 +3506,9 @@ function AgentDetailInner() {
                             String(settingsForm.max_tokens_per_month) !== String(agent?.max_tokens_per_month || '') ||
                             settingsForm.max_triggers !== ((agent as any)?.max_triggers ?? 20) ||
                             settingsForm.min_poll_interval_min !== ((agent as any)?.min_poll_interval_min ?? 5) ||
-                            settingsForm.webhook_rate_limit !== ((agent as any)?.webhook_rate_limit ?? 5)
+                            settingsForm.webhook_rate_limit !== ((agent as any)?.webhook_rate_limit ?? 5) ||
+                            settingsForm.bio !== ((agent as any)?.bio || '') ||
+                            settingsForm.avatar_url !== ((agent as any)?.avatar_url || '')
                         );
 
                         const handleSaveSettings = async () => {
@@ -3519,6 +3525,8 @@ function AgentDetailInner() {
                                     max_triggers: settingsForm.max_triggers,
                                     min_poll_interval_min: settingsForm.min_poll_interval_min,
                                     webhook_rate_limit: settingsForm.webhook_rate_limit,
+                                    bio: settingsForm.bio || null,
+                                    avatar_url: settingsForm.avatar_url || null,
                                 } as any);
                                 queryClient.invalidateQueries({ queryKey: ['agent', id] });
                                 settingsInitRef.current = false;
@@ -3569,6 +3577,36 @@ function AgentDetailInner() {
                                         >
                                             {settingsSaving ? t('agent.settings.saving', 'Saving...') : t('agent.settings.save', 'Save')}
                                         </button>
+                                    </div>
+                                </div>
+
+                                {/* Bio & Avatar */}
+                                <div className="card" style={{ marginBottom: '12px' }}>
+                                    <h4 style={{ marginBottom: '12px' }}>{t('agent.settings.profile', 'Profile')}</h4>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, marginBottom: '6px' }}>{t('agent.settings.bio', 'Bio / Background')}</label>
+                                            <textarea
+                                                className="input"
+                                                rows={3}
+                                                value={settingsForm.bio}
+                                                onChange={(e) => setSettingsForm(f => ({ ...f, bio: e.target.value }))}
+                                                placeholder={t('agent.settings.bioPlaceholder', 'Describe this agent\'s background and expertise...')}
+                                                style={{ width: '100%', minHeight: '60px', resize: 'vertical', fontFamily: 'inherit', fontSize: '13px' }}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, marginBottom: '6px' }}>{t('agent.settings.avatarUrl', 'Avatar URL')}</label>
+                                            <input
+                                                className="input"
+                                                type="text"
+                                                value={settingsForm.avatar_url}
+                                                onChange={(e) => setSettingsForm(f => ({ ...f, avatar_url: e.target.value }))}
+                                                placeholder="https://example.com/avatar.png"
+                                                style={{ width: '100%' }}
+                                            />
+                                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>{t('agent.settings.avatarUrlDesc', 'Direct URL to an image. Leave empty to use the default avatar.')}</div>
+                                        </div>
                                     </div>
                                 </div>
 
@@ -4081,6 +4119,128 @@ function AgentDetailInner() {
 
                                 {/* Config Version History */}
                                 <ConfigVersionHistory agentId={id!} />
+
+                                {/* Context Window Size — read-only display */}
+                                <div className="card" style={{ marginBottom: '12px' }}>
+                                    <h4 style={{ marginBottom: '12px' }}>{t('agent.settings.contextWindow', 'Context Window Size')}</h4>
+                                    <div style={{
+                                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                        padding: '10px 14px', background: 'var(--bg-elevated)', borderRadius: '8px',
+                                        border: '1px solid var(--border-subtle)',
+                                    }}>
+                                        <div>
+                                            <div style={{ fontWeight: 500, fontSize: '13px' }}>{t('agent.settings.contextWindowLabel', 'Current Window')}</div>
+                                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{t('agent.settings.contextWindowDesc', 'The context window size configured for this agent\'s LLM model')}</div>
+                                        </div>
+                                        <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                                            {((agent as any)?.context_window_size ?? 100).toLocaleString()} {t('agent.settings.contextWindowTokens', 'rounds')}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Admin Settings — platform_admin / org_admin only */}
+                                {isAdmin && (
+                                <div className="card" style={{ marginBottom: '12px', borderColor: 'var(--warning, #f59e0b)' }}>
+                                    <h4 style={{ marginBottom: '4px' }}>{t('agent.settings.admin.title', 'Admin Settings')}</h4>
+                                    <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '16px' }}>
+                                        {t('agent.settings.admin.description', 'These settings are only visible to platform and organization admins.')}
+                                    </p>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                                        {/* Security Zone */}
+                                        <div style={{
+                                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                            padding: '10px 14px', background: 'var(--bg-elevated)', borderRadius: '8px',
+                                            border: '1px solid var(--border-subtle)',
+                                        }}>
+                                            <div>
+                                                <div style={{ fontWeight: 500, fontSize: '13px' }}>{t('agent.settings.securityZone', 'Security Zone')}</div>
+                                                <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{t('agent.settings.securityZoneDesc', 'Controls the security sandbox level for this agent')}</div>
+                                            </div>
+                                            <select
+                                                className="input"
+                                                value={(agent as any)?.security_zone || 'standard'}
+                                                onChange={async (e) => {
+                                                    await agentApi.update(id!, { security_zone: e.target.value } as any);
+                                                    queryClient.invalidateQueries({ queryKey: ['agent', id] });
+                                                }}
+                                                style={{ width: '160px', fontSize: '12px' }}
+                                            >
+                                                <option value="public">{t('agent.zone.public', 'Public')}</option>
+                                                <option value="standard">{t('agent.zone.standard', 'Standard')}</option>
+                                                <option value="restricted">{t('agent.zone.restricted', 'Restricted')}</option>
+                                            </select>
+                                        </div>
+
+                                        {/* Agent Class */}
+                                        <div style={{
+                                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                            padding: '10px 14px', background: 'var(--bg-elevated)', borderRadius: '8px',
+                                            border: '1px solid var(--border-subtle)',
+                                        }}>
+                                            <div>
+                                                <div style={{ fontWeight: 500, fontSize: '13px' }}>{t('agent.settings.agentClass', 'Agent Class')}</div>
+                                                <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{t('agent.settings.agentClassDesc', 'Classification that determines the agent\'s operational scope')}</div>
+                                            </div>
+                                            <select
+                                                className="input"
+                                                value={(agent as any)?.agent_class || 'internal_tenant'}
+                                                onChange={async (e) => {
+                                                    await agentApi.update(id!, { agent_class: e.target.value } as any);
+                                                    queryClient.invalidateQueries({ queryKey: ['agent', id] });
+                                                }}
+                                                style={{ width: '180px', fontSize: '12px' }}
+                                            >
+                                                <option value="internal_system">{t('agent.class.internal_system', 'System Agent')}</option>
+                                                <option value="internal_tenant">{t('agent.class.internal_tenant', 'Internal Agent')}</option>
+                                                <option value="external_gateway">{t('agent.class.external_gateway', 'Gateway Agent')}</option>
+                                                <option value="external_api">{t('agent.class.external_api', 'API Agent')}</option>
+                                            </select>
+                                        </div>
+
+                                        {/* Expires At */}
+                                        <div style={{
+                                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                            padding: '10px 14px', background: 'var(--bg-elevated)', borderRadius: '8px',
+                                            border: '1px solid var(--border-subtle)',
+                                        }}>
+                                            <div>
+                                                <div style={{ fontWeight: 500, fontSize: '13px' }}>{t('agent.settings.expiresAt', 'Service Expiry Date')}</div>
+                                                <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                                                    {(agent as any)?.expires_at
+                                                        ? t('agent.settings.expiresAtCurrent', 'Expires: ') + new Date((agent as any).expires_at).toLocaleString()
+                                                        : t('agent.settings.expiresAtNone', 'No expiry set (never expires)')}
+                                                </div>
+                                            </div>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                <input
+                                                    type="datetime-local"
+                                                    className="input"
+                                                    defaultValue={(agent as any)?.expires_at ? new Date((agent as any).expires_at).toISOString().slice(0, 16) : ''}
+                                                    key={(agent as any)?.expires_at}
+                                                    onBlur={async (e) => {
+                                                        const val = e.target.value ? new Date(e.target.value).toISOString() : null;
+                                                        await agentApi.update(id!, { expires_at: val } as any);
+                                                        queryClient.invalidateQueries({ queryKey: ['agent', id] });
+                                                    }}
+                                                    style={{ width: '200px', fontSize: '12px' }}
+                                                />
+                                                {(agent as any)?.expires_at && (
+                                                    <button
+                                                        onClick={async () => {
+                                                            await agentApi.update(id!, { expires_at: null } as any);
+                                                            queryClient.invalidateQueries({ queryKey: ['agent', id] });
+                                                        }}
+                                                        style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid var(--border-subtle)', background: 'none', cursor: 'pointer', fontSize: '11px', color: 'var(--text-tertiary)' }}
+                                                        title={t('agent.settings.clearExpiry', 'Clear expiry')}
+                                                    >
+                                                        {t('agent.settings.clearExpiry', 'Clear')}
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                )}
 
                                 {/* Danger Zone */}
                                 <div className="card" style={{ borderColor: 'var(--error)' }}>

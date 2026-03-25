@@ -511,7 +511,28 @@
         "days": "{{count}}d",
         "customDeadline": "Custom deadline",
         "saving": "Saving..."
-      }
+      },
+      "profile": "Profile",
+      "bio": "Bio / Background",
+      "bioPlaceholder": "Describe this agent's background and expertise...",
+      "avatarUrl": "Avatar URL",
+      "avatarUrlDesc": "Direct URL to an image. Leave empty to use the default avatar.",
+      "contextWindow": "Context Window Size",
+      "contextWindowLabel": "Current Window",
+      "contextWindowDesc": "The context window size configured for this agent's LLM model",
+      "contextWindowTokens": "rounds",
+      "admin": {
+        "title": "Admin Settings",
+        "description": "These settings are only visible to platform and organization admins."
+      },
+      "securityZone": "Security Zone",
+      "securityZoneDesc": "Controls the security sandbox level for this agent",
+      "agentClass": "Agent Class",
+      "agentClassDesc": "Classification that determines the agent's operational scope",
+      "expiresAt": "Service Expiry Date",
+      "expiresAtCurrent": "Expires: ",
+      "expiresAtNone": "No expiry set (never expires)",
+      "clearExpiry": "Clear"
     },
     "tools": {
       "agentInstalled": "Agent-Installed Tools",
@@ -576,17 +597,25 @@
       "noModels": "No available models. Please add LLM models in",
       "enterpriseSettings": "Company Settings",
       "addModels": "first",
-      "namePlaceholder": "e.g. Smart Assistant"
+      "namePlaceholder": "e.g. Smart Assistant",
+      "bio": "Bio / Background",
+      "bioPlaceholder": "Brief background about this agent...",
+      "avatarUrl": "Avatar URL",
+      "welcomeMessage": "Welcome Message",
+      "welcomeMessagePlaceholder": "Message shown when users first interact with this agent"
     },
     "step2": {
       "personalityPlaceholder": "Responsible, data-driven, proactive reporting...",
-      "boundariesPlaceholder": "Cannot modify financial data, external communication requires approval..."
+      "boundariesPlaceholder": "Cannot modify financial data, external communication requires approval...",
+      "fallbackModel": "Fallback Model",
+      "fallbackNone": "None"
     },
     "step1New": {
       "title": "Identity & Model"
     },
     "identity": {
       "communicationStyle": "Communication style (personality & boundaries)",
+      "profileExtras": "Profile extras (bio, avatar, welcome message)",
       "aiModel": "AI Model",
       "selectModel": "-- Select a model --"
     },

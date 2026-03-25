@@ -8,9 +8,13 @@ import type { Agent, AgentCreateInput } from '../types';
 interface AgentCreateFormState {
     name: string;
     role_description: string;
+    bio: string;
+    avatar_url: string;
+    welcome_message: string;
     personality: string;
     boundaries: string;
     primary_model_id: string;
+    fallback_model_id: string;
     skill_ids: string[];
     permission_scope_type: 'company' | 'user';
     permission_access_level: 'use' | 'manage';
@@ -41,9 +45,13 @@ export default function AgentCreate() {
     const [form, setForm] = useState<AgentCreateFormState>({
         name: '',
         role_description: '',
+        bio: '',
+        avatar_url: '',
+        welcome_message: '',
         personality: '',
         boundaries: '',
         primary_model_id: '' as string,
+        fallback_model_id: '',
         skill_ids: [] as string[],
         permission_scope_type: 'company',
         permission_access_level: 'use',
@@ -137,9 +145,13 @@ export default function AgentCreate() {
         createMutation.mutate({
             name: form.name,
             role_description: form.role_description,
+            bio: form.bio || undefined,
+            welcome_message: form.welcome_message || undefined,
+            avatar_url: form.avatar_url || undefined,
             personality: form.personality,
             boundaries: form.boundaries,
             primary_model_id: form.primary_model_id || undefined,
+            fallback_model_id: form.fallback_model_id || undefined,
             skill_ids: form.skill_ids,
             permission_scope_type: form.permission_scope_type,
             permission_access_level: form.permission_access_level,
@@ -277,6 +289,53 @@ export default function AgentCreate() {
                             )}
                         </div>
 
+                        {/* Profile extras — collapsible */}
+                        <details style={{ marginBottom: '16px' }}>
+                            <summary style={{ cursor: 'pointer', fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                                {t('wizard.identity.profileExtras', 'Profile extras (bio, avatar, welcome message)')}
+                            </summary>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', paddingTop: '8px' }}>
+                                <div className="form-group" style={{ marginBottom: 0 }}>
+                                    <label className="form-label">
+                                        {t('wizard.step1.bio', 'Bio / Background')}{' '}
+                                        <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontWeight: 400 }}>({t('common.optional', 'optional')})</span>
+                                    </label>
+                                    <textarea
+                                        className="form-textarea"
+                                        rows={2}
+                                        value={form.bio}
+                                        onChange={(e) => setForm({ ...form, bio: e.target.value })}
+                                        placeholder={t('wizard.step1.bioPlaceholder', 'Brief background about this agent...')}
+                                    />
+                                </div>
+                                <div className="form-group" style={{ marginBottom: 0 }}>
+                                    <label className="form-label">
+                                        {t('wizard.step1.avatarUrl', 'Avatar URL')}{' '}
+                                        <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontWeight: 400 }}>({t('common.optional', 'optional')})</span>
+                                    </label>
+                                    <input
+                                        className="form-input"
+                                        value={form.avatar_url}
+                                        onChange={(e) => setForm({ ...form, avatar_url: e.target.value })}
+                                        placeholder="https://..."
+                                    />
+                                </div>
+                                <div className="form-group" style={{ marginBottom: 0 }}>
+                                    <label className="form-label">
+                                        {t('wizard.step1.welcomeMessage', 'Welcome Message')}{' '}
+                                        <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontWeight: 400 }}>({t('common.optional', 'optional')})</span>
+                                    </label>
+                                    <textarea
+                                        className="form-textarea"
+                                        rows={2}
+                                        value={form.welcome_message}
+                                        onChange={(e) => setForm({ ...form, welcome_message: e.target.value })}
+                                        placeholder={t('wizard.step1.welcomeMessagePlaceholder', 'Message shown when users first interact with this agent')}
+                                    />
+                                </div>
+                            </div>
+                        </details>
+
                         {/* Communication style — collapsible */}
                         <details style={{ marginBottom: '16px' }}>
                             <summary style={{ cursor: 'pointer', fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)', marginBottom: '8px' }}>
@@ -352,6 +411,28 @@ export default function AgentCreate() {
                         <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
                             {t('wizard.abilities.description')}
                         </p>
+
+                        {/* Fallback model */}
+                        {enabledModels.length > 0 && (
+                            <div className="form-group" style={{ marginBottom: '20px' }}>
+                                <label className="form-label">
+                                    {t('wizard.step2.fallbackModel', 'Fallback Model')}{' '}
+                                    <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontWeight: 400 }}>({t('common.optional', 'optional')})</span>
+                                </label>
+                                <select
+                                    className="form-select"
+                                    value={form.fallback_model_id}
+                                    onChange={(e) => setForm({ ...form, fallback_model_id: e.target.value })}
+                                >
+                                    <option value="">{t('wizard.step2.fallbackNone', 'None')}</option>
+                                    {enabledModels.map((m: any) => (
+                                        <option key={m.id} value={m.id}>
+                                            {m.label} ({m.provider}/{m.model})
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
 
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                             {globalSkills.map((skill: any) => {

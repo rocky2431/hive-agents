@@ -511,7 +511,28 @@
         "days": "{{count}}天",
         "customDeadline": "自定义截止时间",
         "saving": "保存中..."
-      }
+      },
+      "profile": "基本信息",
+      "bio": "简介 / 背景",
+      "bioPlaceholder": "描述此数字员工的背景和专业能力...",
+      "avatarUrl": "头像 URL",
+      "avatarUrlDesc": "图片的直接链接。留空使用默认头像。",
+      "contextWindow": "上下文窗口大小",
+      "contextWindowLabel": "当前窗口",
+      "contextWindowDesc": "此数字员工 LLM 模型配置的上下文窗口大小",
+      "contextWindowTokens": "轮",
+      "admin": {
+        "title": "管理员设置",
+        "description": "这些设置仅对平台管理员和组织管理员可见。"
+      },
+      "securityZone": "安全区域",
+      "securityZoneDesc": "控制此数字员工的安全沙箱级别",
+      "agentClass": "员工类型",
+      "agentClassDesc": "决定数字员工运营范围的分类",
+      "expiresAt": "服务到期日",
+      "expiresAtCurrent": "到期时间：",
+      "expiresAtNone": "未设置到期时间（永不过期）",
+      "clearExpiry": "清除"
     },
     "tools": {
       "agentInstalled": "Agent 自行安装的工具",
@@ -576,17 +597,25 @@
       "noModels": "暂无可用模型，请先在",
       "enterpriseSettings": "企业设置",
       "addModels": "中添加 LLM 模型",
-      "namePlaceholder": "例：小智"
+      "namePlaceholder": "例：小智",
+      "bio": "简介 / 背景",
+      "bioPlaceholder": "简要介绍这个智能体的背景...",
+      "avatarUrl": "头像链接",
+      "welcomeMessage": "欢迎消息",
+      "welcomeMessagePlaceholder": "用户首次与此智能体交互时显示的消息"
     },
     "step2": {
       "personalityPlaceholder": "认真负责、数据驱动、主动汇报...",
-      "boundariesPlaceholder": "不可修改财务数据、对外沟通需经审批..."
+      "boundariesPlaceholder": "不可修改财务数据、对外沟通需经审批...",
+      "fallbackModel": "备用模型",
+      "fallbackNone": "无"
     },
     "step1New": {
       "title": "身份与模型"
     },
     "identity": {
       "communicationStyle": "沟通风格（人格与边界）",
+      "profileExtras": "个人资料扩展（简介、头像、欢迎消息）",
       "aiModel": "AI 模型",
       "selectModel": "-- 选择模型 --"
     },
