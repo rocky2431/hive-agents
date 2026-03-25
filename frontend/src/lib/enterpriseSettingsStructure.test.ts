@@ -4,13 +4,25 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const enterpriseSettingsPath = path.resolve(process.cwd(), 'src/pages/EnterpriseSettings.tsx');
+const enterpriseSubDir = path.resolve(process.cwd(), 'src/pages/enterprise');
+function readEnterpriseModule(): string {
+    let src = fs.readFileSync(path.resolve(process.cwd(), 'src/pages/EnterpriseSettings.tsx'), 'utf8');
+    if (fs.existsSync(enterpriseSubDir)) {
+        for (const f of fs.readdirSync(enterpriseSubDir)) {
+            if (f.endsWith('.tsx') || f.endsWith('.ts')) {
+                src += '\n' + fs.readFileSync(path.join(enterpriseSubDir, f), 'utf8');
+            }
+        }
+    }
+    return src;
+}
 const zhI18nPath = path.resolve(process.cwd(), 'src/i18n/zh.json');
 const enI18nPath = path.resolve(process.cwd(), 'src/i18n/en.json');
 
 const read = (filePath: string) => fs.readFileSync(filePath, 'utf8');
 
 test('EnterpriseSettings uses grouped sidebar navigation with a consolidated AI tools area', () => {
-    const source = read(enterpriseSettingsPath);
+    const source = readEnterpriseModule();
 
     assert.doesNotMatch(source, /activeTab === 'tools'/);
     assert.doesNotMatch(source, /useState<'llm' \| 'org' \| 'info' \| 'approvals' \| 'audit' \| 'tools'/);
@@ -23,7 +35,7 @@ test('EnterpriseSettings uses grouped sidebar navigation with a consolidated AI 
 });
 
 test('EnterpriseSettings keeps backend pack controls but hides raw pack and MCP engineering language from the main view', () => {
-    const source = read(enterpriseSettingsPath);
+    const source = readEnterpriseModule();
 
     assert.doesNotMatch(source, /const \[allTools, setAllTools\]/);
     assert.doesNotMatch(source, /const \[showAddMCP, setShowAddMCP\]/);

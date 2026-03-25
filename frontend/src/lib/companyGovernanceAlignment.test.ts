@@ -6,6 +6,18 @@ import path from 'node:path';
 const companySetupPath = path.resolve(process.cwd(), 'src/pages/CompanySetup.tsx');
 const adminCompaniesPath = path.resolve(process.cwd(), 'src/pages/AdminCompanies.tsx');
 const enterpriseSettingsPath = path.resolve(process.cwd(), 'src/pages/EnterpriseSettings.tsx');
+const enterpriseSubDir = path.resolve(process.cwd(), 'src/pages/enterprise');
+function readEnterpriseModule(): string {
+    let src = fs.readFileSync(path.resolve(process.cwd(), 'src/pages/EnterpriseSettings.tsx'), 'utf8');
+    if (fs.existsSync(enterpriseSubDir)) {
+        for (const f of fs.readdirSync(enterpriseSubDir)) {
+            if (f.endsWith('.tsx') || f.endsWith('.ts')) {
+                src += '\n' + fs.readFileSync(path.join(enterpriseSubDir, f), 'utf8');
+            }
+        }
+    }
+    return src;
+}
 const userManagementPath = path.resolve(process.cwd(), 'src/pages/UserManagement.tsx');
 const apiPath = path.resolve(process.cwd(), 'src/services/api.ts');
 
@@ -41,7 +53,7 @@ test('Frontend service layer exposes org management helpers for departments and 
 });
 
 test('Enterprise settings org tab exposes department CRUD controls', () => {
-    const source = read(enterpriseSettingsPath);
+    const source = readEnterpriseModule();
 
     assert.match(source, /orgApi\.createDepartment/);
     assert.match(source, /orgApi\.updateDepartment/);

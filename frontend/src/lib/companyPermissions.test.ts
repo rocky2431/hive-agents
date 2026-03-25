@@ -6,6 +6,18 @@ import path from 'node:path';
 import { canEditCompanyProfile, canManageCompanyLifecycle } from './companyPermissions.ts';
 
 const enterpriseSettingsPath = path.resolve(process.cwd(), 'src/pages/EnterpriseSettings.tsx');
+const enterpriseSubDir = path.resolve(process.cwd(), 'src/pages/enterprise');
+function readEnterpriseModule(): string {
+    let src = fs.readFileSync(path.resolve(process.cwd(), 'src/pages/EnterpriseSettings.tsx'), 'utf8');
+    if (fs.existsSync(enterpriseSubDir)) {
+        for (const f of fs.readdirSync(enterpriseSubDir)) {
+            if (f.endsWith('.tsx') || f.endsWith('.ts')) {
+                src += '\n' + fs.readFileSync(path.join(enterpriseSubDir, f), 'utf8');
+            }
+        }
+    }
+    return src;
+}
 const read = () => fs.readFileSync(enterpriseSettingsPath, 'utf8');
 
 test('company profile editing matches tenant roles', () => {

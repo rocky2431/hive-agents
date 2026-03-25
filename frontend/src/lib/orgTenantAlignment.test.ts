@@ -4,6 +4,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const enterpriseSettingsPath = path.resolve(process.cwd(), 'src/pages/EnterpriseSettings.tsx');
+const enterpriseSubDir = path.resolve(process.cwd(), 'src/pages/enterprise');
+function readEnterpriseModule(): string {
+    let src = fs.readFileSync(path.resolve(process.cwd(), 'src/pages/EnterpriseSettings.tsx'), 'utf8');
+    if (fs.existsSync(enterpriseSubDir)) {
+        for (const f of fs.readdirSync(enterpriseSubDir)) {
+            if (f.endsWith('.tsx') || f.endsWith('.ts')) {
+                src += '\n' + fs.readFileSync(path.join(enterpriseSubDir, f), 'utf8');
+            }
+        }
+    }
+    return src;
+}
 const agentDetailPath = path.resolve(process.cwd(), 'src/pages/AgentDetail.tsx');
 const agentDetailSubDir = path.resolve(process.cwd(), 'src/pages/agent-detail');
 function readAgentDetailModule(): string {
@@ -23,7 +35,7 @@ const typesPath = path.resolve(process.cwd(), 'src/types/index.ts');
 const read = (filePath: string) => fs.readFileSync(filePath, 'utf8');
 
 test('EnterpriseSettings scopes org sync config and trigger requests to the selected tenant', () => {
-    const source = read(enterpriseSettingsPath);
+    const source = readEnterpriseModule();
 
     assert.match(source, /queryKey:\s*\['system-settings', 'feishu_org_sync', currentTenantId\]/);
     assert.match(source, /\/enterprise\/system-settings\/feishu_org_sync\$\{currentTenantId \? `\?tenant_id=\$\{currentTenantId\}` : ''\}/);

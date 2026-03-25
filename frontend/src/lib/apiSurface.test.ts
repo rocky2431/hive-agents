@@ -21,6 +21,18 @@ function readAgentDetailModule(): string {
 const plazaPath = path.resolve(process.cwd(), 'src/pages/Plaza.tsx');
 const adminCompaniesPath = path.resolve(process.cwd(), 'src/pages/AdminCompanies.tsx');
 const enterpriseSettingsPath = path.resolve(process.cwd(), 'src/pages/EnterpriseSettings.tsx');
+const enterpriseSubDir = path.resolve(process.cwd(), 'src/pages/enterprise');
+function readEnterpriseModule(): string {
+    let src = fs.readFileSync(path.resolve(process.cwd(), 'src/pages/EnterpriseSettings.tsx'), 'utf8');
+    if (fs.existsSync(enterpriseSubDir)) {
+        for (const f of fs.readdirSync(enterpriseSubDir)) {
+            if (f.endsWith('.tsx') || f.endsWith('.ts')) {
+                src += '\n' + fs.readFileSync(path.join(enterpriseSubDir, f), 'utf8');
+            }
+        }
+    }
+    return src;
+}
 const channelConfigPath = path.resolve(process.cwd(), 'src/components/ChannelConfig.tsx');
 const read = () => fs.readFileSync(apiPath, 'utf8');
 const readFile = (filePath: string) => fs.readFileSync(filePath, 'utf8');
@@ -44,7 +56,7 @@ test('frontend pages normalize legacy direct API paths to /api/v1', () => {
     const agentDetailSource = readAgentDetailModule();
     const plazaSource = readFile(plazaPath);
     const adminCompaniesSource = readFile(adminCompaniesPath);
-    const enterpriseSettingsSource = readFile(enterpriseSettingsPath);
+    const enterpriseSettingsSource = readEnterpriseModule();
     const channelConfigSource = readFile(channelConfigPath);
 
     assert.doesNotMatch(chatSource, /`\/api\/agents\/\$\{id\}\/files\/download/);

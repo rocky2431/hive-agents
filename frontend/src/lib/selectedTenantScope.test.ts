@@ -5,6 +5,18 @@ import path from 'node:path';
 
 const apiPath = path.resolve(process.cwd(), 'src/services/api.ts');
 const enterpriseSettingsPath = path.resolve(process.cwd(), 'src/pages/EnterpriseSettings.tsx');
+const enterpriseSubDir = path.resolve(process.cwd(), 'src/pages/enterprise');
+function readEnterpriseModule(): string {
+    let src = fs.readFileSync(path.resolve(process.cwd(), 'src/pages/EnterpriseSettings.tsx'), 'utf8');
+    if (fs.existsSync(enterpriseSubDir)) {
+        for (const f of fs.readdirSync(enterpriseSubDir)) {
+            if (f.endsWith('.tsx') || f.endsWith('.ts')) {
+                src += '\n' + fs.readFileSync(path.join(enterpriseSubDir, f), 'utf8');
+            }
+        }
+    }
+    return src;
+}
 const invitationCodesPath = path.resolve(process.cwd(), 'src/pages/InvitationCodes.tsx');
 
 const read = (filePath: string) => fs.readFileSync(filePath, 'utf8');
@@ -26,7 +38,7 @@ test('memory config api can scope requests to a selected tenant', () => {
 });
 
 test('EnterpriseSettings scopes tenant config tabs to the selected tenant', () => {
-    const source = read(enterpriseSettingsPath);
+    const source = readEnterpriseModule();
 
     assert.match(source, /\/enterprise\/tenant-quotas\$\{selectedTenantId \? `\?tenant_id=\$\{selectedTenantId\}` : ''\}/);
     assert.match(source, /\/enterprise\/memory\/config\$\{tenantId \? `\?tenant_id=\$\{tenantId\}` : ''\}/);
@@ -36,7 +48,7 @@ test('EnterpriseSettings scopes tenant config tabs to the selected tenant', () =
 });
 
 test('EnterpriseSettings scopes llm test update and delete requests to the selected tenant', () => {
-    const source = read(enterpriseSettingsPath);
+    const source = readEnterpriseModule();
     const apiSource = read(apiPath);
 
     assert.match(source, /enterpriseApi\.llmTest\(testData,\s*selectedTenantId \|\| undefined\)/);

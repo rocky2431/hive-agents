@@ -1,8 +1,12 @@
-/**
- * EnterpriseSettings sub-components — extracted from the 2960-LOC monolith.
- */
 export { default as OrgTab } from './org-tab';
 export { default as ThemeColorPicker } from './theme-color-picker';
 export { default as PlatformSettings } from './platform-settings';
+export { EnterpriseKBBrowser } from './enterprise-kb-browser';
+export { SkillsTab } from './skills-tab';
+export { NotificationBarConfig } from './notification-bar-config';
+export { CompanyNameEditor } from './company-name-editor';
+export { CompanyTimezoneEditor } from './company-timezone-editor';
+export { FeatureFlagsTab } from './feature-flags-tab';
+export { MemoryTab } from './memory-tab';
 export { fetchJson, FALLBACK_LLM_PROVIDERS } from './shared';
 export type { LLMModel, LLMProviderSpec } from './shared';
