@@ -9,10 +9,11 @@ import re
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.database import async_session
+from app.database import async_session, get_db
 from app.models.skill import Skill, SkillFile
 from app.core.security import require_role, get_current_user
 from app.models.user import User
@@ -141,6 +142,24 @@ def _parse_github_url(url: str) -> dict | None:
     return None
 
 
+def _skill_scope_clause(current_user: User):
+    """Build tenant visibility scope for skill reads."""
+    if current_user.role == "platform_admin":
+        return None
+    if current_user.tenant_id:
+        return or_(Skill.tenant_id.is_(None), Skill.tenant_id == current_user.tenant_id)
+    return Skill.tenant_id.is_(None)
+
+
+def _skill_visible_to_user(skill: Skill, current_user: User) -> bool:
+    """Check whether the caller can read a specific skill."""
+    if current_user.role == "platform_admin":
+        return True
+    if skill.tenant_id is None:
+        return True
+    return bool(current_user.tenant_id and skill.tenant_id == current_user.tenant_id)
+
+
 async def _fetch_github_directory(
     owner: str, repo: str, path: str, branch: str = "main",
     token: str = "",
@@ -230,7 +249,7 @@ async def _save_skill_to_db(
         if tenant_id:
             conflict_q = conflict_q.where(Skill.tenant_id == _uuid.UUID(tenant_id))
         else:
-            conflict_q = conflict_q.where(Skill.tenant_id == None)
+            conflict_q = conflict_q.where(Skill.tenant_id.is_(None))
         existing = await db.execute(conflict_q)
         if existing.scalar_one_or_none():
             raise HTTPException(
@@ -488,14 +507,11 @@ async def preview_url_import(body: UrlImportIn, current_user: User = Depends(get
 @router.get("/")
 async def list_skills(current_user: User = Depends(get_current_user)):
     """List global skills scoped by tenant (builtin + tenant-specific)."""
-    import uuid as _uuid
-    from sqlalchemy import or_ as _or
-    tenant_id = str(current_user.tenant_id) if current_user.tenant_id else None
     async with async_session() as db:
         query = select(Skill).options(selectinload(Skill.files)).order_by(Skill.name)
-        # Scope by tenant: show builtin (tenant_id is NULL) + tenant-specific skills
-        if tenant_id:
-            query = query.where(_or(Skill.tenant_id == None, Skill.tenant_id == _uuid.UUID(tenant_id)))
+        scope_clause = _skill_scope_clause(current_user)
+        if scope_clause is not None:
+            query = query.where(scope_clause)
         result = await db.execute(query)
         skills = result.scalars().all()
         def _skill_declared_metadata(skill: Skill) -> tuple[list[str], list[str]]:
@@ -526,32 +542,35 @@ async def list_skills(current_user: User = Depends(get_current_user)):
 
 
 @router.get("/{skill_id}")
-async def get_skill(skill_id: str):
+async def get_skill(
+    skill_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """Get a skill with its files."""
-    async with async_session() as db:
-        result = await db.execute(
-            select(Skill).where(Skill.id == skill_id).options(selectinload(Skill.files))
-        )
-        skill = result.scalar_one_or_none()
-        if not skill:
-            raise HTTPException(404, "Skill not found")
-        skill_md = next((f.content for f in skill.files if f.path.upper() == "SKILL.MD"), "")
-        frontmatter = _parse_skill_md_frontmatter(skill_md)
-        return {
-            "id": str(skill.id),
-            "name": skill.name,
-            "description": skill.description,
-            "category": skill.category,
-            "icon": skill.icon,
-            "folder_name": skill.folder_name,
-            "is_builtin": skill.is_builtin,
-            "declared_tools": [str(tool) for tool in (frontmatter.get("tools") or []) if tool],
-            "declared_packs": [str(pack) for pack in (frontmatter.get("packs") or []) if pack],
-            "files": [
-                {"path": f.path, "content": f.content}
-                for f in skill.files
-            ],
-        }
+    result = await db.execute(
+        select(Skill).where(Skill.id == skill_id).options(selectinload(Skill.files))
+    )
+    skill = result.scalar_one_or_none()
+    if not skill or not _skill_visible_to_user(skill, current_user):
+        raise HTTPException(404, "Skill not found")
+    skill_md = next((f.content for f in skill.files if f.path.upper() == "SKILL.MD"), "")
+    frontmatter = _parse_skill_md_frontmatter(skill_md)
+    return {
+        "id": str(skill.id),
+        "name": skill.name,
+        "description": skill.description,
+        "category": skill.category,
+        "icon": skill.icon,
+        "folder_name": skill.folder_name,
+        "is_builtin": skill.is_builtin,
+        "declared_tools": [str(tool) for tool in (frontmatter.get("tools") or []) if tool],
+        "declared_packs": [str(pack) for pack in (frontmatter.get("packs") or []) if pack],
+        "files": [
+            {"path": f.path, "content": f.content}
+            for f in skill.files
+        ],
+    }
 
 
 @router.post("/")
@@ -722,7 +741,7 @@ async def browse_list(path: str = "", current_user: User = Depends(get_current_u
             # Root: list all skill folders (scoped by tenant)
             query = select(Skill).order_by(Skill.name)
             if tenant_id:
-                query = query.where(_or(Skill.tenant_id == None, Skill.tenant_id == _uuid.UUID(tenant_id)))
+                query = query.where(_or(Skill.tenant_id.is_(None), Skill.tenant_id == _uuid.UUID(tenant_id)))
             result = await db.execute(query)
             skills = result.scalars().all()
             return [
@@ -736,7 +755,7 @@ async def browse_list(path: str = "", current_user: User = Depends(get_current_u
         # Resolve skill folder scoped by tenant
         skill_q = select(Skill).where(Skill.folder_name == folder).options(selectinload(Skill.files))
         if tenant_id:
-            skill_q = skill_q.where(_or(Skill.tenant_id == None, Skill.tenant_id == _uuid.UUID(tenant_id)))
+            skill_q = skill_q.where(_or(Skill.tenant_id.is_(None), Skill.tenant_id == _uuid.UUID(tenant_id)))
         result = await db.execute(skill_q)
         skill = result.scalar_one_or_none()
         if not skill:
@@ -784,7 +803,7 @@ async def browse_read(path: str, current_user: User = Depends(get_current_user))
     async with async_session() as db:
         skill_q = select(Skill).where(Skill.folder_name == folder).options(selectinload(Skill.files))
         if tenant_id:
-            skill_q = skill_q.where(_or(Skill.tenant_id == None, Skill.tenant_id == _uuid.UUID(tenant_id)))
+            skill_q = skill_q.where(_or(Skill.tenant_id.is_(None), Skill.tenant_id == _uuid.UUID(tenant_id)))
         result = await db.execute(skill_q)
         skill = result.scalar_one_or_none()
         if not skill:
@@ -813,7 +832,7 @@ async def browse_write(body: BrowseWriteIn, current_user: User = Depends(require
     async with async_session() as db:
         skill_q = select(Skill).where(Skill.folder_name == folder).options(selectinload(Skill.files))
         if tenant_id:
-            skill_q = skill_q.where(_or(Skill.tenant_id == None, Skill.tenant_id == _uuid.UUID(tenant_id)))
+            skill_q = skill_q.where(_or(Skill.tenant_id.is_(None), Skill.tenant_id == _uuid.UUID(tenant_id)))
         result = await db.execute(skill_q)
         skill = result.scalar_one_or_none()
         if not skill:
@@ -855,7 +874,7 @@ async def browse_delete(path: str, current_user: User = Depends(require_role("pl
     async with async_session() as db:
         skill_q = select(Skill).where(Skill.folder_name == folder).options(selectinload(Skill.files))
         if tenant_id:
-            skill_q = skill_q.where(_or(Skill.tenant_id == None, Skill.tenant_id == _uuid.UUID(tenant_id)))
+            skill_q = skill_q.where(_or(Skill.tenant_id.is_(None), Skill.tenant_id == _uuid.UUID(tenant_id)))
         result = await db.execute(skill_q)
         skill = result.scalar_one_or_none()
         if not skill:

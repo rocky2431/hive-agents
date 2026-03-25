@@ -5,10 +5,13 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.auth import get_current_user
-from app.database import async_session
+from app.core.permissions import check_agent_access
+from app.core.security import get_current_user
+from app.database import get_db
 from app.models.trigger import AgentTrigger
+from app.models.user import User
 
 router = APIRouter(prefix="/agents", tags=["triggers"])
 
@@ -39,15 +42,19 @@ class TriggerUpdate(BaseModel):
 
 
 @router.get("/{agent_id}/triggers", response_model=list[TriggerResponse])
-async def list_agent_triggers(agent_id: uuid.UUID, user=Depends(get_current_user)):
+async def list_agent_triggers(
+    agent_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """List all triggers for an agent."""
-    async with async_session() as db:
-        result = await db.execute(
-            select(AgentTrigger)
-            .where(AgentTrigger.agent_id == agent_id)
-            .order_by(AgentTrigger.created_at.desc())
-        )
-        triggers = result.scalars().all()
+    await check_agent_access(db, current_user, agent_id)
+    result = await db.execute(
+        select(AgentTrigger)
+        .where(AgentTrigger.agent_id == agent_id)
+        .order_by(AgentTrigger.created_at.desc())
+    )
+    triggers = result.scalars().all()
 
     return [
         TriggerResponse(
@@ -74,35 +81,37 @@ async def update_trigger(
     agent_id: uuid.UUID,
     trigger_id: uuid.UUID,
     body: TriggerUpdate,
-    user=Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """Update a trigger (from frontend management UI)."""
-    async with async_session() as db:
-        result = await db.execute(
-            select(AgentTrigger).where(
-                AgentTrigger.id == trigger_id,
-                AgentTrigger.agent_id == agent_id,
-            )
+    await check_agent_access(db, current_user, agent_id)
+    result = await db.execute(
+        select(AgentTrigger).where(
+            AgentTrigger.id == trigger_id,
+            AgentTrigger.agent_id == agent_id,
         )
-        trigger = result.scalar_one_or_none()
-        if not trigger:
-            raise HTTPException(404, "Trigger not found")
+    )
+    trigger = result.scalar_one_or_none()
+    if not trigger:
+        raise HTTPException(404, "Trigger not found")
 
-        if body.config is not None:
-            trigger.config = body.config
-        if body.reason is not None:
-            trigger.reason = body.reason
-        if body.is_enabled is not None:
-            trigger.is_enabled = body.is_enabled
-        if body.max_fires is not None:
-            trigger.max_fires = body.max_fires
-        if body.cooldown_seconds is not None:
-            trigger.cooldown_seconds = body.cooldown_seconds
-        if body.expires_at is not None:
-            from datetime import datetime
-            trigger.expires_at = datetime.fromisoformat(body.expires_at)
+    if body.config is not None:
+        trigger.config = body.config
+    if body.reason is not None:
+        trigger.reason = body.reason
+    if body.is_enabled is not None:
+        trigger.is_enabled = body.is_enabled
+    if body.max_fires is not None:
+        trigger.max_fires = body.max_fires
+    if body.cooldown_seconds is not None:
+        trigger.cooldown_seconds = body.cooldown_seconds
+    if body.expires_at is not None:
+        from datetime import datetime
 
-        await db.commit()
+        trigger.expires_at = datetime.fromisoformat(body.expires_at)
+
+    await db.commit()
 
     return {"ok": True}
 
@@ -111,21 +120,22 @@ async def update_trigger(
 async def delete_trigger(
     agent_id: uuid.UUID,
     trigger_id: uuid.UUID,
-    user=Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """Delete a trigger entirely."""
-    async with async_session() as db:
-        result = await db.execute(
-            select(AgentTrigger).where(
-                AgentTrigger.id == trigger_id,
-                AgentTrigger.agent_id == agent_id,
-            )
+    await check_agent_access(db, current_user, agent_id)
+    result = await db.execute(
+        select(AgentTrigger).where(
+            AgentTrigger.id == trigger_id,
+            AgentTrigger.agent_id == agent_id,
         )
-        trigger = result.scalar_one_or_none()
-        if not trigger:
-            raise HTTPException(404, "Trigger not found")
+    )
+    trigger = result.scalar_one_or_none()
+    if not trigger:
+        raise HTTPException(404, "Trigger not found")
 
-        await db.delete(trigger)
-        await db.commit()
+    await db.delete(trigger)
+    await db.commit()
 
     return {"ok": True}

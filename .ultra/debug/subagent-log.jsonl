@@ -300,3 +300,5 @@
 {"timestamp": "2026-03-25T00:28:55.276684+00:00", "event": "subagent_start", "agent_id": "a76c612ff19b65059", "agent_type": "Explore", "session_id": "d7f9593b-650b-4c1b-b7b3-de287647b86c"}
 {"timestamp": "2026-03-25T00:31:30.049526+00:00", "event": "subagent_stop", "agent_id": "a76c612ff19b65059", "agent_type": "Explore", "session_id": "d7f9593b-650b-4c1b-b7b3-de287647b86c", "agent_transcript_path": "/Users/rocky243/.claude/projects/-Users-rocky243-vc-saas-Clawith/d7f9593b-650b-4c1b-b7b3-de287647b86c/subagents/agent-a76c612ff19b65059.jsonl"}
 {"timestamp": "2026-03-25T00:37:03.809023+00:00", "event": "subagent_start", "agent_id": "aa4d0fe103afe8660", "agent_type": "code-reviewer", "session_id": "235bc6d8-5a8c-40d4-8dee-862a3cd7f636"}
+{"timestamp": "2026-03-25T00:50:26.973567+00:00", "event": "subagent_start", "agent_id": "a0969121fd261ccf5", "agent_type": "code-reviewer", "session_id": "c067b1b1-7ecc-4263-8f19-8d5ed17c18ce"}
+{"timestamp": "2026-03-25T00:52:23.071301+00:00", "event": "subagent_start", "agent_id": "ada4f0650960bd5af", "agent_type": "code-reviewer", "session_id": "4eda1922-3e16-4216-a85f-4038c09d3441"}
