@@ -50,9 +50,13 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
     async with async_session() as session:
         try:
-            # Set tenant context for PostgreSQL RLS policies (parameterized to prevent injection)
+            # Set tenant context for PostgreSQL RLS policies.
+            # Note: SET LOCAL does not support parameterized queries in PostgreSQL,
+            # so we validate the tenant_id as UUID before interpolation to prevent injection.
             if tenant_id:
-                await session.execute(text("SET LOCAL app.current_tenant_id = :tid"), {"tid": str(tenant_id)})
+                import uuid as _uuid
+                _uuid.UUID(str(tenant_id))  # Raises ValueError if not a valid UUID
+                await session.execute(text(f"SET LOCAL app.current_tenant_id = '{tenant_id}'"))
             else:
                 await session.execute(text("SET LOCAL app.current_tenant_id = ''"))
 
