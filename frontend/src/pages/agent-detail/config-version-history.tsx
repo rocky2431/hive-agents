@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { configHistoryApi } from '@/services/api';
 import { useAuthStore } from '@/stores';
+import { cn } from '@/lib/cn';
 
 export interface ConfigVersionHistoryProps {
     agentId: string;
@@ -40,48 +41,42 @@ export function ConfigVersionHistory({ agentId }: ConfigVersionHistoryProps) {
     });
     if (!configHistory.length) return null;
     return (
-        <details className="card" style={{ marginBottom: '12px' }}>
-            <summary style={{ cursor: 'pointer', fontWeight: 600, fontSize: '14px', listStyle: 'none', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span>▸</span> {t('agentDetail.configHistory', 'Config History')}
-                <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontWeight: 400 }}>({configHistory.length})</span>
+        <details className="card mb-3">
+            <summary className="cursor-pointer font-semibold text-sm list-none flex items-center gap-2">
+                <span>&#9656;</span> {t('agentDetail.configHistory', 'Config History')}
+                <span className="text-[11px] text-content-tertiary font-normal">({configHistory.length})</span>
             </summary>
-            <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', margin: '8px 0 12px' }}>
+            <p className="text-xs text-content-tertiary mt-2 mb-3">
                 {t('agentDetail.configHistoryDesc', 'Previous configuration snapshots')}
             </p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div className="flex flex-col gap-1.5">
                 {configHistory.map((rev: any) => (
-                    <div key={rev.version} style={{
-                        padding: '10px 12px', borderRadius: '6px',
-                        background: expandedVersion === rev.version ? 'var(--bg-secondary)' : 'var(--bg-elevated)',
-                        border: '1px solid var(--border-subtle)', cursor: 'pointer',
-                    }} onClick={() => setExpandedVersion(expandedVersion === rev.version ? null : rev.version)}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <span style={{ fontWeight: 600, fontSize: '13px' }}>v{rev.version}</span>
-                                {rev.change_summary && <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{rev.change_summary}</span>}
+                    <div key={rev.version} className={cn(
+                        'px-3 py-2.5 rounded-md border border-edge-subtle cursor-pointer',
+                        expandedVersion === rev.version ? 'bg-surface-secondary' : 'bg-surface-elevated',
+                    )} onClick={() => setExpandedVersion(expandedVersion === rev.version ? null : rev.version)}>
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <span className="font-semibold text-[13px]">v{rev.version}</span>
+                                {rev.change_summary && <span className="text-xs text-content-secondary">{rev.change_summary}</span>}
                             </div>
-                            <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                            <span className="text-[11px] text-content-tertiary">
                                 {rev.created_at ? new Date(rev.created_at).toLocaleString() : ''}
                             </span>
                         </div>
                         {expandedVersion === rev.version && (
                             <>
-                                <pre style={{
-                                    marginTop: '8px', padding: '8px', background: 'var(--bg-primary)',
-                                    borderRadius: '4px', fontSize: '11px', overflow: 'auto',
-                                    maxHeight: '200px', border: '1px solid var(--border-subtle)',
-                                }}>{JSON.stringify(expandedRevision?.snapshot ?? rev.snapshot ?? {}, null, 2)}</pre>
+                                <pre className="mt-2 p-2 bg-surface-primary rounded text-[11px] overflow-auto max-h-[200px] border border-edge-subtle">{JSON.stringify(expandedRevision?.snapshot ?? rev.snapshot ?? {}, null, 2)}</pre>
                                 {canRollback && (
-                                    <div style={{ marginTop: '8px', display: 'flex', justifyContent: 'flex-end' }}>
+                                    <div className="mt-2 flex justify-end">
                                         <button
-                                            className="btn"
+                                            className="btn text-xs"
                                             onClick={(e) => {
                                                 e.stopPropagation();
                                                 if (!confirm(t('agentDetail.rollbackConfirm', { version: rev.version }))) return;
                                                 rollbackMutation.mutate(rev.version);
                                             }}
                                             disabled={rollbackMutation.isPending}
-                                            style={{ fontSize: '12px' }}
                                         >
                                             {rollbackMutation.isPending
                                                 ? t('common.loading')

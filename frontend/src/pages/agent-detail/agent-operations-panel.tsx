@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { scheduleApi, taskApi, triggerApi } from '@/services/api';
 import { useAuthStore } from '@/stores';
+import { cn } from '@/lib/cn';
 
 export interface AgentOperationsPanelProps {
     agentId: string;
@@ -187,33 +188,31 @@ export function AgentOperationsPanel({ agentId, agent }: AgentOperationsPanelPro
     });
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '24px' }}>
+        <div className="flex flex-col gap-4 mb-6">
             {notice && (
-                <div style={{
-                    padding: '10px 12px',
-                    borderRadius: '8px',
-                    fontSize: '12px',
-                    background: notice.type === 'success' ? 'rgba(16,185,129,0.10)' : 'rgba(239,68,68,0.10)',
-                    border: `1px solid ${notice.type === 'success' ? 'rgba(16,185,129,0.25)' : 'rgba(239,68,68,0.25)'}`,
-                    color: notice.type === 'success' ? 'var(--success, #10b981)' : 'var(--status-error, #ef4444)',
-                }}>
+                <div className={cn(
+                    'px-3 py-2.5 rounded-lg text-xs',
+                    notice.type === 'success'
+                        ? 'bg-emerald-500/10 border border-emerald-500/25 text-success'
+                        : 'bg-red-500/10 border border-red-500/25 text-error',
+                )}>
                     {notice.message}
                 </div>
             )}
 
             <div className="card">
-                <h4 style={{ marginBottom: '12px' }}>{t('agentDetail.taskAutomationTitle', 'Tasks, schedules, and triggers')}</h4>
-                <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '16px' }}>
+                <h4 className="mb-3">{t('agentDetail.taskAutomationTitle', 'Tasks, schedules, and triggers')}</h4>
+                <p className="text-xs text-content-tertiary mb-4">
                     {t('agentDetail.taskAutomationDesc', 'Operate the same task execution, schedule history, and trigger governance capabilities that the backend already exposes.')}
                 </p>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '12px' }}>
-                    <div className="card" style={{ margin: 0, background: 'var(--bg-secondary)' }}>
-                        <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '8px' }}>{t('agentDetail.tasksManager', 'Tasks')}</div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
+                <div className="grid grid-cols-3 gap-3">
+                    <div className="card !m-0 bg-surface-secondary">
+                        <div className="text-[13px] font-semibold mb-2">{t('agentDetail.tasksManager', 'Tasks')}</div>
+                        <div className="flex flex-col gap-2 mb-3">
                             <input className="input" value={taskForm.title} onChange={(e) => setTaskForm((prev) => ({ ...prev, title: e.target.value }))} placeholder={t('agentDetail.taskTitle', 'Task title')} />
-                            <textarea className="input" value={taskForm.description} onChange={(e) => setTaskForm((prev) => ({ ...prev, description: e.target.value }))} placeholder={t('agentDetail.taskDescription', 'Task description')} style={{ minHeight: '72px', resize: 'vertical' }} />
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                            <textarea className="input min-h-[72px] resize-y" value={taskForm.description} onChange={(e) => setTaskForm((prev) => ({ ...prev, description: e.target.value }))} placeholder={t('agentDetail.taskDescription', 'Task description')} />
+                            <div className="grid grid-cols-2 gap-2">
                                 <select className="input" value={taskForm.type} onChange={(e) => setTaskForm((prev) => ({ ...prev, type: e.target.value }))}>
                                     <option value="todo">{t('agent.tasks.typeTask', 'Task')}</option>
                                     <option value="supervision">{t('agent.tasks.typeSupervision', 'Supervision')}</option>
@@ -230,14 +229,14 @@ export function AgentOperationsPanel({ agentId, agent }: AgentOperationsPanelPro
                                 {createTaskMutation.isPending ? t('common.loading') : t('agent.tasks.newTask', 'New Task')}
                             </button>
                         </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '420px', overflowY: 'auto' }}>
+                        <div className="flex flex-col gap-2 max-h-[420px] overflow-y-auto">
                             {(tasks as any[]).map((task: any) => {
                                 const draft = taskDrafts[task.id] || {};
                                 return (
-                                    <div key={task.id} style={{ padding: '10px', borderRadius: '8px', border: '1px solid var(--border-subtle)', background: 'var(--bg-primary)' }}>
-                                        <input className="input" value={draft.title || ''} onChange={(e) => setTaskDrafts((prev) => ({ ...prev, [task.id]: { ...prev[task.id], title: e.target.value } }))} style={{ marginBottom: '8px' }} />
-                                        <textarea className="input" value={draft.description || ''} onChange={(e) => setTaskDrafts((prev) => ({ ...prev, [task.id]: { ...prev[task.id], description: e.target.value } }))} style={{ minHeight: '60px', resize: 'vertical', marginBottom: '8px' }} />
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                                    <div key={task.id} className="p-2.5 rounded-lg border border-edge-subtle bg-surface-primary">
+                                        <input className="input mb-2" value={draft.title || ''} onChange={(e) => setTaskDrafts((prev) => ({ ...prev, [task.id]: { ...prev[task.id], title: e.target.value } }))} />
+                                        <textarea className="input min-h-[60px] resize-y mb-2" value={draft.description || ''} onChange={(e) => setTaskDrafts((prev) => ({ ...prev, [task.id]: { ...prev[task.id], description: e.target.value } }))} />
+                                        <div className="grid grid-cols-2 gap-2 mb-2">
                                             <select className="input" value={draft.status || task.status} onChange={(e) => setTaskDrafts((prev) => ({ ...prev, [task.id]: { ...prev[task.id], status: e.target.value } }))}>
                                                 <option value="pending">{t('agent.tasks.todo', 'Todo')}</option>
                                                 <option value="doing">{t('agent.tasks.doing', 'In Progress')}</option>
@@ -251,11 +250,11 @@ export function AgentOperationsPanel({ agentId, agent }: AgentOperationsPanelPro
                                                 <option value="urgent">{t('agentDetail.priorityUrgent', 'Urgent')}</option>
                                             </select>
                                         </div>
-                                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'space-between' }}>
+                                        <div className="flex gap-2 justify-between">
                                             <button className="btn btn-secondary" onClick={() => setExpandedTaskLogsId(expandedTaskLogsId === task.id ? null : task.id)}>
                                                 {expandedTaskLogsId === task.id ? t('agentDetail.hideLogs', 'Hide logs') : t('agentDetail.viewLogs', 'View logs')}
                                             </button>
-                                            <div style={{ display: 'flex', gap: '8px' }}>
+                                            <div className="flex gap-2">
                                                 <button className="btn btn-secondary" onClick={() => triggerTaskMutation.mutate(task.id)} disabled={triggerTaskMutation.isPending}>
                                                     {t('agentDetail.runNow', 'Run now')}
                                                 </button>
@@ -278,10 +277,10 @@ export function AgentOperationsPanel({ agentId, agent }: AgentOperationsPanelPro
                                             </div>
                                         </div>
                                         {expandedTaskLogsId === task.id && (
-                                            <div style={{ marginTop: '8px', borderTop: '1px solid var(--border-subtle)', paddingTop: '8px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                                            <div className="mt-2 border-t border-edge-subtle pt-2 text-xs text-content-secondary">
                                                 {taskLogs.length > 0 ? taskLogs.map((log: any) => (
-                                                    <div key={log.id} style={{ marginBottom: '6px' }}>
-                                                        <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{log.created_at ? new Date(log.created_at).toLocaleString() : ''}</div>
+                                                    <div key={log.id} className="mb-1.5">
+                                                        <div className="text-[11px] text-content-tertiary">{log.created_at ? new Date(log.created_at).toLocaleString() : ''}</div>
                                                         <div>{log.content}</div>
                                                     </div>
                                                 )) : t('agentDetail.noTaskLogs', 'No task logs yet.')}
@@ -291,38 +290,38 @@ export function AgentOperationsPanel({ agentId, agent }: AgentOperationsPanelPro
                                 );
                             })}
                             {tasks.length === 0 && (
-                                <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{t('agent.tasks.noTasks', 'No tasks')}</div>
+                                <div className="text-xs text-content-tertiary">{t('agent.tasks.noTasks', 'No tasks')}</div>
                             )}
                         </div>
                     </div>
 
-                    <div className="card" style={{ margin: 0, background: 'var(--bg-secondary)' }}>
-                        <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '8px' }}>{t('agentDetail.scheduleManager', 'Schedules')}</div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
+                    <div className="card !m-0 bg-surface-secondary">
+                        <div className="text-[13px] font-semibold mb-2">{t('agentDetail.scheduleManager', 'Schedules')}</div>
+                        <div className="flex flex-col gap-2 mb-3">
                             <input className="input" value={scheduleForm.name} onChange={(e) => setScheduleForm((prev) => ({ ...prev, name: e.target.value }))} placeholder={t('agent.tasks.schedule', 'Schedule')} />
                             <input className="input" value={scheduleForm.cron_expr} onChange={(e) => setScheduleForm((prev) => ({ ...prev, cron_expr: e.target.value }))} placeholder={t('agent.tasks.cronExpression', 'Cron Expression')} />
-                            <textarea className="input" value={scheduleForm.instruction} onChange={(e) => setScheduleForm((prev) => ({ ...prev, instruction: e.target.value }))} placeholder={t('agent.tasks.scheduleDesc', 'Schedule description (optional)')} style={{ minHeight: '72px', resize: 'vertical' }} />
+                            <textarea className="input min-h-[72px] resize-y" value={scheduleForm.instruction} onChange={(e) => setScheduleForm((prev) => ({ ...prev, instruction: e.target.value }))} placeholder={t('agent.tasks.scheduleDesc', 'Schedule description (optional)')} />
                             <button className="btn btn-primary" disabled={!scheduleForm.name.trim() || !scheduleForm.cron_expr.trim() || !canManageSchedules || createScheduleMutation.isPending} onClick={() => createScheduleMutation.mutate()}>
                                 {createScheduleMutation.isPending ? t('common.loading') : t('agent.tasks.addSchedule', 'Add Schedule')}
                             </button>
                         </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '420px', overflowY: 'auto' }}>
+                        <div className="flex flex-col gap-2 max-h-[420px] overflow-y-auto">
                             {(schedules as any[]).map((schedule: any) => {
                                 const draft = scheduleDrafts[schedule.id] || {};
                                 return (
-                                    <div key={schedule.id} style={{ padding: '10px', borderRadius: '8px', border: '1px solid var(--border-subtle)', background: 'var(--bg-primary)' }}>
-                                        <input className="input" value={draft.name || ''} onChange={(e) => setScheduleDrafts((prev) => ({ ...prev, [schedule.id]: { ...prev[schedule.id], name: e.target.value } }))} style={{ marginBottom: '8px' }} />
-                                        <input className="input" value={draft.cron_expr || ''} onChange={(e) => setScheduleDrafts((prev) => ({ ...prev, [schedule.id]: { ...prev[schedule.id], cron_expr: e.target.value } }))} style={{ marginBottom: '8px' }} />
-                                        <textarea className="input" value={draft.instruction || ''} onChange={(e) => setScheduleDrafts((prev) => ({ ...prev, [schedule.id]: { ...prev[schedule.id], instruction: e.target.value } }))} style={{ minHeight: '60px', resize: 'vertical', marginBottom: '8px' }} />
-                                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', marginBottom: '8px' }}>
+                                    <div key={schedule.id} className="p-2.5 rounded-lg border border-edge-subtle bg-surface-primary">
+                                        <input className="input mb-2" value={draft.name || ''} onChange={(e) => setScheduleDrafts((prev) => ({ ...prev, [schedule.id]: { ...prev[schedule.id], name: e.target.value } }))} />
+                                        <input className="input mb-2" value={draft.cron_expr || ''} onChange={(e) => setScheduleDrafts((prev) => ({ ...prev, [schedule.id]: { ...prev[schedule.id], cron_expr: e.target.value } }))} />
+                                        <textarea className="input min-h-[60px] resize-y mb-2" value={draft.instruction || ''} onChange={(e) => setScheduleDrafts((prev) => ({ ...prev, [schedule.id]: { ...prev[schedule.id], instruction: e.target.value } }))} />
+                                        <label className="flex items-center gap-2 text-xs mb-2">
                                             <input type="checkbox" checked={!!draft.is_enabled} onChange={(e) => setScheduleDrafts((prev) => ({ ...prev, [schedule.id]: { ...prev[schedule.id], is_enabled: e.target.checked } }))} disabled={!canManageSchedules} />
                                             {t('agentDetail.scheduleEnabled', 'Enabled')}
                                         </label>
-                                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+                                        <div className="flex gap-2 justify-between flex-wrap">
                                             <button className="btn btn-secondary" onClick={() => setExpandedScheduleHistoryId(expandedScheduleHistoryId === schedule.id ? null : schedule.id)}>
                                                 {expandedScheduleHistoryId === schedule.id ? t('agentDetail.hideHistory', 'Hide history') : t('agentDetail.viewHistory', 'View history')}
                                             </button>
-                                            <div style={{ display: 'flex', gap: '8px' }}>
+                                            <div className="flex gap-2">
                                                 <button className="btn btn-secondary" onClick={() => runScheduleMutation.mutate(schedule.id)} disabled={runScheduleMutation.isPending}>
                                                     {t('agentDetail.runNow', 'Run now')}
                                                 </button>
@@ -335,10 +334,10 @@ export function AgentOperationsPanel({ agentId, agent }: AgentOperationsPanelPro
                                             </div>
                                         </div>
                                         {expandedScheduleHistoryId === schedule.id && (
-                                            <div style={{ marginTop: '8px', borderTop: '1px solid var(--border-subtle)', paddingTop: '8px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                                            <div className="mt-2 border-t border-edge-subtle pt-2 text-xs text-content-secondary">
                                                 {scheduleHistory.length > 0 ? scheduleHistory.map((item: any) => (
-                                                    <div key={item.id} style={{ marginBottom: '6px' }}>
-                                                        <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{item.created_at ? new Date(item.created_at).toLocaleString() : ''}</div>
+                                                    <div key={item.id} className="mb-1.5">
+                                                        <div className="text-[11px] text-content-tertiary">{item.created_at ? new Date(item.created_at).toLocaleString() : ''}</div>
                                                         <div>{item.summary}</div>
                                                     </div>
                                                 )) : t('agentDetail.noScheduleHistory', 'No schedule history yet.')}
@@ -348,35 +347,35 @@ export function AgentOperationsPanel({ agentId, agent }: AgentOperationsPanelPro
                                 );
                             })}
                             {schedules.length === 0 && (
-                                <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{t('agentDetail.noSchedules', 'No schedules yet.')}</div>
+                                <div className="text-xs text-content-tertiary">{t('agentDetail.noSchedules', 'No schedules yet.')}</div>
                             )}
                         </div>
                     </div>
 
-                    <div className="card" style={{ margin: 0, background: 'var(--bg-secondary)' }}>
-                        <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '8px' }}>{t('agentDetail.triggerManager', 'Triggers')}</div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '520px', overflowY: 'auto' }}>
+                    <div className="card !m-0 bg-surface-secondary">
+                        <div className="text-[13px] font-semibold mb-2">{t('agentDetail.triggerManager', 'Triggers')}</div>
+                        <div className="flex flex-col gap-2 max-h-[520px] overflow-y-auto">
                             {(triggers as any[]).map((trigger: any) => {
                                 const draft = triggerDrafts[trigger.id] || {};
                                 return (
-                                    <div key={trigger.id} style={{ padding: '10px', borderRadius: '8px', border: '1px solid var(--border-subtle)', background: 'var(--bg-primary)' }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', marginBottom: '8px' }}>
+                                    <div key={trigger.id} className="p-2.5 rounded-lg border border-edge-subtle bg-surface-primary">
+                                        <div className="flex justify-between gap-2 mb-2">
                                             <div>
-                                                <div style={{ fontSize: '13px', fontWeight: 600 }}>{trigger.name}</div>
-                                                <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{trigger.type}</div>
+                                                <div className="text-[13px] font-semibold">{trigger.name}</div>
+                                                <div className="text-[11px] text-content-tertiary">{trigger.type}</div>
                                             </div>
-                                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
+                                            <label className="flex items-center gap-1.5 text-xs">
                                                 <input type="checkbox" checked={!!draft.is_enabled} onChange={(e) => setTriggerDrafts((prev) => ({ ...prev, [trigger.id]: { ...prev[trigger.id], is_enabled: e.target.checked } }))} />
                                                 {t('agentDetail.triggerEnabled', 'Enabled')}
                                             </label>
                                         </div>
-                                        <textarea className="input" value={draft.reason || ''} onChange={(e) => setTriggerDrafts((prev) => ({ ...prev, [trigger.id]: { ...prev[trigger.id], reason: e.target.value } }))} placeholder={t('agentDetail.triggerReason', 'Reason')} style={{ minHeight: '56px', resize: 'vertical', marginBottom: '8px' }} />
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                                        <textarea className="input min-h-[56px] resize-y mb-2" value={draft.reason || ''} onChange={(e) => setTriggerDrafts((prev) => ({ ...prev, [trigger.id]: { ...prev[trigger.id], reason: e.target.value } }))} placeholder={t('agentDetail.triggerReason', 'Reason')} />
+                                        <div className="grid grid-cols-2 gap-2 mb-2">
                                             <input className="input" type="number" min={0} value={draft.max_fires} onChange={(e) => setTriggerDrafts((prev) => ({ ...prev, [trigger.id]: { ...prev[trigger.id], max_fires: e.target.value === '' ? '' : Number(e.target.value) } }))} placeholder={t('agentDetail.maxFires', 'Max fires')} />
                                             <input className="input" type="number" min={0} value={draft.cooldown_seconds ?? 0} onChange={(e) => setTriggerDrafts((prev) => ({ ...prev, [trigger.id]: { ...prev[trigger.id], cooldown_seconds: Number(e.target.value) } }))} placeholder={t('agentDetail.cooldownSeconds', 'Cooldown seconds')} />
                                         </div>
-                                        <textarea className="input" value={draft.config_text || ''} onChange={(e) => setTriggerDrafts((prev) => ({ ...prev, [trigger.id]: { ...prev[trigger.id], config_text: e.target.value } }))} style={{ minHeight: '100px', resize: 'vertical', fontFamily: 'var(--font-mono)', marginBottom: '8px' }} />
-                                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                                        <textarea className="input min-h-[100px] resize-y font-mono mb-2" value={draft.config_text || ''} onChange={(e) => setTriggerDrafts((prev) => ({ ...prev, [trigger.id]: { ...prev[trigger.id], config_text: e.target.value } }))} />
+                                        <div className="flex justify-end gap-2">
                                             <button
                                                 className="btn btn-primary"
                                                 onClick={() => {
@@ -411,7 +410,7 @@ export function AgentOperationsPanel({ agentId, agent }: AgentOperationsPanelPro
                                 );
                             })}
                             {triggers.length === 0 && (
-                                <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{t('agentDetail.noTriggers', 'No triggers yet.')}</div>
+                                <div className="text-xs text-content-tertiary">{t('agentDetail.noTriggers', 'No triggers yet.')}</div>
                             )}
                         </div>
                     </div>

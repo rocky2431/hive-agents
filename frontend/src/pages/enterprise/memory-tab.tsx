@@ -51,13 +51,13 @@ export function MemoryTab({ models, tenantId }: { models: LLMModel[]; tenantId?:
         setSaving(false);
     };
 
-    if (!loaded) return <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-tertiary)' }}>Loading...</div>;
+    if (!loaded) return <div className="py-10 text-center text-content-tertiary">Loading...</div>;
 
     return (
         <div className="card">
-            <h3 style={{ marginBottom: '20px' }}>{t('enterprise.memory.title')}</h3>
+            <h3 className="mb-5">{t('enterprise.memory.title')}</h3>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <div className="flex flex-col gap-5">
                 {/* Summary Model */}
                 <div className="form-group">
                     <label className="form-label">{t('enterprise.memory.summaryModel')}</label>
@@ -71,7 +71,7 @@ export function MemoryTab({ models, tenantId }: { models: LLMModel[]; tenantId?:
                             <option key={m.id} value={m.id}>{m.label} ({m.provider}/{m.model})</option>
                         ))}
                     </select>
-                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
+                    <div className="text-[11px] text-content-tertiary mt-1">
                         {t('enterprise.memory.summaryModelDesc')}
                     </div>
                 </div>
@@ -79,19 +79,18 @@ export function MemoryTab({ models, tenantId }: { models: LLMModel[]; tenantId?:
                 {/* Compress Threshold */}
                 <div className="form-group">
                     <label className="form-label">{t('enterprise.memory.compressThreshold')}</label>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div className="flex items-center gap-2">
                         <input
-                            className="form-input"
+                            className="form-input w-[100px]"
                             type="number"
                             min={30}
                             max={95}
                             value={config.compress_threshold}
                             onChange={e => setConfig(c => ({ ...c, compress_threshold: Number(e.target.value) }))}
-                            style={{ width: '100px' }}
                         />
-                        <span style={{ color: 'var(--text-secondary)' }}>%</span>
+                        <span className="text-content-secondary">%</span>
                     </div>
-                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
+                    <div className="text-[11px] text-content-tertiary mt-1">
                         {t('enterprise.memory.compressThresholdDesc')}
                     </div>
                 </div>
@@ -99,25 +98,24 @@ export function MemoryTab({ models, tenantId }: { models: LLMModel[]; tenantId?:
                 {/* Keep Recent */}
                 <div className="form-group">
                     <label className="form-label">{t('enterprise.memory.keepRecent')}</label>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div className="flex items-center gap-2">
                         <input
-                            className="form-input"
+                            className="form-input w-[100px]"
                             type="number"
                             min={2}
                             max={50}
                             value={config.keep_recent}
                             onChange={e => setConfig(c => ({ ...c, keep_recent: Number(e.target.value) }))}
-                            style={{ width: '100px' }}
                         />
                     </div>
-                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
+                    <div className="text-[11px] text-content-tertiary mt-1">
                         {t('enterprise.memory.keepRecentDesc')}
                     </div>
                 </div>
 
                 {/* Extract to Viking */}
                 <div className="form-group">
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px' }}>
+                    <label className="flex items-center gap-2 cursor-pointer text-[13px]">
                         <input
                             type="checkbox"
                             checked={config.extract_to_viking}
@@ -125,14 +123,14 @@ export function MemoryTab({ models, tenantId }: { models: LLMModel[]; tenantId?:
                         />
                         {t('enterprise.memory.extractToViking')}
                     </label>
-                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
+                    <div className="text-[11px] text-content-tertiary mt-1">
                         {t('enterprise.memory.extractToVikingDesc')}
                     </div>
                 </div>
 
                 {/* Save */}
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', alignItems: 'center' }}>
-                    {saved && <span style={{ color: 'var(--success)', fontSize: '13px' }}>{t('enterprise.memory.saved')}</span>}
+                <div className="flex justify-end gap-2 items-center">
+                    {saved && <span className="text-success text-[13px]">{t('enterprise.memory.saved')}</span>}
                     <button className="btn btn-primary" onClick={saveConfig} disabled={saving}>
                         {saving ? '...' : t('common.save')}
                     </button>

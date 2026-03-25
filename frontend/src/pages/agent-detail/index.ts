@@ -9,3 +9,8 @@ export { CapabilityPolicyManager } from './capability-policy-manager';
 export { RelationshipEditor } from './relationship-editor';
 export { FileEditorCard } from './file-editor-card';
 export { schedToCron, getRelationOptions, getAgentRelationOptions } from './helpers';
+export { ChatTab } from './chat-tab';
+export { OverviewTab } from './overview-tab';
+export { SkillsTab } from './skills-tab';
+export { ActivityTab } from './activity-tab';
+export { SettingsTab } from './settings-tab';

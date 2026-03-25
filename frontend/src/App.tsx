@@ -112,14 +112,14 @@ export default function App() {
 
     if (loading) {
         return (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', color: 'var(--text-tertiary)' }}>
+            <div className="flex h-screen items-center justify-center text-content-tertiary">
                 加载中...
             </div>
         );
     }
 
     const routeFallback = (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', color: 'var(--text-tertiary)' }}>
+        <div className="flex h-screen items-center justify-center text-content-tertiary">
             加载中...
         </div>
     );

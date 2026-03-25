@@ -109,39 +109,39 @@ export function RelationshipEditor({ agentId, readOnly = false }: { agentId: str
 
     return (
         <div>
-            {/* ── Human Relationships ── */}
-            <div className="card" style={{ marginBottom: '12px' }}>
-                <h4 style={{ marginBottom: '12px' }}>{t('agent.detail.humanRelationships')}</h4>
-                <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>{t('agent.detail.humanRelationships')}</p>
+            {/* -- Human Relationships -- */}
+            <div className="card mb-3">
+                <h4 className="mb-3">{t('agent.detail.humanRelationships')}</h4>
+                <p className="text-xs text-content-tertiary mb-3">{t('agent.detail.humanRelationships')}</p>
                 {relationships.length > 0 && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '16px' }}>
+                    <div className="flex flex-col gap-1.5 mb-4">
                         {relationships.map((r: any) => (
-                            <div key={r.id} style={{ borderRadius: '8px', border: '1px solid var(--border-subtle)', overflow: 'hidden' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px' }}>
-                                    <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'rgba(224,238,238,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px', fontWeight: 600, flexShrink: 0 }}>{r.member?.name?.[0] || '?'}</div>
-                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                        <div style={{ fontWeight: 600, fontSize: '13px' }}>{r.member?.name || '?'} <span className="badge" style={{ fontSize: '10px', marginLeft: '4px' }}>{r.relation_label}</span></div>
-                                        <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{r.member?.title || ''} · {r.member?.department_path || ''}</div>
-                                        {r.description && editingId !== r.id && <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>{r.description}</div>}
+                            <div key={r.id} className="rounded-lg border border-edge-subtle overflow-hidden">
+                                <div className="flex items-center gap-2.5 p-2.5">
+                                    <div className="w-9 h-9 rounded-full bg-white/15 flex items-center justify-center text-base font-semibold shrink-0">{r.member?.name?.[0] || '?'}</div>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="font-semibold text-[13px]">{r.member?.name || '?'} <span className="badge text-[10px] ml-1">{r.relation_label}</span></div>
+                                        <div className="text-[11px] text-content-tertiary">{r.member?.title || ''} · {r.member?.department_path || ''}</div>
+                                        {r.description && editingId !== r.id && <div className="text-xs text-content-secondary mt-1">{r.description}</div>}
                                     </div>
                                     {!readOnly && editingId !== r.id && (
-                                        <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
-                                            <button className="btn btn-ghost" style={{ fontSize: '12px' }} onClick={() => startEditRelationship(r)}>{t('common.edit', 'Edit')}</button>
-                                            <button className="btn btn-ghost" style={{ color: 'var(--error)', fontSize: '12px' }} onClick={() => removeRelationship(r.id)}>{t('common.delete')}</button>
+                                        <div className="flex gap-1 shrink-0">
+                                            <button className="btn btn-ghost text-xs" onClick={() => startEditRelationship(r)}>{t('common.edit', 'Edit')}</button>
+                                            <button className="btn btn-ghost text-xs text-error" onClick={() => removeRelationship(r.id)}>{t('common.delete')}</button>
                                         </div>
                                     )}
                                 </div>
                                 {editingId === r.id && (
-                                    <div style={{ padding: '0 10px 10px', borderTop: '1px solid var(--border-subtle)', background: 'var(--bg-elevated)' }}>
-                                        <div style={{ display: 'flex', gap: '8px', marginTop: '8px', marginBottom: '8px' }}>
-                                            <select className="input" value={editRelation} onChange={e => setEditRelation(e.target.value)} style={{ width: '140px', fontSize: '12px' }}>
+                                    <div className="px-2.5 pb-2.5 border-t border-edge-subtle bg-surface-elevated">
+                                        <div className="flex gap-2 mt-2 mb-2">
+                                            <select className="input w-[140px] text-xs" value={editRelation} onChange={e => setEditRelation(e.target.value)}>
                                                 {getRelationOptions(t).map((o: any) => <option key={o.value} value={o.value}>{o.label}</option>)}
                                             </select>
                                         </div>
-                                        <textarea className="input" value={editDescription} onChange={e => setEditDescription(e.target.value)} rows={2} style={{ fontSize: '12px', resize: 'vertical', marginBottom: '8px', width: '100%' }} placeholder={t('agent.detail.descriptionPlaceholder', 'Description...')} />
-                                        <div style={{ display: 'flex', gap: '8px' }}>
-                                            <button className="btn btn-primary" style={{ fontSize: '12px' }} onClick={() => saveEditRelationship(r.id)}>{t('common.save', 'Save')}</button>
-                                            <button className="btn btn-secondary" style={{ fontSize: '12px' }} onClick={() => setEditingId(null)}>{t('common.cancel')}</button>
+                                        <textarea className="input text-xs resize-y mb-2 w-full" value={editDescription} onChange={e => setEditDescription(e.target.value)} rows={2} placeholder={t('agent.detail.descriptionPlaceholder', 'Description...')} />
+                                        <div className="flex gap-2">
+                                            <button className="btn btn-primary text-xs" onClick={() => saveEditRelationship(r.id)}>{t('common.save', 'Save')}</button>
+                                            <button className="btn btn-secondary text-xs" onClick={() => setEditingId(null)}>{t('common.cancel')}</button>
                                         </div>
                                     </div>
                                 )}
@@ -150,17 +150,15 @@ export function RelationshipEditor({ agentId, readOnly = false }: { agentId: str
                     </div>
                 )}
                 {!readOnly && !adding && (
-                    <div style={{ position: 'relative' }}>
-                        <input className="input" placeholder={t("agent.detail.searchMembers")} value={search} onChange={e => setSearch(e.target.value)} style={{ fontSize: '13px' }} />
+                    <div className="relative">
+                        <input className="input text-[13px]" placeholder={t("agent.detail.searchMembers")} value={search} onChange={e => setSearch(e.target.value)} />
                         {searchResults.length > 0 && (
-                            <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)', borderRadius: '6px', marginTop: '4px', maxHeight: '200px', overflowY: 'auto', zIndex: 10, boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}>
+                            <div className="absolute top-full left-0 right-0 bg-surface-primary border border-edge-subtle rounded-md mt-1 max-h-[200px] overflow-y-auto z-10 shadow-lg">
                                 {searchResults.map((m: any) => (
-                                    <div key={m.id} style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '13px', borderBottom: '1px solid var(--border-subtle)' }}
-                                        onClick={() => { setAdding(m); setSearch(''); setSearchResults([]); }}
-                                        onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-elevated)')}
-                                        onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
-                                        <div style={{ fontWeight: 500 }}>{m.name}</div>
-                                        <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{m.title} · {m.department_path}</div>
+                                    <div key={m.id} className="px-3 py-2 cursor-pointer text-[13px] border-b border-edge-subtle hover:bg-surface-elevated"
+                                        onClick={() => { setAdding(m); setSearch(''); setSearchResults([]); }}>
+                                        <div className="font-medium">{m.name}</div>
+                                        <div className="text-[11px] text-content-tertiary">{m.title} · {m.department_path}</div>
                                     </div>
                                 ))}
                             </div>
@@ -168,54 +166,54 @@ export function RelationshipEditor({ agentId, readOnly = false }: { agentId: str
                     </div>
                 )}
                 {!readOnly && adding && (
-                    <div style={{ border: '1px solid var(--accent-primary)', borderRadius: '8px', padding: '12px', background: 'var(--bg-elevated)' }}>
-                        <div style={{ fontWeight: 600, fontSize: '14px', marginBottom: '8px' }}>{t('agent.detail.addRelationship')}: {adding.name} <span style={{ fontSize: '12px', fontWeight: 400, color: 'var(--text-tertiary)' }}>({adding.title} · {adding.department_path})</span></div>
-                        <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-                            <select className="input" value={relation} onChange={e => setRelation(e.target.value)} style={{ width: '140px', fontSize: '12px' }}>
+                    <div className="border border-accent-primary rounded-lg p-3 bg-surface-elevated">
+                        <div className="font-semibold text-sm mb-2">{t('agent.detail.addRelationship')}: {adding.name} <span className="text-xs font-normal text-content-tertiary">({adding.title} · {adding.department_path})</span></div>
+                        <div className="flex gap-2 mb-2">
+                            <select className="input w-[140px] text-xs" value={relation} onChange={e => setRelation(e.target.value)}>
                                 {getRelationOptions(t).map((o: any) => <option key={o.value} value={o.value}>{o.label}</option>)}
                             </select>
                         </div>
-                        <textarea className="input" placeholder="" value={description} onChange={e => setDescription(e.target.value)} rows={2} style={{ fontSize: '12px', resize: 'vertical', marginBottom: '8px' }} />
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                            <button className="btn btn-primary" style={{ fontSize: '12px' }} onClick={addRelationship}>{t('common.confirm')}</button>
-                            <button className="btn btn-secondary" style={{ fontSize: '12px' }} onClick={() => { setAdding(null); setDescription(''); }}>{t('common.cancel')}</button>
+                        <textarea className="input text-xs resize-y mb-2" placeholder="" value={description} onChange={e => setDescription(e.target.value)} rows={2} />
+                        <div className="flex gap-2">
+                            <button className="btn btn-primary text-xs" onClick={addRelationship}>{t('common.confirm')}</button>
+                            <button className="btn btn-secondary text-xs" onClick={() => { setAdding(null); setDescription(''); }}>{t('common.cancel')}</button>
                         </div>
                     </div>
                 )}
             </div>
-            {/* ── Agent-to-Agent Relationships ── */}
-            <div className="card" style={{ marginBottom: '12px' }}>
-                <h4 style={{ marginBottom: '12px' }}>{t('agent.detail.agentRelationships')}</h4>
-                <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>{t('agent.detail.agentRelationships')}</p>
+            {/* -- Agent-to-Agent Relationships -- */}
+            <div className="card mb-3">
+                <h4 className="mb-3">{t('agent.detail.agentRelationships')}</h4>
+                <p className="text-xs text-content-tertiary mb-3">{t('agent.detail.agentRelationships')}</p>
                 {agentRelationships.length > 0 && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '16px' }}>
+                    <div className="flex flex-col gap-1.5 mb-4">
                         {agentRelationships.map((r: any) => (
-                            <div key={r.id} style={{ borderRadius: '8px', border: '1px solid rgba(16,185,129,0.3)', background: 'rgba(16,185,129,0.05)', overflow: 'hidden' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px' }}>
-                                    <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'rgba(16,185,129,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px', flexShrink: 0 }}>A</div>
-                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                        <div style={{ fontWeight: 600, fontSize: '13px' }}>{r.target_agent?.name || '?'} <span className="badge" style={{ fontSize: '10px', marginLeft: '4px', background: 'rgba(16,185,129,0.15)', color: 'rgb(16,185,129)' }}>{r.relation_label}</span></div>
-                                        <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{r.target_agent?.role_description || 'Agent'}</div>
-                                        {r.description && editingAgentId !== r.id && <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>{r.description}</div>}
+                            <div key={r.id} className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 overflow-hidden">
+                                <div className="flex items-center gap-2.5 p-2.5">
+                                    <div className="w-9 h-9 rounded-full bg-emerald-500/15 flex items-center justify-center text-base shrink-0">A</div>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="font-semibold text-[13px]">{r.target_agent?.name || '?'} <span className="badge text-[10px] ml-1 bg-emerald-500/15 text-emerald-500">{r.relation_label}</span></div>
+                                        <div className="text-[11px] text-content-tertiary">{r.target_agent?.role_description || 'Agent'}</div>
+                                        {r.description && editingAgentId !== r.id && <div className="text-xs text-content-secondary mt-1">{r.description}</div>}
                                     </div>
                                     {!readOnly && editingAgentId !== r.id && (
-                                        <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
-                                            <button className="btn btn-ghost" style={{ fontSize: '12px' }} onClick={() => startEditAgentRelationship(r)}>{t('common.edit', 'Edit')}</button>
-                                            <button className="btn btn-ghost" style={{ color: 'var(--error)', fontSize: '12px' }} onClick={() => removeAgentRelationship(r.id)}>{t('common.delete')}</button>
+                                        <div className="flex gap-1 shrink-0">
+                                            <button className="btn btn-ghost text-xs" onClick={() => startEditAgentRelationship(r)}>{t('common.edit', 'Edit')}</button>
+                                            <button className="btn btn-ghost text-xs text-error" onClick={() => removeAgentRelationship(r.id)}>{t('common.delete')}</button>
                                         </div>
                                     )}
                                 </div>
                                 {editingAgentId === r.id && (
-                                    <div style={{ padding: '0 10px 10px', borderTop: '1px solid rgba(16,185,129,0.2)', background: 'var(--bg-elevated)' }}>
-                                        <div style={{ display: 'flex', gap: '8px', marginTop: '8px', marginBottom: '8px' }}>
-                                            <select className="input" value={editAgentRelation} onChange={e => setEditAgentRelation(e.target.value)} style={{ width: '140px', fontSize: '12px' }}>
+                                    <div className="px-2.5 pb-2.5 border-t border-emerald-500/20 bg-surface-elevated">
+                                        <div className="flex gap-2 mt-2 mb-2">
+                                            <select className="input w-[140px] text-xs" value={editAgentRelation} onChange={e => setEditAgentRelation(e.target.value)}>
                                                 {getAgentRelationOptions(t).map((o: any) => <option key={o.value} value={o.value}>{o.label}</option>)}
                                             </select>
                                         </div>
-                                        <textarea className="input" value={editAgentDescription} onChange={e => setEditAgentDescription(e.target.value)} rows={2} style={{ fontSize: '12px', resize: 'vertical', marginBottom: '8px', width: '100%' }} placeholder={t('agent.detail.descriptionPlaceholder', 'Description...')} />
-                                        <div style={{ display: 'flex', gap: '8px' }}>
-                                            <button className="btn btn-primary" style={{ fontSize: '12px' }} onClick={() => saveEditAgentRelationship(r.id)}>{t('common.save', 'Save')}</button>
-                                            <button className="btn btn-secondary" style={{ fontSize: '12px' }} onClick={() => setEditingAgentId(null)}>{t('common.cancel')}</button>
+                                        <textarea className="input text-xs resize-y mb-2 w-full" value={editAgentDescription} onChange={e => setEditAgentDescription(e.target.value)} rows={2} placeholder={t('agent.detail.descriptionPlaceholder', 'Description...')} />
+                                        <div className="flex gap-2">
+                                            <button className="btn btn-primary text-xs" onClick={() => saveEditAgentRelationship(r.id)}>{t('common.save', 'Save')}</button>
+                                            <button className="btn btn-secondary text-xs" onClick={() => setEditingAgentId(null)}>{t('common.cancel')}</button>
                                         </div>
                                     </div>
                                 )}
@@ -224,23 +222,23 @@ export function RelationshipEditor({ agentId, readOnly = false }: { agentId: str
                     </div>
                 )}
                 {!readOnly && !addingAgent && (
-                    <button className="btn btn-secondary" style={{ fontSize: '12px' }} onClick={() => setAddingAgent(true)}>+ {t('agent.detail.addRelationship')}</button>
+                    <button className="btn btn-secondary text-xs" onClick={() => setAddingAgent(true)}>+ {t('agent.detail.addRelationship')}</button>
                 )}
                 {!readOnly && addingAgent && (
-                    <div style={{ border: '1px solid rgba(16,185,129,0.5)', borderRadius: '8px', padding: '12px', background: 'var(--bg-elevated)' }}>
-                        <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-                            <select className="input" value={selectedAgentId} onChange={e => setSelectedAgentId(e.target.value)} style={{ flex: 1, fontSize: '12px' }}>
+                    <div className="border border-emerald-500/50 rounded-lg p-3 bg-surface-elevated">
+                        <div className="flex gap-2 mb-2">
+                            <select className="input flex-1 text-xs" value={selectedAgentId} onChange={e => setSelectedAgentId(e.target.value)}>
                                 <option value="">— Select —</option>
                                 {availableAgents.map((a: any) => <option key={a.id} value={a.id}>{a.name} — {a.role_description || 'Agent'}</option>)}
                             </select>
-                            <select className="input" value={agentRelation} onChange={e => setAgentRelation(e.target.value)} style={{ width: '140px', fontSize: '12px' }}>
+                            <select className="input w-[140px] text-xs" value={agentRelation} onChange={e => setAgentRelation(e.target.value)}>
                                 {getAgentRelationOptions(t).map((o: any) => <option key={o.value} value={o.value}>{o.label}</option>)}
                             </select>
                         </div>
-                        <textarea className="input" placeholder="" value={agentDescription} onChange={e => setAgentDescription(e.target.value)} rows={2} style={{ fontSize: '12px', resize: 'vertical', marginBottom: '8px' }} />
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                            <button className="btn btn-primary" style={{ fontSize: '12px' }} onClick={addAgentRelationship} disabled={!selectedAgentId}>{t('common.confirm')}</button>
-                            <button className="btn btn-secondary" style={{ fontSize: '12px' }} onClick={() => { setAddingAgent(false); setAgentDescription(''); setSelectedAgentId(''); }}>{t('common.cancel')}</button>
+                        <textarea className="input text-xs resize-y mb-2" placeholder="" value={agentDescription} onChange={e => setAgentDescription(e.target.value)} rows={2} />
+                        <div className="flex gap-2">
+                            <button className="btn btn-primary text-xs" onClick={addAgentRelationship} disabled={!selectedAgentId}>{t('common.confirm')}</button>
+                            <button className="btn btn-secondary text-xs" onClick={() => { setAddingAgent(false); setAgentDescription(''); setSelectedAgentId(''); }}>{t('common.cancel')}</button>
                         </div>
                     </div>
                 )}

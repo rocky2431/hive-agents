@@ -22,3 +22,21 @@ export { Card, CardHeader, CardFooter, CardTitle, CardDescription, CardContent }
 export { Skeleton } from './skeleton';
 export { Separator } from './separator';
 export { Switch } from './switch';
+export { Checkbox } from './checkbox';
+export { RadioGroup, RadioGroupItem } from './radio-group';
+export { Avatar, AvatarImage, AvatarFallback } from './avatar';
+export { Popover, PopoverTrigger, PopoverContent, PopoverAnchor } from './popover';
+export {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuCheckboxItem, DropdownMenuRadioItem, DropdownMenuLabel,
+  DropdownMenuSeparator, DropdownMenuShortcut, DropdownMenuGroup,
+  DropdownMenuPortal, DropdownMenuSub, DropdownMenuSubContent,
+  DropdownMenuSubTrigger, DropdownMenuRadioGroup,
+} from './dropdown-menu';
+export { ScrollArea, ScrollBar } from './scroll-area';
+export { Toggle, toggleVariants } from './toggle';
+export { Progress } from './progress';
+export {
+  Sheet, SheetPortal, SheetOverlay, SheetTrigger, SheetClose,
+  SheetContent, SheetHeader, SheetFooter, SheetTitle, SheetDescription,
+} from './sheet';

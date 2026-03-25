@@ -26,39 +26,37 @@ export default function ThemeColorPicker() {
     };
 
     return (
-        <div className="card" style={{ marginTop: '16px', marginBottom: '16px' }}>
-            <h4 style={{ marginBottom: '12px' }}>{t('enterprise.config.themeColor')}</h4>
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
+        <div className="card mt-4 mb-4">
+            <h4 className="mb-3">{t('enterprise.config.themeColor')}</h4>
+            <div className="flex gap-2 flex-wrap mb-3">
                 {PRESET_COLORS.map(c => (
                     <div
                         key={c.hex}
                         onClick={() => apply(c.hex)}
                         title={c.name}
+                        className="w-8 h-8 rounded-lg cursor-pointer transition-all duration-[120ms]"
                         style={{
-                            width: '32px', height: '32px', borderRadius: '8px',
-                            background: c.hex, cursor: 'pointer',
+                            background: c.hex,
                             border: currentColor === c.hex ? '2px solid var(--text-primary)' : '2px solid transparent',
                             outline: currentColor === c.hex ? '2px solid var(--bg-primary)' : 'none',
-                            transition: 'all 120ms ease',
                         }}
                     />
                 ))}
             </div>
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <div className="flex gap-2 items-center">
                 <input
-                    className="input"
+                    className="input w-[120px] text-[13px] font-mono"
                     value={customHex}
                     onChange={e => setCustomHex(e.target.value)}
                     placeholder="#hex"
-                    style={{ width: '120px', fontSize: '13px', fontFamily: 'var(--font-mono)' }}
                     onKeyDown={e => e.key === 'Enter' && handleCustom()}
                 />
-                <button className="btn btn-secondary" style={{ fontSize: '12px' }} onClick={handleCustom}>Apply</button>
+                <button className="btn btn-secondary text-xs" onClick={handleCustom}>Apply</button>
                 {currentColor && (
-                    <button className="btn btn-ghost" style={{ fontSize: '12px', color: 'var(--text-tertiary)' }} onClick={handleReset}>Reset</button>
+                    <button className="btn btn-ghost text-xs text-content-tertiary" onClick={handleReset}>Reset</button>
                 )}
                 {currentColor && (
-                    <div style={{ width: '20px', height: '20px', borderRadius: '4px', background: currentColor, border: '1px solid var(--border-default)' }} />
+                    <div className="w-5 h-5 rounded border border-edge-default" style={{ background: currentColor }} />
                 )}
             </div>
         </div>

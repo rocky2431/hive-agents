@@ -36,31 +36,30 @@ export function NotificationBarConfig() {
     };
 
     return (
-        <div style={{ marginBottom: '24px' }}>
-            <h3 style={{ marginBottom: '8px' }}>{t('enterprise.notificationBar.title', 'Notification Bar')}</h3>
-            <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
+        <div className="mb-6">
+            <h3 className="mb-2">{t('enterprise.notificationBar.title', 'Notification Bar')}</h3>
+            <p className="text-xs text-content-tertiary mb-3">
                 {t('enterprise.notificationBar.description', 'Display a notification bar at the top of the page, visible to all users.')}
             </p>
-            <div className="card" style={{ padding: '16px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 500 }}>
+            <div className="card p-4">
+                <div className="flex items-center gap-3 mb-3">
+                    <label className="flex items-center gap-2 cursor-pointer text-[13px] font-medium">
                         <input
                             type="checkbox"
                             checked={enabled}
                             onChange={e => setEnabled(e.target.checked)}
-                            style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                            className="w-4 h-4 cursor-pointer"
                         />
                         {t('enterprise.notificationBar.enabled', 'Enable notification bar')}
                     </label>
                 </div>
-                <div style={{ marginBottom: '12px' }}>
+                <div className="mb-3">
                     <label className="form-label">{t('enterprise.notificationBar.text', 'Notification text')}</label>
                     <input
-                        className="form-input"
+                        className="form-input text-[13px]"
                         value={text}
                         onChange={e => setText(e.target.value)}
                         placeholder={t('enterprise.notificationBar.textPlaceholder', 'e.g. 🎉 v2.1 released with new features!')}
-                        style={{ fontSize: '13px' }}
                     />
                 </div>
                 {/* Live preview — both themes */}
@@ -79,38 +78,36 @@ export function NotificationBarConfig() {
                     };
                     const darkText = '#ffffff';
                     const lightText = '#ffffff';
-                    const barStyle = (bg: string, fg: string) => ({
-                        height: '32px', borderRadius: '6px', display: 'flex', alignItems: 'center',
-                        justifyContent: 'center', fontSize: '12px', fontWeight: 500, background: bg, color: fg,
-                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    const barStyle = (bg: string, fg: string): React.CSSProperties => ({
+                        background: bg, color: fg,
                     });
                     return (
-                        <div style={{ marginBottom: '12px' }}>
-                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '6px' }}>
+                        <div className="mb-3">
+                            <div className="text-[11px] text-content-tertiary mb-1.5">
                                 {t('enterprise.notificationBar.preview', 'Preview')}:
                             </div>
-                            <div style={{ display: 'flex', gap: '8px' }}>
-                                <div style={{ flex: 1 }}>
-                                    <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginBottom: '3px' }}>🌙 Dark</div>
-                                    <div style={barStyle(darkAccent, darkText)}>
-                                        <span style={{ maxWidth: 'calc(100% - 20px)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{text}</span>
+                            <div className="flex gap-2">
+                                <div className="flex-1">
+                                    <div className="text-[10px] text-content-tertiary mb-[3px]">🌙 Dark</div>
+                                    <div className="h-8 rounded-md flex items-center justify-center text-xs font-medium overflow-hidden text-ellipsis whitespace-nowrap" style={barStyle(darkAccent, darkText)}>
+                                        <span className="max-w-[calc(100%-20px)] overflow-hidden text-ellipsis whitespace-nowrap">{text}</span>
                                     </div>
                                 </div>
-                                <div style={{ flex: 1 }}>
-                                    <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginBottom: '3px' }}>☀️ Light</div>
-                                    <div style={barStyle(lightAccent, lightText)}>
-                                        <span style={{ maxWidth: 'calc(100% - 20px)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{text}</span>
+                                <div className="flex-1">
+                                    <div className="text-[10px] text-content-tertiary mb-[3px]">☀️ Light</div>
+                                    <div className="h-8 rounded-md flex items-center justify-center text-xs font-medium overflow-hidden text-ellipsis whitespace-nowrap" style={barStyle(lightAccent, lightText)}>
+                                        <span className="max-w-[calc(100%-20px)] overflow-hidden text-ellipsis whitespace-nowrap">{text}</span>
                                     </div>
                                 </div>
                             </div>
                         </div>
                     );
                 })()}
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <div className="flex gap-2 items-center">
                     <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
                         {saving ? t('common.loading') : t('common.save', 'Save')}
                     </button>
-                    {saved && <span style={{ color: 'var(--success)', fontSize: '12px' }}>✅ {t('enterprise.config.saved', 'Saved')}</span>}
+                    {saved && <span className="text-success text-xs">✅ {t('enterprise.config.saved', 'Saved')}</span>}
                 </div>
             </div>
         </div>

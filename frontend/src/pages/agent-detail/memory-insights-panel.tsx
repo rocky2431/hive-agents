@@ -34,99 +34,78 @@ export function MemoryInsightsPanel({ agentId }: MemoryInsightsPanelProps) {
         : t('agentDetail.sessionSummaryTitleFallback', 'Untitled session');
 
     return (
-        <div className="card" style={{ padding: '16px', marginBottom: '24px' }}>
-            <div style={{ marginBottom: '12px' }}>
-                <div style={{ fontWeight: 600, fontSize: '14px', marginBottom: '4px' }}>
+        <div className="card p-4 mb-6">
+            <div className="mb-3">
+                <div className="font-semibold text-sm mb-1">
                     {t('agentDetail.structuredMemory', 'Structured Memory')}
                 </div>
-                <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                <div className="text-xs text-content-tertiary">
                     {t('agentDetail.structuredMemoryDesc', 'Knowledge extracted into reusable facts and the latest personal session summary.')}
                 </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(300px, 1.2fr) minmax(280px, 0.8fr)', gap: '16px' }}>
-                <div className="card" style={{ padding: '12px', margin: 0, background: 'var(--bg-secondary)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center', marginBottom: '8px' }}>
-                        <div style={{ fontSize: '12px', fontWeight: 600 }}>
+            <div className="grid grid-cols-[minmax(300px,1.2fr)_minmax(280px,0.8fr)] gap-4">
+                <div className="card p-3 !m-0 bg-surface-secondary">
+                    <div className="flex justify-between gap-3 items-center mb-2">
+                        <div className="text-xs font-semibold">
                             {t('agentDetail.structuredMemory', 'Structured Memory')}
                         </div>
-                        <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{facts.length}</span>
+                        <span className="text-[11px] text-content-tertiary">{facts.length}</span>
                     </div>
                     {memoryLoading ? (
-                        <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{t('common.loading')}</div>
+                        <div className="text-xs text-content-tertiary">{t('common.loading')}</div>
                     ) : facts.length > 0 ? (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <div className="flex flex-col gap-2">
                             {facts.map((fact) => (
                                 <div
                                     key={fact.id}
-                                    style={{
-                                        padding: '10px 12px',
-                                        borderRadius: '8px',
-                                        border: '1px solid var(--border-subtle)',
-                                        background: 'var(--bg-primary)',
-                                    }}
+                                    className="px-3 py-2.5 rounded-lg border border-edge-subtle bg-surface-primary"
                                 >
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center', marginBottom: '6px' }}>
-                                        <span
-                                            style={{
-                                                fontSize: '11px',
-                                                padding: '2px 8px',
-                                                borderRadius: '999px',
-                                                background: 'rgba(59,130,246,0.12)',
-                                                color: '#60a5fa',
-                                                border: '1px solid rgba(59,130,246,0.20)',
-                                            }}
-                                        >
+                                    <div className="flex justify-between gap-2 items-center mb-1.5">
+                                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-500/[0.12] text-blue-400 border border-blue-500/20">
                                             {fact.label}
                                         </span>
                                         {fact.timestamp && (
-                                            <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                                            <span className="text-[11px] text-content-tertiary">
                                                 {new Date(fact.timestamp).toLocaleString()}
                                             </span>
                                         )}
                                     </div>
-                                    <div style={{ fontSize: '13px', color: 'var(--text-primary)', lineHeight: 1.5 }}>
+                                    <div className="text-[13px] text-content-primary leading-normal">
                                         {fact.content}
                                     </div>
                                 </div>
                             ))}
                         </div>
                     ) : (
-                        <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                        <div className="text-xs text-content-tertiary">
                             {t('agentDetail.noStructuredMemory', 'No structured memory facts yet.')}
                         </div>
                     )}
                 </div>
 
-                <div className="card" style={{ padding: '12px', margin: 0, background: 'var(--bg-secondary)' }}>
-                    <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px' }}>
+                <div className="card p-3 !m-0 bg-surface-secondary">
+                    <div className="text-xs font-semibold mb-2">
                         {t('agentDetail.sessionSummary', 'Latest Session Summary')}
                     </div>
-                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '10px' }}>
+                    <div className="text-[11px] text-content-tertiary mb-2.5">
                         {t('agentDetail.sessionSummaryDesc', 'Only your own latest session summary is visible here.')}
                     </div>
                     {sessionsLoading || (latestSessionId && summaryLoading) ? (
-                        <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{t('common.loading')}</div>
+                        <div className="text-xs text-content-tertiary">{t('common.loading')}</div>
                     ) : !latestSessionId ? (
-                        <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                        <div className="text-xs text-content-tertiary">
                             {t('agentDetail.noSessionHistory', 'No personal sessions yet.')}
                         </div>
                     ) : sessionSummary ? (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            <div style={{ fontSize: '13px', fontWeight: 600 }}>{sessionTitle}</div>
-                            <div
-                                style={{
-                                    fontSize: '13px',
-                                    color: 'var(--text-secondary)',
-                                    lineHeight: 1.6,
-                                    whiteSpace: 'pre-wrap',
-                                }}
-                            >
+                        <div className="flex flex-col gap-2">
+                            <div className="text-[13px] font-semibold">{sessionTitle}</div>
+                            <div className="text-[13px] text-content-secondary leading-relaxed whitespace-pre-wrap">
                                 {sessionSummary}
                             </div>
                         </div>
                     ) : (
-                        <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                        <div className="text-xs text-content-tertiary">
                             {t('agentDetail.noSessionSummary', 'This session does not have a summary yet.')}
                         </div>
                     )}

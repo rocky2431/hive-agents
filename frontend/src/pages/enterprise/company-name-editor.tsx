@@ -39,20 +39,19 @@ export function CompanyNameEditor() {
     };
 
     return (
-        <div className="card" style={{ padding: '16px', marginBottom: '24px' }}>
-            <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+        <div className="card p-4 mb-6">
+            <div className="flex gap-3 items-center">
                 <input
-                    className="form-input"
+                    className="form-input flex-1 text-sm"
                     value={name}
                     onChange={e => setName(e.target.value)}
                     placeholder={t('enterprise.companyName.placeholder', 'Enter company name')}
-                    style={{ flex: 1, fontSize: '14px' }}
                     onKeyDown={e => e.key === 'Enter' && handleSave()}
                 />
                 <button className="btn btn-primary" onClick={handleSave} disabled={saving || !name.trim()}>
                     {saving ? t('common.loading') : t('common.save', 'Save')}
                 </button>
-                {saved && <span style={{ color: 'var(--success)', fontSize: '12px' }}>✅</span>}
+                {saved && <span className="text-success text-xs">✅</span>}
             </div>
         </div>
     );

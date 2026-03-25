@@ -40,48 +40,47 @@ export function FileEditorCard({ agentId, path, title, readOnly = false }: { age
     };
 
     return (
-        <div className="card" style={{ marginBottom: '16px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                <h3 style={{ fontSize: '14px', fontWeight: 600 }}>{title}</h3>
+        <div className="card mb-4">
+            <div className="flex justify-between items-center mb-2.5">
+                <h3 className="text-sm font-semibold">{title}</h3>
                 {fileExists && !readOnly && !editing && (
-                    <button className="btn btn-ghost" style={{ fontSize: '12px' }} onClick={() => { setDraft(data?.content || ''); setEditing(true); }}>
+                    <button className="btn btn-ghost text-xs" onClick={() => { setDraft(data?.content || ''); setEditing(true); }}>
                         {t('agent.overview.editFile')}
                     </button>
                 )}
                 {editing && (
-                    <div style={{ display: 'flex', gap: '6px' }}>
-                        <button className="btn btn-ghost" style={{ fontSize: '12px' }} onClick={() => setEditing(false)}>
+                    <div className="flex gap-1.5">
+                        <button className="btn btn-ghost text-xs" onClick={() => setEditing(false)}>
                             {t('agent.overview.cancelEdit')}
                         </button>
-                        <button className="btn btn-primary" style={{ fontSize: '12px', padding: '4px 12px' }} disabled={saving} onClick={handleSave}>
+                        <button className="btn btn-primary text-xs px-3 py-1" disabled={saving} onClick={handleSave}>
                             {saving ? t('agent.overview.saving') : t('agent.overview.saveFile')}
                         </button>
                     </div>
                 )}
             </div>
             {!fileExists && (isError || data === null) ? (
-                <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '13px' }}>
-                    <div style={{ marginBottom: '8px' }}>{t('agent.overview.fileNotExists')}</div>
+                <div className="p-4 text-center text-content-tertiary text-[13px]">
+                    <div className="mb-2">{t('agent.overview.fileNotExists')}</div>
                     {!readOnly && (
-                        <button className="btn btn-secondary" style={{ fontSize: '12px' }} disabled={saving} onClick={handleCreate}>
+                        <button className="btn btn-secondary text-xs" disabled={saving} onClick={handleCreate}>
                             {saving ? t('agent.overview.saving') : t('agent.overview.createFile')}
                         </button>
                     )}
                 </div>
             ) : editing ? (
                 <textarea
-                    className="input"
+                    className="input w-full font-mono text-[13px] leading-relaxed resize-y box-border"
                     value={draft}
                     onChange={e => setDraft(e.target.value)}
                     rows={10}
-                    style={{ width: '100%', fontFamily: 'var(--font-mono)', fontSize: '13px', lineHeight: 1.6, resize: 'vertical', boxSizing: 'border-box' }}
                 />
             ) : (
-                <div style={{ fontSize: '13px', lineHeight: 1.7, color: 'var(--text-secondary)' }}>
+                <div className="text-[13px] leading-[1.7] text-content-secondary">
                     {data?.content ? (
                         <MarkdownRenderer content={data.content} />
                     ) : (
-                        <span style={{ color: 'var(--text-tertiary)', fontStyle: 'italic' }}>{path}</span>
+                        <span className="text-content-tertiary italic">{path}</span>
                     )}
                 </div>
             )}

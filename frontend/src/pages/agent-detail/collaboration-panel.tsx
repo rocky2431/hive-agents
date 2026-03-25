@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { agentApi } from '@/services/api';
 import { useAuthStore } from '@/stores';
+import { cn } from '@/lib/cn';
 
 export interface CollaborationPanelProps {
     agentId: string;
@@ -91,59 +92,54 @@ export function CollaborationPanel({ agentId, agent }: CollaborationPanelProps) 
     });
 
     return (
-        <div className="card" style={{ padding: '16px', marginBottom: '24px' }}>
-            <div style={{ marginBottom: '12px' }}>
-                <div style={{ fontWeight: 600, fontSize: '14px', marginBottom: '4px' }}>
+        <div className="card p-4 mb-6">
+            <div className="mb-3">
+                <div className="font-semibold text-sm mb-1">
                     {t('agentDetail.collaborationTitle', 'Agent Collaboration')}
                 </div>
-                <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                <div className="text-xs text-content-tertiary">
                     {t('agentDetail.collaborationDesc', 'Coordinate work with other digital employees in the same company.')}
                 </div>
             </div>
 
             {notice && (
                 <div
-                    style={{
-                        marginBottom: '12px',
-                        padding: '10px 12px',
-                        borderRadius: '8px',
-                        fontSize: '12px',
-                        background: notice.type === 'success' ? 'rgba(16,185,129,0.10)' : 'rgba(239,68,68,0.10)',
-                        border: `1px solid ${notice.type === 'success' ? 'rgba(16,185,129,0.25)' : 'rgba(239,68,68,0.25)'}`,
-                        color: notice.type === 'success' ? 'var(--success, #10b981)' : 'var(--status-error, #ef4444)',
-                    }}
+                    className={cn(
+                        'mb-3 px-3 py-2.5 rounded-lg text-xs',
+                        notice.type === 'success'
+                            ? 'bg-emerald-500/10 border border-emerald-500/25 text-success'
+                            : 'bg-red-500/10 border border-red-500/25 text-error',
+                    )}
                 >
                     {notice.message}
                 </div>
             )}
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 0.9fr) minmax(320px, 1.1fr)', gap: '16px' }}>
+            <div className="grid grid-cols-[minmax(220px,0.9fr)_minmax(320px,1.1fr)] gap-4">
                 <div>
-                    <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px' }}>
+                    <div className="text-xs font-semibold mb-2">
                         {t('agentDetail.availableCollaborators', 'Available Collaborators')}
                     </div>
                     {collaboratorsLoading ? (
-                        <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{t('common.loading')}</div>
+                        <div className="text-xs text-content-tertiary">{t('common.loading')}</div>
                     ) : collaborators.length > 0 ? (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <div className="flex flex-col gap-2">
                             {collaborators.map((collaborator: any) => (
                                 <div
                                     key={collaborator.id}
-                                    style={{
-                                        padding: '10px 12px',
-                                        borderRadius: '8px',
-                                        border: '1px solid var(--border-subtle)',
-                                        background: 'var(--bg-secondary)',
-                                    }}
+                                    className="px-3 py-2.5 rounded-lg border border-edge-subtle bg-surface-secondary"
                                 >
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center' }}>
-                                        <div style={{ fontSize: '13px', fontWeight: 600 }}>{collaborator.name}</div>
-                                        <span style={{ fontSize: '11px', color: collaborator.status === 'running' ? 'var(--success, #10b981)' : 'var(--text-tertiary)' }}>
+                                    <div className="flex justify-between gap-2 items-center">
+                                        <div className="text-[13px] font-semibold">{collaborator.name}</div>
+                                        <span className={cn(
+                                            'text-[11px]',
+                                            collaborator.status === 'running' ? 'text-success' : 'text-content-tertiary',
+                                        )}>
                                             {String(t(`agent.status.${collaborator.status}`, collaborator.status))}
                                         </span>
                                     </div>
                                     {collaborator.role && (
-                                        <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
+                                        <div className="text-[11px] text-content-tertiary mt-1">
                                             {collaborator.role}
                                         </div>
                                     )}
@@ -151,18 +147,18 @@ export function CollaborationPanel({ agentId, agent }: CollaborationPanelProps) 
                             ))}
                         </div>
                     ) : (
-                        <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                        <div className="text-xs text-content-tertiary">
                             {t('agentDetail.noCollaborators', 'No other digital employees are available yet.')}
                         </div>
                     )}
                 </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    <div className="card" style={{ padding: '12px', margin: 0, background: 'var(--bg-secondary)' }}>
-                        <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px' }}>
+                <div className="flex flex-col gap-3">
+                    <div className="card p-3 !m-0 bg-surface-secondary">
+                        <div className="text-xs font-semibold mb-2">
                             {t('agentDetail.delegateTask', 'Delegate Task')}
                         </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <div className="flex flex-col gap-2">
                             <select className="form-input" value={delegateTargetId} onChange={e => setDelegateTargetId(e.target.value)}>
                                 <option value="">{t('agentDetail.targetAgent', 'Select target agent')}</option>
                                 {collaborators.map((collaborator: any) => (
@@ -178,13 +174,12 @@ export function CollaborationPanel({ agentId, agent }: CollaborationPanelProps) 
                                 placeholder={t('agentDetail.taskTitle', 'Task title')}
                             />
                             <textarea
-                                className="form-input"
+                                className="form-input min-h-[84px] resize-y"
                                 value={delegateDescription}
                                 onChange={e => setDelegateDescription(e.target.value)}
                                 placeholder={t('agentDetail.taskDescription', 'Task description')}
-                                style={{ minHeight: '84px', resize: 'vertical' }}
                             />
-                            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                            <div className="flex justify-end">
                                 <button
                                     className="btn btn-primary"
                                     onClick={() => delegateMutation.mutate()}
@@ -196,11 +191,11 @@ export function CollaborationPanel({ agentId, agent }: CollaborationPanelProps) 
                         </div>
                     </div>
 
-                    <div className="card" style={{ padding: '12px', margin: 0, background: 'var(--bg-secondary)' }}>
-                        <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px' }}>
+                    <div className="card p-3 !m-0 bg-surface-secondary">
+                        <div className="text-xs font-semibold mb-2">
                             {t('agentDetail.sendMessage', 'Send Message')}
                         </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <div className="flex flex-col gap-2">
                             <select className="form-input" value={messageTargetId} onChange={e => setMessageTargetId(e.target.value)}>
                                 <option value="">{t('agentDetail.targetAgent', 'Select target agent')}</option>
                                 {collaborators.map((collaborator: any) => (
@@ -214,13 +209,12 @@ export function CollaborationPanel({ agentId, agent }: CollaborationPanelProps) 
                                 <option value="consult">{t('agentDetail.messageTypeConsult', 'Consult')}</option>
                             </select>
                             <textarea
-                                className="form-input"
+                                className="form-input min-h-[84px] resize-y"
                                 value={messageBody}
                                 onChange={e => setMessageBody(e.target.value)}
                                 placeholder={t('agentDetail.messagePlaceholder', 'Write a message to another digital employee')}
-                                style={{ minHeight: '84px', resize: 'vertical' }}
                             />
-                            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                            <div className="flex justify-end">
                                 <button
                                     className="btn btn-primary"
                                     onClick={() => messageMutation.mutate()}
@@ -235,11 +229,11 @@ export function CollaborationPanel({ agentId, agent }: CollaborationPanelProps) 
             </div>
 
             {isCreator && (
-                <div className="card" style={{ padding: '12px', margin: '16px 0 0', background: 'var(--bg-secondary)' }}>
-                    <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px' }}>
+                <div className="card p-3 !m-0 mt-4 bg-surface-secondary">
+                    <div className="text-xs font-semibold mb-2">
                         {t('agentDetail.handoverAgent', 'Transfer Ownership')}
                     </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div className="flex flex-col gap-2">
                         <select className="form-input" value={handoverUserId} onChange={e => setHandoverUserId(e.target.value)}>
                             <option value="">{t('agentDetail.targetUser', 'Select target user')}</option>
                             {eligibleUsers.map((user: any) => (
@@ -249,11 +243,11 @@ export function CollaborationPanel({ agentId, agent }: CollaborationPanelProps) 
                             ))}
                         </select>
                         {eligibleUsers.length === 0 && (
-                            <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                            <div className="text-xs text-content-tertiary">
                                 {t('agentDetail.noEligibleUsers', 'No eligible users are available for transfer.')}
                             </div>
                         )}
-                        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                        <div className="flex justify-end">
                             <button
                                 className="btn"
                                 onClick={() => {

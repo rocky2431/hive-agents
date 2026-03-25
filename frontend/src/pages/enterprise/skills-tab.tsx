@@ -98,14 +98,14 @@ export function SkillsTab() {
     };
 
     const tierBadge = (tier: number) => {
-        const styles: Record<number, { bg: string; color: string; label: string }> = {
-            1: { bg: 'rgba(52,199,89,0.12)', color: 'var(--success, #34c759)', label: 'Tier 1 · Pure Prompt' },
-            2: { bg: 'rgba(255,159,10,0.12)', color: 'var(--warning, #ff9f0a)', label: 'Tier 2 · CLI/API' },
-            3: { bg: 'rgba(255,59,48,0.12)', color: 'var(--error, #ff3b30)', label: 'Tier 3 · OpenClaw Native' },
+        const styles: Record<number, { className: string; label: string }> = {
+            1: { className: 'bg-[rgba(52,199,89,0.12)] text-success', label: 'Tier 1 · Pure Prompt' },
+            2: { className: 'bg-[rgba(255,159,10,0.12)] text-warning', label: 'Tier 2 · CLI/API' },
+            3: { className: 'bg-[rgba(255,59,48,0.12)] text-error', label: 'Tier 3 · OpenClaw Native' },
         };
         const s = styles[tier] || styles[1];
         return (
-            <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 500, background: s.bg, color: s.color }}>
+            <span className={`px-2 py-0.5 rounded text-[11px] font-medium ${s.className}`}>
                 {s.label}
             </span>
         );
@@ -113,17 +113,16 @@ export function SkillsTab() {
 
     return (
         <div>
-            <div style={{ marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div className="mb-3 flex justify-between items-start">
                 <div>
                     <h3>{t('enterprise.tabs.skills', 'Skill Registry')}</h3>
-                    <p style={{ fontSize: '13px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
+                    <p className="text-[13px] text-content-tertiary mt-1">
                         公司级技能模板会出现在数字员工创建流程中。你可以从技能库或链接导入，再按需分配给具体数字员工。
                     </p>
                 </div>
-                <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                <div className="flex gap-2 shrink-0">
                     <button
-                        className="btn btn-secondary"
-                        style={{ fontSize: '13px', padding: '6px 10px', minWidth: 'auto' }}
+                        className="btn btn-secondary text-[13px] px-2.5 py-1.5 min-w-0"
                         onClick={async () => {
                             setShowSettings(s => !s);
                             if (!tokenStatus) {
@@ -141,15 +140,13 @@ export function SkillsTab() {
                         </svg>
                     </button>
                     <button
-                        className="btn btn-secondary"
-                        style={{ fontSize: '13px' }}
+                        className="btn btn-secondary text-[13px]"
                         onClick={() => { setShowUrlModal(true); setUrlInput(''); setUrlPreview(null); }}
                     >
                         {t('agent.capability.skillsUrl')}
                     </button>
                     <button
-                        className="btn btn-primary"
-                        style={{ fontSize: '13px' }}
+                        className="btn btn-primary text-[13px]"
                         onClick={() => { setShowClawhubModal(true); setSearchQuery(''); setSearchResults([]); setHasSearched(false); }}
                     >
                         {t('agent.capability.skillsLibrary')}
@@ -159,54 +156,49 @@ export function SkillsTab() {
 
             {/* GitHub Token Settings Panel */}
             {showSettings && (
-                <div style={{
-                    marginBottom: '16px', padding: '16px', borderRadius: '8px',
-                    border: '1px solid var(--border-primary)',
-                    background: 'var(--bg-secondary, rgba(255,255,255,0.02))',
-                }}>
-                    <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <div className="mb-4 p-4 rounded-lg border border-edge-default bg-surface-secondary">
+                    <div className="text-[13px] font-semibold mb-2 flex items-center gap-1.5">
                         GitHub Token
-                        <span className="metric-tooltip-trigger" style={{ display: 'inline-flex', alignItems: 'center', cursor: 'help', color: 'var(--text-tertiary)' }}>
+                        <span className="metric-tooltip-trigger inline-flex items-center cursor-help text-content-tertiary">
                             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="8" cy="8" r="6.5" /><path d="M8 7v4M8 5.5v0" /></svg>
-                            <span className="metric-tooltip" style={{ width: '300px', bottom: 'auto', top: 'calc(100% + 6px)', left: '-8px', fontWeight: 400 }}>
-                                <div style={{ marginBottom: '6px', fontWeight: 500 }}>How to generate a GitHub Token:</div>
+                            <span className="metric-tooltip" style={{ width: '300px', bottom: 'auto', top: 'calc(100% + 6px)', left: '-8px' }}>
+                                <div className="mb-1.5 font-medium">How to generate a GitHub Token:</div>
                                 1. Go to github.com &rarr; Settings &rarr; Developer settings<br/>
                                 2. Click "Personal access tokens" &rarr; "Tokens (classic)"<br/>
                                 3. Click "Generate new token (classic)"<br/>
                                 4. Set a name and expiration, no scopes needed for public repos<br/>
                                 5. Click "Generate token" and copy the value<br/>
-                                <div style={{ marginTop: '6px', fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                                <div className="mt-1.5 text-[11px] text-content-tertiary">
                                     Or visit: github.com/settings/tokens
                                 </div>
                             </span>
                         </span>
                     </div>
-                    <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
+                    <p className="text-xs text-content-tertiary mb-3">
                         Increases GitHub API rate limits from 60/hr to 5,000/hr for skill imports.
                     </p>
                     {tokenStatus?.configured && (
-                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
-                            Current token: <code style={{ padding: '2px 6px', borderRadius: '4px', background: 'var(--bg-tertiary)', fontSize: '11px' }}>{tokenStatus.masked}</code>
-                            <span style={{ marginLeft: '8px', color: 'var(--text-tertiary)' }}>({tokenStatus.source})</span>
+                        <div className="text-xs text-content-secondary mb-2">
+                            Current token: <code className="px-1.5 py-0.5 rounded bg-surface-tertiary text-[11px]">{tokenStatus.masked}</code>
+                            <span className="ml-2 text-content-tertiary">({tokenStatus.source})</span>
                         </div>
                     )}
-                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <div className="flex gap-2 items-center">
                         {/* Hidden inputs to absorb browser autofill */}
-                        <input type="text" name="prevent_autofill_user" style={{ display: 'none' }} tabIndex={-1} />
-                        <input type="password" name="prevent_autofill_pass" style={{ display: 'none' }} tabIndex={-1} />
+                        <input type="text" name="prevent_autofill_user" className="hidden" tabIndex={-1} />
+                        <input type="password" name="prevent_autofill_pass" className="hidden" tabIndex={-1} />
                         <input
                             type="text"
-                            className="input"
+                            className="input flex-1 text-[13px] font-mono"
                             autoComplete="off"
                             data-form-type="other"
                             placeholder="ghp_xxxxxxxxxxxx"
                             value={tokenInput}
                             onChange={e => setTokenInput(e.target.value)}
-                            style={{ flex: 1, fontSize: '13px', fontFamily: 'monospace', WebkitTextSecurity: 'disc' } as React.CSSProperties}
+                            style={{ WebkitTextSecurity: 'disc' } as React.CSSProperties}
                         />
                         <button
-                            className="btn btn-primary"
-                            style={{ fontSize: '13px' }}
+                            className="btn btn-primary text-[13px]"
                             disabled={!tokenInput.trim() || savingToken}
                             onClick={async () => {
                                 setSavingToken(true);
@@ -226,8 +218,7 @@ export function SkillsTab() {
                         </button>
                         {tokenStatus?.configured && tokenStatus.source === 'tenant' && (
                             <button
-                                className="btn btn-secondary"
-                                style={{ fontSize: '13px' }}
+                                className="btn btn-secondary text-[13px]"
                                 onClick={async () => {
                                     try {
                                         await skillApi.settings.setToken('');
@@ -245,40 +236,39 @@ export function SkillsTab() {
                     </div>
 
                     {/* ClawHub API Key */}
-                    <div style={{ marginTop: '16px' }}>
-                        <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <div className="mt-4">
+                        <div className="text-[13px] font-semibold mb-2 flex items-center gap-1.5">
                             ClawHub API Key
-                            <span className="metric-tooltip-trigger" style={{ display: 'inline-flex', alignItems: 'center', cursor: 'help', color: 'var(--text-tertiary)' }}>
+                            <span className="metric-tooltip-trigger inline-flex items-center cursor-help text-content-tertiary">
                                 <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="8" cy="8" r="6.5" /><path d="M8 7v4M8 5.5v0" /></svg>
-                                <span className="metric-tooltip" style={{ width: '280px', bottom: 'auto', top: 'calc(100% + 6px)', left: '-8px', fontWeight: 400 }}>
+                                <span className="metric-tooltip font-normal" style={{ width: '280px', bottom: 'auto', top: 'calc(100% + 6px)', left: '-8px' }}>
                                     Authenticate ClawHub API calls to avoid rate limiting when browsing and installing skills from ClawHub.
                                 </span>
                             </span>
                         </div>
-                        <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
+                        <p className="text-xs text-content-tertiary mb-3">
                             Authenticated requests get higher rate limits for ClawHub skill browsing and installation.
                         </p>
                         {tokenStatus?.clawhub_configured && (
-                            <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
-                                Current key: <code style={{ padding: '2px 6px', borderRadius: '4px', background: 'var(--bg-tertiary)', fontSize: '11px' }}>{tokenStatus.clawhub_masked}</code>
+                            <div className="text-xs text-content-secondary mb-2">
+                                Current key: <code className="px-1.5 py-0.5 rounded bg-surface-tertiary text-[11px]">{tokenStatus.clawhub_masked}</code>
                             </div>
                         )}
-                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                            <input type="text" name="prevent_autofill_ch_user" style={{ display: 'none' }} tabIndex={-1} />
-                            <input type="password" name="prevent_autofill_ch_pass" style={{ display: 'none' }} tabIndex={-1} />
+                        <div className="flex gap-2 items-center">
+                            <input type="text" name="prevent_autofill_ch_user" className="hidden" tabIndex={-1} />
+                            <input type="password" name="prevent_autofill_ch_pass" className="hidden" tabIndex={-1} />
                             <input
                                 type="text"
-                                className="input"
+                                className="input flex-1 text-[13px] font-mono"
                                 autoComplete="off"
                                 data-form-type="other"
                                 placeholder="sk-ant-xxxxxxxxxxxx"
                                 value={clawhubKeyInput}
                                 onChange={e => setClawhubKeyInput(e.target.value)}
-                                style={{ flex: 1, fontSize: '13px', fontFamily: 'monospace', WebkitTextSecurity: 'disc' } as React.CSSProperties}
+                                style={{ WebkitTextSecurity: 'disc' } as React.CSSProperties}
                             />
                             <button
-                                className="btn btn-primary"
-                                style={{ fontSize: '13px' }}
+                                className="btn btn-primary text-[13px]"
                                 disabled={!clawhubKeyInput.trim() || savingClawhubKey}
                                 onClick={async () => {
                                     setSavingClawhubKey(true);
@@ -298,8 +288,7 @@ export function SkillsTab() {
                             </button>
                             {tokenStatus?.clawhub_configured && (
                                 <button
-                                    className="btn btn-secondary"
-                                    style={{ fontSize: '13px' }}
+                                    className="btn btn-secondary text-[13px]"
                                     onClick={async () => {
                                         try {
                                             await skillApi.settings.setClawhubKey('');
@@ -329,78 +318,60 @@ export function SkillsTab() {
 
             {/* Toast */}
             {toast && (
-                <div style={{
-                    position: 'fixed', bottom: '24px', right: '24px', zIndex: 10000,
-                    padding: '12px 20px', borderRadius: '8px', fontSize: '13px', fontWeight: 500,
-                    background: toast.type === 'error' ? 'rgba(255,59,48,0.95)' : 'rgba(52,199,89,0.95)',
-                    color: '#fff', boxShadow: '0 4px 16px rgba(0,0,0,0.2)', maxWidth: '400px',
-                    animation: 'fadeIn 200ms ease',
-                }}>
+                <div className={`fixed bottom-6 right-6 z-[10000] px-5 py-3 rounded-lg text-[13px] font-medium text-white shadow-[0_4px_16px_rgba(0,0,0,0.2)] max-w-[400px] animate-[fadeIn_200ms_ease] ${toast.type === 'error' ? 'bg-[rgba(255,59,48,0.95)]' : 'bg-[rgba(52,199,89,0.95)]'}`}>
                     {toast.message}
                 </div>
             )}
 
             {/* ClawHub Search Modal */}
             {showClawhubModal && (
-                <div style={{
-                    position: 'fixed', inset: 0, zIndex: 9999,
-                    background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }} onClick={() => setShowClawhubModal(false)}>
-                    <div style={{
-                        background: 'var(--bg-primary)', borderRadius: '12px', width: '640px', maxHeight: '80vh',
-                        display: 'flex', flexDirection: 'column', border: '1px solid var(--border-default)',
-                        boxShadow: '0 16px 48px rgba(0,0,0,0.2)',
-                    }} onClick={e => e.stopPropagation()}>
+                <div className="fixed inset-0 z-[9999] bg-black/50 flex items-center justify-center" onClick={() => setShowClawhubModal(false)}>
+                    <div className="bg-surface-primary rounded-xl w-[640px] max-h-[80vh] flex flex-col border border-edge-default shadow-[0_16px_48px_rgba(0,0,0,0.2)]" onClick={e => e.stopPropagation()}>
                         {/* Header */}
-                        <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid var(--border-subtle)' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                <h3 style={{ margin: 0, fontSize: '16px' }}>{t('agent.capability.skillsLibrary')}</h3>
-                                <button className="btn btn-ghost" onClick={() => setShowClawhubModal(false)} style={{ padding: '4px 8px', fontSize: '16px', lineHeight: 1 }}>x</button>
+                        <div className="px-6 pt-5 pb-4 border-b border-edge-subtle">
+                            <div className="flex justify-between items-center mb-3">
+                                <h3 className="m-0 text-base">{t('agent.capability.skillsLibrary')}</h3>
+                                <button className="btn btn-ghost px-2 py-1 text-base leading-none" onClick={() => setShowClawhubModal(false)}>x</button>
                             </div>
-                            <div style={{ display: 'flex', gap: '8px' }}>
+                            <div className="flex gap-2">
                                 <input
-                                    className="input"
+                                    className="input flex-1 text-[13px]"
                                     placeholder={t('common.search')}
                                     value={searchQuery}
                                     onChange={e => setSearchQuery(e.target.value)}
                                     onKeyDown={e => e.key === 'Enter' && handleSearch()}
                                     autoFocus
-                                    style={{ flex: 1, fontSize: '13px' }}
                                 />
-                                <button className="btn btn-primary" onClick={handleSearch} disabled={searching} style={{ fontSize: '13px' }}>
+                                <button className="btn btn-primary text-[13px]" onClick={handleSearch} disabled={searching}>
                                     {searching ? 'Searching...' : 'Search'}
                                 </button>
                             </div>
                         </div>
                         {/* Results */}
-                        <div style={{ flex: 1, overflowY: 'auto', padding: '12px 24px' }}>
+                        <div className="flex-1 overflow-y-auto px-6 py-3">
                             {searchResults.length === 0 && !searching && (
-                                <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-tertiary)', fontSize: '13px' }}>
+                                <div className="text-center py-10 text-content-tertiary text-[13px]">
                                     {hasSearched ? t('common.noData') : '从技能库中搜索并导入技能'}
                                 </div>
                             )}
                             {searching && (
-                                <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-tertiary)', fontSize: '13px' }}>
+                                <div className="text-center py-10 text-content-tertiary text-[13px]">
                                     Searching ClawHub...
                                 </div>
                             )}
                             {searchResults.map((r: any) => (
-                                <div key={r.slug} style={{
-                                    padding: '12px 0', borderBottom: '1px solid var(--border-subtle)',
-                                    display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px',
-                                }}>
-                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                                            <span style={{ fontWeight: 600, fontSize: '14px' }}>{r.displayName}</span>
-                                            <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>{r.slug}</span>
+                                <div key={r.slug} className="py-3 border-b border-edge-subtle flex justify-between items-start gap-3">
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <span className="font-semibold text-sm">{r.displayName}</span>
+                                            <span className="text-[11px] text-content-tertiary font-mono">{r.slug}</span>
                                         </div>
-                                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
+                                        <div className="text-xs text-content-secondary leading-snug">
                                             {r.summary?.slice(0, 160)}{r.summary?.length > 160 ? '...' : ''}
                                         </div>
                                     </div>
                                     <button
-                                        className="btn btn-secondary"
-                                        style={{ fontSize: '12px', flexShrink: 0 }}
+                                        className="btn btn-secondary text-xs shrink-0"
                                         disabled={installing === r.slug}
                                         onClick={() => handleInstall(r.slug)}
                                     >
@@ -415,33 +386,26 @@ export function SkillsTab() {
 
             {/* URL Import Modal */}
             {showUrlModal && (
-                <div style={{
-                    position: 'fixed', inset: 0, zIndex: 9999,
-                    background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }} onClick={() => setShowUrlModal(false)}>
-                    <div style={{
-                        background: 'var(--bg-primary)', borderRadius: '12px', width: '560px',
-                        border: '1px solid var(--border-default)', boxShadow: '0 16px 48px rgba(0,0,0,0.2)',
-                    }} onClick={e => e.stopPropagation()}>
-                        <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid var(--border-subtle)' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                                <h3 style={{ margin: 0, fontSize: '16px' }}>{t('agent.capability.skillsUrl')}</h3>
-                                                <button className="btn btn-ghost" onClick={() => setShowUrlModal(false)} style={{ padding: '4px 8px', fontSize: '16px', lineHeight: 1 }}>x</button>
+                <div className="fixed inset-0 z-[9999] bg-black/50 flex items-center justify-center" onClick={() => setShowUrlModal(false)}>
+                    <div className="bg-surface-primary rounded-xl w-[560px] border border-edge-default shadow-[0_16px_48px_rgba(0,0,0,0.2)]" onClick={e => e.stopPropagation()}>
+                        <div className="px-6 pt-5 pb-4 border-b border-edge-subtle">
+                            <div className="flex justify-between items-center mb-3">
+                                                <h3 className="m-0 text-base">{t('agent.capability.skillsUrl')}</h3>
+                                                <button className="btn btn-ghost px-2 py-1 text-base leading-none" onClick={() => setShowUrlModal(false)}>x</button>
                                             </div>
-                                            <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', margin: '0 0 12px' }}>
+                                            <p className="text-xs text-content-tertiary mb-3">
                                                 贴入一个包含 `SKILL.md` 的 GitHub 技能目录链接，系统会先预览再导入。
                                             </p>
-                            <div style={{ display: 'flex', gap: '8px' }}>
+                            <div className="flex gap-2">
                                 <input
-                                    className="input"
+                                    className="input flex-1 text-[13px] font-mono"
                                     placeholder="https://github.com/owner/repo/tree/main/skills/my-skill"
                                     value={urlInput}
                                     onChange={e => { setUrlInput(e.target.value); setUrlPreview(null); }}
                                     autoFocus
-                                    style={{ flex: 1, fontSize: '13px', fontFamily: 'var(--font-mono)' }}
                                     onKeyDown={e => e.key === 'Enter' && handleUrlPreview()}
                                 />
-                                <button className="btn btn-secondary" onClick={handleUrlPreview} disabled={urlPreviewing || !urlInput.trim()} style={{ fontSize: '12px' }}>
+                                <button className="btn btn-secondary text-xs" onClick={handleUrlPreview} disabled={urlPreviewing || !urlInput.trim()}>
                                     {urlPreviewing ? 'Loading...' : 'Preview'}
                                 </button>
                             </div>
@@ -449,25 +413,25 @@ export function SkillsTab() {
 
                         {/* Preview result */}
                         {urlPreview && (
-                            <div style={{ padding: '16px 24px' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                                    <span style={{ fontWeight: 600, fontSize: '14px' }}>{urlPreview.name}</span>
+                            <div className="px-6 py-4">
+                                <div className="flex items-center gap-2 mb-2">
+                                    <span className="font-semibold text-sm">{urlPreview.name}</span>
                                     {tierBadge(urlPreview.tier)}
                                     {urlPreview.has_scripts && (
-                                        <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '11px', background: 'rgba(255,59,48,0.1)', color: 'var(--error, #ff3b30)' }}>
+                                        <span className="px-2 py-0.5 rounded text-[11px] bg-[rgba(255,59,48,0.1)] text-error">
                                             Contains scripts
                                         </span>
                                     )}
                                 </div>
                                 {urlPreview.description && (
-                                    <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '0 0 8px' }}>{urlPreview.description}</p>
+                                    <p className="text-xs text-content-secondary mb-2">{urlPreview.description}</p>
                                 )}
-                                <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
+                                <div className="text-[11px] text-content-tertiary mb-3">
                                     {urlPreview.files?.length} files, {(urlPreview.total_size / 1024).toFixed(1)} KB
                                 </div>
-                                <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                                    <button className="btn btn-secondary" onClick={() => setShowUrlModal(false)} style={{ fontSize: '13px' }}>Cancel</button>
-                                    <button className="btn btn-primary" onClick={handleUrlImport} disabled={urlImporting} style={{ fontSize: '13px' }}>
+                                <div className="flex gap-2 justify-end">
+                                    <button className="btn btn-secondary text-[13px]" onClick={() => setShowUrlModal(false)}>Cancel</button>
+                                    <button className="btn btn-primary text-[13px]" onClick={handleUrlImport} disabled={urlImporting}>
                                         {urlImporting ? 'Importing...' : 'Import'}
                                     </button>
                                 </div>

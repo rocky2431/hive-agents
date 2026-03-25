@@ -32,7 +32,7 @@ export function CapabilitiesView({ agentId, canManage }: CapabilitiesViewProps) 
     });
 
     if (isLoading || !capSummary) {
-        return <div style={{ color: 'var(--text-tertiary)', padding: '20px' }}>{t('common.loading')}</div>;
+        return <div className="text-content-tertiary p-5">{t('common.loading')}</div>;
     }
 
     const { kernel_tools, available_packs, channel_backed_packs, skill_declared_packs } = capSummary;
@@ -57,49 +57,43 @@ export function CapabilitiesView({ agentId, canManage }: CapabilitiesViewProps) 
     };
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-            <div className="card" style={{ padding: '16px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+        <div className="flex flex-col gap-6">
+            <div className="card p-4">
+                <div className="flex justify-between gap-3 flex-wrap">
                     <div>
-                        <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '4px' }}>{t('agent.capability.foundationTitle')}</div>
-                        <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{t('agent.capability.foundationDesc')}</div>
+                        <div className="text-sm font-semibold mb-1">{t('agent.capability.foundationTitle')}</div>
+                        <div className="text-xs text-content-tertiary">{t('agent.capability.foundationDesc')}</div>
                     </div>
-                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', alignSelf: 'center' }}>
+                    <div className="text-xs text-content-secondary self-center">
                         {t('agent.capability.foundationCount', { count: kernel_tools.length })}
                     </div>
                 </div>
             </div>
 
             <div>
-                <h3 style={{ marginBottom: '4px', fontSize: '14px' }}>{t('agent.capability.sections.skills')}</h3>
-                <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '10px' }}>
+                <h3 className="mb-1 text-sm">{t('agent.capability.sections.skills')}</h3>
+                <p className="text-xs text-content-tertiary mb-2.5">
                     {t('agent.capability.skillsHint')}
                 </p>
                 {skill_declared_packs && skill_declared_packs.length > 0 ? (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '10px' }}>
+                    <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-2.5">
                         {skill_declared_packs.map((pack: any) => (
-                            <div key={pack.name} className="card" style={{ padding: '14px' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'flex-start', marginBottom: '8px' }}>
-                                    <div style={{ fontWeight: 600, fontSize: '13px' }}>{(pack.skills || []).join(' · ') || capabilityNameMap[pack.name] || pack.name}</div>
-                                    <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>{t('agent.capability.skillSource')}</span>
+                            <div key={pack.name} className="card p-3.5">
+                                <div className="flex justify-between gap-2 items-start mb-2">
+                                    <div className="font-semibold text-[13px]">{(pack.skills || []).join(' · ') || capabilityNameMap[pack.name] || pack.name}</div>
+                                    <span className="text-[10px] text-content-tertiary">{t('agent.capability.skillSource')}</span>
                                 </div>
                                 {pack.summary ? (
-                                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }}>{pack.summary}</div>
+                                    <div className="text-xs text-content-secondary mb-2">{pack.summary}</div>
                                 ) : null}
-                                <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '8px' }}>
+                                <div className="text-[11px] text-content-tertiary mb-2">
                                     {t('agent.capability.connectedActions', { count: (pack.tools || []).length })}
                                 </div>
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                                <div className="flex flex-wrap gap-1">
                                     {(pack.tools || []).map((tool: string) => (
                                         <span
                                             key={tool}
-                                            style={{
-                                                fontSize: '11px',
-                                                padding: '2px 8px',
-                                                borderRadius: '4px',
-                                                background: 'var(--bg-secondary)',
-                                                border: '1px solid var(--border-subtle)',
-                                            }}
+                                            className="text-[11px] px-2 py-0.5 rounded bg-surface-secondary border border-edge-subtle"
                                         >
                                             {tool}
                                         </span>
@@ -109,51 +103,45 @@ export function CapabilitiesView({ agentId, canManage }: CapabilitiesViewProps) 
                         ))}
                     </div>
                 ) : (
-                    <div className="card" style={{ textAlign: 'center', padding: '20px', color: 'var(--text-tertiary)', fontSize: '13px' }}>
+                    <div className="card text-center p-5 text-content-tertiary text-[13px]">
                         {t('agent.capability.skillsEmpty')}
                     </div>
                 )}
             </div>
 
             <div>
-                <h3 style={{ marginBottom: '4px', fontSize: '14px' }}>{t('agent.capability.sections.tools')}</h3>
-                <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '10px' }}>
+                <h3 className="mb-1 text-sm">{t('agent.capability.sections.tools')}</h3>
+                <p className="text-xs text-content-tertiary mb-2.5">
                     {allPacks.length > 0
                         ? t('agent.capability.connectedSummary', { count: allPacks.length })
                         : t('agent.capability.connectedEmpty')}
                 </p>
                 {allPacks.length > 0 ? (
-                    <div
-                        style={{
-                            display: 'grid',
-                            gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
-                            gap: '10px',
-                        }}
-                    >
+                    <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-2.5">
                         {allPacks.map((pack: any) => (
-                            <div key={pack.name} className="card" style={{ padding: '14px' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'flex-start', marginBottom: '8px' }}>
-                                    <div style={{ fontWeight: 600, fontSize: '13px' }}>{capabilityNameMap[pack.name] || pack.summary || pack.name}</div>
-                                    <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>{sourceLabel(pack.source)}</span>
+                            <div key={pack.name} className="card p-3.5">
+                                <div className="flex justify-between gap-2 items-start mb-2">
+                                    <div className="font-semibold text-[13px]">{capabilityNameMap[pack.name] || pack.summary || pack.name}</div>
+                                    <span className="text-[10px] text-content-tertiary">{sourceLabel(pack.source)}</span>
                                 </div>
                                 {pack.summary ? (
-                                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }}>{pack.summary}</div>
+                                    <div className="text-xs text-content-secondary mb-2">{pack.summary}</div>
                                 ) : null}
-                                <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '8px' }}>
+                                <div className="text-[11px] text-content-tertiary mb-2">
                                     {t('agent.capability.connectedActions', { count: (pack.tools || []).length })}
                                 </div>
                                 {pack.capabilities && pack.capabilities.length > 0 ? (
-                                    <div style={{ fontSize: '11px', color: '#f59e0b', background: 'rgba(245,158,11,0.10)', border: '1px solid rgba(245,158,11,0.20)', borderRadius: '6px', padding: '6px 8px' }}>
+                                    <div className="text-[11px] text-amber-400 bg-amber-400/10 border border-amber-400/20 rounded-md px-2 py-1.5">
                                         {t('enterprise.importedTools.restricted')}: {pack.capabilities.join(', ')}
                                     </div>
                                 ) : (
-                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{t('enterprise.importedTools.unrestricted')}</div>
+                                    <div className="text-[11px] text-content-tertiary">{t('enterprise.importedTools.unrestricted')}</div>
                                 )}
                             </div>
                         ))}
                     </div>
                 ) : (
-                    <div className="card" style={{ textAlign: 'center', padding: '20px', color: 'var(--text-tertiary)', fontSize: '13px' }}>
+                    <div className="card text-center p-5 text-content-tertiary text-[13px]">
                         {t('agent.capability.connectedEmpty')}
                     </div>
                 )}
@@ -165,121 +153,81 @@ export function CapabilitiesView({ agentId, canManage }: CapabilitiesViewProps) 
                 onToggle={(e) => setSessionExpanded((e.target as HTMLDetailsElement).open)}
             >
                 <summary
-                    style={{
-                        cursor: 'pointer',
-                        fontWeight: 600,
-                        fontSize: '14px',
-                        listStyle: 'none',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        userSelect: 'none',
-                    }}
+                    className="cursor-pointer font-semibold text-sm list-none flex items-center gap-2 select-none"
                 >
-                    <span style={{ transition: 'transform 0.15s', display: 'inline-block', transform: sessionExpanded ? 'rotate(90deg)' : 'rotate(0deg)', fontSize: '12px' }}>&#x25B6;</span>
+                    <span className="inline-block text-xs transition-transform duration-150" style={{ transform: sessionExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>&#x25B6;</span>
                     {t('agent.capability.sections.advanced')}
                 </summary>
                 {!latestSessionId ? (
-                    <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', margin: '8px 0 0' }}>
+                    <p className="text-xs text-content-tertiary mt-2 mb-0">
                         {t('agent.capability.advancedNone')}
                     </p>
                 ) : runtimeLoading || !runtimeSummary ? (
-                    <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', margin: '8px 0 0' }}>
+                    <p className="text-xs text-content-tertiary mt-2 mb-0">
                         {t('common.loading')}
                     </p>
                 ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '10px' }}>
-                        <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', margin: 0 }}>
+                    <div className="flex flex-col gap-3 mt-2.5">
+                        <p className="text-xs text-content-tertiary m-0">
                             {t('agent.capability.advancedDesc')}
                         </p>
                         <div>
-                            <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '6px' }}>{t('enterprise.packs.activatedPacks')}</div>
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                            <div className="text-xs font-semibold mb-1.5">{t('enterprise.packs.activatedPacks')}</div>
+                            <div className="flex flex-wrap gap-1.5">
                                 {runtimeSummary.activated_packs.length > 0 ? runtimeSummary.activated_packs.map((pack: string) => (
                                     <span
                                         key={pack}
-                                        style={{
-                                            fontSize: '11px',
-                                            padding: '3px 10px',
-                                            borderRadius: '999px',
-                                            background: 'rgba(59,130,246,0.12)',
-                                            color: '#60a5fa',
-                                            border: '1px solid rgba(59,130,246,0.25)',
-                                        }}
+                                        className="text-[11px] px-2.5 py-0.5 rounded-full bg-blue-500/[0.12] text-blue-400 border border-blue-500/25"
                                     >
                                         {pack}
                                     </span>
                                 )) : (
-                                    <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{t('enterprise.packs.noActivatedPacks')}</span>
+                                    <span className="text-xs text-content-tertiary">{t('enterprise.packs.noActivatedPacks')}</span>
                                 )}
                             </div>
                         </div>
 
                         <div>
-                            <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '6px' }}>{t('agent.capability.recentTools')}</div>
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                            <div className="text-xs font-semibold mb-1.5">{t('agent.capability.recentTools')}</div>
+                            <div className="flex flex-wrap gap-1.5">
                                 {runtimeSummary.used_tools.length > 0 ? runtimeSummary.used_tools.map((tool: string) => (
                                     <span
                                         key={tool}
-                                        style={{
-                                            fontSize: '11px',
-                                            padding: '3px 10px',
-                                            borderRadius: '4px',
-                                            background: 'var(--bg-secondary)',
-                                            color: 'var(--text-secondary)',
-                                            border: '1px solid var(--border-subtle)',
-                                            fontFamily: 'var(--font-mono)',
-                                        }}
+                                        className="text-[11px] px-2.5 py-0.5 rounded bg-surface-secondary text-content-secondary border border-edge-subtle font-mono"
                                     >
                                         {tool}
                                     </span>
                                 )) : (
-                                    <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{t('enterprise.packs.noUsedTools')}</span>
+                                    <span className="text-xs text-content-tertiary">{t('enterprise.packs.noUsedTools')}</span>
                                 )}
                             </div>
                         </div>
 
-                        <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
-                            <div style={{ minWidth: '180px' }}>
-                                <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '6px' }}>{t('agent.capability.recentBlocks')}</div>
+                        <div className="flex gap-4 flex-wrap">
+                            <div className="min-w-[180px]">
+                                <div className="text-xs font-semibold mb-1.5">{t('agent.capability.recentBlocks')}</div>
                                 {runtimeSummary.blocked_capabilities.length > 0 ? (
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                    <div className="flex flex-col gap-1.5">
                                         {runtimeSummary.blocked_capabilities.map((item: any, index: number) => (
                                             <div
                                                 key={`${item.tool || 'unknown'}-${index}`}
-                                                style={{
-                                                    padding: '8px 10px',
-                                                    borderRadius: '8px',
-                                                    background: 'rgba(245,158,11,0.10)',
-                                                    border: '1px solid rgba(245,158,11,0.20)',
-                                                    fontSize: '11px',
-                                                    color: 'var(--text-secondary)',
-                                                }}
+                                                className="px-2.5 py-2 rounded-lg bg-amber-400/10 border border-amber-400/20 text-[11px] text-content-secondary"
                                             >
-                                                <div style={{ fontWeight: 600 }}>{item.capability || item.tool || 'blocked'}</div>
-                                                <div style={{ color: 'var(--text-tertiary)', marginTop: '2px' }}>
+                                                <div className="font-semibold">{item.capability || item.tool || 'blocked'}</div>
+                                                <div className="text-content-tertiary mt-0.5">
                                                     {item.tool ? `${item.tool} · ` : ''}{item.status}
                                                 </div>
                                             </div>
                                         ))}
                                     </div>
                                 ) : (
-                                    <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{t('enterprise.packs.noBlockedCapabilities')}</span>
+                                    <span className="text-xs text-content-tertiary">{t('enterprise.packs.noBlockedCapabilities')}</span>
                                 )}
                             </div>
 
-                            <div style={{ minWidth: '180px' }}>
-                                <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '6px' }}>{t('agent.capability.recentCompactions')}</div>
-                                <div
-                                    style={{
-                                        padding: '10px 12px',
-                                        borderRadius: '8px',
-                                        background: 'var(--bg-secondary)',
-                                        border: '1px solid var(--border-subtle)',
-                                        fontSize: '20px',
-                                        fontWeight: 700,
-                                    }}
-                                >
+                            <div className="min-w-[180px]">
+                                <div className="text-xs font-semibold mb-1.5">{t('agent.capability.recentCompactions')}</div>
+                                <div className="px-3 py-2.5 rounded-lg bg-surface-secondary border border-edge-subtle text-xl font-bold">
                                     {runtimeSummary.compaction_count}
                                 </div>
                             </div>
