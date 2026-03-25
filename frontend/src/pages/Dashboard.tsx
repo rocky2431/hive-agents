@@ -4,336 +4,126 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { agentApi, taskApi, activityApi } from '../services/api';
 import type { Agent, Task } from '../types';
-
-/* ────── Inline SVG Icons (monochrome) ────── */
-
-const Icons = {
-    users: (
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="6" cy="5" r="2.5" />
-            <path d="M1.5 14v-1a3.5 3.5 0 017 0v1" />
-            <circle cx="11.5" cy="5.5" r="2" />
-            <path d="M14.5 14v-.5a3 3 0 00-3-3" />
-        </svg>
-    ),
-    tasks: (
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="2" y="2" width="12" height="12" rx="2" />
-            <path d="M5.5 8l2 2 3.5-3.5" />
-        </svg>
-    ),
-    zap: (
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M8.5 1.5L3 9h4.5l-.5 5.5L13 7H8.5l.5-5.5z" />
-        </svg>
-    ),
-    clock: (
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="8" cy="8" r="6" />
-            <path d="M8 4.5V8l2.5 1.5" />
-        </svg>
-    ),
-    activity: (
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M1 8h3l2-5 3 10 2-5h4" />
-        </svg>
-    ),
-    plus: (
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-            <path d="M8 3v10M3 8h10" />
-        </svg>
-    ),
-    bot: (
-        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="5" width="12" height="10" rx="2" />
-            <circle cx="7" cy="10" r="1" fill="currentColor" stroke="none" />
-            <circle cx="11" cy="10" r="1" fill="currentColor" stroke="none" />
-            <path d="M9 2v3M6 2h6" />
-        </svg>
-    ),
-};
-
-/* ────── Helpers ────── */
-
-const timeAgo = (dateStr: string | undefined, t: any) => {
-    if (!dateStr) return '-';
-    const diff = Date.now() - new Date(dateStr).getTime();
-    const mins = Math.floor(diff / 60000);
-    if (mins < 1) return t('dashboard.justNow');
-    if (mins < 60) return t('dashboard.minutesAgo', { count: mins });
-    const hours = Math.floor(mins / 60);
-    if (hours < 24) return t('dashboard.hoursAgo', { count: hours });
-    return t('dashboard.daysAgo', { count: Math.floor(hours / 24) });
-};
-
-const priorityColor = (p: string) => {
-    switch (p) {
-        case 'urgent': return 'var(--error)';
-        case 'high': return 'var(--warning)';
-        case 'medium': return 'var(--accent-primary)';
-        default: return 'var(--text-tertiary)';
-    }
-};
-
-const statusLabel = (s: string, t: any) => {
-    switch (s) {
-        case 'running': return t('dashboard.status.running');
-        case 'idle': return t('dashboard.status.idle');
-        case 'stopped': return t('dashboard.status.stopped');
-        case 'error': return t('dashboard.status.error');
-        case 'creating': return t('dashboard.status.creating');
-        case 'disconnected': return t('dashboard.status.disconnected');
-        default: return s;
-    }
-};
-
-const statusColor = (s: string) => {
-    switch (s) {
-        case 'running': return 'var(--status-running)';
-        case 'idle': return 'var(--status-idle)';
-        case 'error': return 'var(--status-error)';
-        case 'stopped': return 'var(--status-stopped)';
-        default: return 'var(--text-tertiary)';
-    }
-};
-
 import { formatTokens } from '@/lib/format';
+import { formatRelative } from '@/lib/date';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
+import { AgentAvatar } from '@/components/domain/agent-avatar';
+import { AgentStatusBadge } from '@/components/domain/agent-status-badge';
+import { TokenUsageBar } from '@/components/domain/token-usage-bar';
+import { EmptyState } from '@/components/domain/empty-state';
 
-/* ────── Summary Stats Bar ────── */
+/* ── Stats Bar ── */
 
 function StatsBar({ agents, allTasks }: { agents: Agent[]; allTasks: Task[] }) {
     const { t } = useTranslation();
-    const totalAgents = agents.length;
     const activeAgents = agents.filter(a => a.status === 'running' || a.status === 'idle').length;
-    const pendingTasks = allTasks.filter(t => t.status === 'pending' || t.status === 'doing').length;
-    const completedToday = allTasks.filter(t => {
-        if (t.status !== 'done' || !t.completed_at) return false;
-        const today = new Date();
-        const completed = new Date(t.completed_at);
-        return completed.toDateString() === today.toDateString();
+    const pendingTasks = allTasks.filter(tk => tk.status === 'pending' || tk.status === 'doing').length;
+    const completedToday = allTasks.filter(tk => {
+        if (tk.status !== 'done' || !tk.completed_at) return false;
+        return new Date(tk.completed_at).toDateString() === new Date().toDateString();
     }).length;
     const totalTokensToday = agents.reduce((sum, a) => sum + (a.tokens_used_today || 0), 0);
-    const recentlyActive = agents.filter(a => {
-        if (!a.last_active_at) return false;
-        return Date.now() - new Date(a.last_active_at).getTime() < 3600000;
-    }).length;
+    const recentlyActive = agents.filter(a => a.last_active_at && Date.now() - new Date(a.last_active_at).getTime() < 3600000).length;
 
     const stats = [
-        { icon: Icons.users, label: t('dashboard.stats.agents'), value: totalAgents, sub: t('dashboard.stats.online', { count: activeAgents }) },
-        { icon: Icons.tasks, label: t('dashboard.stats.activeTasks'), value: pendingTasks, sub: t('dashboard.stats.completedToday', { count: completedToday }) },
-        { icon: Icons.zap, label: t('dashboard.stats.todayTokens'), value: formatTokens(totalTokensToday), sub: t('dashboard.stats.allAgentsTotal') },
-        { icon: Icons.clock, label: t('dashboard.stats.recentlyActive'), value: recentlyActive, sub: t('dashboard.stats.lastHour') },
+        { label: t('dashboard.stats.agents'), value: agents.length, sub: t('dashboard.stats.online', { count: activeAgents }) },
+        { label: t('dashboard.stats.activeTasks'), value: pendingTasks, sub: t('dashboard.stats.completedToday', { count: completedToday }) },
+        { label: t('dashboard.stats.todayTokens'), value: formatTokens(totalTokensToday), sub: t('dashboard.stats.allAgentsTotal') },
+        { label: t('dashboard.stats.recentlyActive'), value: recentlyActive, sub: t('dashboard.stats.lastHour') },
     ];
 
     return (
-        <div style={{
-            display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1px',
-            background: 'var(--border-subtle)', borderRadius: 'var(--radius-lg)',
-            overflow: 'hidden', marginBottom: '24px',
-            border: '1px solid var(--border-subtle)',
-        }}>
+        <div className="mb-6 grid grid-cols-4 gap-px overflow-hidden rounded-lg border border-edge-subtle bg-edge-subtle">
             {stats.map((s, i) => (
-                <div key={i} style={{
-                    background: 'var(--bg-secondary)', padding: '16px 20px',
-                    display: 'flex', flexDirection: 'column', gap: '2px',
-                }}>
-                    <div style={{
-                        fontSize: '12px', color: 'var(--text-tertiary)',
-                        display: 'flex', alignItems: 'center', gap: '6px',
-                        marginBottom: '4px',
-                    }}>
-                        <span style={{ display: 'flex', opacity: 0.7 }}>{s.icon}</span> {s.label}
-                    </div>
-                    <div style={{ fontSize: '24px', fontWeight: 600, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
-                        {s.value}
-                    </div>
-                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{s.sub}</div>
+                <div key={i} className="flex flex-col gap-0.5 bg-surface-secondary px-5 py-4">
+                    <span className="text-xs text-content-tertiary">{s.label}</span>
+                    <span className="text-2xl font-semibold tracking-tight text-content-primary tabular-nums">{s.value}</span>
+                    <span className="text-[11px] text-content-tertiary">{s.sub}</span>
                 </div>
             ))}
         </div>
     );
 }
 
-/* ────── Agent Row ────── */
+/* ── Agent Row ── */
 
-function AgentRow({ agent, tasks, recentActivity }: {
-    agent: Agent;
-    tasks: Task[];
-    recentActivity: any[];
-}) {
+function AgentRow({ agent, tasks, recentActivity }: { agent: Agent; tasks: Task[]; recentActivity: any[] }) {
     const { t } = useTranslation();
     const navigate = useNavigate();
-    const pendingTasks = tasks.filter(t => t.status === 'pending' || t.status === 'doing');
+    const pendingTasks = tasks.filter(tk => tk.status === 'pending' || tk.status === 'doing');
     const latestActivity = recentActivity[0];
 
-    // Token usage bar
-    const maxTokens = agent.max_tokens_per_day || 0;
-    const usedTokens = agent.tokens_used_today || 0;
-    const tokenPct = maxTokens > 0 ? Math.min(100, (usedTokens / maxTokens) * 100) : 0;
-
     return (
-        <div
+        <button
             onClick={() => navigate(`/agents/${agent.id}`)}
-            style={{
-                display: 'grid',
-                gridTemplateColumns: '220px 1fr 150px 100px',
-                alignItems: 'center', gap: '16px',
-                padding: '12px 16px',
-                borderRadius: 'var(--radius-md)',
-                cursor: 'pointer', transition: 'background 120ms ease',
-            }}
-            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--bg-hover)'; }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+            className="grid w-full cursor-pointer grid-cols-[220px_1fr_150px_100px] items-center gap-4 rounded-md px-4 py-3 text-left transition-colors hover:bg-surface-hover"
         >
-            {/* Agent Info */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
-                <div style={{
-                    width: '32px', height: '32px', borderRadius: 'var(--radius-md)',
-                    background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    color: 'var(--text-tertiary)', flexShrink: 0,
-                }}>
-                    {Icons.bot}
-                </div>
-                <div style={{ minWidth: 0 }}>
-                    <div style={{
-                        fontWeight: 500, fontSize: '13px', display: 'flex',
-                        alignItems: 'center', gap: '8px', color: 'var(--text-primary)',
-                    }}>
+            <div className="flex min-w-0 items-center gap-2.5">
+                <AgentAvatar name={agent.name} avatarUrl={agent.avatar_url} status={agent.status} size="md" showStatusDot />
+                <div className="min-w-0">
+                    <div className="flex items-center gap-2 text-sm font-medium text-content-primary">
                         {agent.name}
-                        <span style={{
-                            display: 'inline-flex', alignItems: 'center', gap: '4px',
-                            fontSize: '11px', fontWeight: 400,
-                            color: statusColor(agent.status),
-                        }}>
-                            <span style={{
-                                width: '6px', height: '6px', borderRadius: '50%',
-                                background: statusColor(agent.status),
-                                display: 'inline-block',
-                            }} />
-                            {statusLabel(agent.status, t)}
-                        </span>
+                        <AgentStatusBadge status={agent.status} isExpired={agent.is_expired} />
                     </div>
-                    <div style={{
-                        fontSize: '12px', color: 'var(--text-tertiary)',
-                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                    }}>
-                        {agent.role_description || '-'}
-                    </div>
+                    <div className="truncate text-xs text-content-tertiary">{agent.role_description || '-'}</div>
                 </div>
             </div>
 
-            {/* Latest Activity / Tasks */}
-            <div style={{ minWidth: 0 }}>
+            <div className="min-w-0">
                 {latestActivity ? (
-                    <div style={{
-                        fontSize: '12px', color: 'var(--text-secondary)',
-                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                    }}>
-                        <span style={{ color: 'var(--text-tertiary)', marginRight: '6px' }}>
-                            {timeAgo(latestActivity.created_at, t)}
-                        </span>
+                    <div className="truncate text-xs text-content-secondary">
+                        <span className="mr-1.5 text-content-tertiary">{formatRelative(latestActivity.created_at)}</span>
                         {latestActivity.summary}
                     </div>
                 ) : (
-                    <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{t('dashboard.noActivity')}</div>
+                    <span className="text-xs text-content-tertiary">{t('dashboard.noActivity')}</span>
                 )}
                 {pendingTasks.length > 0 && (
-                    <div style={{ display: 'flex', gap: '4px', marginTop: '4px', flexWrap: 'wrap' }}>
-                        {pendingTasks.slice(0, 3).map(t => (
-                            <span key={t.id} style={{
-                                fontSize: '11px', padding: '1px 6px',
-                                borderRadius: 'var(--radius-sm)', background: 'var(--bg-tertiary)',
-                                color: 'var(--text-secondary)', maxWidth: '140px',
-                                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                                display: 'inline-flex', alignItems: 'center', gap: '3px',
-                            }}>
-                                <span style={{ width: '4px', height: '4px', borderRadius: '50%', background: priorityColor(t.priority), flexShrink: 0 }} />
-                                {t.title}
+                    <div className="mt-1 flex flex-wrap gap-1">
+                        {pendingTasks.slice(0, 3).map(tk => (
+                            <span key={tk.id} className="inline-flex max-w-[140px] items-center gap-1 truncate rounded bg-surface-tertiary px-1.5 py-px text-[11px] text-content-secondary">
+                                {tk.title}
                             </span>
                         ))}
-                        {pendingTasks.length > 3 && (
-                            <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', padding: '1px 4px' }}>
-                                +{pendingTasks.length - 3}
-                            </span>
-                        )}
+                        {pendingTasks.length > 3 && <span className="text-[11px] text-content-tertiary px-1">+{pendingTasks.length - 3}</span>}
                     </div>
                 )}
             </div>
 
-            {/* Token Usage */}
-            <div>
-                <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '3px' }}>
-                    {formatTokens(usedTokens)}
-                    {maxTokens > 0 && <span style={{ opacity: 0.6 }}> / {formatTokens(maxTokens)}</span>}
-                </div>
-                {maxTokens > 0 ? (
-                    <div style={{
-                        height: '3px', background: 'var(--bg-tertiary)',
-                        borderRadius: '2px', overflow: 'hidden',
-                    }}>
-                        <div style={{
-                            height: '100%', borderRadius: '2px',
-                            width: `${tokenPct}%`,
-                            background: tokenPct > 80 ? 'var(--error)' : tokenPct > 50 ? 'var(--warning)' : 'var(--text-tertiary)',
-                            transition: 'width 0.3s',
-                        }} />
-                    </div>
-                ) : (
-                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', opacity: 0.5 }}>{t('dashboard.noLimit')}</div>
-                )}
-            </div>
+            <TokenUsageBar used={agent.tokens_used_today} max={agent.max_tokens_per_day ?? undefined} label="" variant="compact" />
 
-            {/* Last Active */}
-            <div style={{ textAlign: 'right', fontSize: '12px', color: 'var(--text-tertiary)' }}>
-                {timeAgo(agent.last_active_at, t)}
+            <div className="text-right text-xs text-content-tertiary tabular-nums">
+                {formatRelative(agent.last_active_at)}
             </div>
-        </div>
+        </button>
     );
 }
 
-/* ────── Recent Activity Feed ────── */
+/* ── Activity Feed ── */
 
 function ActivityFeed({ activities, agents }: { activities: any[]; agents: Agent[] }) {
     const { t } = useTranslation();
     const agentMap = new Map(agents.map(a => [a.id, a]));
 
     if (activities.length === 0) {
-        return (
-            <div style={{ textAlign: 'center', padding: '32px', color: 'var(--text-tertiary)', fontSize: '13px' }}>
-                {t('dashboard.noActivity')}
-            </div>
-        );
+        return <EmptyState title={t('dashboard.noActivity')} />;
     }
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
+        <div className="flex flex-col">
             {activities.map((act, i) => {
                 const agent = agentMap.get(act.agent_id);
                 return (
-                    <div key={act.id || i} style={{
-                        display: 'flex', gap: '12px', padding: '7px 12px',
-                        fontSize: '13px', alignItems: 'flex-start',
-                    }}>
-                        <span style={{
-                            color: 'var(--text-tertiary)', whiteSpace: 'nowrap',
-                            fontFamily: 'var(--font-mono)', fontSize: '11px',
-                            minWidth: '52px', paddingTop: '2px',
-                        }}>
-                            {timeAgo(act.created_at, t)}
+                    <div key={act.id || i} className="flex items-start gap-3 px-3 py-1.5 text-sm">
+                        <span className="min-w-[52px] shrink-0 pt-0.5 font-mono text-[11px] text-content-tertiary tabular-nums">
+                            {formatRelative(act.created_at)}
                         </span>
-                        <span style={{
-                            fontSize: '11px', padding: '1px 6px',
-                            borderRadius: 'var(--radius-sm)', background: 'var(--bg-tertiary)',
-                            color: 'var(--text-secondary)', whiteSpace: 'nowrap', flexShrink: 0,
-                            fontWeight: 500,
-                        }}>
+                        <span className="shrink-0 rounded bg-surface-tertiary px-1.5 py-px text-[11px] font-medium text-content-secondary">
                             {agent?.name || act.agent_id?.slice(0, 6)}
                         </span>
-                        <span style={{
-                            color: 'var(--text-secondary)', flex: 1,
-                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                        }}>
+                        <span className="min-w-0 flex-1 truncate text-content-secondary">
                             {act.summary}
                         </span>
                     </div>
@@ -343,7 +133,7 @@ function ActivityFeed({ activities, agents }: { activities: any[]; agents: Agent
     );
 }
 
-/* ────── Main Dashboard ────── */
+/* ── Main Dashboard ── */
 
 export default function Dashboard() {
     const { t } = useTranslation();
@@ -356,11 +146,9 @@ export default function Dashboard() {
         refetchInterval: 15000,
     });
 
-    // Fetch tasks & activities for all agents
     const [allTasks, setAllTasks] = useState<Task[]>([]);
     const [allActivities, setAllActivities] = useState<any[]>([]);
     const [agentActivities, setAgentActivities] = useState<Record<string, any[]>>({});
-
 
     useEffect(() => {
         if (agents.length === 0) return;
@@ -370,7 +158,7 @@ export default function Dashboard() {
                 const tasks: Task[] = [];
                 taskResults.forEach(r => { if (r.status === 'fulfilled') tasks.push(...r.value); });
                 setAllTasks(tasks);
-            } catch (e) { console.warn('[Dashboard] Failed to fetch tasks:', e); }
+            } catch {}
 
             try {
                 const actResults = await Promise.allSettled(agents.map(a => activityApi.list(a.id, 5)));
@@ -385,93 +173,61 @@ export default function Dashboard() {
                 activities.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
                 setAllActivities(activities.slice(0, 20));
                 setAgentActivities(perAgent);
-            } catch (e) { console.warn('[Dashboard] Failed to fetch activities:', e); }
+            } catch {}
         };
         fetchData();
         const interval = setInterval(fetchData, 30000);
         return () => clearInterval(interval);
     }, [agents.map(a => a.id).join(',')]);
 
-    // Group tasks by agent
     const tasksByAgent = new Map<string, Task[]>();
-    allTasks.forEach(t => {
-        if (!tasksByAgent.has(t.agent_id)) tasksByAgent.set(t.agent_id, []);
-        tasksByAgent.get(t.agent_id)!.push(t);
+    allTasks.forEach(tk => {
+        if (!tasksByAgent.has(tk.agent_id)) tasksByAgent.set(tk.agent_id, []);
+        tasksByAgent.get(tk.agent_id)!.push(tk);
     });
 
-    // Greeting
     const hour = new Date().getHours();
     const greeting = hour < 6 ? '🌙 ' + t('dashboard.greeting.lateNight') : hour < 12 ? '☀️ ' + t('dashboard.greeting.morning') : hour < 18 ? '🌤️ ' + t('dashboard.greeting.afternoon') : '🌙 ' + t('dashboard.greeting.evening');
 
     return (
         <div>
             {/* Header */}
-            <div style={{
-                display: 'flex', justifyContent: 'space-between',
-                alignItems: 'center', marginBottom: '28px',
-            }}>
+            <div className="mb-7 flex items-center justify-between">
                 <div>
-                    <h1 style={{ fontSize: '20px', fontWeight: 600, margin: 0, marginBottom: '2px', letterSpacing: '-0.02em' }}>
-                        {greeting}
-                    </h1>
-                    <p style={{ fontSize: '13px', color: 'var(--text-tertiary)', margin: 0 }}>
-                        {t('dashboard.totalAgents', { count: agents.length })}
-                    </p>
+                    <h1 className="text-xl font-semibold tracking-tight">{greeting}</h1>
+                    <p className="text-sm text-content-tertiary">{t('dashboard.totalAgents', { count: agents.length })}</p>
                 </div>
-                <button
-                    className="btn btn-primary"
-                    onClick={() => navigate('/agents/new')}
-                    style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-                >
-                    {Icons.plus} {t('nav.newAgent')}
-                </button>
+                <Button onClick={() => navigate('/agents/new')}>
+                    + {t('nav.newAgent')}
+                </Button>
             </div>
 
             {isLoading ? (
-                <div style={{ textAlign: 'center', padding: '60px', color: 'var(--text-tertiary)', fontSize: '13px' }}>
-                    {t('common.loading')}
+                <div className="flex flex-col gap-4">
+                    <div className="grid grid-cols-4 gap-3">
+                        {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-20 rounded-lg" />)}
+                    </div>
+                    <Skeleton className="h-64 rounded-lg" />
                 </div>
             ) : agents.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '80px' }}>
-                    <div style={{ color: 'var(--text-tertiary)', marginBottom: '4px', fontSize: '32px' }}>
-                        {Icons.bot}
-                    </div>
-                    <div style={{ color: 'var(--text-secondary)', marginBottom: '16px', fontSize: '14px' }}>
-                        {t('dashboard.noAgents')}
-                    </div>
-                    <button className="btn btn-primary" onClick={() => navigate('/agents/new')}>
-                        {Icons.plus} {t('nav.newAgent')}
-                    </button>
-                </div>
+                <EmptyState
+                    icon="🤖"
+                    title={t('dashboard.noAgents')}
+                    action={{ label: '+ ' + t('nav.newAgent'), onClick: () => navigate('/agents/new') }}
+                />
             ) : (
                 <>
-                    {/* Stats Bar */}
                     <StatsBar agents={agents} allTasks={allTasks} />
 
-                    {/* Agent List Card */}
-                    <div style={{
-                        border: '1px solid var(--border-subtle)',
-                        borderRadius: 'var(--radius-lg)',
-                        overflow: 'hidden',
-                        marginBottom: '32px',
-                    }}>
-                        {/* Agent List Header */}
-                        <div style={{
-                            display: 'grid',
-                            gridTemplateColumns: '220px 1fr 150px 100px',
-                            padding: '10px 16px',
-                            fontSize: '11px', color: 'var(--text-tertiary)', fontWeight: 500,
-                            textTransform: 'uppercase' as const, letterSpacing: '0.05em',
-                            borderBottom: '1px solid var(--border-subtle)',
-                        }}>
+                    {/* Agent List */}
+                    <Card className="mb-8 overflow-hidden">
+                        <div className="grid grid-cols-[220px_1fr_150px_100px] border-b border-edge-subtle px-4 py-2.5 text-[11px] font-medium uppercase tracking-wide text-content-tertiary">
                             <span>{t('dashboard.table.agent')}</span>
                             <span>{t('dashboard.table.latestActivity')}</span>
                             <span>{t('dashboard.table.token')}</span>
-                            <span style={{ textAlign: 'right' }}>{t('dashboard.table.active')}</span>
+                            <span className="text-right">{t('dashboard.table.active')}</span>
                         </div>
-
-                        {/* Agent Rows (scrollable) */}
-                        <div style={{ maxHeight: '350px', overflowY: 'auto' }}>
+                        <div className="max-h-[350px] overflow-y-auto">
                             {agents
                                 .sort((a, b) => {
                                     const aActive = a.status === 'running' || a.status === 'idle' ? 1 : 0;
@@ -490,31 +246,20 @@ export default function Dashboard() {
                                     />
                                 ))}
                         </div>
-                    </div>
+                    </Card>
 
-                    {/* Recent Activity */}
-                    <div style={{
-                        border: '1px solid var(--border-subtle)',
-                        borderRadius: 'var(--radius-lg)', overflow: 'hidden',
-                    }}>
-                        <div style={{
-                            padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)',
-                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                        }}>
-                            <h3 style={{
-                                margin: 0, fontSize: '13px', fontWeight: 500,
-                                display: 'flex', alignItems: 'center', gap: '6px',
-                                color: 'var(--text-secondary)',
-                            }}>
-                                <span style={{ display: 'flex', opacity: 0.6 }}>{Icons.activity}</span>
+                    {/* Activity Feed */}
+                    <Card className="overflow-hidden">
+                        <div className="flex items-center justify-between border-b border-edge-subtle px-4 py-3">
+                            <h3 className="flex items-center gap-1.5 text-sm font-medium text-content-secondary">
                                 {t('dashboard.globalActivity')}
                             </h3>
-                            <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{t('dashboard.recentCount', { count: 20 })}</span>
+                            <span className="text-[11px] text-content-tertiary">{t('dashboard.recentCount', { count: 20 })}</span>
                         </div>
-                        <div style={{ padding: '4px', maxHeight: '320px', overflowY: 'auto' }}>
+                        <div className="max-h-80 overflow-y-auto p-1">
                             <ActivityFeed activities={allActivities} agents={agents} />
                         </div>
-                    </div>
+                    </Card>
                 </>
             )}
         </div>
