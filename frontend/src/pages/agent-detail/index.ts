@@ -1,9 +1,11 @@
-/**
- * AgentDetail sub-components — extracted from the 5050-LOC monolith.
- * These are independently importable modules for gradual migration.
- */
 export { ConfigVersionHistory } from './config-version-history';
 export { CollaborationPanel } from './collaboration-panel';
 export { OpenClawGatewayPanel } from './openclaw-gateway-panel';
 export { PermissionUserPicker } from './permission-user-picker';
 export { AgentOperationsPanel } from './agent-operations-panel';
+export { MemoryInsightsPanel } from './memory-insights-panel';
+export { CapabilitiesView } from './capabilities-view';
+export { CapabilityPolicyManager } from './capability-policy-manager';
+export { RelationshipEditor } from './relationship-editor';
+export { FileEditorCard } from './file-editor-card';
+export { schedToCron, getRelationOptions, getAgentRelationOptions } from './helpers';

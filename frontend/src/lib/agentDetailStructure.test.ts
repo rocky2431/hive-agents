@@ -4,6 +4,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const agentDetailPath = path.resolve(process.cwd(), 'src/pages/AgentDetail.tsx');
+const agentDetailSubDir = path.resolve(process.cwd(), 'src/pages/agent-detail');
+function readAgentDetailModule(): string {
+    let src = fs.readFileSync(agentDetailPath, 'utf8');
+    if (fs.existsSync(agentDetailSubDir)) {
+        for (const f of fs.readdirSync(agentDetailSubDir)) {
+            if (f.endsWith('.tsx') || f.endsWith('.ts')) {
+                src += '\n' + fs.readFileSync(path.join(agentDetailSubDir, f), 'utf8');
+            }
+        }
+    }
+    return src;
+}
 const apiPath = path.resolve(process.cwd(), 'src/services/api.ts');
 const zhI18nPath = path.resolve(process.cwd(), 'src/i18n/zh.json');
 const enI18nPath = path.resolve(process.cwd(), 'src/i18n/en.json');
@@ -11,7 +23,7 @@ const enI18nPath = path.resolve(process.cwd(), 'src/i18n/en.json');
 const read = (filePath: string) => fs.readFileSync(filePath, 'utf8');
 
 test('AgentDetail uses capabilities tab instead of legacy tools tab', () => {
-    const source = read(agentDetailPath);
+    const source = readAgentDetailModule();
 
     assert.match(source, /const TABS = \['chat', 'overview', 'skills', 'activity', 'settings'\]/);
     assert.match(source, /useState<string>\(hashTab && validTabs\.includes\(hashTab\) \? hashTab : 'chat'\)/);
@@ -25,7 +37,7 @@ test('AgentDetail uses capabilities tab instead of legacy tools tab', () => {
 });
 
 test('AgentDetail removes legacy autonomy policy panel', () => {
-    const source = read(agentDetailPath);
+    const source = readAgentDetailModule();
 
     assert.doesNotMatch(source, /Legacy Autonomy Policy/);
     assert.doesNotMatch(source, /agent\.settings\.autonomy\.legacyTitle/);
@@ -49,7 +61,7 @@ test('i18n exposes the new chat-first tab labels', () => {
 });
 
 test('AgentDetail uses productized capability sections and normalized versioned API paths', () => {
-    const source = read(agentDetailPath);
+    const source = readAgentDetailModule();
     const apiSource = read(apiPath);
 
     assert.match(source, /agent\.capability\.sections\.skills/);
@@ -65,13 +77,13 @@ test('AgentDetail uses productized capability sections and normalized versioned 
 });
 
 test('AgentDetail does not contain dead bootstrap channel failure code', () => {
-    const source = read(agentDetailPath);
+    const source = readAgentDetailModule();
 
     assert.doesNotMatch(source, /bootstrapChannelFailures/);
 });
 
 test('AgentDetail persists backend governance fields in settings', () => {
-    const source = read(agentDetailPath);
+    const source = readAgentDetailModule();
 
     assert.match(source, /agent_class:\s*''/);
     assert.match(source, /security_zone:\s*'standard'/);
@@ -82,7 +94,7 @@ test('AgentDetail persists backend governance fields in settings', () => {
 });
 
 test('AgentDetail permission editor supports targeted scope_ids sharing', () => {
-    const source = read(agentDetailPath);
+    const source = readAgentDetailModule();
 
     assert.match(source, /scope_ids:\s*selectedPermissionUserIds/);
     assert.match(source, /agent\.settings\.perm\.specificUsers/);
@@ -91,7 +103,7 @@ test('AgentDetail permission editor supports targeted scope_ids sharing', () => 
 });
 
 test('AgentDetail exposes task, schedule, and trigger management APIs', () => {
-    const source = read(agentDetailPath);
+    const source = readAgentDetailModule();
 
     assert.match(source, /taskApi\.list/);
     assert.match(source, /taskApi\.create/);

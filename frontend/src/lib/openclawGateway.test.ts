@@ -4,12 +4,24 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const agentDetailPath = path.resolve(process.cwd(), 'src/pages/AgentDetail.tsx');
+const agentDetailSubDir = path.resolve(process.cwd(), 'src/pages/agent-detail');
+function readAgentDetailModule(): string {
+    let src = fs.readFileSync(agentDetailPath, 'utf8');
+    if (fs.existsSync(agentDetailSubDir)) {
+        for (const f of fs.readdirSync(agentDetailSubDir)) {
+            if (f.endsWith('.tsx') || f.endsWith('.ts')) {
+                src += '\n' + fs.readFileSync(path.join(agentDetailSubDir, f), 'utf8');
+            }
+        }
+    }
+    return src;
+}
 const zhI18nPath = path.resolve(process.cwd(), 'src/i18n/zh.json');
 const enI18nPath = path.resolve(process.cwd(), 'src/i18n/en.json');
 const read = (filePath: string) => fs.readFileSync(filePath, 'utf8');
 
 test('AgentDetail exposes OpenClaw gateway management actions', () => {
-    const source = read(agentDetailPath);
+    const source = readAgentDetailModule();
 
     assert.match(source, /agentApi\.generateApiKey/);
     assert.match(source, /agentApi\.gatewayMessages/);

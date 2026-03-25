@@ -6,6 +6,18 @@ import path from 'node:path';
 const apiPath = path.resolve(process.cwd(), 'src/services/api.ts');
 const chatPath = path.resolve(process.cwd(), 'src/pages/Chat.tsx');
 const agentDetailPath = path.resolve(process.cwd(), 'src/pages/AgentDetail.tsx');
+const agentDetailSubDir = path.resolve(process.cwd(), 'src/pages/agent-detail');
+function readAgentDetailModule(): string {
+    let src = fs.readFileSync(agentDetailPath, 'utf8');
+    if (fs.existsSync(agentDetailSubDir)) {
+        for (const f of fs.readdirSync(agentDetailSubDir)) {
+            if (f.endsWith('.tsx') || f.endsWith('.ts')) {
+                src += '\n' + fs.readFileSync(path.join(agentDetailSubDir, f), 'utf8');
+            }
+        }
+    }
+    return src;
+}
 const plazaPath = path.resolve(process.cwd(), 'src/pages/Plaza.tsx');
 const adminCompaniesPath = path.resolve(process.cwd(), 'src/pages/AdminCompanies.tsx');
 const enterpriseSettingsPath = path.resolve(process.cwd(), 'src/pages/EnterpriseSettings.tsx');
@@ -29,7 +41,7 @@ test('frontend api surface no longer exports legacy toolApi', () => {
 test('frontend pages normalize legacy direct API paths to /api/v1', () => {
     const apiSource = readFile(apiPath);
     const chatSource = readFile(chatPath);
-    const agentDetailSource = readFile(agentDetailPath);
+    const agentDetailSource = readAgentDetailModule();
     const plazaSource = readFile(plazaPath);
     const adminCompaniesSource = readFile(adminCompaniesPath);
     const enterpriseSettingsSource = readFile(enterpriseSettingsPath);

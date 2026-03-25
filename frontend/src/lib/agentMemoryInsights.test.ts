@@ -5,6 +5,18 @@ import path from 'node:path';
 
 const apiPath = path.resolve(process.cwd(), 'src/services/api.ts');
 const agentDetailPath = path.resolve(process.cwd(), 'src/pages/AgentDetail.tsx');
+const agentDetailSubDir = path.resolve(process.cwd(), 'src/pages/agent-detail');
+function readAgentDetailModule(): string {
+    let src = fs.readFileSync(agentDetailPath, 'utf8');
+    if (fs.existsSync(agentDetailSubDir)) {
+        for (const f of fs.readdirSync(agentDetailSubDir)) {
+            if (f.endsWith('.tsx') || f.endsWith('.ts')) {
+                src += '\n' + fs.readFileSync(path.join(agentDetailSubDir, f), 'utf8');
+            }
+        }
+    }
+    return src;
+}
 const zhI18nPath = path.resolve(process.cwd(), 'src/i18n/zh.json');
 const enI18nPath = path.resolve(process.cwd(), 'src/i18n/en.json');
 
@@ -19,7 +31,7 @@ test('enterpriseApi exposes structured memory and session summary endpoints', ()
 });
 
 test('AgentDetail renders memory insights backed by the memory endpoints', () => {
-    const source = read(agentDetailPath);
+    const source = readAgentDetailModule();
 
     assert.match(source, /function MemoryInsightsPanel/);
     assert.match(source, /enterpriseApi\.agentMemory/);

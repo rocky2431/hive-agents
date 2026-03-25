@@ -7,6 +7,18 @@ const apiPath = path.resolve(process.cwd(), 'src/services/api.ts');
 const plazaPath = path.resolve(process.cwd(), 'src/pages/Plaza.tsx');
 const chatPath = path.resolve(process.cwd(), 'src/pages/Chat.tsx');
 const agentDetailPath = path.resolve(process.cwd(), 'src/pages/AgentDetail.tsx');
+const agentDetailSubDir = path.resolve(process.cwd(), 'src/pages/agent-detail');
+function readAgentDetailModule(): string {
+    let src = fs.readFileSync(agentDetailPath, 'utf8');
+    if (fs.existsSync(agentDetailSubDir)) {
+        for (const f of fs.readdirSync(agentDetailSubDir)) {
+            if (f.endsWith('.tsx') || f.endsWith('.ts')) {
+                src += '\n' + fs.readFileSync(path.join(agentDetailSubDir, f), 'utf8');
+            }
+        }
+    }
+    return src;
+}
 
 const read = (filePath: string) => fs.readFileSync(filePath, 'utf8');
 
@@ -41,7 +53,7 @@ test('Plaza page uses plazaApi and no longer sends forged author identity fields
 
 test('chat upload flows use shared chatApi helper instead of inline upload endpoints', () => {
     const chatSource = read(chatPath);
-    const agentDetailSource = read(agentDetailPath);
+    const agentDetailSource = readAgentDetailModule();
 
     assert.match(chatSource, /chatApi\.uploadAttachment/);
     assert.match(agentDetailSource, /chatApi\.uploadAttachment/);

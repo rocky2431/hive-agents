@@ -5,6 +5,18 @@ import path from 'node:path';
 
 const enterpriseSettingsPath = path.resolve(process.cwd(), 'src/pages/EnterpriseSettings.tsx');
 const agentDetailPath = path.resolve(process.cwd(), 'src/pages/AgentDetail.tsx');
+const agentDetailSubDir = path.resolve(process.cwd(), 'src/pages/agent-detail');
+function readAgentDetailModule(): string {
+    let src = fs.readFileSync(agentDetailPath, 'utf8');
+    if (fs.existsSync(agentDetailSubDir)) {
+        for (const f of fs.readdirSync(agentDetailSubDir)) {
+            if (f.endsWith('.tsx') || f.endsWith('.ts')) {
+                src += '\n' + fs.readFileSync(path.join(agentDetailSubDir, f), 'utf8');
+            }
+        }
+    }
+    return src;
+}
 const apiPath = path.resolve(process.cwd(), 'src/services/api.ts');
 const typesPath = path.resolve(process.cwd(), 'src/types/index.ts');
 
@@ -19,7 +31,7 @@ test('EnterpriseSettings scopes org sync config and trigger requests to the sele
 });
 
 test('AgentDetail scopes relationship searches and candidate agents to the agent tenant', () => {
-    const source = read(agentDetailPath);
+    const source = readAgentDetailModule();
     const apiSource = read(apiPath);
 
     assert.match(source, /const relationshipTenantId = localStorage\.getItem\('current_tenant_id'\) \|\| '';/);

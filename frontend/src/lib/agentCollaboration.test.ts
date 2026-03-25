@@ -5,6 +5,18 @@ import path from 'node:path';
 
 const apiPath = path.resolve(process.cwd(), 'src/services/api.ts');
 const agentDetailPath = path.resolve(process.cwd(), 'src/pages/AgentDetail.tsx');
+const agentDetailSubDir = path.resolve(process.cwd(), 'src/pages/agent-detail');
+function readAgentDetailModule(): string {
+    let src = fs.readFileSync(agentDetailPath, 'utf8');
+    if (fs.existsSync(agentDetailSubDir)) {
+        for (const f of fs.readdirSync(agentDetailSubDir)) {
+            if (f.endsWith('.tsx') || f.endsWith('.ts')) {
+                src += '\n' + fs.readFileSync(path.join(agentDetailSubDir, f), 'utf8');
+            }
+        }
+    }
+    return src;
+}
 const zhI18nPath = path.resolve(process.cwd(), 'src/i18n/zh.json');
 const enI18nPath = path.resolve(process.cwd(), 'src/i18n/en.json');
 
@@ -19,7 +31,7 @@ test('agentApi exposes collaboration and handover endpoints', () => {
 });
 
 test('AgentDetail renders collaboration actions backed by the API surface', () => {
-    const source = read(agentDetailPath);
+    const source = readAgentDetailModule();
 
     assert.match(source, /agentDetail\.collaborationTitle/);
     assert.match(source, /agentDetail\.delegateTask/);
