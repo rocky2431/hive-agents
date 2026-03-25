@@ -306,7 +306,7 @@ function PlatformSettings() {
         fetchJson<any>('/enterprise/system-settings/platform')
             .then(d => {
                 if (d.value?.public_base_url) setPublicBaseUrl(d.value.public_base_url);
-            }).catch(() => { });
+            }).catch(() => { /* non-critical: platform settings use defaults if unavailable */ });
     }, []);
 
     const handleSave = async () => {
@@ -345,7 +345,7 @@ function PlatformSettings() {
 
 // ─── Main Component ────────────────────────────────
 // ─── Enterprise KB Browser ─────────────────────────
-function EnterpriseKBBrowser({ onRefresh }: { onRefresh: () => void; refreshKey: number }) {
+function EnterpriseKBBrowser({ onRefresh }: { onRefresh: () => void }) {
     const kbAdapter: FileBrowserApi = {
         list: (path) => enterpriseApi.kbFiles(path),
         read: (path) => enterpriseApi.kbRead(path),
@@ -849,7 +849,7 @@ function NotificationBarConfig() {
                     setText(d.value.text || '');
                 }
             })
-            .catch(() => { });
+            .catch(() => { /* non-critical: notification bar settings default to disabled */ });
     }, []);
 
     const handleSave = async () => {
@@ -964,7 +964,7 @@ function CompanyNameEditor() {
         if (!tenantId) return;
         fetchJson<any>(`/tenants/${tenantId}`)
             .then(d => { if (d?.name) setName(d.name); })
-            .catch(() => { });
+            .catch(() => { /* non-critical: company name field stays empty if tenant fetch fails */ });
     }, [tenantId]);
 
     const handleSave = async () => {
@@ -1040,7 +1040,7 @@ function CompanyTimezoneEditor() {
         if (!tenantId) return;
         fetchJson<any>(`/tenants/${tenantId}`)
             .then(d => { if (d?.timezone) setTimezone(d.timezone); })
-            .catch(() => { });
+            .catch(() => { /* non-critical: timezone picker defaults to UTC if tenant fetch fails */ });
     }, [tenantId]);
 
     const handleSave = async (tz: string) => {
@@ -1216,7 +1216,7 @@ function MemoryTab({ models, tenantId }: { models: LLMModel[]; tenantId?: string
                 }));
             }
             setLoaded(true);
-        }).catch(() => setLoaded(true));
+        }).catch(() => { setLoaded(true); /* non-critical: memory config uses defaults if fetch fails */ });
     }, [tenantId]);
 
     const saveConfig = async () => {
@@ -1391,7 +1391,7 @@ export default function EnterpriseSettings() {
             setQuotaForm(defaultQuotaForm);
             fetchJson<any>(`/enterprise/tenant-quotas${selectedTenantId ? `?tenant_id=${selectedTenantId}` : ''}`).then(d => {
                 if (d && Object.keys(d).length) setQuotaForm(f => ({ ...f, ...d }));
-            }).catch(() => { });
+            }).catch(() => { /* non-critical: quota form uses defaults if fetch fails */ });
         }
     }, [activeTab, selectedTenantId]);
     const saveQuotas = async () => {
@@ -1421,7 +1421,7 @@ export default function EnterpriseSettings() {
                 }
                 // No fallback — each company starts empty with placeholder watermark
             })
-            .catch(() => { });
+            .catch(() => { /* non-critical: company intro starts empty if fetch fails */ });
     }, [selectedTenantId]);
 
     const saveCompanyIntro = async () => {
@@ -1618,7 +1618,7 @@ export default function EnterpriseSettings() {
                     }));
                 }
                 setSsoLoaded(true);
-            }).catch(() => { setSsoLoaded(true); });
+            }).catch(() => { setSsoLoaded(true); /* non-critical: SSO form shows empty config if fetch fails */ });
         }
     }, [activeTab, selectedTenantId]);
 
@@ -2761,7 +2761,7 @@ export default function EnterpriseSettings() {
                             {t('enterprise.kb.description', 'Shared files accessible to all agents via enterprise_info/ directory.')}
                         </p>
                         <div className="card" style={{ marginBottom: '24px', padding: '16px' }}>
-                            <EnterpriseKBBrowser onRefresh={() => setInfoRefresh((v: number) => v + 1)} refreshKey={infoRefresh} />
+                            <EnterpriseKBBrowser onRefresh={() => setInfoRefresh((v: number) => v + 1)} />
                         </div>
                     </div>
                 )}

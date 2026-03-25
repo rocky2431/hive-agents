@@ -108,10 +108,7 @@ export default function Chat() {
     // Load chat history on mount
     useEffect(() => {
         if (!id || !token) return;
-        fetch(`/api/v1/chat/${id}/history`, {
-            headers: { Authorization: `Bearer ${token}` },
-        })
-            .then(r => r.json())
+        chatApi.history(id)
             .then((history: any[]) => {
                 if (history.length > 0) {
                     setMessages(history.map((entry) => hydrateTimelineMessage(entry, {
@@ -238,8 +235,8 @@ export default function Chat() {
                 // Non-vision model — just reference the file path
                 const wsPath = attachedFile.path || '';
                 contentForLLM = userMsg
-                    ? `[图片文件已上传: ${attachedFile.name}，保存在 ${wsPath}]\n\n${userMsg}`
-                    : `[图片文件已上传: ${attachedFile.name}，保存在 ${wsPath}]\n请描述或处理这个图片文件。你可以使用 read_document 工具读取它。`;
+                    ? `[${t('chat.imageUploaded', 'Image uploaded')}: ${attachedFile.name}, ${t('chat.savedAt', 'saved at')} ${wsPath}]\n\n${userMsg}`
+                    : `[${t('chat.imageUploaded', 'Image uploaded')}: ${attachedFile.name}, ${t('chat.savedAt', 'saved at')} ${wsPath}]\n${t('chat.analyzeImageFile', 'Please describe or process this image file. You can use the read_document tool to read it.')}`;
                 userMsg = userMsg || `${t('chat.imageLabel')} ${attachedFile.name}`;
             } else {
                 const wsPath = attachedFile.path || '';
@@ -248,7 +245,7 @@ export default function Chat() {
                 const fileContext = `${t('chat.fileLabel')} ${attachedFile.name}]${fileLoc}\n\n${attachedFile.text}`;
                 contentForLLM = userMsg
                     ? `${fileContext}\n\n${t('chat.userQuestion')} ${userMsg}`
-                    : `请阅读并分析以下文件内容:\n\n${fileContext}`;
+                    : `${t('chat.analyzeFileContent', 'Please read and analyze the following file content')}:\n\n${fileContext}`;
                 userMsg = userMsg || `[${t('agent.chat.attachment')}] ${attachedFile.name}`;
             }
         }

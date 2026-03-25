@@ -3,7 +3,7 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '../stores';
-import { adminApi, agentApi } from '../services/api';
+import { adminApi, agentApi, authApi, notificationApi } from '../services/api';
 
 /* ────── SVG Icons ────── */
 const SidebarIcons = {
@@ -69,12 +69,6 @@ const SidebarIcons = {
     ),
 };
 
-const fetchJson = async <T,>(url: string): Promise<T> => {
-    const token = localStorage.getItem('token');
-    const res = await fetch(`/api${url}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
-    if (!res.ok) return [] as T;
-    return res.json();
-};
 
 /* Compute display badge status for an agent */
 const getAgentBadgeStatus = (agent: any): string | null => {
@@ -109,18 +103,11 @@ function AccountSettingsModal({ user, onClose }: { user: any; onClose: () => voi
     const handleSaveProfile = async () => {
         setSaving(true);
         try {
-            const token = localStorage.getItem('token');
             const body: any = {};
             if (username !== user?.username) body.username = username;
             if (displayName !== user?.display_name) body.display_name = displayName;
             if (Object.keys(body).length === 0) { showMsg(t('account.noChanges'), 'error'); setSaving(false); return; }
-            const res = await fetch('/api/v1/auth/me', {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                body: JSON.stringify(body),
-            });
-            if (!res.ok) { const err = await res.json().catch(() => ({ detail: 'Failed' })); throw new Error(err.detail); }
-            const updated = await res.json();
+            const updated = await authApi.updateMe(body);
             setUser(updated);
             showMsg(t('account.profileUpdated'));
         } catch (e: any) { showMsg(e.message || 'Failed', 'error'); }
@@ -133,13 +120,7 @@ function AccountSettingsModal({ user, onClose }: { user: any; onClose: () => voi
         if (newPassword !== confirmPassword) { showMsg(t('account.passwordMismatch'), 'error'); return; }
         setSaving(true);
         try {
-            const token = localStorage.getItem('token');
-            const res = await fetch('/api/v1/auth/me/password', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                body: JSON.stringify({ old_password: oldPassword, new_password: newPassword }),
-            });
-            if (!res.ok) { const err = await res.json().catch(() => ({ detail: 'Failed' })); throw new Error(err.detail); }
+            await authApi.changePassword({ current_password: oldPassword, new_password: newPassword });
             showMsg(t('account.passwordChanged'));
             setOldPassword(''); setNewPassword(''); setConfirmPassword('');
         } catch (e: any) { showMsg(e.message || 'Failed', 'error'); }
@@ -190,26 +171,24 @@ export default function Layout() {
     const { data: unreadCount = 0 } = useQuery({
         queryKey: ['notifications-unread'],
         queryFn: async () => {
-            const res = await fetchJson<{ unread_count: number }>('/notifications/unread-count');
-            return (res as any)?.unread_count || 0;
+            const res = await notificationApi.unreadCount();
+            return res?.count || 0;
         },
         refetchInterval: 30000,
         enabled: !!user,
     });
     const { data: notifications = [], refetch: refetchNotifications } = useQuery({
         queryKey: ['notifications'],
-        queryFn: () => fetchJson<any[]>('/notifications?limit=30'),
+        queryFn: () => notificationApi.list(),
         enabled: !!user && showNotifications,
     });
     const markAllRead = async () => {
-        const token = localStorage.getItem('token');
-        await fetch('/api/v1/notifications/read-all', { method: 'POST', headers: token ? { Authorization: `Bearer ${token}` } : {} });
+        await notificationApi.markAllRead();
         queryClient.invalidateQueries({ queryKey: ['notifications-unread'] });
         queryClient.invalidateQueries({ queryKey: ['notifications'] });
     };
     const markOneRead = async (id: string) => {
-        const token = localStorage.getItem('token');
-        await fetch(`/api/v1/notifications/${id}/read`, { method: 'POST', headers: token ? { Authorization: `Bearer ${token}` } : {} });
+        await notificationApi.markRead(id);
         queryClient.invalidateQueries({ queryKey: ['notifications-unread'] });
         queryClient.invalidateQueries({ queryKey: ['notifications'] });
     };

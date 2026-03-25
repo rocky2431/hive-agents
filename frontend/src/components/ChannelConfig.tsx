@@ -788,7 +788,8 @@ export default function ChannelConfig({ mode, agentId, canManage = true, values,
                                             setEditing(ch.id, true);
                                         }}>{t('channel.edit')}</button>
                                     <button className="btn btn-danger" style={{ fontSize: '12px', padding: '4px 12px' }}
-                                        onClick={() => deleteMutation.mutate({ ch })}>{t('channel.disconnect')}</button>
+                                        onClick={() => deleteMutation.mutate({ ch })}
+                                        disabled={deleteMutation.isPending}>{deleteMutation.isPending ? t('common.loading') : t('channel.disconnect')}</button>
                                 </div>
                             </div>
                         ) : (

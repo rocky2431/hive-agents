@@ -21,7 +21,7 @@ export default function CompanySetup() {
         // Check if self-creation is allowed
         tenantApi.registrationConfig().then((d: any) => {
             setAllowCreate(d.allow_self_create_company);
-        }).catch(() => {});
+        }).catch(() => { /* non-critical: defaults to allowCreate=true if config unavailable */ });
     }, []);
 
     // If user already has a company, redirect home

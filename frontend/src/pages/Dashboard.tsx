@@ -97,12 +97,7 @@ const statusColor = (s: string) => {
     }
 };
 
-const formatTokens = (n: number) => {
-    if (!n) return '0';
-    if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
-    if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
-    return String(n);
-};
+import { formatTokens } from '@/lib/format';
 
 /* ────── Summary Stats Bar ────── */
 
@@ -375,7 +370,7 @@ export default function Dashboard() {
                 const tasks: Task[] = [];
                 taskResults.forEach(r => { if (r.status === 'fulfilled') tasks.push(...r.value); });
                 setAllTasks(tasks);
-            } catch (e) { console.error('Failed to fetch tasks:', e); }
+            } catch (e) { console.warn('[Dashboard] Failed to fetch tasks:', e); }
 
             try {
                 const actResults = await Promise.allSettled(agents.map(a => activityApi.list(a.id, 5)));
@@ -390,7 +385,7 @@ export default function Dashboard() {
                 activities.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
                 setAllActivities(activities.slice(0, 20));
                 setAgentActivities(perAgent);
-            } catch (e) { console.error('Failed to fetch activities:', e); }
+            } catch (e) { console.warn('[Dashboard] Failed to fetch activities:', e); }
         };
         fetchData();
         const interval = setInterval(fetchData, 30000);

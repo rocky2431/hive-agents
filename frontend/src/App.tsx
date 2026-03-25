@@ -34,7 +34,7 @@ function NotificationBar() {
         fetch('/api/v1/enterprise/system-settings/notification_bar/public')
             .then(r => r.ok ? r.json() : null)
             .then(d => { if (d) setConfig(d); })
-            .catch(() => { });
+            .catch(() => { /* non-critical: notification bar hidden if endpoint unavailable */ });
     }, []);
 
     // Check sessionStorage for dismissal (keyed by text so new messages re-show)

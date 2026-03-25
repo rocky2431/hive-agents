@@ -11,19 +11,13 @@ import MarkdownRenderer from '../components/MarkdownRenderer';
 import PromptModal from '../components/PromptModal';
 import { applyStreamEvent, hydrateTimelineMessage, type TimelineMessage } from '../lib/chatParts.ts';
 import { normalizeMemoryFacts } from '../lib/memoryInsights.ts';
-import { activityApi, agentApi, capabilityApi, channelApi, chatApi, enterpriseApi, fileApi, packApi, scheduleApi, skillApi, taskApi, triggerApi } from '../services/api';
+import { activityApi, agentApi, capabilityApi, chatApi, configHistoryApi, enterpriseApi, fileApi, packApi, scheduleApi, skillApi } from '../services/api';
 import { useAuthStore } from '../stores';
 import type { ChatAttachment } from '../types';
 
 const TABS = ['chat', 'overview', 'skills', 'activity', 'settings'] as const;
 
-// Format large token numbers with K/M suffixes
-const formatTokens = (n: number) => {
-    if (!n) return '0';
-    if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
-    if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
-    return String(n);
-};
+import { formatTokens } from '@/lib/format';
 
 const getTimelineEventPresentation = (msg: TimelineMessage) => {
     if (msg.eventType === 'permission') {
@@ -54,36 +48,20 @@ function ConfigVersionHistory({ agentId }: { agentId: string }) {
     const qc = useQueryClient();
     const user = useAuthStore((s) => s.user);
     const canRollback = user?.role === 'platform_admin' || user?.role === 'org_admin';
-    const tkn = localStorage.getItem('token');
     const { data: configHistory = [] } = useQuery({
         queryKey: ['config-history', agentId],
-        queryFn: () => fetch(`/api/v1/config-history/agent/${agentId}`, { headers: { Authorization: `Bearer ${tkn}` } }).then(r => r.ok ? r.json() : []),
+        queryFn: () => configHistoryApi.list(agentId).catch(() => []),
         enabled: !!agentId,
     });
     const [expandedVersion, setExpandedVersion] = useState<number | null>(null);
     const { data: expandedRevision } = useQuery({
         queryKey: ['config-history', agentId, expandedVersion],
-        queryFn: () => fetch(`/api/v1/config-history/agent/${agentId}/${expandedVersion}`, {
-            headers: { Authorization: `Bearer ${tkn}` },
-        }).then(r => r.ok ? r.json() : null),
+        queryFn: () => configHistoryApi.getVersion(agentId, String(expandedVersion)).catch(() => null),
         enabled: !!agentId && expandedVersion !== null,
     });
     const rollbackMutation = useMutation({
-        mutationFn: async (targetVersion: number) => {
-            const res = await fetch(`/api/v1/config-history/agent/${agentId}/rollback`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...(tkn ? { Authorization: `Bearer ${tkn}` } : {}),
-                },
-                body: JSON.stringify({ target_version: targetVersion }),
-            });
-            if (!res.ok) {
-                const error = await res.json().catch(() => ({ detail: 'Rollback failed' }));
-                throw new Error(error.detail || 'Rollback failed');
-            }
-            return res.json();
-        },
+        mutationFn: (targetVersion: number) =>
+            configHistoryApi.rollback(agentId, { target_version: targetVersion }),
         onSuccess: async () => {
             setExpandedVersion(null);
             await qc.invalidateQueries({ queryKey: ['config-history', agentId] });
@@ -439,14 +417,7 @@ function OpenClawGatewayPanel({ agentId, agent }: { agentId: string; agent: any 
     const apiKeyMutation = useMutation({
         mutationFn: async () => {
             const keyResult = await agentApi.generateApiKey(agentId);
-            const guideResponse = await fetch(`/api/v1/gateway/setup-guide/${agentId}`, {
-                headers: { 'X-Api-Key': keyResult.api_key },
-            });
-            if (!guideResponse.ok) {
-                const error = await guideResponse.json().catch(() => ({ detail: 'Failed to load setup guide' }));
-                throw new Error(error.detail || 'Failed to load setup guide');
-            }
-            const guide = await guideResponse.json();
+            const guide = await agentApi.gatewaySetupGuideWithKey(agentId, keyResult.api_key);
             return { ...keyResult, guide };
         },
         onSuccess: (result: any) => {
@@ -739,7 +710,7 @@ function CapabilitiesView({ agentId, canManage }: { agentId: string; canManage: 
     });
     const { data: sessions = [] } = useQuery({
         queryKey: ['capability-sessions', agentId, sessionScope],
-        queryFn: () => fetchAuth<any[]>(`/agents/${agentId}/sessions?scope=${sessionScope}`),
+        queryFn: () => agentApi.sessions(agentId, sessionScope),
         enabled: !!agentId,
     });
     const latestSessionId = sessions[0]?.id as string | undefined;
@@ -1307,14 +1278,6 @@ const getAgentRelationOptions = (t: any) => [
     { value: 'other', label: 'Other' },
 ];
 
-function fetchAuth<T>(url: string, options?: RequestInit): Promise<T> {
-    const token = localStorage.getItem('token');
-    return fetch(`/api${url}`, {
-        ...options,
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-    }).then(r => r.json());
-}
-
 function RelationshipEditor({ agentId, readOnly = false }: { agentId: string; readOnly?: boolean }) {
     const { t } = useTranslation();
     const qc = useQueryClient();
@@ -1338,25 +1301,25 @@ function RelationshipEditor({ agentId, readOnly = false }: { agentId: string; re
 
     const { data: relationships = [], refetch } = useQuery({
         queryKey: ['relationships', agentId],
-        queryFn: () => fetchAuth<any[]>(`/agents/${agentId}/relationships/`),
+        queryFn: () => agentApi.listRelationships(agentId),
     });
     const { data: agentRelationships = [], refetch: refetchAgentRels } = useQuery({
         queryKey: ['agent-relationships', agentId],
-        queryFn: () => fetchAuth<any[]>(`/agents/${agentId}/relationships/agents`),
+        queryFn: () => agentApi.listAgentRelationships(agentId),
     });
     const relationshipTenantId = localStorage.getItem('current_tenant_id') || '';
     const { data: allAgents = [] } = useQuery({
         queryKey: ['agents-for-rel', relationshipTenantId],
-        queryFn: () => fetchAuth<any[]>(`/agents/${relationshipTenantId ? `?tenant_id=${relationshipTenantId}` : ''}`),
+        queryFn: () => agentApi.list(relationshipTenantId || undefined),
     });
     const availableAgents = allAgents.filter((a: any) => a.id !== agentId);
 
     useEffect(() => {
         if (!search || search.length < 1) { setSearchResults([]); return; }
         const t = setTimeout(() => {
-            const params = new URLSearchParams({ search });
-            if (relationshipTenantId) params.set('tenant_id', relationshipTenantId);
-            fetchAuth<any[]>(`/enterprise/org/members?${params}`).then(setSearchResults);
+            const params: Record<string, string> = { search };
+            if (relationshipTenantId) params.tenant_id = relationshipTenantId;
+            enterpriseApi.searchOrgMembers(params).then(setSearchResults);
         }, 300);
         return () => clearTimeout(t);
     }, [search, relationshipTenantId]);
@@ -1365,12 +1328,12 @@ function RelationshipEditor({ agentId, readOnly = false }: { agentId: string; re
         if (!adding) return;
         const existing = relationships.map((r: any) => ({ member_id: r.member_id, relation: r.relation, description: r.description }));
         existing.push({ member_id: adding.id, relation, description });
-        await fetchAuth(`/agents/${agentId}/relationships/`, { method: 'PUT', body: JSON.stringify({ relationships: existing }) });
+        await agentApi.updateRelationships(agentId, { relationships: existing });
         setAdding(null); setSearch(''); setRelation('collaborator'); setDescription('');
         refetch();
     };
     const removeRelationship = async (relId: string) => {
-        await fetchAuth(`/agents/${agentId}/relationships/${relId}`, { method: 'DELETE' });
+        await agentApi.deleteRelationship(agentId, relId);
         refetch();
     };
     const startEditRelationship = (r: any) => {
@@ -1384,7 +1347,7 @@ function RelationshipEditor({ agentId, readOnly = false }: { agentId: string; re
             relation: r.id === targetId ? editRelation : r.relation,
             description: r.id === targetId ? editDescription : r.description,
         }));
-        await fetchAuth(`/agents/${agentId}/relationships/`, { method: 'PUT', body: JSON.stringify({ relationships: updated }) });
+        await agentApi.updateRelationships(agentId, { relationships: updated });
         setEditingId(null);
         refetch();
     };
@@ -1392,12 +1355,12 @@ function RelationshipEditor({ agentId, readOnly = false }: { agentId: string; re
         if (!selectedAgentId) return;
         const existing = agentRelationships.map((r: any) => ({ target_agent_id: r.target_agent_id, relation: r.relation, description: r.description }));
         existing.push({ target_agent_id: selectedAgentId, relation: agentRelation, description: agentDescription });
-        await fetchAuth(`/agents/${agentId}/relationships/agents`, { method: 'PUT', body: JSON.stringify({ relationships: existing }) });
+        await agentApi.updateAgentRelationships(agentId, { relationships: existing });
         setAddingAgent(false); setSelectedAgentId(''); setAgentRelation('collaborator'); setAgentDescription('');
         refetchAgentRels();
     };
     const removeAgentRelationship = async (relId: string) => {
-        await fetchAuth(`/agents/${agentId}/relationships/agents/${relId}`, { method: 'DELETE' });
+        await agentApi.deleteAgentRelationship(agentId, relId);
         refetchAgentRels();
     };
     const startEditAgentRelationship = (r: any) => {
@@ -1411,7 +1374,7 @@ function RelationshipEditor({ agentId, readOnly = false }: { agentId: string; re
             relation: r.id === targetId ? editAgentRelation : r.relation,
             description: r.id === targetId ? editAgentDescription : r.description,
         }));
-        await fetchAuth(`/agents/${agentId}/relationships/agents`, { method: 'PUT', body: JSON.stringify({ relationships: updated }) });
+        await agentApi.updateAgentRelationships(agentId, { relationships: updated });
         setEditingAgentId(null);
         refetchAgentRels();
     };
@@ -1665,50 +1628,6 @@ function AgentDetailInner() {
         enabled: !!id,
     });
 
-    // ── Aware tab data: triggers ──
-    const { data: awareTriggers = [], refetch: refetchTriggers } = useQuery({
-        queryKey: ['triggers', id],
-        queryFn: () => triggerApi.list(id!),
-        enabled: !!id && activeTab === 'overview',
-        refetchInterval: activeTab === 'overview' ? 5000 : false,
-    });
-
-    // ── Aware tab data: focus.md ──
-    const { data: focusFile } = useQuery({
-        queryKey: ['file', id, 'focus.md'],
-        queryFn: () => fileApi.read(id!, 'focus.md').catch(() => null),
-        enabled: !!id && activeTab === 'overview',
-    });
-
-    // ── Aware tab data: task_history.md ──
-    const { data: taskHistoryFile } = useQuery({
-        queryKey: ['file', id, 'task_history.md'],
-        queryFn: () => fileApi.read(id!, 'task_history.md').catch(() => null),
-        enabled: !!id && activeTab === 'overview',
-    });
-
-    // ── Aware tab data: reflection sessions (trigger monologues) ──
-    const { data: reflectionSessions = [] } = useQuery({
-        queryKey: ['reflection-sessions', id],
-        queryFn: async () => {
-            const tkn = localStorage.getItem('token');
-            const res = await fetch(`/api/v1/agents/${id}/sessions?scope=all`, { headers: { Authorization: `Bearer ${tkn}` } });
-            if (!res.ok) return [];
-            const all = await res.json();
-            return all.filter((s: any) => s.source_channel === 'trigger');
-        },
-        enabled: !!id && activeTab === 'overview',
-        refetchInterval: activeTab === 'overview' ? 10000 : false,
-    });
-
-    // ── Aware tab state ──
-    const [expandedFocus, setExpandedFocus] = useState<string | null>(null);
-    const [expandedReflection, setExpandedReflection] = useState<string | null>(null);
-    const [reflectionMessages, setReflectionMessages] = useState<Record<string, any[]>>({});
-    const [showAllFocus, setShowAllFocus] = useState(false);
-    const [showCompletedFocus, setShowCompletedFocus] = useState(false);
-    const [showAllTriggers, setShowAllTriggers] = useState(false);
-    const [showAllReflections, setShowAllReflections] = useState(false);
     const [skillSubTab, setSkillSubTab] = useState<'skills' | 'mcp' | 'knowledge'>('skills');
     const [expandedSkill, setExpandedSkill] = useState<string | null>(null);
     const { data: expandedSkillContent } = useQuery({
@@ -1716,40 +1635,13 @@ function AgentDetailInner() {
         queryFn: () => fileApi.read(id!, expandedSkill!),
         enabled: !!id && !!expandedSkill,
     });
-    const [reflectionPage, setReflectionPage] = useState(0);
-    const REFLECTIONS_PAGE_SIZE = 10;
-    const SECTION_PAGE_SIZE = 5;
-
-    const { data: soulContent } = useQuery({
-        queryKey: ['file', id, 'soul.md'],
-        queryFn: () => fileApi.read(id!, 'soul.md'),
-        enabled: !!id && (activeTab === 'skills' || activeTab === 'overview'),
-    });
-
-    const { data: memoryFiles = [] } = useQuery({
-        queryKey: ['files', id, 'memory'],
-        queryFn: () => fileApi.list(id!, 'memory'),
-        enabled: !!id && activeTab === 'skills',
-    });
-    const [expandedMemory, setExpandedMemory] = useState<string | null>(null);
-    const { data: memoryFileContent } = useQuery({
-        queryKey: ['file', id, expandedMemory],
-        queryFn: () => fileApi.read(id!, expandedMemory!),
-        enabled: !!id && !!expandedMemory,
-    });
-
     const { data: skillFiles = [] } = useQuery({
         queryKey: ['files', id, 'skills'],
         queryFn: () => fileApi.list(id!, 'skills'),
         enabled: !!id && activeTab === 'skills',
     });
 
-    const [workspacePath, setWorkspacePath] = useState('workspace');
-    const { data: workspaceFiles = [] } = useQuery({
-        queryKey: ['files', id, workspacePath],
-        queryFn: () => fileApi.list(id!, workspacePath),
-        enabled: !!id && activeTab === 'skills',
-    });
+    const [workspacePath] = useState('workspace');
 
     const { data: activityLogs = [] } = useQuery({
         queryKey: ['activity', id],
@@ -1773,9 +1665,9 @@ function AgentDetailInner() {
         if (!id) return;
         if (!silent) setSessionsLoading(true);
         try {
-            const tkn = localStorage.getItem('token');
-            const res = await fetch(`/api/v1/agents/${id}/sessions?scope=mine`, { headers: { Authorization: `Bearer ${tkn}` } });
-            if (res.ok) { const data = await res.json(); setSessions(data); return data; }
+            const data = await agentApi.sessions(id, 'mine');
+            setSessions(data);
+            return data;
         } catch { }
         if (!silent) setSessionsLoading(false);
         return [];
@@ -1784,44 +1676,27 @@ function AgentDetailInner() {
     const fetchAllSessions = async () => {
         if (!id) return;
         try {
-            const tkn = localStorage.getItem('token');
-            const res = await fetch(`/api/v1/agents/${id}/sessions?scope=all`, { headers: { Authorization: `Bearer ${tkn}` } });
-            if (res.ok) {
-                const all = await res.json();
-                setAllSessions(all.filter((s: any) => s.source_channel !== 'trigger'));
-            }
+            const all = await agentApi.sessions(id, 'all');
+            setAllSessions(all.filter((s: any) => s.source_channel !== 'trigger'));
         } catch { }
     };
 
     const createNewSession = async () => {
         try {
-            const tkn = localStorage.getItem('token');
-            const res = await fetch(`/api/v1/agents/${id}/sessions`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tkn}` },
-                body: JSON.stringify({}),
-            });
-            if (res.ok) {
-                const newSess = await res.json();
-                setSessions(prev => [newSess, ...prev]);
-                setChatMessages([]);
-                setHistoryMsgs([]);
-                setActiveSession(newSess);
-            } else {
-                const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
-                console.error('Failed to create session:', err);
-                alert(`Failed to create session: ${err.detail || res.status}`);
-            }
+            const newSess = await agentApi.createSession(id!);
+            setSessions(prev => [newSess, ...prev]);
+            setChatMessages([]);
+            setHistoryMsgs([]);
+            setActiveSession(newSess);
         } catch (err: any) {
-            console.error('Failed to create session:', err);
             alert(`Failed to create session: ${err.message || err}`);
         }
     };
 
     const deleteSession = async (sessionId: string) => {
         if (!confirm(t('chat.deleteConfirm', 'Delete this session and all its messages? This cannot be undone.'))) return;
-        const tkn = localStorage.getItem('token');
         try {
-            await fetch(`/api/v1/agents/${id}/sessions/${sessionId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${tkn}` } });
+            await agentApi.deleteSession(id!, sessionId);
             // If deleted the active session, clear it
             if (activeSession?.id === sessionId) {
                 setActiveSession(null);
@@ -1829,13 +1704,12 @@ function AgentDetailInner() {
                 setHistoryMsgs([]);
             }
             // Refresh session lists
-            const r1 = await fetch(`/api/v1/agents/${id}/sessions?scope=mine`, { headers: { Authorization: `Bearer ${tkn}` } });
-            if (r1.ok) setSessions(await r1.json());
-            const r2 = await fetch(`/api/v1/agents/${id}/sessions?scope=all`, { headers: { Authorization: `Bearer ${tkn}` } });
-            if (r2.ok) {
-                const all2 = await r2.json();
-                setAllSessions(all2.filter((s: any) => s.source_channel !== 'trigger'));
-            }
+            const [mine, all] = await Promise.all([
+                agentApi.sessions(id!, 'mine').catch(() => []),
+                agentApi.sessions(id!, 'all').catch(() => []),
+            ]);
+            setSessions(mine);
+            setAllSessions(all.filter((s: any) => s.source_channel !== 'trigger'));
         } catch (e: any) {
             alert(e.message || 'Delete failed');
         }
@@ -1846,10 +1720,8 @@ function AgentDetailInner() {
         setHistoryMsgs([]);
         setActiveSession(sess);
         // Always load stored messages for the selected session
-        const tkn = localStorage.getItem('token');
-        const res = await fetch(`/api/v1/agents/${id}/sessions/${sess.id}/messages`, { headers: { Authorization: `Bearer ${tkn}` } });
-        if (res.ok) {
-            const msgs = await res.json();
+        try {
+            const msgs = await agentApi.getSessionMessages(id!, sess.id);
             const normalizedMsgs = msgs.map((m: any) => (
                 m.role === 'tool_result'
                     ? { ...m, timestamp: m.created_at || undefined }
@@ -1864,7 +1736,7 @@ function AgentDetailInner() {
                 // Other user's session or agent-to-agent: read-only view
                 setHistoryMsgs(normalizedMsgs);
             }
-        }
+        } catch { /* session messages load failed silently */ }
     };
 
     // Websocket chat state (for 'me' conversation)
@@ -1897,13 +1769,8 @@ function AgentDetailInner() {
     const saveExpiry = async (permanent = false) => {
         setExpirySaving(true);
         try {
-            const token = localStorage.getItem('token');
             const body = permanent ? { expires_at: null } : { expires_at: expiryValue ? new Date(expiryValue).toISOString() : null };
-            await fetch(`/api/v1/agents/${id}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                body: JSON.stringify(body),
-            });
+            await agentApi.update(id!, body as any);
             queryClient.invalidateQueries({ queryKey: ['agent', id] });
             setShowExpiryModal(false);
         } catch (e) { alert('Failed: ' + e); }
@@ -1982,7 +1849,6 @@ function AgentDetailInner() {
     }, [id]);
 
     // Load chat history + connect websocket when chat tab is active
-    const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'];
     const parseChatMsg = (msg: Record<string, unknown>): ChatMsg => {
         return hydrateTimelineMessage(msg, {
             resolveImageUrl: resolveHistoryImageUrl,
@@ -2314,12 +2180,6 @@ function AgentDetailInner() {
     const [agentUrlInput, setAgentUrlInput] = useState('');
     const [agentUrlImporting, setAgentUrlImporting] = useState(false);
 
-    const { data: schedules = [] } = useQuery({
-        queryKey: ['schedules', id],
-        queryFn: () => scheduleApi.list(id!),
-        enabled: !!id && activeTab === 'overview',
-    });
-
     // Schedule form state
     const [showScheduleForm, setShowScheduleForm] = useState(false);
     const schedDefaults = { freq: 'daily', interval: 1, time: '09:00', weekdays: [1, 2, 3, 4, 5] };
@@ -2369,25 +2229,6 @@ function AgentDetailInner() {
     });
 
 
-    const { data: metrics } = useQuery({
-        queryKey: ['metrics', id],
-        queryFn: () => agentApi.metrics(id!).catch(() => null),
-        enabled: !!id && activeTab === 'overview',
-        retry: false,
-    });
-
-    const { data: channelConfig } = useQuery({
-        queryKey: ['channel', id],
-        queryFn: () => channelApi.get(id!),
-        enabled: !!id && activeTab === 'settings',
-    });
-
-    const { data: webhookData } = useQuery({
-        queryKey: ['webhook-url', id],
-        queryFn: () => channelApi.webhookUrl(id!),
-        enabled: !!id && activeTab === 'settings',
-    });
-
     const { data: llmModels = [] } = useQuery({
         queryKey: ['llm-models'],
         queryFn: () => enterpriseApi.llmModels(),
@@ -2400,45 +2241,9 @@ function AgentDetailInner() {
 
     const { data: permData } = useQuery({
         queryKey: ['agent-permissions', id],
-        queryFn: () => fetchAuth<any>(`/agents/${id}/permissions`),
+        queryFn: () => agentApi.getPermissions(id!),
         enabled: !!id && activeTab === 'settings',
     });
-
-    // ─── Soul editor ─────────────────────────────────────
-    const [soulEditing, setSoulEditing] = useState(false);
-    const [soulDraft, setSoulDraft] = useState('');
-
-    const saveSoul = useMutation({
-        mutationFn: () => fileApi.write(id!, 'soul.md', soulDraft),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['file', id, 'soul.md'] });
-            setSoulEditing(false);
-        },
-    });
-
-    // ─── Focus editor (overview tab) ─────────────────────
-    const [focusEditing, setFocusEditing] = useState(false);
-    const [focusDraft, setFocusDraft] = useState('');
-
-    const saveFocus = useMutation({
-        mutationFn: () => fileApi.write(id!, 'focus.md', focusDraft),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['file', id, 'focus.md'] });
-            setFocusEditing(false);
-        },
-    });
-
-    // Memory sub-tab removed — memory.md is now edited via FileEditorCard in overview
-
-
-    const CopyBtn = ({ url }: { url: string }) => (
-        <button title="Copy" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginLeft: '6px', padding: '1px 4px', cursor: 'pointer', borderRadius: '3px', border: '1px solid var(--border-color)', background: 'var(--bg-primary)', color: 'var(--text-secondary)', verticalAlign: 'middle', lineHeight: 1 }}
-            onClick={() => navigator.clipboard.writeText(url).then(() => { })}>
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="4" y="4" width="9" height="11" rx="1.5" /><path d="M3 11H2a1 1 0 01-1-1V2a1 1 0 011-1h8a1 1 0 011 1v1" />
-            </svg>
-        </button>
-    );
 
     // ─── File viewer ─────────────────────────────────────
     const [viewingFile, setViewingFile] = useState<string | null>(null);
@@ -2455,43 +2260,7 @@ function AgentDetailInner() {
         setUploadToast({ message, type });
         setTimeout(() => setUploadToast(null), 3000);
     };
-    const { data: fileContent } = useQuery({
-        queryKey: ['file-content', id, viewingFile],
-        queryFn: () => fileApi.read(id!, viewingFile!),
-        enabled: !!viewingFile,
-    });
-
-    // ─── Task creation & detail ───────────────────────────────────
-    const [showTaskForm, setShowTaskForm] = useState(false);
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-    const [taskForm, setTaskForm] = useState({ title: '', description: '', priority: 'medium', type: 'todo' as 'todo' | 'supervision', supervision_target_name: '', remind_schedule: '', due_date: '' });
-    const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-    const { data: taskLogs = [] } = useQuery({
-        queryKey: ['task-logs', id, selectedTaskId],
-        queryFn: () => taskApi.getLogs(id!, selectedTaskId!),
-        enabled: !!id && !!selectedTaskId,
-        refetchInterval: selectedTaskId ? 3000 : false,
-    });
-
-    // Schedule execution history (selectedTaskId format: 'sched-{uuid}')
-    const expandedScheduleId = selectedTaskId?.startsWith('sched-') ? selectedTaskId.slice(6) : null;
-    const { data: scheduleHistoryData } = useQuery({
-        queryKey: ['schedule-history', id, expandedScheduleId],
-        queryFn: () => scheduleApi.history(id!, expandedScheduleId!),
-        enabled: !!id && !!expandedScheduleId,
-    });
-    const createTask = useMutation({
-        mutationFn: (data: any) => {
-            const cleaned = { ...data };
-            if (!cleaned.due_date) delete cleaned.due_date;
-            return taskApi.create(id!, cleaned);
-        },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['tasks', id] });
-            setShowTaskForm(false);
-            setTaskForm({ title: '', description: '', priority: 'medium', type: 'todo', supervision_target_name: '', remind_schedule: '', due_date: '' });
-        },
-    });
 
     if (isLoading || !agent) {
         return <div style={{ padding: '40px', color: 'var(--text-tertiary)' }}>{t('common.loading')}</div>;
@@ -3540,19 +3309,13 @@ function AgentDetailInner() {
                         const ApprovalsSection = () => {
                             const { data: approvals = [], refetch: refetchApprovals } = useQuery({
                                 queryKey: ['agent-approvals', id],
-                                queryFn: () => fetchAuth<any[]>(`/agents/${id}/approvals`),
+                                queryFn: () => agentApi.listApprovals(id!),
                                 enabled: !!id,
                                 refetchInterval: 15000,
                             });
                             const resolveMut = useMutation({
-                                mutationFn: async ({ approvalId, action }: { approvalId: string; action: string }) => {
-                                    const token = localStorage.getItem('token');
-                                    return fetch(`/api/v1/agents/${id}/approvals/${approvalId}/resolve`, {
-                                        method: 'POST',
-                                        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-                                        body: JSON.stringify({ action }),
-                                    });
-                                },
+                                mutationFn: ({ approvalId, action }: { approvalId: string; action: string }) =>
+                                    agentApi.resolveApproval(id!, approvalId, { action }),
                                 onSuccess: () => {
                                     refetchApprovals();
                                     queryClient.invalidateQueries({ queryKey: ['notifications-unread'] });
@@ -4031,11 +3794,7 @@ function AgentDetailInner() {
 
                                     const handleScopeChange = async (newScope: string) => {
                                         try {
-                                            await fetchAuth(`/agents/${id}/permissions`, {
-                                                method: 'PUT',
-                                                headers: { 'Content-Type': 'application/json' },
-                                                body: JSON.stringify({ scope_type: newScope, scope_ids: [], access_level: permData?.access_level || 'use' }),
-                                            });
+                                            await agentApi.updatePermissions(id!, { scope_type: newScope, scope_ids: [], access_level: permData?.access_level || 'use' });
                                             queryClient.invalidateQueries({ queryKey: ['agent-permissions', id] });
                                             queryClient.invalidateQueries({ queryKey: ['agent', id] });
                                         } catch (e) {
@@ -4045,11 +3804,7 @@ function AgentDetailInner() {
 
                                     const handleAccessLevelChange = async (newLevel: string) => {
                                         try {
-                                            await fetchAuth(`/agents/${id}/permissions`, {
-                                                method: 'PUT',
-                                                headers: { 'Content-Type': 'application/json' },
-                                                body: JSON.stringify({ scope_type: permData?.scope_type || 'company', scope_ids: permData?.scope_ids || [], access_level: newLevel }),
-                                            });
+                                            await agentApi.updatePermissions(id!, { scope_type: permData?.scope_type || 'company', scope_ids: permData?.scope_ids || [], access_level: newLevel });
                                             queryClient.invalidateQueries({ queryKey: ['agent-permissions', id] });
                                             queryClient.invalidateQueries({ queryKey: ['agent', id] });
                                         } catch (e) {

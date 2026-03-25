@@ -1,17 +1,10 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { adminApi } from '../services/api';
+import { adminApi, enterpriseApi } from '../services/api';
 import { useAuthStore } from '../stores';
 import { saveAccentColor, getSavedAccentColor } from '../utils/theme';
 
-// Format large token numbers with K/M/B suffixes
-function formatTokens(n: number | null | undefined): string {
-    if (n == null) return '-';
-    if (n < 1000) return String(n);
-    if (n < 1_000_000) return (n / 1000).toFixed(n < 10_000 ? 1 : 0) + 'K';
-    if (n < 1_000_000_000) return (n / 1_000_000).toFixed(n < 10_000_000 ? 1 : 0) + 'M';
-    return (n / 1_000_000_000).toFixed(1) + 'B';
-}
+import { formatTokens } from '@/lib/format';
 
 // Format datetime to locale string
 function formatDate(dt: string | null | undefined): string {
@@ -84,11 +77,7 @@ export default function AdminCompanies() {
 
     const loadNotificationBar = async () => {
         try {
-            const token = localStorage.getItem('token');
-            const res = await fetch('/api/v1/enterprise/system-settings/notification_bar', {
-                headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-            });
-            const d = await res.json();
+            const d = await enterpriseApi.getSystemSetting('notification_bar');
             if (d?.value) {
                 setNbEnabled(!!d.value.enabled);
                 setNbText(d.value.text || '');
@@ -99,12 +88,7 @@ export default function AdminCompanies() {
     const saveNotificationBar = async () => {
         setNbSaving(true);
         try {
-            const token = localStorage.getItem('token');
-            await fetch('/api/v1/enterprise/system-settings/notification_bar', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-                body: JSON.stringify({ value: { enabled: nbEnabled, text: nbText } }),
-            });
+            await enterpriseApi.updateSystemSetting('notification_bar', { value: { enabled: nbEnabled, text: nbText } });
             setNbSaved(true);
             setTimeout(() => setNbSaved(false), 2000);
         } catch { }

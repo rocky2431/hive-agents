@@ -40,8 +40,8 @@ export default function Messages() {
                     textAlign: 'center', padding: '60px 20px', color: 'var(--text-tertiary)',
                     background: 'var(--bg-secondary)', borderRadius: '12px',
                 }}>
-                    <div style={{ fontSize: '13px', marginBottom: '12px', color: 'var(--text-tertiary)' }}>{t('messages.empty')}</div>
-                    <div>{t('messages.empty')}</div>
+                    <div style={{ fontSize: '48px', marginBottom: '12px' }}>📭</div>
+                    <div style={{ fontSize: '13px', color: 'var(--text-tertiary)' }}>{t('messages.empty')}</div>
                 </div>
             )}
 

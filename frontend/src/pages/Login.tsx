@@ -29,7 +29,7 @@ export default function Login() {
     useEffect(() => {
         oidcApi.config().then(cfg => {
             if (cfg.configured) setSsoConfig(cfg);
-        }).catch(() => {});
+        }).catch(() => { /* non-critical: SSO button hidden if config unavailable */ });
     }, []);
 
     // Handle OIDC callback — check URL for ?code= parameter with CSRF state verification
