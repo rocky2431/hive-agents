@@ -73,6 +73,18 @@ async def update_memory_config(
 
     config_dict = data.model_dump()
 
+    # Validate summary_model_id belongs to the same tenant
+    if data.summary_model_id:
+        from app.models.llm import LLMModel
+        model_r = await db.execute(
+            select(LLMModel.id).where(
+                LLMModel.id == data.summary_model_id,
+                LLMModel.tenant_id == target_tenant_id,
+            )
+        )
+        if not model_r.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail="Summary model not found in your tenant")
+
     if setting:
         setting.value = config_dict
     else:
@@ -93,14 +105,9 @@ async def get_agent_memory(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """View agent's structured memory facts (tenant-scoped)."""
-    from app.models.agent import Agent
-
-    # Verify agent belongs to caller's tenant
-    result = await db.execute(select(Agent.tenant_id).where(Agent.id == agent_id))
-    agent_tenant = result.scalar_one_or_none()
-    if agent_tenant is None or agent_tenant != current_user.tenant_id:
-        raise HTTPException(status_code=404, detail="Agent not found")
+    """View agent's structured memory facts (requires agent access)."""
+    from app.core.permissions import check_agent_access
+    await check_agent_access(db, current_user, agent_id)
 
     from pathlib import Path
     from app.config import get_settings

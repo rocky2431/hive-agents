@@ -117,7 +117,8 @@ async def test_platform_admin_can_update_selected_tenant_memory_config():
 
     own_tenant_id = uuid4()
     target_tenant_id = uuid4()
-    db = _FakeDB([_ScalarResult(None)])
+    # Two DB calls: 1) lookup existing TenantSetting, 2) validate summary_model_id
+    db = _FakeDB([_ScalarResult(None), _ScalarResult(uuid4())])
 
     result = await memory_api.update_memory_config(
         data=memory_api.MemoryConfigUpdate(summary_model_id="model-1", keep_recent=20),

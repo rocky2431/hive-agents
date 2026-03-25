@@ -129,7 +129,7 @@ async def get_channel_config(
     config = result.scalar_one_or_none()
     if not config:
         raise HTTPException(status_code=404, detail="Channel not configured")
-    return ChannelConfigOut.model_validate(config)
+    return ChannelConfigOut.model_validate(config).to_safe()
 
 
 @router.get("/agents/{agent_id}/channel/webhook-url")
@@ -179,6 +179,15 @@ async def delete_channel_config(
 _processed_events: set[str] = set()
 
 
+def _verify_feishu_signature(encrypt_key: str, timestamp: str, nonce: str, body_str: str, signature: str) -> bool:
+    """Verify Feishu webhook X-Lark-Signature using HMAC-SHA256."""
+    import hashlib
+    import hmac
+    content = timestamp + nonce + encrypt_key + body_str
+    expected = hashlib.sha256(content.encode("utf-8")).hexdigest()
+    return hmac.compare_digest(expected, signature)
+
+
 @router.post("/channel/feishu/{agent_id}/webhook")
 async def feishu_event_webhook(
     agent_id: uuid.UUID,
@@ -186,11 +195,30 @@ async def feishu_event_webhook(
     db: AsyncSession = Depends(get_db),
 ):
     """Handle Feishu event callback for a specific agent's bot."""
-    body = await request.json()
+    body_bytes = await request.body()
+    body_str = body_bytes.decode("utf-8")
+    import json as _json_wb
+    body = _json_wb.loads(body_str)
 
-    # Handle verification challenge
+    # Handle verification challenge (must respond before signature check)
     if "challenge" in body:
         return {"challenge": body["challenge"]}
+
+    # Verify signature when encrypt_key is configured
+    result = await db.execute(
+        select(ChannelConfig).where(
+            ChannelConfig.agent_id == agent_id,
+            ChannelConfig.channel_type == "feishu",
+        )
+    )
+    config = result.scalar_one_or_none()
+    if config and config.encrypt_key:
+        sig = request.headers.get("X-Lark-Signature", "")
+        ts = request.headers.get("X-Lark-Request-Timestamp", "")
+        nonce = request.headers.get("X-Lark-Request-Nonce", "")
+        if not sig or not _verify_feishu_signature(config.encrypt_key, ts, nonce, body_str, sig):
+            logger.warning(f"[Feishu] Invalid signature for agent {agent_id}")
+            raise HTTPException(status_code=403, detail="Invalid signature")
 
     return await process_feishu_event(agent_id, body, db)
 

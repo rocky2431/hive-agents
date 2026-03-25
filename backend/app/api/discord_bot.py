@@ -94,7 +94,7 @@ async def get_discord_channel(
     config = result.scalar_one_or_none()
     if not config:
         raise HTTPException(status_code=404, detail="Discord not configured")
-    return ChannelConfigOut.model_validate(config)
+    return ChannelConfigOut.model_validate(config).to_safe()
 
 
 @router.get("/agents/{agent_id}/discord-channel/webhook-url")

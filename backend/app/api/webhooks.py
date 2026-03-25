@@ -47,23 +47,16 @@ async def receive_webhook(token: str, request: Request):
         logger.warning(f"Webhook payload too large for token {token[:8]}...: {len(body)} bytes")
         return JSONResponse({"ok": True}, status_code=413)
 
-    # Look up trigger
+    # Look up trigger by token directly in JSONB (avoids full table scan)
     async with async_session() as db:
         result = await db.execute(
             select(AgentTrigger).where(
                 AgentTrigger.type == "webhook",
                 AgentTrigger.is_enabled == True,
+                AgentTrigger.config["token"].astext == token,
             )
         )
-        triggers = result.scalars().all()
-
-        # Find the trigger matching this token
-        target = None
-        for trigger in triggers:
-            cfg = trigger.config or {}
-            if cfg.get("token") == token:
-                target = trigger
-                break
+        target = result.scalar_one_or_none()
 
         if not target:
             # Return 200 OK to avoid leaking whether the token exists

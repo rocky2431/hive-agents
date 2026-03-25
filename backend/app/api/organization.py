@@ -159,8 +159,10 @@ async def admin_update_user(
     current_user: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """Admin update user profile (role, department)."""
-    result = await db.execute(select(User).where(User.id == user_id))
+    """Admin update user profile (role, department). Tenant-scoped."""
+    result = await db.execute(
+        select(User).where(User.id == user_id, User.tenant_id == current_user.tenant_id)
+    )
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")

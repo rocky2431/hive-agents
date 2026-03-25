@@ -238,6 +238,11 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     await close_redis()
+    try:
+        from app.services.viking_client import close as close_viking
+        await close_viking()
+    except Exception as exc:
+        logger.debug("OpenViking client cleanup skipped: %s", exc)
 
 
 app = FastAPI(

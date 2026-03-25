@@ -91,7 +91,7 @@ async def get_dingtalk_channel(
     config = result.scalar_one_or_none()
     if not config:
         raise HTTPException(status_code=404, detail="DingTalk not configured")
-    return ChannelConfigOut.model_validate(config)
+    return ChannelConfigOut.model_validate(config).to_safe()
 
 
 @router.delete("/agents/{agent_id}/dingtalk-channel", status_code=204)

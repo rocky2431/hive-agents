@@ -297,6 +297,13 @@ class ChannelConfigCreate(BaseModel):
     extra_config: dict | None = None
 
 
+def _mask_secret(value: str | None) -> str | None:
+    """Mask a secret value, showing only last 4 characters."""
+    if not value:
+        return None
+    return f"****{value[-4:]}" if len(value) > 4 else "****"
+
+
 class ChannelConfigOut(BaseModel):
     id: uuid.UUID
     agent_id: uuid.UUID
@@ -311,6 +318,19 @@ class ChannelConfigOut(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+    def to_safe(self) -> "ChannelConfigOut":
+        """Return a copy with secrets masked for non-admin users."""
+        data = self.model_dump()
+        data["app_secret"] = _mask_secret(self.app_secret)
+        data["encrypt_key"] = _mask_secret(self.encrypt_key)
+        if data.get("extra_config"):
+            safe_extra = dict(data["extra_config"])
+            for key in ("app_secret", "bot_token", "signing_secret", "client_secret", "api_key"):
+                if key in safe_extra:
+                    safe_extra[key] = _mask_secret(safe_extra[key])
+            data["extra_config"] = safe_extra
+        return ChannelConfigOut(**data)
 
 
 # ─── Approval ───────────────────────────────────────────

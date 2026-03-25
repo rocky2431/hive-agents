@@ -68,10 +68,12 @@ async def test_llm_model(
     # Resolve API key: use provided key, or look up from stored model
     api_key = data.api_key if data.api_key and not data.api_key.startswith("****") else None
     if not api_key and data.model_id:
-        result = await db.execute(select(LLMModel).where(LLMModel.id == data.model_id))
+        result = await db.execute(
+            select(LLMModel).where(LLMModel.id == data.model_id, LLMModel.tenant_id == current_user.tenant_id)
+        )
         existing = result.scalar_one_or_none()
         if existing:
-            api_key = existing.api_key_encrypted
+            api_key = existing.api_key
     if not api_key:
         return {"success": False, "latency_ms": 0, "error": "API Key is required"}
 
@@ -175,8 +177,10 @@ async def remove_llm_model(
     current_user: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """Remove an LLM model from the pool."""
-    result = await db.execute(select(LLMModel).where(LLMModel.id == model_id))
+    """Remove an LLM model from the pool (tenant-scoped)."""
+    result = await db.execute(
+        select(LLMModel).where(LLMModel.id == model_id, LLMModel.tenant_id == current_user.tenant_id)
+    )
     model = result.scalar_one_or_none()
     if not model:
         raise HTTPException(status_code=404, detail="Model not found")
@@ -231,8 +235,10 @@ async def update_llm_model(
     current_user: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """Update an existing LLM model in the pool (admin)."""
-    result = await db.execute(select(LLMModel).where(LLMModel.id == model_id))
+    """Update an existing LLM model in the pool (admin, tenant-scoped)."""
+    result = await db.execute(
+        select(LLMModel).where(LLMModel.id == model_id, LLMModel.tenant_id == current_user.tenant_id)
+    )
     model = result.scalar_one_or_none()
     if not model:
         raise HTTPException(status_code=404, detail="Model not found")
@@ -801,10 +807,10 @@ async def get_notification_bar_public(
 async def get_system_setting(
     key: str,
     tenant_id: str | None = None,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get a system setting by key."""
+    """Get a system setting by key (admin only)."""
     tenant_setting_keys = {"feishu_org_sync"}
     if key in tenant_setting_keys:
         from app.models.tenant_setting import TenantSetting
