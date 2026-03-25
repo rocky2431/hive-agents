@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../stores';
 import { authApi, oidcApi } from '../services/api';
+import { Button } from '@/components/ui/button';
 
 export default function Login() {
     const { t, i18n } = useTranslation();
@@ -21,27 +22,23 @@ export default function Login() {
         email: '',
     });
 
-    // Login page always uses dark theme (hero panel is dark)
     useEffect(() => {
         document.documentElement.setAttribute('data-theme', 'dark');
     }, []);
 
-    // Fetch SSO config on mount
     useEffect(() => {
         oidcApi.config().then(cfg => {
             if (cfg.configured) setSsoConfig(cfg);
-        }).catch(() => { /* non-critical: SSO button hidden if config unavailable */ });
+        }).catch(() => {});
         authApi.registrationConfig()
             .then(setRegistrationConfig)
-            .catch(() => { /* ignore */ });
+            .catch(() => {});
     }, []);
 
-    // Handle OIDC callback — check URL for ?code= parameter with CSRF state verification
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
         const code = params.get('code');
         if (code && ssoConfig) {
-            // Verify OIDC state parameter to prevent CSRF
             const returnedState = params.get('state');
             const savedState = sessionStorage.getItem('oidc_state');
             if (!savedState || returnedState !== savedState) {
@@ -88,7 +85,6 @@ export default function Login() {
                 res = await authApi.login({ username: form.username, password: form.password });
             }
             setAuth(res.user, res.access_token);
-            // Redirect to company setup if user has no company assigned
             if (res.needs_company_setup) {
                 navigate('/setup-company');
             } else {
@@ -96,9 +92,7 @@ export default function Login() {
             }
         } catch (err: any) {
             const msg = err.message || '';
-            // Server-returned error messages (e.g. disabled company, invalid credentials)
             if (msg && msg !== 'Failed to fetch' && !msg.includes('NetworkError') && !msg.includes('ERR_CONNECTION')) {
-                // Translate known error messages
                 if (msg.includes('company has been disabled')) {
                     setError(t('auth.companyDisabled', 'Your company has been disabled. Please contact the platform administrator.'));
                 } else if (msg.includes('Invalid credentials')) {
@@ -120,7 +114,7 @@ export default function Login() {
 
     return (
         <div className="login-page">
-            {/* ── Left: Branding Panel ── */}
+            {/* Left: Branding Panel */}
             <div className="login-hero">
                 <div className="login-hero-bg" />
                 <div className="login-hero-content">
@@ -130,55 +124,46 @@ export default function Login() {
                     </div>
                     <h1 className="login-hero-title">
                         Clawith<br />
-                        <span style={{ fontSize: '0.65em', fontWeight: 600, opacity: 0.85 }}>{t('login.heroSubtitle')}</span>
+                        <span className="text-[0.65em] font-semibold opacity-85">{t('login.heroSubtitle')}</span>
                     </h1>
                     <p className="login-hero-desc">
                         {t('login.heroDesc1')}<br />
                         {t('login.heroDesc2')}
                     </p>
                     <div className="login-hero-features">
-                        <div className="login-hero-feature">
-                            <span className="login-hero-feature-icon">🤖</span>
-                            <div>
-                                <div className="login-hero-feature-title">{t('login.featureCrewTitle')}</div>
-                                <div className="login-hero-feature-desc">{t('login.featureCrewDesc')}</div>
+                        {[
+                            { icon: '🤖', title: t('login.featureCrewTitle'), desc: t('login.featureCrewDesc') },
+                            { icon: '🧠', title: t('login.featureMemoryTitle'), desc: t('login.featureMemoryDesc') },
+                            { icon: '🏛️', title: t('login.featurePlazaTitle'), desc: t('login.featurePlazaDesc') },
+                        ].map((f) => (
+                            <div key={f.icon} className="login-hero-feature">
+                                <span className="login-hero-feature-icon" aria-hidden="true">{f.icon}</span>
+                                <div>
+                                    <div className="login-hero-feature-title">{f.title}</div>
+                                    <div className="login-hero-feature-desc">{f.desc}</div>
+                                </div>
                             </div>
-                        </div>
-                        <div className="login-hero-feature">
-                            <span className="login-hero-feature-icon">🧠</span>
-                            <div>
-                                <div className="login-hero-feature-title">{t('login.featureMemoryTitle')}</div>
-                                <div className="login-hero-feature-desc">{t('login.featureMemoryDesc')}</div>
-                            </div>
-                        </div>
-                        <div className="login-hero-feature">
-                            <span className="login-hero-feature-icon">🏛️</span>
-                            <div>
-                                <div className="login-hero-feature-title">{t('login.featurePlazaTitle')}</div>
-                                <div className="login-hero-feature-desc">{t('login.featurePlazaDesc')}</div>
-                            </div>
-                        </div>
+                        ))}
                     </div>
                 </div>
             </div>
 
-            {/* ── Right: Form Panel ── */}
+            {/* Right: Form Panel */}
             <div className="login-form-panel">
-                {/* Language Switcher */}
-                <div style={{
-                    position: 'absolute', top: '16px', right: '16px',
-                    cursor: 'pointer', fontSize: '13px', color: 'var(--text-secondary)',
-                    display: 'flex', alignItems: 'center', gap: '4px',
-                    padding: '6px 12px', borderRadius: '8px',
-                    background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)',
-                    zIndex: 101,
-                }} onClick={toggleLang}>
+                <button
+                    onClick={toggleLang}
+                    className="absolute top-4 right-4 z-50 flex items-center gap-1 rounded-lg border border-edge-subtle bg-surface-secondary px-3 py-1.5 text-sm text-content-secondary hover:bg-surface-hover cursor-pointer"
+                    aria-label="Switch language"
+                >
                     🌐 {i18n.language === 'zh' ? 'EN' : '中文'}
-                </div>
+                </button>
 
                 <div className="login-form-wrapper">
                     <div className="login-form-header">
-                        <div className="login-form-logo"><img src="/logo-black.png" className="login-logo-img" alt="" style={{ width: 28, height: 28, marginRight: 8, verticalAlign: 'middle' }} />Clawith</div>
+                        <div className="login-form-logo">
+                            <img src="/logo-black.png" className="login-logo-img" alt="" width={28} height={28} style={{ marginRight: 8, verticalAlign: 'middle' }} />
+                            Clawith
+                        </div>
                         <h2 className="login-form-title">
                             {isRegister ? t('auth.register') : t('auth.login')}
                         </h2>
@@ -188,73 +173,72 @@ export default function Login() {
                     </div>
 
                     {error && (
-                        <div className="login-error">
-                            <span>⚠</span> {error}
+                        <div className="login-error" role="alert">
+                            <span aria-hidden="true">⚠</span> {error}
                         </div>
                     )}
 
                     <form onSubmit={handleSubmit} className="login-form">
                         <div className="login-field">
-                            <label>{t('auth.username')}</label>
+                            <label htmlFor="login-username">{t('auth.username')}</label>
                             <input
+                                id="login-username"
                                 value={form.username}
                                 onChange={(e) => setForm({ ...form, username: e.target.value })}
                                 required
                                 autoFocus
-                                placeholder={t('auth.usernamePlaceholder')}
+                                autoComplete={isRegister ? 'username' : 'username'}
+                                spellCheck={false}
+                                placeholder={t('auth.usernamePlaceholder') + '\u2026'}
                             />
                         </div>
 
                         {isRegister && (
                             <div className="login-field">
-                                <label>{t('auth.email')}</label>
+                                <label htmlFor="login-email">{t('auth.email')}</label>
                                 <input
+                                    id="login-email"
                                     type="email"
+                                    inputMode="email"
                                     value={form.email}
                                     onChange={(e) => setForm({ ...form, email: e.target.value })}
                                     required
-                                    placeholder={t('auth.emailPlaceholder')}
+                                    autoComplete="email"
+                                    spellCheck={false}
+                                    placeholder={t('auth.emailPlaceholder') + '\u2026'}
                                 />
                             </div>
                         )}
 
                         <div className="login-field">
-                            <label>{t('auth.password')}</label>
+                            <label htmlFor="login-password">{t('auth.password')}</label>
                             <input
+                                id="login-password"
                                 type="password"
                                 value={form.password}
                                 onChange={(e) => setForm({ ...form, password: e.target.value })}
                                 required
-                                placeholder={t('auth.passwordPlaceholder')}
+                                autoComplete={isRegister ? 'new-password' : 'current-password'}
+                                placeholder={t('auth.passwordPlaceholder') + '\u2026'}
                             />
                         </div>
 
-                        <button className="login-submit" type="submit" disabled={loading}>
-                            {loading ? (
-                                <span className="login-spinner" />
-                            ) : (
-                                <>
-                                    {isRegister ? t('auth.register') : t('auth.login')}
-                                    <span style={{ marginLeft: '6px' }}>→</span>
-                                </>
-                            )}
-                        </button>
+                        <Button type="submit" disabled={loading} loading={loading} className="login-submit w-full">
+                            {isRegister ? t('auth.register') : t('auth.login')}
+                            {!loading && <span className="ml-1.5">→</span>}
+                        </Button>
                     </form>
 
                     {ssoConfig && (
-                        <div style={{ marginTop: '16px' }}>
-                            <div style={{
-                                display: 'flex', alignItems: 'center', gap: '12px',
-                                margin: '16px 0', color: 'var(--text-tertiary)', fontSize: '13px',
-                            }}>
-                                <div style={{ flex: 1, height: '1px', background: 'var(--border-subtle)' }} />
+                        <div className="mt-4">
+                            <div className="my-4 flex items-center gap-3 text-sm text-content-tertiary">
+                                <div className="h-px flex-1 bg-edge-subtle" />
                                 {t('auth.or')}
-                                <div style={{ flex: 1, height: '1px', background: 'var(--border-subtle)' }} />
+                                <div className="h-px flex-1 bg-edge-subtle" />
                             </div>
-                            <button
-                                type="button"
-                                className="login-submit"
-                                style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
+                            <Button
+                                variant="secondary"
+                                className="w-full"
                                 onClick={() => {
                                     const state = crypto.randomUUID();
                                     sessionStorage.setItem('oidc_state', state);
@@ -269,7 +253,7 @@ export default function Login() {
                                 }}
                             >
                                 {ssoConfig.display_name || t('enterprise.sso.loginWithSSO')}
-                            </button>
+                            </Button>
                         </div>
                     )}
 
@@ -281,9 +265,9 @@ export default function Login() {
                     </div>
 
                     {isRegister && registrationConfig.invitation_code_required && (
-                        <div style={{ marginTop: '12px', fontSize: '12px', color: 'var(--text-tertiary)', lineHeight: 1.5 }}>
+                        <p className="mt-3 text-xs leading-relaxed text-content-tertiary">
                             {t('auth.invitationRequiredHint', 'Registration is open, but joining a workspace currently requires an invitation code from an administrator.')}
-                        </div>
+                        </p>
                     )}
                 </div>
             </div>

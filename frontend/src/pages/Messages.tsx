@@ -1,87 +1,65 @@
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { messageApi } from '../services/api';
+import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
+import { EmptyState } from '@/components/domain/empty-state';
+import { formatRelative } from '@/lib/date';
 
 const ACTION_ICONS: Record<string, string> = {
     agent: '🤖',
 };
 
 export default function Messages() {
-    const { t, i18n } = useTranslation();
+    const { t } = useTranslation();
     const { data: messages = [], isLoading } = useQuery({
         queryKey: ['messages-inbox'],
         queryFn: () => messageApi.inbox(100),
         refetchInterval: 15000,
     });
 
-    const formatTime = (iso: string) => {
-        if (!iso) return '';
-        const d = new Date(iso);
-        const now = new Date();
-        const diffMs = now.getTime() - d.getTime();
-        if (diffMs < 60000) return t('messages.justNow');
-        if (diffMs < 3600000) return t('messages.minutesAgo', { count: Math.floor(diffMs / 60000) });
-        if (diffMs < 86400000) return t('messages.hoursAgo', { count: Math.floor(diffMs / 3600000) });
-        return d.toLocaleDateString(i18n.language === 'zh' ? 'zh-CN' : 'en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-    };
-
     return (
-        <div style={{ maxWidth: '800px', margin: '0 auto', padding: '24px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
-                <h1 style={{ fontSize: '20px', fontWeight: 600, margin: 0 }}>{t('messages.title')}</h1>
+        <div className="mx-auto max-w-3xl p-6">
+            <div className="mb-5 flex items-center justify-between">
+                <h1 className="text-xl font-semibold">{t('messages.title')}</h1>
             </div>
 
             {isLoading && (
-                <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-tertiary)' }}>{t('common.loading')}</div>
-            )}
-
-            {!isLoading && messages.length === 0 && (
-                <div style={{
-                    textAlign: 'center', padding: '60px 20px', color: 'var(--text-tertiary)',
-                    background: 'var(--bg-secondary)', borderRadius: '12px',
-                }}>
-                    <div style={{ fontSize: '48px', marginBottom: '12px' }}>📭</div>
-                    <div style={{ fontSize: '13px', color: 'var(--text-tertiary)' }}>{t('messages.empty')}</div>
+                <div className="flex flex-col gap-2">
+                    {[1, 2, 3].map((i) => (
+                        <Skeleton key={i} className="h-20 w-full rounded-lg" />
+                    ))}
                 </div>
             )}
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            {!isLoading && messages.length === 0 && (
+                <EmptyState
+                    icon="📭"
+                    title={t('messages.empty', 'No messages yet')}
+                />
+            )}
+
+            <div className="flex flex-col gap-0.5">
                 {messages.map((msg: any) => (
                     <div
                         key={msg.id}
-                        style={{
-                            padding: '14px 16px',
-                            borderRadius: '8px',
-                            background: 'rgba(224,238,238,0.04)',
-                            borderLeft: '3px solid var(--border-subtle)',
-                            transition: 'background 0.15s',
-                        }}
+                        className="rounded-lg border-l-3 border-l-edge-subtle bg-surface-primary/40 px-4 py-3.5 transition-colors hover:bg-surface-hover"
                     >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-                            <span style={{ fontSize: '14px' }}>{ACTION_ICONS[msg.sender_type] || '·'}</span>
-                            <span style={{ fontWeight: 600, fontSize: '14px' }}>
+                        <div className="mb-1.5 flex items-center gap-2">
+                            <span className="text-sm">{ACTION_ICONS[msg.sender_type] || '·'}</span>
+                            <span className="text-sm font-semibold text-content-primary">
                                 {msg.sender_name}
                             </span>
                             {msg.session_title && (
-                                <span style={{
-                                    color: 'var(--text-tertiary)',
-                                    fontSize: '11px',
-                                    padding: '2px 8px',
-                                    borderRadius: '999px',
-                                    background: 'var(--bg-secondary)',
-                                }}>
+                                <Badge variant="secondary" className="text-[11px]">
                                     {msg.session_title}
-                                </span>
+                                </Badge>
                             )}
-                            <span style={{ marginLeft: 'auto', fontSize: '11px', color: 'var(--text-tertiary)' }}>
-                                {formatTime(msg.created_at)}
+                            <span className="ml-auto text-xs text-content-tertiary tabular-nums">
+                                {formatRelative(msg.created_at)}
                             </span>
                         </div>
-                        <div style={{
-                            fontSize: '13px', color: 'var(--text-secondary)',
-                            lineHeight: '1.5', whiteSpace: 'pre-wrap',
-                            maxHeight: '60px', overflow: 'hidden',
-                        }}>
+                        <div className="line-clamp-2 text-sm leading-relaxed text-content-secondary whitespace-pre-wrap">
                             {msg.content}
                         </div>
                     </div>

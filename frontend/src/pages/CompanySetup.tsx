@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../stores';
 import { tenantApi, authApi } from '../services/api';
+import { Button } from '@/components/ui/button';
 
 export default function CompanySetup() {
     const { t, i18n } = useTranslation();
@@ -13,9 +14,7 @@ export default function CompanySetup() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
 
-    // Join company form
     const [inviteCode, setInviteCode] = useState('');
-    // Create company form
     const [companyName, setCompanyName] = useState('');
 
     useEffect(() => {
@@ -25,14 +24,11 @@ export default function CompanySetup() {
         ]).then(([tenantConfig, authConfig]) => {
             setAllowCreate(tenantConfig.allow_self_create_company);
             setInvitationCodeRequired(!!authConfig.invitation_code_required);
-        }).catch(() => { /* ignore */ });
+        }).catch(() => {});
     }, []);
 
-    // If user already has a company, redirect home
     useEffect(() => {
-        if (user?.tenant_id) {
-            navigate('/');
-        }
+        if (user?.tenant_id) navigate('/');
     }, [user, navigate]);
 
     const refreshUser = async () => {
@@ -40,7 +36,7 @@ export default function CompanySetup() {
             const me = await authApi.me();
             const token = useAuthStore.getState().token;
             if (token) setAuth(me, token);
-        } catch { /* ignore */ }
+        } catch {}
     };
 
     const handleJoin = async (e: React.FormEvent) => {
@@ -65,7 +61,6 @@ export default function CompanySetup() {
         try {
             await tenantApi.selfCreate({ name: companyName });
             await refreshUser();
-            // Navigate to Enterprise Settings to configure LLM models
             navigate('/enterprise');
         } catch (err: any) {
             setError(err.message || t('companySetup.createFailed'));
@@ -82,21 +77,17 @@ export default function CompanySetup() {
 
     return (
         <div className="company-setup-page">
-            {/* Language Switcher */}
-            <div style={{
-                position: 'absolute', top: '16px', right: '16px',
-                cursor: 'pointer', fontSize: '13px', color: 'var(--text-secondary)',
-                display: 'flex', alignItems: 'center', gap: '4px',
-                padding: '6px 12px', borderRadius: '8px',
-                background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)',
-                zIndex: 101,
-            }} onClick={toggleLang}>
+            <button
+                onClick={toggleLang}
+                className="absolute top-4 right-4 z-50 flex items-center gap-1 rounded-lg border border-edge-subtle bg-surface-secondary px-3 py-1.5 text-sm text-content-secondary hover:bg-surface-hover cursor-pointer"
+                aria-label="Switch language"
+            >
                 🌐 {i18n.language === 'zh' ? 'EN' : '中文'}
-            </div>
+            </button>
 
             <div className="company-setup-container">
                 <div className="company-setup-header">
-                    <img src="/logo-black.png" alt="" style={{ width: 32, height: 32 }} />
+                    <img src="/logo-black.png" alt="" width={32} height={32} />
                     <h1>{t('companySetup.title', 'Set Up Your Workspace')}</h1>
                     <p className="company-setup-subtitle">
                         {t('companySetup.subtitle', 'Join an existing company or create your own to get started.')}
@@ -104,22 +95,21 @@ export default function CompanySetup() {
                 </div>
 
                 {error && (
-                    <div className="login-error" style={{ marginBottom: 16 }}>
-                        <span>⚠</span> {error}
+                    <div className="login-error mb-4" role="alert">
+                        <span aria-hidden="true">⚠</span> {error}
                     </div>
                 )}
 
                 {invitationCodeRequired && (
-                    <div className="login-error" style={{ marginBottom: 16 }}>
-                        <span>⚠</span> {t('companySetup.invitationRequired')}
+                    <div className="login-error mb-4" role="alert">
+                        <span aria-hidden="true">⚠</span> {t('companySetup.invitationRequired')}
                     </div>
                 )}
 
                 <div className={`company-setup-panels ${!canCreateCompany ? 'single' : ''}`}>
-                    {/* ── Join Company Panel ── */}
                     <form className="company-setup-panel" onSubmit={handleJoin}>
                         <div className="company-setup-panel-header">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                                 <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
                                 <polyline points="10 17 15 12 10 7" />
                                 <line x1="15" y1="12" x2="3" y2="12" />
@@ -135,21 +125,23 @@ export default function CompanySetup() {
                             )}
                         </p>
                         <div className="login-field">
-                            <label>{t('companySetup.inviteCode', 'Invitation Code')}</label>
+                            <label htmlFor="invite-code">{t('companySetup.inviteCode', 'Invitation Code')}</label>
                             <input
+                                id="invite-code"
                                 value={inviteCode}
                                 onChange={(e) => setInviteCode(e.target.value)}
                                 required
-                                placeholder={t('companySetup.inviteCodePlaceholder', 'e.g. ABC12345')}
-                                style={{ textTransform: 'uppercase', letterSpacing: '2px', fontFamily: 'monospace' }}
+                                autoComplete="off"
+                                spellCheck={false}
+                                placeholder={t('companySetup.inviteCodePlaceholder', 'e.g. ABC12345') + '\u2026'}
+                                className="uppercase tracking-[2px] font-mono"
                             />
                         </div>
-                        <button className="login-submit" type="submit" disabled={loading || !inviteCode}>
-                            {loading ? <span className="login-spinner" /> : t('companySetup.joinBtn', 'Join Company')}
-                        </button>
+                        <Button type="submit" disabled={loading || !inviteCode} loading={loading} className="login-submit w-full">
+                            {t('companySetup.joinBtn', 'Join Company')}
+                        </Button>
                     </form>
 
-                    {/* ── Create Company Panel ── */}
                     {canCreateCompany && (
                         <>
                             <div className="company-setup-divider">
@@ -157,7 +149,7 @@ export default function CompanySetup() {
                             </div>
                             <form className="company-setup-panel" onSubmit={handleCreate}>
                                 <div className="company-setup-panel-header">
-                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                                         <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
                                         <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
                                     </svg>
@@ -167,17 +159,19 @@ export default function CompanySetup() {
                                     {t('companySetup.createDesc', 'Start a new workspace. You can invite team members later.')}
                                 </p>
                                 <div className="login-field">
-                                    <label>{t('companySetup.companyName', 'Company Name')}</label>
+                                    <label htmlFor="company-name">{t('companySetup.companyName', 'Company Name')}</label>
                                     <input
+                                        id="company-name"
                                         value={companyName}
                                         onChange={(e) => setCompanyName(e.target.value)}
                                         required
-                                        placeholder={t('companySetup.companyNamePlaceholder', 'e.g. Acme Inc.')}
+                                        autoComplete="organization"
+                                        placeholder={t('companySetup.companyNamePlaceholder', 'e.g. Acme Inc.') + '\u2026'}
                                     />
                                 </div>
-                                <button className="login-submit" type="submit" disabled={loading || !companyName}>
-                                    {loading ? <span className="login-spinner" /> : t('companySetup.createBtn', 'Create Company')}
-                                </button>
+                                <Button type="submit" disabled={loading || !companyName} loading={loading} className="login-submit w-full">
+                                    {t('companySetup.createBtn', 'Create Company')}
+                                </Button>
                             </form>
                         </>
                     )}
