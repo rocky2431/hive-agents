@@ -1043,6 +1043,10 @@
     },
     "deleteCompanyDesc": "永久删除此公司及其所有数据，包括 Agent、模型、工具和技能。此操作不可撤销。"
   },
+  "a11y": {
+    "skipToContent": "Skip to main content",
+    "close": "Close"
+  },
   "common": {
     "save": "Save",
     "cancel": "Cancel",

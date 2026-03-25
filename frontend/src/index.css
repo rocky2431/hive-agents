@@ -1,9 +1,91 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* ═══════════════════════════════════════════════════════
+   Tailwind Theme — Maps existing CSS vars to utilities
+   e.g. bg-surface-primary, text-content-primary, etc.
+   ═══════════════════════════════════════════════════════ */
+
+@theme {
+  /* ── Colors (referencing CSS vars) ── */
+  --color-surface-primary: var(--bg-primary);
+  --color-surface-secondary: var(--bg-secondary);
+  --color-surface-tertiary: var(--bg-tertiary);
+  --color-surface-elevated: var(--bg-elevated);
+  --color-surface-hover: var(--bg-hover);
+  --color-surface-active: var(--bg-active);
+
+  --color-content-primary: var(--text-primary);
+  --color-content-secondary: var(--text-secondary);
+  --color-content-tertiary: var(--text-tertiary);
+  --color-content-inverse: var(--text-inverse);
+
+  --color-edge-default: var(--border-default);
+  --color-edge-subtle: var(--border-subtle);
+  --color-edge-strong: var(--border-strong);
+
+  --color-accent-primary: var(--accent-primary);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-subtle: var(--accent-subtle);
+  --color-accent-text: var(--accent-text);
+
+  --color-success: var(--success);
+  --color-success-subtle: var(--success-subtle);
+  --color-warning: var(--warning);
+  --color-warning-subtle: var(--warning-subtle);
+  --color-error: var(--error);
+  --color-error-subtle: var(--error-subtle);
+  --color-info: var(--info);
+
+  --color-status-running: var(--status-running);
+  --color-status-idle: var(--status-idle);
+  --color-status-stopped: var(--status-stopped);
+  --color-status-error: var(--status-error);
+
+  /* ── Typography ── */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+  /* NOTE: Font sizes deliberately NOT in @theme to avoid overriding
+     Tailwind's built-in text-sm/text-xs line-height pairing.
+     Legacy CSS vars (--text-xs etc.) remain in :root for existing inline styles. */
+
+  /* ── Border Radius ── */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-full: 9999px;
+
+  /* ── Shadows ── */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.25);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.45);
+
+  /* ── Spacing (extends Tailwind default) ── */
+  --spacing-0_5: 2px;
+  --spacing-1: 4px;
+  --spacing-1_5: 6px;
+  --spacing-2: 8px;
+  --spacing-2_5: 10px;
+  --spacing-3: 12px;
+  --spacing-3_5: 14px;
+  --spacing-4: 16px;
+  --spacing-5: 20px;
+  --spacing-6: 24px;
+  --spacing-8: 32px;
+  --spacing-10: 40px;
+  --spacing-12: 48px;
+}
+
 /* ═══════════════════════════════════════════════════════
    Clawith — Design System (Linear-inspired Dark Theme)
    ═══════════════════════════════════════════════════════ */
 
 :root,
 [data-theme="dark"] {
+  color-scheme: dark;
+
   /* Colors — Dark Theme (Linear-style) */
   --bg-primary: #0a0a0f;
   --bg-secondary: #111119;
@@ -154,6 +236,8 @@
 }
 
 [data-theme="light"] {
+  color-scheme: light;
+
   --bg-primary: #ffffff;
   --bg-secondary: #f9f9fb;
   --bg-tertiary: #f2f2f5;
@@ -238,6 +322,8 @@ body {
   color: var(--text-primary);
   line-height: 1.5;
   min-height: 100vh;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 a {
@@ -283,6 +369,55 @@ textarea:focus,
 select:focus {
   border-color: var(--accent-primary);
   box-shadow: 0 0 0 2px var(--accent-subtle);
+}
+
+/* ─── Accessibility ────────────────────────────────── */
+
+/* Focus-visible ring for all interactive elements (WIG: visible focus) */
+:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+/* Remove default outline since we use focus-visible above */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Skip-to-content link (WIG: skip link for main content) */
+.skip-to-content {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 9999;
+  padding: var(--space-2) var(--space-4);
+  background: var(--accent-primary);
+  color: var(--text-inverse);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  border-radius: 0 0 var(--radius-md) 0;
+  text-decoration: none;
+}
+
+.skip-to-content:focus {
+  left: 0;
+}
+
+/* Tabular numbers for data-heavy elements (WIG: tabular-nums) */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Reduced motion preference (WIG: honor prefers-reduced-motion) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* ─── Layout ────────────────────────────────────────── */

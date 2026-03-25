@@ -586,7 +586,7 @@ export default function Layout() {
             )}
             {showNotifications && <div style={{ position: 'fixed', inset: 0, zIndex: 9998 }} onClick={() => setShowNotifications(false)} />}
 
-            <main className="main-content">
+            <main id="main-content" className="main-content">
                 <Outlet />
             </main>
 

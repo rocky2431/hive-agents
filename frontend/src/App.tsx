@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from './stores';
 import { Suspense, lazy, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { authApi } from './services/api';
 
 const Login = lazy(() => import('./pages/Login'));
@@ -74,6 +75,7 @@ function NotificationBar() {
 
 export default function App() {
     const { token, setAuth, user } = useAuthStore();
+    const { t } = useTranslation();
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
@@ -108,6 +110,9 @@ export default function App() {
 
     return (
         <Suspense fallback={routeFallback}>
+            <a href="#main-content" className="skip-to-content">
+                {t('a11y.skipToContent', 'Skip to main content')}
+            </a>
             <NotificationBar />
             <Routes>
                 <Route path="/login" element={<Login />} />

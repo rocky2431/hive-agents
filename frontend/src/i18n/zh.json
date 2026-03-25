@@ -1043,6 +1043,10 @@
       "unrestricted": "默认可用"
     }
   },
+  "a11y": {
+    "skipToContent": "跳至主要内容",
+    "close": "关闭"
+  },
   "common": {
     "create": "创建",
     "save": "保存",
