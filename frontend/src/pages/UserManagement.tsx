@@ -3,7 +3,13 @@
  */
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { orgApi } from '../services/api';
+import { orgApi, userApi } from '@/services/api';
+import { formatDateTime } from '@/lib/date';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
 
 interface UserInfo {
     id: string;
@@ -25,25 +31,11 @@ interface UserInfo {
     source?: string;
 }
 
-const API_PREFIX = '/api';
-
-async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
-    const token = localStorage.getItem('token');
-    const res = await fetch(`${API_PREFIX}${url}`, {
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        ...options,
-    });
-    if (!res.ok) throw new Error(await res.text());
-    return res.json();
-}
-
 const PERIOD_VALUES = ['permanent', 'daily', 'weekly', 'monthly'] as const;
-
 const PAGE_SIZE = 15;
 
 export default function UserManagement() {
-    const { t, i18n } = useTranslation();
-    const isChinese = i18n.language?.startsWith('zh');
+    const { t } = useTranslation();
 
     const [users, setUsers] = useState<UserInfo[]>([]);
     const [loading, setLoading] = useState(true);
@@ -60,7 +52,6 @@ export default function UserManagement() {
     const [saving, setSaving] = useState(false);
     const [toast, setToast] = useState('');
 
-    // Search, sort & pagination
     const [searchQuery, setSearchQuery] = useState('');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
     const [page, setPage] = useState(1);
@@ -71,7 +62,7 @@ export default function UserManagement() {
     const loadUsers = async () => {
         setLoading(true);
         try {
-            const data = await fetchJson<UserInfo[]>(`/users/${tenantId ? `?tenant_id=${tenantId}` : ''}`);
+            const data = await userApi.list(tenantId || undefined);
             setUsers(data);
         } catch (e) {
             console.error('Failed to load users', e);
@@ -123,43 +114,32 @@ export default function UserManagement() {
                 title: editForm.title || null,
                 department_id: editForm.department_id || null,
             });
-            await fetchJson(`/users/${editingUserId}/quota`, {
-                method: 'PATCH',
-                body: JSON.stringify({
-                    quota_message_limit: editForm.quota_message_limit,
-                    quota_message_period: editForm.quota_message_period,
-                    quota_max_agents: editForm.quota_max_agents,
-                    quota_agent_ttl_hours: editForm.quota_agent_ttl_hours,
-                }),
+            await userApi.updateQuota(editingUserId, {
+                quota_message_limit: editForm.quota_message_limit,
+                quota_message_period: editForm.quota_message_period,
+                quota_max_agents: editForm.quota_max_agents,
+                quota_agent_ttl_hours: editForm.quota_agent_ttl_hours,
             });
-            setToast(`✅ ${t('userMgmt.quotaUpdated')}`);
+            setToast(t('userMgmt.quotaUpdated'));
             setTimeout(() => setToast(''), 2000);
             setEditingUserId(null);
             loadUsers();
         } catch (e: any) {
-            setToast(`❌ ${e.message}`);
+            setToast(e.message);
             setTimeout(() => setToast(''), 3000);
         }
         setSaving(false);
     };
 
-    const periodLabel = (period: string) => {
-        return t(`userMgmt.period.${period}`, period);
-    };
-
-    const formatDate = (iso?: string) => {
-        if (!iso) return '-';
-        const d = new Date(iso);
-        return d.toLocaleString(isChinese ? 'zh-CN' : 'en-US', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
-    };
+    const periodLabel = (period: string) => t(`userMgmt.period.${period}`, period);
 
     // Search filter
     const filtered = searchQuery.trim()
         ? users.filter(u => {
             const q = searchQuery.toLowerCase();
-            return (u.username?.toLowerCase().includes(q))
-                || (u.display_name?.toLowerCase().includes(q))
-                || (u.email?.toLowerCase().includes(q));
+            return u.username?.toLowerCase().includes(q)
+                || u.display_name?.toLowerCase().includes(q)
+                || u.email?.toLowerCase().includes(q);
         })
         : users;
 
@@ -179,275 +159,260 @@ export default function UserManagement() {
         setPage(1);
     };
 
+    const gridCols = 'grid grid-cols-[1.4fr_1.4fr_0.8fr_0.9fr_0.8fr_0.8fr_0.8fr_0.8fr_100px] gap-2.5';
+
     return (
         <div>
             {toast && (
-                <div style={{
-                    position: 'fixed', top: '20px', right: '20px', padding: '10px 20px',
-                    borderRadius: '8px', background: toast.startsWith('✅') ? 'var(--success)' : 'var(--error)',
-                    color: '#fff', fontSize: '13px', zIndex: 9999, transition: 'all 0.3s',
-                }}>
+                <div className={`fixed top-5 right-5 px-5 py-2.5 rounded-lg text-white text-xs z-[9999] transition-all ${toast.includes('error') || toast.includes('Error') ? 'bg-error' : 'bg-success'}`}>
                     {toast}
                 </div>
             )}
 
             {loading ? (
-                <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-tertiary)' }}>
+                <div className="text-center py-10 text-content-tertiary">
                     {t('common.loading')}...
                 </div>
             ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div className="flex flex-col gap-2">
                     {/* Search bar */}
-                    <div style={{ position: 'relative', marginBottom: '4px' }}>
-                        <input
-                            className="form-input"
+                    <div className="relative mb-1">
+                        <Input
                             type="text"
                             placeholder={t('userMgmt.searchPlaceholder')}
                             value={searchQuery}
                             onChange={e => { setSearchQuery(e.target.value); setPage(1); }}
-                            style={{
-                                width: '100%', maxWidth: '360px', fontSize: '13px',
-                                padding: '8px 12px 8px 12px',
-                                background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)',
-                                borderRadius: '8px',
-                            }}
+                            className="max-w-[360px] text-xs"
+                            autoComplete="off"
                         />
                         {searchQuery && (
-                            <span style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginLeft: '12px' }}>
+                            <span className="text-xs text-content-tertiary ml-3">
                                 {t('userMgmt.userCount', { filtered: filtered.length, total: users.length })}
                             </span>
                         )}
                     </div>
 
                     {/* Header */}
-                    <div style={{
-                        display: 'grid', gridTemplateColumns: '1.4fr 1.4fr 0.8fr 0.9fr 0.8fr 0.8fr 0.8fr 0.8fr 100px',
-                        gap: '10px', padding: '10px 16px', fontSize: '11px', fontWeight: 600,
-                        color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em',
-                    }}>
+                    <div className={`${gridCols} px-4 py-2.5 text-[11px] font-semibold text-content-tertiary uppercase tracking-wide`}>
                         <div>{t('enterprise.users.user')}</div>
                         <div>{t('enterprise.users.email', 'Email')}</div>
-                        {/* Created At with sort toggle */}
                         <div
-                            style={{ cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: '3px' }}
+                            className="cursor-pointer select-none flex items-center gap-0.5"
                             onClick={toggleSort}
                             title={t('userMgmt.sortToggle')}
                         >
-                            {t('userMgmt.joined')} {sortOrder === 'asc' ? '↑' : '↓'}
+                            {t('userMgmt.joined')} {sortOrder === 'asc' ? '\u2191' : '\u2193'}
                         </div>
                         <div>{t('userMgmt.source')}</div>
                         <div>{t('enterprise.users.msgQuota')}</div>
                         <div>{t('enterprise.users.period')}</div>
                         <div>{t('enterprise.users.agents')}</div>
                         <div>{t('enterprise.users.ttl', 'TTL')}</div>
-                        <div></div>
+                        <div />
                     </div>
 
                     {paged.map(user => (
                         <div key={user.id}>
-                            <div className="card" style={{
-                                display: 'grid', gridTemplateColumns: '1.4fr 1.4fr 0.8fr 0.9fr 0.8fr 0.8fr 0.8fr 0.8fr 100px',
-                                gap: '10px', alignItems: 'center', padding: '12px 16px',
-                            }}>
+                            <Card className={`${gridCols} items-center px-4 py-3`}>
                                 <div>
-                                    <div style={{ fontWeight: 500, fontSize: '14px' }}>
+                                    <div className="font-medium text-sm">
                                         {user.display_name || user.username}
                                         {user.role === 'platform_admin' && (
-                                            <span style={{ marginLeft: '6px', fontSize: '10px', background: 'var(--accent-color)', color: '#fff', borderRadius: '4px', padding: '1px 6px' }}>{t('common.admin')}</span>
+                                            <span className="ml-1.5 text-[10px] bg-accent-primary text-white rounded px-1.5 py-px">
+                                                {t('common.admin')}
+                                            </span>
                                         )}
                                     </div>
-                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>@{user.username}</div>
+                                    <div className="text-[11px] text-content-tertiary">@{user.username}</div>
                                 </div>
-                                <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{user.email}</div>
-                                <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{formatDate(user.created_at)}</div>
+                                <div className="text-xs text-content-secondary">{user.email}</div>
+                                <div className="text-[11px] text-content-secondary">{formatDateTime(user.created_at)}</div>
                                 <div>
                                     {user.source === 'feishu' ? (
-                                        <span style={{ fontSize: '10px', background: 'rgba(58,132,255,0.12)', color: '#3a84ff', borderRadius: '4px', padding: '2px 7px', whiteSpace: 'nowrap' }}>
+                                        <span className="text-[10px] bg-blue-500/10 text-blue-500 rounded px-1.5 py-0.5 whitespace-nowrap">
                                             {t('common.channels.feishu')}
                                         </span>
                                     ) : (
-                                        <span style={{ fontSize: '10px', background: 'rgba(0,180,120,0.12)', color: 'var(--success)', borderRadius: '4px', padding: '2px 7px', whiteSpace: 'nowrap' }}>
+                                        <span className="text-[10px] bg-success/10 text-success rounded px-1.5 py-0.5 whitespace-nowrap">
                                             {t('userMgmt.registered')}
                                         </span>
                                     )}
                                 </div>
                                 <div>
-                                    <span style={{ fontSize: '13px', fontWeight: 500 }}>{user.quota_messages_used}</span>
-                                    <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}> / {user.quota_message_limit}</span>
+                                    <span className="text-[13px] font-medium">{user.quota_messages_used}</span>
+                                    <span className="text-[11px] text-content-tertiary"> / {user.quota_message_limit}</span>
                                 </div>
                                 <div>
-                                    <span className="badge badge-info" style={{ fontSize: '10px' }}>{periodLabel(user.quota_message_period)}</span>
+                                    <span className="badge badge-info text-[10px]">{periodLabel(user.quota_message_period)}</span>
                                 </div>
                                 <div>
-                                    <span style={{ fontSize: '13px', fontWeight: 500 }}>{user.agents_count}</span>
-                                    <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}> / {user.quota_max_agents}</span>
+                                    <span className="text-[13px] font-medium">{user.agents_count}</span>
+                                    <span className="text-[11px] text-content-tertiary"> / {user.quota_max_agents}</span>
                                 </div>
-                                <div style={{ fontSize: '12px' }}>{user.quota_agent_ttl_hours}h</div>
+                                <div className="text-xs">{user.quota_agent_ttl_hours}h</div>
                                 <div>
-                                    <button
-                                        className="btn btn-secondary"
-                                        style={{ padding: '4px 10px', fontSize: '11px' }}
+                                    <Button
+                                        variant="secondary"
+                                        size="sm"
                                         onClick={() => editingUserId === user.id ? setEditingUserId(null) : startEdit(user)}
                                     >
-                                        {editingUserId === user.id ? t('common.cancel') : '✏️ Edit'}
-                                    </button>
+                                        {editingUserId === user.id ? t('common.cancel') : t('common.edit', 'Edit')}
+                                    </Button>
                                 </div>
-                            </div>
+                            </Card>
 
                             {/* Inline edit form */}
                             {editingUserId === user.id && (
-                                <div className="card" style={{
-                                    marginTop: '4px', padding: '16px',
-                                    background: 'var(--bg-secondary)',
-                                    borderLeft: '3px solid var(--accent-color)',
-                                }}>
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '16px', marginBottom: '12px' }}>
-                                        <div className="form-group">
-                                            <label className="form-label" style={{ fontSize: '11px' }}>
+                                <Card className="mt-1 p-4 bg-surface-secondary border-l-[3px] border-l-accent-primary">
+                                    <div className="grid grid-cols-4 gap-4 mb-3">
+                                        <div className="space-y-1">
+                                            <Label htmlFor={`dn-${user.id}`} className="text-[11px]">
                                                 {t('userMgmt.displayName', 'Display name')}
-                                            </label>
-                                            <input
-                                                className="form-input"
+                                            </Label>
+                                            <Input
+                                                id={`dn-${user.id}`}
                                                 value={editForm.display_name}
                                                 onChange={e => setEditForm({ ...editForm, display_name: e.target.value })}
+                                                autoComplete="name"
                                             />
                                         </div>
-                                        <div className="form-group">
-                                            <label className="form-label" style={{ fontSize: '11px' }}>
+                                        <div className="space-y-1">
+                                            <Label htmlFor={`title-${user.id}`} className="text-[11px]">
                                                 {t('userMgmt.title', 'Title')}
-                                            </label>
-                                            <input
-                                                className="form-input"
+                                            </Label>
+                                            <Input
+                                                id={`title-${user.id}`}
                                                 value={editForm.title}
                                                 onChange={e => setEditForm({ ...editForm, title: e.target.value })}
+                                                autoComplete="organization-title"
                                             />
                                         </div>
-                                        <div className="form-group">
-                                            <label className="form-label" style={{ fontSize: '11px' }}>
+                                        <div className="space-y-1">
+                                            <Label htmlFor={`dept-${user.id}`} className="text-[11px]">
                                                 {t('userMgmt.department', 'Department')}
-                                            </label>
-                                            <select
-                                                className="form-input"
+                                            </Label>
+                                            <Select
                                                 value={editForm.department_id}
-                                                onChange={e => setEditForm({ ...editForm, department_id: e.target.value })}
+                                                onValueChange={v => setEditForm({ ...editForm, department_id: v === '__none__' ? '' : v })}
                                             >
-                                                <option value="">{t('common.none', 'None')}</option>
-                                                {departments.map((dept) => (
-                                                    <option key={dept.id} value={dept.id}>
-                                                        {'— '.repeat(dept.level)}
-                                                        {dept.name}
-                                                    </option>
-                                                ))}
-                                            </select>
+                                                <SelectTrigger id={`dept-${user.id}`}>
+                                                    <SelectValue placeholder={t('common.none', 'None')} />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="__none__">{t('common.none', 'None')}</SelectItem>
+                                                    {departments.map(dept => (
+                                                        <SelectItem key={dept.id} value={dept.id}>
+                                                            {'\u2014 '.repeat(dept.level)}{dept.name}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
                                         </div>
-                                        <div className="form-group">
-                                            <label className="form-label" style={{ fontSize: '11px' }}>
+                                        <div className="space-y-1">
+                                            <Label className="text-[11px]">
                                                 {t('userMgmt.role', 'Role')}
-                                            </label>
-                                            <input
-                                                className="form-input"
-                                                value={user.role}
-                                                disabled
-                                            />
+                                            </Label>
+                                            <Input value={user.role} disabled />
                                         </div>
                                     </div>
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '16px' }}>
-                                        <div className="form-group">
-                                            <label className="form-label" style={{ fontSize: '11px' }}>
+                                    <div className="grid grid-cols-4 gap-4">
+                                        <div className="space-y-1">
+                                            <Label htmlFor={`ml-${user.id}`} className="text-[11px]">
                                                 {t('enterprise.users.msgLimit')}
-                                            </label>
-                                            <input
-                                                className="form-input"
-                                                type="number" min={0}
+                                            </Label>
+                                            <Input
+                                                id={`ml-${user.id}`}
+                                                type="number"
+                                                min={0}
                                                 value={editForm.quota_message_limit}
                                                 onChange={e => setEditForm({ ...editForm, quota_message_limit: Number(e.target.value) })}
+                                                autoComplete="off"
                                             />
                                         </div>
-                                        <div className="form-group">
-                                            <label className="form-label" style={{ fontSize: '11px' }}>
+                                        <div className="space-y-1">
+                                            <Label htmlFor={`per-${user.id}`} className="text-[11px]">
                                                 {t('enterprise.users.period')}
-                                            </label>
-                                            <select
-                                                className="form-input"
+                                            </Label>
+                                            <Select
                                                 value={editForm.quota_message_period}
-                                                onChange={e => setEditForm({ ...editForm, quota_message_period: e.target.value })}
+                                                onValueChange={v => setEditForm({ ...editForm, quota_message_period: v })}
                                             >
-                                                {PERIOD_VALUES.map(v => (
-                                                    <option key={v} value={v}>{periodLabel(v)}</option>
-                                                ))}
-                                            </select>
+                                                <SelectTrigger id={`per-${user.id}`}>
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {PERIOD_VALUES.map(v => (
+                                                        <SelectItem key={v} value={v}>{periodLabel(v)}</SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
                                         </div>
-                                        <div className="form-group">
-                                            <label className="form-label" style={{ fontSize: '11px' }}>
+                                        <div className="space-y-1">
+                                            <Label htmlFor={`ma-${user.id}`} className="text-[11px]">
                                                 {t('enterprise.users.maxAgents')}
-                                            </label>
-                                            <input
-                                                className="form-input"
-                                                type="number" min={0}
+                                            </Label>
+                                            <Input
+                                                id={`ma-${user.id}`}
+                                                type="number"
+                                                min={0}
                                                 value={editForm.quota_max_agents}
                                                 onChange={e => setEditForm({ ...editForm, quota_max_agents: Number(e.target.value) })}
+                                                autoComplete="off"
                                             />
                                         </div>
-                                        <div className="form-group">
-                                            <label className="form-label" style={{ fontSize: '11px' }}>
+                                        <div className="space-y-1">
+                                            <Label htmlFor={`ttl-${user.id}`} className="text-[11px]">
                                                 {t('enterprise.users.agentTTL')}
-                                            </label>
-                                            <input
-                                                className="form-input"
-                                                type="number" min={1}
+                                            </Label>
+                                            <Input
+                                                id={`ttl-${user.id}`}
+                                                type="number"
+                                                min={1}
                                                 value={editForm.quota_agent_ttl_hours}
                                                 onChange={e => setEditForm({ ...editForm, quota_agent_ttl_hours: Number(e.target.value) })}
+                                                autoComplete="off"
                                             />
                                         </div>
                                     </div>
-                                    <div style={{ marginTop: '12px', display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                                        <button className="btn btn-secondary" onClick={() => setEditingUserId(null)}>
+                                    <div className="mt-3 flex gap-2 justify-end">
+                                        <Button variant="secondary" onClick={() => setEditingUserId(null)}>
                                             {t('common.cancel')}
-                                        </button>
-                                        <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+                                        </Button>
+                                        <Button onClick={handleSave} loading={saving}>
                                             {saving ? t('common.loading') : t('common.save', 'Save')}
-                                        </button>
+                                        </Button>
                                     </div>
-                                </div>
+                                </Card>
                             )}
                         </div>
                     ))}
 
                     {users.length === 0 && (
-                        <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-tertiary)' }}>
+                        <div className="text-center py-10 text-content-tertiary">
                             {t('common.noData')}
                         </div>
                     )}
 
                     {/* Pagination */}
                     {totalPages > 1 && (
-                        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', marginTop: '16px' }}>
-                            <button
-                                className="btn btn-secondary"
-                                style={{ padding: '4px 10px', fontSize: '12px' }}
-                                disabled={page <= 1}
-                                onClick={() => setPage(p => p - 1)}
-                            >
-                                ‹ {t('userMgmt.prev')}
-                            </button>
+                        <div className="flex justify-center items-center gap-2 mt-4">
+                            <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>
+                                {'\u2039'} {t('userMgmt.prev')}
+                            </Button>
                             {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
-                                <button
+                                <Button
                                     key={p}
-                                    className={`btn ${p === page ? 'btn-primary' : 'btn-secondary'}`}
-                                    style={{ padding: '4px 10px', fontSize: '12px', minWidth: '32px' }}
+                                    variant={p === page ? 'default' : 'secondary'}
+                                    size="sm"
+                                    className="min-w-[32px]"
                                     onClick={() => setPage(p)}
                                 >
                                     {p}
-                                </button>
+                                </Button>
                             ))}
-                            <button
-                                className="btn btn-secondary"
-                                style={{ padding: '4px 10px', fontSize: '12px' }}
-                                disabled={page >= totalPages}
-                                onClick={() => setPage(p => p + 1)}
-                            >
-                                {t('userMgmt.next')} ›
-                            </button>
+                            <Button variant="secondary" size="sm" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>
+                                {t('userMgmt.next')} {'\u203A'}
+                            </Button>
                         </div>
                     )}
                 </div>

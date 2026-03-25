@@ -4,97 +4,36 @@ import { useTranslation } from 'react-i18next';
 import { agentApi, plazaApi } from '../services/api';
 import { useAuthStore } from '../stores';
 import type { Agent, PlazaPost, PlazaStats } from '../types';
+import { formatRelative } from '@/lib/date';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Skeleton } from '@/components/ui/skeleton';
+import { AgentAvatar } from '@/components/domain/agent-avatar';
+import { EmptyState } from '@/components/domain/empty-state';
 
-/* ────── Inline SVG Icons (monochrome, matching Dashboard) ────── */
+/* ── Helpers ── */
 
-const Icons = {
-    post: (
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M13 2H3a1 1 0 00-1 1v8a1 1 0 001 1h3l2 2 2-2h3a1 1 0 001-1V3a1 1 0 00-1-1z" />
-        </svg>
-    ),
-    comment: (
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M2 4a2 2 0 012-2h8a2 2 0 012 2v5a2 2 0 01-2 2H8l-3 3V11H4a2 2 0 01-2-2V4z" />
-        </svg>
-    ),
-    heart: (
-        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M8 13.7C8 13.7 1.5 9.5 1.5 5.5C1.5 3.5 3 2 5 2C6.2 2 7.3 2.6 8 3.5C8.7 2.6 9.8 2 11 2C13 2 14.5 3.5 14.5 5.5C14.5 9.5 8 13.7 8 13.7Z" />
-        </svg>
-    ),
-    heartFilled: (
-        <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M8 13.7C8 13.7 1.5 9.5 1.5 5.5C1.5 3.5 3 2 5 2C6.2 2 7.3 2.6 8 3.5C8.7 2.6 9.8 2 11 2C13 2 14.5 3.5 14.5 5.5C14.5 9.5 8 13.7 8 13.7Z" />
-        </svg>
-    ),
-    fire: (
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M8.5 1.5C8.5 1.5 12.5 5 12.5 9a4.5 4.5 0 01-9 0c0-2 1-3.5 2-4.5 0 0 .5 2 2 2.5C8 7 8.5 1.5 8.5 1.5z" />
-        </svg>
-    ),
-    trophy: (
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M5 14h6M8 11v3M4 2h8v3a4 4 0 01-8 0V2z" />
-            <path d="M4 3H2.5a1 1 0 00-1 1v1a2 2 0 002 2H4M12 3h1.5a1 1 0 011 1v1a2 2 0 01-2 2H12" />
-        </svg>
-    ),
-    hash: (
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M3 6h10M3 10h10M6.5 2.5l-1 11M10.5 2.5l-1 11" />
-        </svg>
-    ),
-    info: (
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="8" cy="8" r="6" />
-            <path d="M8 7v4M8 5.5v0" />
-        </svg>
-    ),
-    send: (
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M14.5 1.5l-6 13-2.5-5.5L.5 6.5l14-5z" />
-            <path d="M14.5 1.5L6 9" />
-        </svg>
-    ),
-    bot: (
-        <svg width="14" height="14" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="5" width="12" height="10" rx="2" />
-            <circle cx="7" cy="10" r="1" fill="currentColor" stroke="none" />
-            <circle cx="11" cy="10" r="1" fill="currentColor" stroke="none" />
-            <path d="M9 2v3M6 2h6" />
-        </svg>
-    ),
-    dot: (
-        <svg width="6" height="6" viewBox="0 0 6 6">
-            <circle cx="3" cy="3" r="3" fill="currentColor" />
-        </svg>
-    ),
-};
-
-// Auto-detect URLs and #hashtags in text
 const linkifyContent = (text: string) => {
     const parts = text.split(/(https?:\/\/[^\s<>"'()，。！？、；：]+|#[\w\u4e00-\u9fff]+)/g);
     if (parts.length <= 1) return text;
     return parts.map((part, i) => {
         if (i % 2 === 1) {
             if (part.startsWith('#')) {
-                return (
-                    <span key={i} style={{ color: 'var(--accent-primary)', fontWeight: 500 }}>{part}</span>
-                );
+                return <span key={i} className="font-medium text-accent-text">{part}</span>;
             }
             return (
-                <a key={i} href={part} target="_blank" rel="noopener noreferrer"
-                    style={{ color: 'var(--accent-primary)', textDecoration: 'none', wordBreak: 'break-all' }}
-                    onMouseOver={e => (e.currentTarget.style.textDecoration = 'underline')}
-                    onMouseOut={e => (e.currentTarget.style.textDecoration = 'none')}
-                >{part.length > 60 ? part.substring(0, 57) + '...' : part}</a>
+                <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="text-accent-text hover:underline break-all">
+                    {part.length > 60 ? part.substring(0, 57) + '\u2026' : part}
+                </a>
             );
         }
         return part;
     });
 };
 
-// Simple markdown-like rendering: **bold**, `code`, line breaks
 const renderContent = (text: string) => {
     const elements: any[] = [];
     const lines = text.split('\n');
@@ -105,18 +44,12 @@ const renderContent = (text: string) => {
                 elements.push(<strong key={`${li}-${pi}`}>{part.slice(2, -2)}</strong>);
             } else if (part.startsWith('`') && part.endsWith('`')) {
                 elements.push(
-                    <code key={`${li}-${pi}`} style={{
-                        background: 'var(--bg-tertiary)', padding: '1px 5px',
-                        borderRadius: 'var(--radius-sm)', fontSize: 'var(--text-xs)',
-                        fontFamily: 'var(--font-mono)',
-                    }}>{part.slice(1, -1)}</code>
+                    <code key={`${li}-${pi}`} className="rounded bg-surface-tertiary px-1 py-px font-mono text-xs">{part.slice(1, -1)}</code>
                 );
             } else {
                 const linked = linkifyContent(part);
                 if (Array.isArray(linked)) {
-                    elements.push(...linked.map((el, ei) =>
-                        typeof el === 'string' ? <span key={`${li}-${pi}-${ei}`}>{el}</span> : el
-                    ));
+                    elements.push(...linked.map((el, ei) => typeof el === 'string' ? <span key={`${li}-${pi}-${ei}`}>{el}</span> : el));
                 } else {
                     elements.push(<span key={`${li}-${pi}`}>{linked}</span>);
                 }
@@ -127,111 +60,7 @@ const renderContent = (text: string) => {
     return elements;
 };
 
-/* ────── Avatar component ────── */
-
-function Avatar({ name, isAgent, size = 32 }: { name: string; isAgent: boolean; size?: number }) {
-    return (
-        <div style={{
-            width: size, height: size, borderRadius: 'var(--radius-md)',
-            background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: 'var(--text-tertiary)', flexShrink: 0,
-            fontSize: isAgent ? `${size * 0.45}px` : `${size * 0.4}px`,
-            fontWeight: 600,
-        }}>
-            {isAgent ? Icons.bot : name[0]?.toUpperCase()}
-        </div>
-    );
-}
-
-/* ────── Stats Bar ────── */
-
-function StatsBar({ stats }: { stats: PlazaStats }) {
-    const { t } = useTranslation();
-    const items = [
-        { icon: Icons.post, label: t('plaza.totalPosts', 'Posts'), value: stats.total_posts },
-        { icon: Icons.comment, label: t('plaza.totalComments', 'Comments'), value: stats.total_comments },
-        { icon: Icons.fire, label: t('plaza.todayPosts', 'Today'), value: stats.today_posts },
-    ];
-
-    return (
-        <div style={{
-            display: 'grid', gridTemplateColumns: `repeat(${items.length}, 1fr)`, gap: '1px',
-            background: 'var(--border-subtle)', borderRadius: 'var(--radius-lg)',
-            overflow: 'hidden', marginBottom: '24px',
-            border: '1px solid var(--border-subtle)',
-        }}>
-            {items.map((s, i) => (
-                <div key={i} style={{
-                    background: 'var(--bg-secondary)', padding: '16px 20px',
-                    display: 'flex', flexDirection: 'column', gap: '2px',
-                }}>
-                    <div style={{
-                        fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)',
-                        display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px',
-                    }}>
-                        <span style={{ display: 'flex', opacity: 0.7 }}>{s.icon}</span> {s.label}
-                    </div>
-                    <div style={{
-                        fontSize: 'var(--text-2xl)', fontWeight: 600,
-                        color: 'var(--text-primary)', letterSpacing: '-0.02em',
-                    }}>
-                        {s.value}
-                    </div>
-                </div>
-            ))}
-        </div>
-    );
-}
-
-/* ────── Action Button ────── */
-
-function ActionBtn({ icon, label, active, onClick }: {
-    icon: React.ReactNode; label: string | number; active?: boolean; onClick?: () => void;
-}) {
-    return (
-        <button
-            onClick={onClick}
-            style={{
-                background: 'none', border: 'none', cursor: 'pointer',
-                fontSize: 'var(--text-xs)', color: active ? 'var(--error)' : 'var(--text-tertiary)',
-                display: 'flex', alignItems: 'center', gap: '4px',
-                padding: '4px 8px', borderRadius: 'var(--radius-sm)',
-                transition: 'all var(--transition-fast)',
-            }}
-            onMouseOver={e => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = active ? 'var(--error)' : 'var(--text-secondary)'; }}
-            onMouseOut={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = active ? 'var(--error)' : 'var(--text-tertiary)'; }}
-        >
-            <span style={{ display: 'flex' }}>{icon}</span> {label}
-        </button>
-    );
-}
-
-/* ────── Sidebar Section ────── */
-
-function SidebarSection({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
-    return (
-        <div style={{
-            border: '1px solid var(--border-subtle)',
-            borderRadius: 'var(--radius-lg)', overflow: 'hidden',
-        }}>
-            <div style={{
-                padding: '10px 14px', borderBottom: '1px solid var(--border-subtle)',
-                display: 'flex', alignItems: 'center', gap: '6px',
-                fontSize: 'var(--text-xs)', fontWeight: 500,
-                color: 'var(--text-secondary)',
-            }}>
-                <span style={{ display: 'flex', opacity: 0.6 }}>{icon}</span>
-                {title}
-            </div>
-            <div style={{ padding: '10px 14px' }}>
-                {children}
-            </div>
-        </div>
-    );
-}
-
-/* ────── Main Component ────── */
+/* ── Main Component ── */
 
 export default function Plaza() {
     const { t } = useTranslation();
@@ -268,411 +97,201 @@ export default function Plaza() {
 
     const createPost = useMutation({
         mutationFn: (content: string) => plazaApi.create(content),
-        onSuccess: () => {
-            setNewPost('');
-            queryClient.invalidateQueries({ queryKey: ['plaza-posts', tenantId] });
-            queryClient.invalidateQueries({ queryKey: ['plaza-stats', tenantId] });
-        },
+        onSuccess: () => { setNewPost(''); queryClient.invalidateQueries({ queryKey: ['plaza-posts', tenantId] }); queryClient.invalidateQueries({ queryKey: ['plaza-stats', tenantId] }); },
     });
 
     const addComment = useMutation({
-        mutationFn: ({ postId, content }: { postId: string; content: string }) =>
-            plazaApi.comment(postId, content),
-        onSuccess: (_, vars) => {
-            setNewComment('');
-            queryClient.invalidateQueries({ queryKey: ['plaza-posts', tenantId] });
-            queryClient.invalidateQueries({ queryKey: ['plaza-stats', tenantId] });
-            queryClient.invalidateQueries({ queryKey: ['plaza-post-detail', vars.postId] });
-        },
+        mutationFn: ({ postId, content }: { postId: string; content: string }) => plazaApi.comment(postId, content),
+        onSuccess: (_, vars) => { setNewComment(''); queryClient.invalidateQueries({ queryKey: ['plaza-posts', tenantId] }); queryClient.invalidateQueries({ queryKey: ['plaza-post-detail', vars.postId] }); },
     });
 
     const likePost = useMutation({
         mutationFn: (postId: string) => plazaApi.toggleLike(postId),
-        onSuccess: (_, postId) => {
-            queryClient.invalidateQueries({ queryKey: ['plaza-posts', tenantId] });
-            queryClient.invalidateQueries({ queryKey: ['plaza-post-detail', postId] });
-        },
+        onSuccess: (_, postId) => { queryClient.invalidateQueries({ queryKey: ['plaza-posts', tenantId] }); queryClient.invalidateQueries({ queryKey: ['plaza-post-detail', postId] }); },
     });
 
-    const timeAgo = (dateStr: string) => {
-        const diff = Date.now() - new Date(dateStr).getTime();
-        const mins = Math.floor(diff / 60000);
-        if (mins < 1) return t('plaza.justNow', 'just now');
-        if (mins < 60) return `${mins}m`;
-        const hours = Math.floor(mins / 60);
-        if (hours < 24) return `${hours}h`;
-        return `${Math.floor(hours / 24)}d`;
-    };
-
-    // Extract trending hashtags
     const trendingTags: { tag: string; count: number }[] = (() => {
         const tagMap: Record<string, number> = {};
-        posts.forEach(p => {
-            const matches = p.content.match(/#[\w\u4e00-\u9fff]+/g);
-            if (matches) matches.forEach(tag => { tagMap[tag] = (tagMap[tag] || 0) + 1; });
-        });
-        return Object.entries(tagMap)
-            .map(([tag, count]) => ({ tag, count }))
-            .sort((a, b) => b.count - a.count)
-            .slice(0, 8);
+        posts.forEach(p => { const matches = p.content.match(/#[\w\u4e00-\u9fff]+/g); if (matches) matches.forEach(tag => { tagMap[tag] = (tagMap[tag] || 0) + 1; }); });
+        return Object.entries(tagMap).map(([tag, count]) => ({ tag, count })).sort((a, b) => b.count - a.count).slice(0, 8);
     })();
 
     const runningAgents = agents.filter((a: Agent) => a.status === 'running');
 
     return (
         <div>
-            {/* ─── Header ─── */}
-            <div style={{
-                display: 'flex', justifyContent: 'space-between',
-                alignItems: 'center', marginBottom: '24px',
-            }}>
-                <div>
-                    <h1 style={{
-                        fontSize: 'var(--text-xl)', fontWeight: 600, margin: 0,
-                        letterSpacing: '-0.02em', marginBottom: '2px',
-                    }}>
-                        {t('plaza.title', 'Agent Plaza')}
-                    </h1>
-                    <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-tertiary)', margin: 0 }}>
-                        {t('plaza.subtitle', 'Where agents and humans share insights, ideas, and updates.')}
-                    </p>
-                </div>
+            {/* Header */}
+            <div className="mb-6">
+                <h1 className="text-xl font-semibold tracking-tight">{t('plaza.title', 'Agent Plaza')}</h1>
+                <p className="text-sm text-content-tertiary">{t('plaza.subtitle', 'Where agents and humans share insights, ideas, and updates.')}</p>
             </div>
 
-            {/* ─── Stats ─── */}
-            {stats && <StatsBar stats={stats} />}
+            {/* Stats */}
+            {stats && (
+                <div className="mb-6 grid grid-cols-3 gap-px overflow-hidden rounded-lg border border-edge-subtle bg-edge-subtle">
+                    {[
+                        { label: t('plaza.totalPosts', 'Posts'), value: stats.total_posts },
+                        { label: t('plaza.totalComments', 'Comments'), value: stats.total_comments },
+                        { label: t('plaza.todayPosts', 'Today'), value: stats.today_posts },
+                    ].map((s, i) => (
+                        <div key={i} className="flex flex-col gap-0.5 bg-surface-secondary px-5 py-4">
+                            <span className="text-xs text-content-tertiary">{s.label}</span>
+                            <span className="text-2xl font-semibold tracking-tight text-content-primary tabular-nums">{s.value}</span>
+                        </div>
+                    ))}
+                </div>
+            )}
 
-            {/* ─── Two-Column Layout ─── */}
-            <div style={{ display: 'flex', gap: '24px', alignItems: 'flex-start' }}>
-                {/* ─── Main Feed ─── */}
-                <div style={{ flex: 1, minWidth: 0 }}>
+            {/* Two-Column Layout */}
+            <div className="flex items-start gap-6">
+                {/* Main Feed */}
+                <div className="min-w-0 flex-1">
                     {/* Composer */}
-                    <div style={{
-                        border: '1px solid var(--border-subtle)',
-                        borderRadius: 'var(--radius-lg)', padding: '14px 16px',
-                        marginBottom: '16px',
-                    }}>
-                        <div style={{ display: 'flex', gap: '10px' }}>
-                            <Avatar name={user?.display_name || 'U'} isAgent={false} size={32} />
-                            <textarea
+                    <Card className="mb-4 p-4">
+                        <div className="flex gap-2.5">
+                            <AgentAvatar name={user?.display_name || 'U'} size="md" />
+                            <Textarea
                                 value={newPost}
                                 onChange={e => setNewPost(e.target.value)}
-                                placeholder={t('plaza.writeSomething', "What's on your mind?")}
+                                placeholder={t('plaza.writeSomething', "What's on your mind\u2026")}
                                 maxLength={500}
                                 rows={2}
-                                style={{
-                                    flex: 1, resize: 'none', padding: '8px 12px',
-                                    fontSize: 'var(--text-sm)', lineHeight: 1.5,
-                                    background: 'var(--bg-secondary)',
-                                    color: 'var(--text-primary)',
-                                    border: '1px solid var(--border-default)',
-                                    borderRadius: 'var(--radius-md)',
-                                    fontFamily: 'var(--font-family)',
-                                    transition: 'border-color var(--transition-fast)',
-                                }}
-                                onFocus={e => { e.currentTarget.style.borderColor = 'var(--accent-primary)'; e.currentTarget.style.boxShadow = '0 0 0 2px var(--accent-subtle)'; e.currentTarget.rows = 3; }}
-                                onBlur={e => { e.currentTarget.style.borderColor = 'var(--border-default)'; e.currentTarget.style.boxShadow = 'none'; if (!newPost) e.currentTarget.rows = 2; }}
+                                className="flex-1 resize-none"
                             />
                         </div>
-                        <div style={{
-                            display: 'flex', justifyContent: 'space-between',
-                            alignItems: 'center', marginTop: '10px', paddingLeft: '42px',
-                        }}>
-                            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
-                                {newPost.length}/500 · {t('plaza.hashtagTip', 'Use #hashtags to add topics')}
-                            </span>
-                            <button
-                                className={`btn ${newPost.trim() ? 'btn-primary' : 'btn-secondary'}`}
-                                onClick={() => newPost.trim() && createPost.mutate(newPost)}
-                                disabled={!newPost.trim() || createPost.isPending}
-                                style={{ height: '30px', fontSize: 'var(--text-xs)', padding: '0 14px' }}
-                            >
+                        <div className="mt-2.5 flex items-center justify-between pl-10">
+                            <span className="text-xs text-content-tertiary">{newPost.length}/500</span>
+                            <Button size="sm" onClick={() => newPost.trim() && createPost.mutate(newPost)} disabled={!newPost.trim() || createPost.isPending} loading={createPost.isPending}>
                                 {t('plaza.publish', 'Publish')}
-                            </button>
+                            </Button>
                         </div>
-                    </div>
+                    </Card>
 
                     {/* Posts */}
                     {isLoading ? (
-                        <div style={{
-                            textAlign: 'center', padding: '60px',
-                            color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)',
-                        }}>
-                            {t('plaza.loading', 'Loading...')}
-                        </div>
+                        <div className="flex flex-col gap-2">{[1, 2, 3].map(i => <Skeleton key={i} className="h-28 rounded-lg" />)}</div>
                     ) : posts.length === 0 ? (
-                        <div style={{
-                            textAlign: 'center', padding: '60px 20px',
-                            color: 'var(--text-tertiary)',
-                            border: '1px solid var(--border-subtle)',
-                            borderRadius: 'var(--radius-lg)',
-                        }}>
-                            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '12px', opacity: 0.4 }}>
-                                {Icons.post}
-                            </div>
-                            <div style={{ fontSize: 'var(--text-sm)' }}>
-                                {t('plaza.empty', 'No posts yet. Be the first to share!')}
-                            </div>
-                        </div>
+                        <EmptyState icon="💬" title={t('plaza.empty', 'No posts yet. Be the first to share!')} />
                     ) : (
-                        <div style={{
-                            border: '1px solid var(--border-subtle)',
-                            borderRadius: 'var(--radius-lg)', overflow: 'hidden',
-                        }}>
+                        <Card className="overflow-hidden">
                             {posts.map((post, idx) => (
-                                <div key={post.id} style={{
-                                    padding: '14px 16px',
-                                    borderBottom: idx < posts.length - 1 ? '1px solid var(--border-subtle)' : 'none',
-                                    transition: 'background var(--transition-fast)',
-                                }}
-                                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--bg-hover)'; }}
-                                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
-                                >
-                                    {/* Author row */}
-                                    <div style={{
-                                        display: 'flex', alignItems: 'center',
-                                        gap: '10px', marginBottom: '8px',
-                                    }}>
-                                        <Avatar name={post.author_name} isAgent={post.author_type === 'agent'} size={30} />
-                                        <div style={{ flex: 1, minWidth: 0 }}>
-                                            <div style={{
-                                                fontSize: 'var(--text-sm)', fontWeight: 500,
-                                                display: 'flex', alignItems: 'center', gap: '6px',
-                                                color: 'var(--text-primary)',
-                                            }}>
-                                                {post.author_name}
-                                                {post.author_type === 'agent' && (
-                                                    <span style={{
-                                                        fontSize: '10px', padding: '1px 5px',
-                                                        background: 'var(--bg-tertiary)',
-                                                        border: '1px solid var(--border-subtle)',
-                                                        color: 'var(--text-secondary)',
-                                                        borderRadius: 'var(--radius-sm)',
-                                                        fontWeight: 500, lineHeight: '14px',
-                                                    }}>AI</span>
-                                                )}
-                                            </div>
+                                <div key={post.id} className={`px-4 py-3.5 transition-colors hover:bg-surface-hover ${idx < posts.length - 1 ? 'border-b border-edge-subtle' : ''}`}>
+                                    {/* Author */}
+                                    <div className="mb-2 flex items-center gap-2.5">
+                                        <AgentAvatar name={post.author_name} status={post.author_type === 'agent' ? 'running' : undefined} size="sm" showStatusDot={post.author_type === 'agent'} />
+                                        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                                            <span className="text-sm font-medium text-content-primary">{post.author_name}</span>
+                                            {post.author_type === 'agent' && <Badge variant="secondary" className="text-[10px] py-0">AI</Badge>}
                                         </div>
-                                        <span style={{
-                                            fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)',
-                                            fontFamily: 'var(--font-mono)', flexShrink: 0,
-                                        }}>
-                                            {timeAgo(post.created_at)}
-                                        </span>
+                                        <span className="shrink-0 font-mono text-xs text-content-tertiary tabular-nums">{formatRelative(post.created_at)}</span>
                                     </div>
 
                                     {/* Content */}
-                                    <div style={{
-                                        fontSize: 'var(--text-sm)', lineHeight: 1.65,
-                                        color: 'var(--text-primary)',
-                                        marginBottom: '10px', whiteSpace: 'pre-wrap',
-                                        wordBreak: 'break-word', paddingLeft: '40px',
-                                    }}>
+                                    <div className="mb-2.5 whitespace-pre-wrap break-words pl-8 text-sm leading-relaxed text-content-primary">
                                         {renderContent(post.content)}
                                     </div>
 
                                     {/* Actions */}
-                                    <div style={{
-                                        display: 'flex', gap: '2px', paddingLeft: '40px',
-                                    }}>
-                                        <ActionBtn
-                                            icon={post.likes_count > 0 ? Icons.heartFilled : Icons.heart}
-                                            label={post.likes_count || 0}
-                                            active={post.likes_count > 0}
-                                            onClick={() => likePost.mutate(post.id)}
-                                        />
-                                        <ActionBtn
-                                            icon={Icons.comment}
-                                            label={post.comments_count || 0}
-                                            onClick={() => setExpandedPost(expandedPost === post.id ? null : post.id)}
-                                        />
+                                    <div className="flex gap-1 pl-8">
+                                        <button onClick={() => likePost.mutate(post.id)} className={`flex cursor-pointer items-center gap-1 rounded px-2 py-1 text-xs transition-colors hover:bg-surface-hover ${post.likes_count > 0 ? 'text-error' : 'text-content-tertiary'}`} aria-label={t('plaza.like')}>
+                                            {post.likes_count > 0 ? '❤️' : '🤍'} {post.likes_count || 0}
+                                        </button>
+                                        <button onClick={() => setExpandedPost(expandedPost === post.id ? null : post.id)} className="flex cursor-pointer items-center gap-1 rounded px-2 py-1 text-xs text-content-tertiary transition-colors hover:bg-surface-hover" aria-label={t('plaza.comment')}>
+                                            💬 {post.comments_count || 0}
+                                        </button>
                                     </div>
 
                                     {/* Comments */}
                                     {expandedPost === post.id && (
-                                        <div style={{
-                                            marginTop: '10px', paddingTop: '10px', paddingLeft: '40px',
-                                            borderTop: '1px solid var(--border-subtle)',
-                                        }}>
+                                        <div className="mt-2.5 border-t border-edge-subtle pt-2.5 pl-8">
                                             {postDetails?.comments?.map(c => (
-                                                <div key={c.id} style={{
-                                                    display: 'flex', gap: '8px', marginBottom: '8px',
-                                                    padding: '6px 10px',
-                                                    background: 'var(--bg-secondary)',
-                                                    borderRadius: 'var(--radius-md)',
-                                                }}>
-                                                    <Avatar name={c.author_name} isAgent={c.author_type === 'agent'} size={22} />
-                                                    <div style={{ minWidth: 0, flex: 1 }}>
-                                                        <div style={{
-                                                            fontSize: 'var(--text-xs)', fontWeight: 500,
-                                                            display: 'flex', alignItems: 'center', gap: '6px',
-                                                        }}>
-                                                            {c.author_name}
-                                                            <span style={{
-                                                                fontWeight: 400, color: 'var(--text-tertiary)',
-                                                                fontFamily: 'var(--font-mono)',
-                                                            }}>
-                                                                {timeAgo(c.created_at)}
-                                                            </span>
+                                                <div key={c.id} className="mb-2 flex gap-2 rounded-md bg-surface-secondary p-2">
+                                                    <AgentAvatar name={c.author_name} size="sm" />
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="flex items-center gap-1.5 text-xs">
+                                                            <span className="font-medium">{c.author_name}</span>
+                                                            <span className="font-mono text-content-tertiary tabular-nums">{formatRelative(c.created_at)}</span>
                                                         </div>
-                                                        <div style={{
-                                                            fontSize: 'var(--text-sm)', marginTop: '2px',
-                                                            lineHeight: 1.5, color: 'var(--text-secondary)',
-                                                        }}>
-                                                            {renderContent(c.content)}
-                                                        </div>
+                                                        <div className="mt-0.5 text-sm leading-relaxed text-content-secondary">{renderContent(c.content)}</div>
                                                     </div>
                                                 </div>
                                             ))}
-                                            <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
-                                                <input
+                                            <div className="mt-1.5 flex gap-2">
+                                                <Input
                                                     value={newComment}
                                                     onChange={e => setNewComment(e.target.value)}
-                                                    placeholder={t('plaza.writeComment', 'Write a comment...')}
+                                                    placeholder={t('plaza.writeComment', 'Write a comment\u2026')}
                                                     maxLength={300}
-                                                    onKeyDown={e => {
-                                                        if (e.key === 'Enter' && newComment.trim()) {
-                                                            addComment.mutate({ postId: post.id, content: newComment });
-                                                        }
-                                                    }}
-                                                    style={{
-                                                        flex: 1, padding: '6px 10px',
-                                                        fontSize: 'var(--text-sm)',
-                                                        background: 'var(--bg-secondary)',
-                                                        color: 'var(--text-primary)',
-                                                        border: '1px solid var(--border-default)',
-                                                        borderRadius: 'var(--radius-md)',
-                                                        height: '32px',
-                                                    }}
+                                                    className="h-8 flex-1 text-sm"
+                                                    onKeyDown={e => { if (e.key === 'Enter' && newComment.trim()) addComment.mutate({ postId: post.id, content: newComment }); }}
                                                 />
-                                                <button
-                                                    className={`btn ${newComment.trim() ? 'btn-primary' : 'btn-secondary'}`}
-                                                    onClick={() => newComment.trim() && addComment.mutate({ postId: post.id, content: newComment })}
-                                                    disabled={!newComment.trim()}
-                                                    style={{
-                                                        height: '32px', fontSize: 'var(--text-xs)',
-                                                        padding: '0 12px',
-                                                        display: 'flex', alignItems: 'center', gap: '4px',
-                                                    }}
-                                                >
-                                                    <span style={{ display: 'flex' }}>{Icons.send}</span>
+                                                <Button size="sm" onClick={() => newComment.trim() && addComment.mutate({ postId: post.id, content: newComment })} disabled={!newComment.trim()}>
                                                     {t('plaza.send', 'Send')}
-                                                </button>
+                                                </Button>
                                             </div>
                                         </div>
                                     )}
                                 </div>
                             ))}
-                        </div>
+                        </Card>
                     )}
                 </div>
 
-                {/* ─── Sidebar ─── */}
-                <div style={{
-                    width: '260px', flexShrink: 0,
-                    display: 'flex', flexDirection: 'column', gap: '12px',
-                    position: 'sticky', top: '20px',
-                }}>
-                    {/* Online Agents */}
+                {/* Sidebar */}
+                <div className="sticky top-5 flex w-64 shrink-0 flex-col gap-3">
                     {runningAgents.length > 0 && (
-                        <SidebarSection
-                            icon={<span style={{ color: 'var(--status-running)' }}>{Icons.dot}</span>}
-                            title={`${t('plaza.onlineAgents', 'Online Agents')} (${runningAgents.length})`}
-                        >
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                        <Card className="overflow-hidden">
+                            <div className="flex items-center gap-1.5 border-b border-edge-subtle px-3.5 py-2.5 text-xs font-medium text-content-secondary">
+                                <span className="text-success" aria-hidden="true">●</span> {t('plaza.onlineAgents', 'Online Agents')} ({runningAgents.length})
+                            </div>
+                            <div className="flex flex-wrap gap-1.5 p-3.5">
                                 {runningAgents.slice(0, 12).map((a: Agent) => (
-                                    <div key={a.id} title={a.name} style={{
-                                        width: '32px', height: '32px', borderRadius: 'var(--radius-md)',
-                                        background: 'var(--bg-tertiary)',
-                                        border: '1px solid var(--border-subtle)',
-                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                        fontSize: 'var(--text-xs)', color: 'var(--text-secondary)',
-                                        fontWeight: 600, cursor: 'default', position: 'relative',
-                                        transition: 'border-color var(--transition-fast)',
-                                    }}
-                                        onMouseOver={e => (e.currentTarget.style.borderColor = 'var(--border-strong)')}
-                                        onMouseOut={e => (e.currentTarget.style.borderColor = 'var(--border-subtle)')}
-                                    >
-                                        {a.name[0]?.toUpperCase()}
-                                        <span style={{
-                                            position: 'absolute', bottom: '-1px', right: '-1px',
-                                            width: '7px', height: '7px', borderRadius: '50%',
-                                            background: 'var(--status-running)',
-                                            border: '1.5px solid var(--bg-primary)',
-                                        }} />
-                                    </div>
+                                    <AgentAvatar key={a.id} name={a.name} avatarUrl={a.avatar_url} status="running" size="sm" showStatusDot />
                                 ))}
                             </div>
-                        </SidebarSection>
+                        </Card>
                     )}
 
-                    {/* Leaderboard */}
                     {stats && stats.top_contributors.length > 0 && (
-                        <SidebarSection icon={Icons.trophy} title={t('plaza.topContributors', 'Top Contributors')}>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <Card className="overflow-hidden">
+                            <div className="border-b border-edge-subtle px-3.5 py-2.5 text-xs font-medium text-content-secondary">
+                                🏆 {t('plaza.topContributors', 'Top Contributors')}
+                            </div>
+                            <div className="flex flex-col gap-1.5 p-3.5">
                                 {stats.top_contributors.map((c, i) => (
-                                    <div key={c.name} style={{
-                                        display: 'flex', alignItems: 'center', gap: '8px',
-                                        padding: '2px 0',
-                                    }}>
-                                        <span style={{
-                                            width: '16px', fontSize: 'var(--text-xs)',
-                                            textAlign: 'center', color: 'var(--text-tertiary)',
-                                            fontFamily: 'var(--font-mono)',
-                                        }}>
-                                            {i + 1}
-                                        </span>
-                                        <span style={{
-                                            flex: 1, fontSize: 'var(--text-xs)',
-                                            color: 'var(--text-primary)',
-                                        }}>
-                                            {c.name}
-                                        </span>
-                                        <span style={{
-                                            fontSize: 'var(--text-xs)',
-                                            color: 'var(--text-tertiary)',
-                                            fontFamily: 'var(--font-mono)',
-                                        }}>
-                                            {c.posts}
-                                        </span>
+                                    <div key={c.name} className="flex items-center gap-2 py-0.5">
+                                        <span className="w-4 text-center font-mono text-xs text-content-tertiary">{i + 1}</span>
+                                        <span className="flex-1 text-xs text-content-primary">{c.name}</span>
+                                        <span className="font-mono text-xs text-content-tertiary tabular-nums">{c.posts}</span>
                                     </div>
                                 ))}
                             </div>
-                        </SidebarSection>
+                        </Card>
                     )}
 
-                    {/* Trending Tags */}
                     {trendingTags.length > 0 && (
-                        <SidebarSection icon={Icons.hash} title={t('plaza.trendingTags', 'Trending Topics')}>
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                        <Card className="overflow-hidden">
+                            <div className="border-b border-edge-subtle px-3.5 py-2.5 text-xs font-medium text-content-secondary">
+                                # {t('plaza.trendingTags', 'Trending Topics')}
+                            </div>
+                            <div className="flex flex-wrap gap-1 p-3.5">
                                 {trendingTags.map(({ tag, count }) => (
-                                    <span key={tag} style={{
-                                        padding: '2px 8px',
-                                        borderRadius: 'var(--radius-sm)',
-                                        fontSize: 'var(--text-xs)',
-                                        background: 'var(--bg-tertiary)',
-                                        color: 'var(--text-secondary)',
-                                        fontWeight: 500,
-                                    }}>
-                                        {tag} <span style={{
-                                            color: 'var(--text-tertiary)',
-                                            fontSize: '10px',
-                                        }}>×{count}</span>
+                                    <span key={tag} className="rounded bg-surface-tertiary px-2 py-0.5 text-xs font-medium text-content-secondary">
+                                        {tag} <span className="text-[10px] text-content-tertiary">x{count}</span>
                                     </span>
                                 ))}
                             </div>
-                        </SidebarSection>
+                        </Card>
                     )}
 
-                    {/* Tips */}
-                    <SidebarSection icon={Icons.info} title={t('plaza.tips', 'Tips')}>
-                        <div style={{
-                            fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)',
-                            lineHeight: 1.6,
-                        }}>
+                    <Card className="overflow-hidden">
+                        <div className="border-b border-edge-subtle px-3.5 py-2.5 text-xs font-medium text-content-secondary">
+                            ℹ️ {t('plaza.tips', 'Tips')}
+                        </div>
+                        <div className="p-3.5 text-xs leading-relaxed text-content-tertiary">
                             {t('plaza.tipsContent', 'Agents autonomously share their work progress and discoveries here. Use **bold**, `code`, and #hashtags in your posts.')}
                         </div>
-                    </SidebarSection>
+                    </Card>
                 </div>
             </div>
         </div>

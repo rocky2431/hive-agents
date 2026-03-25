@@ -2,15 +2,14 @@ import { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { adminApi, enterpriseApi } from '../services/api';
 import { useAuthStore } from '../stores';
-import { saveAccentColor, getSavedAccentColor } from '../utils/theme';
 
 import { formatTokens } from '@/lib/format';
-
-// Format datetime to locale string
-function formatDate(dt: string | null | undefined): string {
-    if (!dt) return '-';
-    return new Date(dt).toLocaleDateString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit' });
-}
+import { formatDate } from '@/lib/date';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 
 type SortKey = 'name' | 'user_count' | 'agent_count' | 'total_tokens' | 'created_at' | 'is_active';
 type SortDir = 'asc' | 'desc';
@@ -104,7 +103,7 @@ export default function AdminCompanies() {
     // Guard: only platform_admin
     if (user?.role !== 'platform_admin') {
         return (
-            <div style={{ padding: '60px', textAlign: 'center', color: 'var(--text-tertiary)' }}>
+            <div className="p-16 text-center text-content-tertiary">
                 {t('common.noPermission', 'You do not have permission to access this page.')}
             </div>
         );
@@ -196,15 +195,9 @@ export default function AdminCompanies() {
         setSettingsLoading(false);
     };
 
-    // Sort indicator arrow
     const SortArrow = ({ col }: { col: SortKey }) => {
-        if (sortKey !== col) return <span style={{ opacity: 0.3, marginLeft: '2px' }}>&#x2195;</span>;
-        return <span style={{ marginLeft: '2px' }}>{sortDir === 'asc' ? '\u2191' : '\u2193'}</span>;
-    };
-
-    // Column header style
-    const thStyle: React.CSSProperties = {
-        cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: '2px',
+        if (sortKey !== col) return <span className="ml-0.5 opacity-30">&#x2195;</span>;
+        return <span className="ml-0.5">{sortDir === 'asc' ? '\u2191' : '\u2193'}</span>;
     };
 
     const columns: { key: SortKey; label: string; flex: string }[] = [
@@ -219,283 +212,222 @@ export default function AdminCompanies() {
     const gridCols = columns.map(c => c.flex).join(' ');
 
     return (
-        <div style={{ maxWidth: '1040px', margin: '0 auto', padding: '32px 24px' }}>
+        <div className="mx-auto max-w-[1040px] px-6 py-8">
             {toast && (
-                <div style={{
-                    position: 'fixed', top: '20px', right: '20px', padding: '10px 20px',
-                    borderRadius: '8px', background: toast.type === 'success' ? 'var(--success)' : 'var(--error)',
-                    color: '#fff', fontSize: '13px', zIndex: 9999, boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
-                }}>{toast.msg}</div>
+                <div role="status" aria-live="polite" className={`fixed top-5 right-5 z-[9999] rounded-lg px-5 py-2.5 text-[13px] text-white shadow-lg ${toast.type === 'success' ? 'bg-success' : 'bg-error'}`}>
+                    {toast.msg}
+                </div>
             )}
 
             {/* Invitation Code Modal */}
-            {createdCode && (
-                <div style={{
-                    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 10000,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    backdropFilter: 'blur(4px)',
-                }} onClick={() => setCreatedCode('')}>
-                    <div className="card" style={{
-                        padding: '32px', maxWidth: '480px', width: '90%',
-                        boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
-                    }} onClick={e => e.stopPropagation()}>
-                        <div style={{ textAlign: 'center', marginBottom: '20px' }}>
-                            <div style={{
-                                width: '48px', height: '48px', borderRadius: '50%',
-                                background: 'rgba(34,197,94,0.1)', display: 'flex',
-                                alignItems: 'center', justifyContent: 'center',
-                                margin: '0 auto 12px', fontSize: '20px',
-                            }}>
-                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-                                    <polyline points="22 4 12 14.01 9 11.01" />
-                                </svg>
-                            </div>
-                            <h2 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '4px' }}>
-                                {t('admin.companyCreated', 'Company Created')}
-                            </h2>
-                            <p style={{ fontSize: '13px', color: 'var(--text-tertiary)' }}>
-                                <span style={{ fontWeight: 500, color: 'var(--text-primary)' }}>{createdCompanyName}</span>
-                                {' '}{t('admin.companyCreatedDesc', 'has been created successfully.')}
-                            </p>
+            <Dialog open={!!createdCode} onOpenChange={(open) => { if (!open) setCreatedCode(''); }}>
+                <DialogContent className="max-w-[480px]">
+                    <DialogHeader className="items-center text-center">
+                        <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-success/10">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                                <polyline points="22 4 12 14.01 9 11.01" />
+                            </svg>
                         </div>
+                        <DialogTitle>{t('admin.companyCreated', 'Company Created')}</DialogTitle>
+                        <p className="text-[13px] text-content-tertiary">
+                            <span className="font-medium text-content-primary">{createdCompanyName}</span>
+                            {' '}{t('admin.companyCreatedDesc', 'has been created successfully.')}
+                        </p>
+                    </DialogHeader>
 
-                        <div style={{
-                            padding: '16px', borderRadius: '8px',
-                            background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)',
-                            marginBottom: '16px',
-                        }}>
-                            <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>
-                                {t('admin.inviteCodeLabel', 'Admin Invitation Code')}
-                            </div>
-                            <div style={{
-                                fontFamily: 'monospace', fontSize: '22px', fontWeight: 700,
-                                letterSpacing: '3px', color: 'var(--success)',
-                                textAlign: 'center', padding: '8px 0',
-                                userSelect: 'all',
-                            }}>
-                                {createdCode}
-                            </div>
+                    <div className="rounded-lg border border-edge-subtle bg-surface-secondary p-4">
+                        <div className="mb-2 text-xs font-semibold text-content-secondary">
+                            {t('admin.inviteCodeLabel', 'Admin Invitation Code')}
                         </div>
-
-                        <div style={{
-                            fontSize: '12px', color: 'var(--text-tertiary)',
-                            lineHeight: '1.6', marginBottom: '20px',
-                            padding: '12px', borderRadius: '6px',
-                            background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.12)',
-                        }}>
-                            <div style={{ fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>
-                                {t('admin.inviteCodeHowTo', 'How to use this code:')}
-                            </div>
-                            {t('admin.inviteCodeExplain', 'Send this code to the person who will manage this company. They should register a new account on the platform, then enter this code to join. The first person to use it will automatically become the Org Admin of this company. This code is single-use.')}
-                        </div>
-
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                            <button className="btn btn-primary" onClick={handleCopyCode}
-                                style={{ flex: 1, height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
-                                {codeCopied ? (
-                                    <>{t('admin.copied', 'Copied')}</>
-                                ) : (
-                                    <>
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                            <rect x="9" y="9" width="13" height="13" rx="2" />
-                                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                                        </svg>
-                                        {t('admin.copyCode', 'Copy Code')}
-                                    </>
-                                )}
-                            </button>
-                            <button className="btn btn-secondary" onClick={() => setCreatedCode('')}
-                                style={{ height: '36px', padding: '0 20px' }}>
-                                {t('common.close', 'Close')}
-                            </button>
+                        <div className="select-all text-center font-mono text-[22px] font-bold tracking-widest text-success py-2">
+                            {createdCode}
                         </div>
                     </div>
-                </div>
-            )}
+
+                    <div className="rounded-md border border-blue-500/10 bg-blue-500/5 p-3 text-xs leading-relaxed text-content-tertiary">
+                        <div className="mb-1 font-semibold text-content-secondary">
+                            {t('admin.inviteCodeHowTo', 'How to use this code:')}
+                        </div>
+                        {t('admin.inviteCodeExplain', 'Send this code to the person who will manage this company. They should register a new account on the platform, then enter this code to join. The first person to use it will automatically become the Org Admin of this company. This code is single-use.')}
+                    </div>
+
+                    <DialogFooter className="flex-row gap-2 sm:flex-row">
+                        <Button onClick={handleCopyCode} className="flex-1" aria-label={t('admin.copyCode', 'Copy Code')}>
+                            {codeCopied ? (
+                                t('admin.copied', 'Copied')
+                            ) : (
+                                <>
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                        <rect x="9" y="9" width="13" height="13" rx="2" />
+                                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                                    </svg>
+                                    {t('admin.copyCode', 'Copy Code')}
+                                </>
+                            )}
+                        </Button>
+                        <Button variant="secondary" onClick={() => setCreatedCode('')}>
+                            {t('common.close', 'Close')}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             {/* Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' }}>
+            <div className="mb-6 flex items-start justify-between">
                 <div>
-                    <h1 style={{ fontSize: '20px', fontWeight: 600, marginBottom: '4px' }}>
-                        {t('admin.title', 'Company Management')}
-                    </h1>
-                    <p style={{ fontSize: '13px', color: 'var(--text-tertiary)' }}>
+                    <h1 className="mb-1 text-xl font-semibold">{t('admin.title', 'Company Management')}</h1>
+                    <p className="text-[13px] text-content-tertiary">
                         {t('admin.desc', 'Manage all companies, create new ones, and configure platform settings.')}
                     </p>
                 </div>
-                <button className="btn btn-primary" onClick={() => { setShowCreate(true); setCreatedCode(''); }}>
+                <Button onClick={() => { setShowCreate(true); setCreatedCode(''); }}>
                     + {t('admin.createCompany', 'Create Company')}
-                </button>
+                </Button>
             </div>
 
             {/* Platform Settings */}
-            <div className="card" style={{ padding: '16px', marginBottom: '16px' }}>
-                <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '12px', color: 'var(--text-secondary)' }}>
-                    {t('admin.platformSettings', 'Platform Settings')}
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <Card className="mb-4">
+                <CardHeader className="pb-3">
+                    <CardTitle className="text-[13px] text-content-secondary">{t('admin.platformSettings', 'Platform Settings')}</CardTitle>
+                </CardHeader>
+                <CardContent className="flex flex-col gap-3">
                     {[
                         { key: 'allow_self_create_company', label: t('admin.allowSelfCreate', 'Allow users to create their own companies'), desc: t('admin.allowSelfCreateDesc', 'When disabled, only platform admins can create companies.') },
                         { key: 'invitation_code_enabled', label: t('admin.invitationCodeEnabled', 'Require invitation code for workspace access'), desc: t('admin.invitationCodeEnabledDesc', 'When enabled, users must join an existing company with an invitation code before they can start using the platform.') },
                     ].map(s => (
-                        <div key={s.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0' }}>
+                        <div key={s.key} className="flex items-center justify-between py-2">
                             <div>
-                                <div style={{ fontSize: '13px', fontWeight: 500 }}>{s.label}</div>
-                                <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '2px' }}>{s.desc}</div>
+                                <div className="text-[13px] font-medium">{s.label}</div>
+                                <div className="mt-0.5 text-[11px] text-content-tertiary">{s.desc}</div>
                             </div>
-                            <label style={{ position: 'relative', display: 'inline-block', width: '40px', height: '22px', cursor: settingsLoading ? 'not-allowed' : 'pointer', flexShrink: 0 }}>
+                            <label className={`relative inline-block h-[22px] w-10 shrink-0 ${settingsLoading ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
                                 <input type="checkbox" checked={!!settings[s.key]} onChange={(e) => handleToggleSetting(s.key, e.target.checked)} disabled={settingsLoading}
-                                    style={{ opacity: 0, width: 0, height: 0 }} />
-                                <span style={{ position: 'absolute', inset: 0, background: settings[s.key] ? '#22c55e' : 'var(--bg-tertiary)', borderRadius: '11px', transition: 'background 0.2s' }}>
-                                    <span style={{ position: 'absolute', left: settings[s.key] ? '20px' : '2px', top: '2px', width: '18px', height: '18px', background: '#fff', borderRadius: '50%', transition: 'left 0.2s' }} />
+                                    className="h-0 w-0 opacity-0" />
+                                <span className={`absolute inset-0 rounded-[11px] transition-colors ${settings[s.key] ? 'bg-[#22c55e]' : 'bg-surface-tertiary'}`}>
+                                    <span className={`absolute top-0.5 h-[18px] w-[18px] rounded-full bg-white transition-[left] ${settings[s.key] ? 'left-5' : 'left-0.5'}`} />
                                 </span>
                             </label>
                         </div>
                     ))}
-                </div>
-            </div>
+                </CardContent>
+            </Card>
 
-            {/* Notification Bar Config (platform-wide) */}
-            <div className="card" style={{ padding: '16px', marginBottom: '16px' }}>
-                <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '4px', color: 'var(--text-secondary)' }}>
-                    {t('enterprise.notificationBar.title', 'Notification Bar')}
-                </div>
-                <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
-                    {t('enterprise.notificationBar.description', 'Display a notification bar at the top of the page, visible to all users.')}
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 500 }}>
-                        <input
-                            type="checkbox"
-                            checked={nbEnabled}
-                            onChange={e => setNbEnabled(e.target.checked)}
-                            style={{ width: '16px', height: '16px', cursor: 'pointer' }}
-                        />
+            {/* Notification Bar Config */}
+            <Card className="mb-4">
+                <CardHeader className="pb-0">
+                    <CardTitle className="text-[13px] text-content-secondary">
+                        {t('enterprise.notificationBar.title', 'Notification Bar')}
+                    </CardTitle>
+                    <p className="text-[11px] text-content-tertiary">
+                        {t('enterprise.notificationBar.description', 'Display a notification bar at the top of the page, visible to all users.')}
+                    </p>
+                </CardHeader>
+                <CardContent className="pt-3">
+                    <label className="mb-3 flex cursor-pointer items-center gap-2 text-[13px] font-medium">
+                        <input type="checkbox" checked={nbEnabled} onChange={e => setNbEnabled(e.target.checked)}
+                            className="h-4 w-4 cursor-pointer" />
                         {t('enterprise.notificationBar.enabled', 'Enable notification bar')}
                     </label>
-                </div>
-                <div style={{ marginBottom: '12px' }}>
-                    <label className="form-label">{t('enterprise.notificationBar.text', 'Notification text')}</label>
-                    <input
-                        className="form-input"
-                        value={nbText}
-                        onChange={e => setNbText(e.target.value)}
-                        placeholder={t('enterprise.notificationBar.textPlaceholder', 'e.g. v2.1 released with new features!')}
-                        style={{ fontSize: '13px' }}
-                    />
-                </div>
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <button className="btn btn-primary" onClick={saveNotificationBar} disabled={nbSaving}>
-                        {nbSaving ? t('common.loading') : t('common.save', 'Save')}
-                    </button>
-                    {nbSaved && <span style={{ color: 'var(--success)', fontSize: '12px' }}>{t('enterprise.config.saved', 'Saved')}</span>}
-                </div>
-            </div>
+                    <div className="mb-3">
+                        <label className="form-label">{t('enterprise.notificationBar.text', 'Notification text')}</label>
+                        <Input value={nbText} onChange={e => setNbText(e.target.value)}
+                            placeholder={t('enterprise.notificationBar.textPlaceholder', 'e.g. v2.1 released with new features!')} />
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <Button onClick={saveNotificationBar} loading={nbSaving}>
+                            {nbSaving ? t('common.loading') : t('common.save', 'Save')}
+                        </Button>
+                        {nbSaved && <span className="text-xs text-success">{t('enterprise.config.saved', 'Saved')}</span>}
+                    </div>
+                </CardContent>
+            </Card>
 
-            {/* Create Company — inline input */}
+            {/* Create Company -- inline input */}
             {showCreate && (
-                <div className="card" style={{ padding: '16px', marginBottom: '16px', border: '1px solid var(--accent-primary)' }}>
-                    <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '12px' }}>
-                        {t('admin.createCompany', 'Create Company')}
-                    </div>
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                        <input className="form-input" value={newName} onChange={e => setNewName(e.target.value)}
-                            placeholder={t('admin.companyNamePlaceholder', 'Company name')}
-                            onKeyDown={e => e.key === 'Enter' && handleCreate()}
-                            style={{ flex: 1 }} autoFocus />
-                        <button className="btn btn-primary" onClick={handleCreate} disabled={creating || !newName.trim()}>
-                            {creating ? '...' : t('common.create', 'Create')}
-                        </button>
-                        <button className="btn btn-secondary" onClick={() => setShowCreate(false)}>
-                            {t('common.cancel', 'Cancel')}
-                        </button>
-                    </div>
-                </div>
+                <Card className="mb-4 border-accent-primary">
+                    <CardHeader className="pb-0">
+                        <CardTitle className="text-[13px]">{t('admin.createCompany', 'Create Company')}</CardTitle>
+                    </CardHeader>
+                    <CardContent className="pt-3">
+                        <div className="flex gap-2">
+                            <Input className="flex-1" value={newName} onChange={e => setNewName(e.target.value)}
+                                placeholder={t('admin.companyNamePlaceholder', 'Company name')}
+                                onKeyDown={e => e.key === 'Enter' && handleCreate()}
+                                autoFocus />
+                            <Button onClick={handleCreate} disabled={creating || !newName.trim()}>
+                                {creating ? '...' : t('common.create', 'Create')}
+                            </Button>
+                            <Button variant="secondary" onClick={() => setShowCreate(false)}>
+                                {t('common.cancel', 'Cancel')}
+                            </Button>
+                        </div>
+                    </CardContent>
+                </Card>
             )}
 
             {/* Company List */}
-            <div className="card" style={{ padding: '0', overflow: 'hidden' }}>
+            <Card className="overflow-hidden p-0">
                 {/* Table Header */}
-                <div style={{
-                    display: 'grid', gridTemplateColumns: gridCols,
-                    gap: '12px', padding: '10px 16px', fontSize: '11px', fontWeight: 600,
-                    color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em',
-                    borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)',
-                }}>
+                <div className="grid gap-3 border-b border-edge-subtle bg-surface-secondary px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-content-tertiary"
+                    style={{ gridTemplateColumns: gridCols }}>
                     {columns.map(col => (
-                        <div key={col.key} style={thStyle} onClick={() => handleSort(col.key)}>
+                        <button key={col.key} type="button" className="flex cursor-pointer select-none items-center gap-0.5"
+                            onClick={() => handleSort(col.key)}>
                             {col.label}<SortArrow col={col.key} />
-                        </div>
+                        </button>
                     ))}
                 </div>
 
                 {loading && (
-                    <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-tertiary)', fontSize: '13px' }}>
+                    <div className="py-10 text-center text-[13px] text-content-tertiary">
                         {t('common.loading', 'Loading...')}
                     </div>
                 )}
 
                 {error && (
-                    <div style={{ textAlign: 'center', padding: '24px', color: 'var(--error)', fontSize: '13px' }}>
-                        {error}
-                    </div>
+                    <div className="py-6 text-center text-[13px] text-error">{error}</div>
                 )}
 
                 {!loading && paged.map((c: any) => (
-                    <div key={c.id} style={{
-                        display: 'grid', gridTemplateColumns: gridCols,
-                        gap: '12px', padding: '12px 16px', alignItems: 'center',
-                        borderBottom: '1px solid var(--border-subtle)', fontSize: '13px',
-                        opacity: c.is_active ? 1 : 0.5,
-                    }}>
+                    <div key={c.id}
+                        className={`grid items-center gap-3 border-b border-edge-subtle px-4 py-3 text-[13px] ${c.is_active ? '' : 'opacity-50'}`}
+                        style={{ gridTemplateColumns: gridCols }}>
                         <div>
-                            <div style={{ fontWeight: 500 }}>{c.name}</div>
-                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>{c.slug}</div>
+                            <div className="font-medium">{c.name}</div>
+                            <div className="font-mono text-[11px] text-content-tertiary">{c.slug}</div>
                         </div>
                         <div>{c.user_count ?? '-'}</div>
                         <div>{c.agent_count ?? '-'}</div>
-                        <div style={{ fontSize: '12px', fontFamily: 'var(--font-mono)' }}>
-                            {formatTokens(c.total_tokens)}
-                        </div>
-                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                            {formatDate(c.created_at)}
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span className={`badge ${c.is_active ? 'badge-success' : 'badge-error'}`} style={{ fontSize: '10px' }}>
+                        <div className="font-mono text-xs">{formatTokens(c.total_tokens)}</div>
+                        <div className="text-xs text-content-secondary">{formatDate(c.created_at)}</div>
+                        <div className="flex items-center gap-2">
+                            <Badge variant={c.is_active ? 'success' : 'error'}>
                                 {c.is_active ? t('admin.active', 'Active') : t('admin.disabled', 'Disabled')}
-                            </span>
-                            <button
-                                className="btn btn-ghost"
-                                style={{
-                                    padding: '2px 6px', fontSize: '10px',
-                                    color: c.slug === 'default' ? 'var(--text-tertiary)' : c.is_active ? 'var(--error)' : 'var(--success)',
-                                    cursor: c.slug === 'default' ? 'not-allowed' : 'pointer',
-                                    opacity: c.slug === 'default' ? 0.5 : 1,
-                                }}
+                            </Badge>
+                            <Button variant="ghost" size="sm"
+                                className={c.slug === 'default'
+                                    ? 'text-content-tertiary opacity-50 cursor-not-allowed'
+                                    : c.is_active ? 'text-error' : 'text-success'}
                                 onClick={() => handleToggle(c.id, c.is_active)}
                                 disabled={c.slug === 'default'}
-                                title={c.slug === 'default' ? t('admin.cannotDisableDefault', 'Cannot disable the default company — platform admin would be locked out') : undefined}
-                            >
+                                title={c.slug === 'default' ? t('admin.cannotDisableDefault', 'Cannot disable the default company -- platform admin would be locked out') : undefined}
+                                aria-label={c.is_active ? t('admin.disable', 'Disable') : t('admin.enable', 'Enable')}>
                                 {c.is_active ? t('admin.disable', 'Disable') : t('admin.enable', 'Enable')}
-                            </button>
+                            </Button>
                         </div>
                     </div>
                 ))}
 
                 {!loading && companies.length === 0 && !error && (
-                    <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-tertiary)', fontSize: '13px' }}>
+                    <div className="py-10 text-center text-[13px] text-content-tertiary">
                         {t('common.noData', 'No data')}
                     </div>
                 )}
 
                 {/* Pagination */}
                 {!loading && totalPages > 1 && (
-                    <div style={{
-                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                        padding: '10px 16px', borderTop: '1px solid var(--border-subtle)',
-                        fontSize: '12px', color: 'var(--text-tertiary)', background: 'var(--bg-secondary)',
-                    }}>
+                    <div className="flex items-center justify-between border-t border-edge-subtle bg-surface-secondary px-4 py-2.5 text-xs text-content-tertiary">
                         <span>
                             {t('admin.showing', '{{start}}-{{end}} of {{total}}', {
                                 start: page * PAGE_SIZE + 1,
@@ -503,19 +435,17 @@ export default function AdminCompanies() {
                                 total: sorted.length,
                             })}
                         </span>
-                        <div style={{ display: 'flex', gap: '4px' }}>
-                            <button className="btn btn-ghost" style={{ padding: '4px 10px', fontSize: '12px' }}
-                                disabled={page === 0} onClick={() => setPage(p => p - 1)}>
+                        <div className="flex gap-1">
+                            <Button variant="ghost" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>
                                 &lsaquo; {t('admin.prev', 'Prev')}
-                            </button>
-                            <button className="btn btn-ghost" style={{ padding: '4px 10px', fontSize: '12px' }}
-                                disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>
+                            </Button>
+                            <Button variant="ghost" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>
                                 {t('admin.next', 'Next')} &rsaquo;
-                            </button>
+                            </Button>
                         </div>
                     </div>
                 )}
-            </div>
+            </Card>
         </div>
     );
 }
