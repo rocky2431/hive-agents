@@ -765,6 +765,25 @@ export const onboardingApi = {
 };
 
 // ─── Pack Catalog & Capability Summary ───────────────
+// ─── User Management (admin quota endpoints) ─────────
+export const userApi = {
+    list: (tenantId?: string) => {
+        const qs = tenantId ? `?tenant_id=${tenantId}` : '';
+        return request<any[]>(`/users/${qs}`);
+    },
+
+    updateQuota: (userId: string, data: {
+        quota_message_limit?: number;
+        quota_message_period?: string;
+        quota_max_agents?: number;
+        quota_agent_ttl_hours?: number;
+    }) =>
+        request<any>(`/users/${userId}/quota`, {
+            method: 'PATCH',
+            body: JSON.stringify(data),
+        }),
+};
+
 export const packApi = {
     catalog: () => request<any[]>('/packs'),
 
