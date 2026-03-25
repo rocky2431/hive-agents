@@ -4,6 +4,14 @@ import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { agentApi, enterpriseApi, orgApi, skillApi } from '../services/api';
 import type { Agent, AgentCreateInput } from '../types';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ModelSelector } from '@/components/domain/model-selector';
 
 interface AgentCreateFormState {
     name: string;
@@ -260,24 +268,18 @@ export default function AgentCreate() {
 
     if (phase === 'success') {
         return (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '50vh', textAlign: 'center' }}>
-                <div style={{ fontSize: '48px', marginBottom: '16px' }}>&#10003;</div>
-                <h2 style={{ fontSize: '20px', fontWeight: 600, marginBottom: '12px' }}>
+            <div className="flex flex-col items-center justify-center min-h-[50vh] text-center">
+                <div className="text-5xl mb-4">&#10003;</div>
+                <h2 className="text-xl font-semibold mb-3">
                     {t('wizard.success.title', { name: createdAgentName })}
                 </h2>
-                <div style={{ display: 'flex', gap: '12px', marginTop: '20px' }}>
-                    <button
-                        className="btn btn-primary"
-                        onClick={() => navigate(`/agents/${createdAgentId}`, { state: { openChat: true } })}
-                    >
+                <div className="flex gap-3 mt-5">
+                    <Button onClick={() => navigate(`/agents/${createdAgentId}`, { state: { openChat: true } })}>
                         {t('wizard.success.startChat')}
-                    </button>
-                    <button
-                        className="btn btn-secondary"
-                        onClick={() => navigate(`/agents/${createdAgentId}`)}
-                    >
+                    </Button>
+                    <Button variant="secondary" onClick={() => navigate(`/agents/${createdAgentId}`)}>
                         {t('wizard.success.connectChannel')}
-                    </button>
+                    </Button>
                 </div>
             </div>
         );
@@ -294,7 +296,7 @@ export default function AgentCreate() {
 
             <div className="wizard-steps">
                 {stepLabels.map((label, i) => (
-                    <div key={i} style={{ display: 'contents' }}>
+                    <div key={i} className="contents">
                         <div className={`wizard-step ${i === stepIndex ? 'active' : i < stepIndex ? 'completed' : ''}`}>
                             <div className="wizard-step-number">{i < stepIndex ? '\u2713' : i + 1}</div>
                             <span>{label}</span>
@@ -304,9 +306,9 @@ export default function AgentCreate() {
                 ))}
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', maxWidth: '760px', marginBottom: '16px', position: 'sticky', top: 0, zIndex: 10, background: 'var(--bg-primary)', paddingTop: '4px', paddingBottom: '4px' }}>
-                <button
-                    className="btn btn-secondary"
+            <div className="flex justify-between max-w-[760px] mb-4 sticky top-0 z-10 bg-surface-primary pt-1 pb-1">
+                <Button
+                    variant="secondary"
                     onClick={() => {
                         if (phase === 'identity') navigate(-1);
                         else if (phase === 'abilities') setPhase('identity');
@@ -314,430 +316,446 @@ export default function AgentCreate() {
                     disabled={createMutation.isPending}
                 >
                     {phase === 'identity' ? t('common.cancel') : t('wizard.prev')}
-                </button>
+                </Button>
                 {phase === 'identity' ? (
-                    <button className="btn btn-primary" onClick={handleNextToAbilities}>
+                    <Button onClick={handleNextToAbilities}>
                         {t('wizard.next')} &rarr;
-                    </button>
+                    </Button>
                 ) : (
-                    <button className="btn btn-primary" onClick={handleCreate} disabled={createMutation.isPending}>
+                    <Button onClick={handleCreate} loading={createMutation.isPending}>
                         {createMutation.isPending ? t('common.loading') : t('wizard.finish')}
-                    </button>
+                    </Button>
                 )}
             </div>
 
             {error && (
-                <div style={{ background: 'var(--error-subtle)', color: 'var(--error)', padding: '8px 12px', borderRadius: '6px', fontSize: '13px', marginBottom: '16px', maxWidth: '760px' }}>
+                <div className="bg-error-subtle text-error px-3 py-2 rounded-md text-xs mb-4 max-w-[760px]">
                     {error}
                 </div>
             )}
 
-            <div className="card" style={{ maxWidth: '760px' }}>
-                {phase === 'identity' && (
-                    <div>
-                        <h3 style={{ marginBottom: '20px', fontWeight: 600, fontSize: '15px' }}>
-                            {t('wizard.step1New.title')}
-                        </h3>
+            <Card className="max-w-[760px]">
+                <CardContent className="pt-4">
+                    {phase === 'identity' && (
+                        <div>
+                            <h3 className="mb-5 font-semibold text-[15px]">
+                                {t('wizard.step1New.title')}
+                            </h3>
 
-                        <div className="form-group">
-                            <label className="form-label">{t('agent.fields.name')} *</label>
-                            <input
-                                className={`form-input${fieldErrors.name ? ' input-error' : ''}`}
-                                value={form.name}
-                                onChange={(e) => {
-                                    setForm({ ...form, name: e.target.value });
-                                    clearFieldError('name');
-                                }}
-                                placeholder={t('wizard.step1.namePlaceholder')}
-                                autoFocus
-                            />
-                            {fieldErrors.name && (
-                                <div style={{ color: 'var(--error)', fontSize: '12px', marginTop: '4px' }}>{fieldErrors.name}</div>
-                            )}
-                        </div>
-
-                        <div className="form-group">
-                            <label className="form-label">{t('agent.fields.role')} *</label>
-                            <textarea
-                                className={`form-textarea${fieldErrors.role_description ? ' input-error' : ''}`}
-                                rows={2}
-                                value={form.role_description}
-                                onChange={(e) => {
-                                    setForm({ ...form, role_description: e.target.value });
-                                    clearFieldError('role_description');
-                                }}
-                                placeholder={t('wizard.roleHint')}
-                            />
-                            {fieldErrors.role_description && (
-                                <div style={{ color: 'var(--error)', fontSize: '12px', marginTop: '4px' }}>{fieldErrors.role_description}</div>
-                            )}
-                        </div>
-
-                        <details style={{ marginBottom: '16px' }}>
-                            <summary style={{ cursor: 'pointer', fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)', marginBottom: '8px' }}>
-                                {t('wizard.identity.profileExtras', 'Profile extras (bio, avatar, welcome message)')}
-                            </summary>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', paddingTop: '8px' }}>
-                                <div className="form-group" style={{ marginBottom: 0 }}>
-                                    <label className="form-label">
-                                        {t('wizard.step1.bio', 'Bio / Background')}{' '}
-                                        <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontWeight: 400 }}>({t('common.optional', 'optional')})</span>
-                                    </label>
-                                    <textarea
-                                        className="form-textarea"
-                                        rows={2}
-                                        value={form.bio}
-                                        onChange={(e) => setForm({ ...form, bio: e.target.value })}
-                                        placeholder={t('wizard.step1.bioPlaceholder', 'Brief background about this agent...')}
-                                    />
-                                </div>
-                                <div className="form-group" style={{ marginBottom: 0 }}>
-                                    <label className="form-label">
-                                        {t('wizard.step1.avatarUrl', 'Avatar URL')}{' '}
-                                        <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontWeight: 400 }}>({t('common.optional', 'optional')})</span>
-                                    </label>
-                                    <input
-                                        className="form-input"
-                                        value={form.avatar_url}
-                                        onChange={(e) => setForm({ ...form, avatar_url: e.target.value })}
-                                        placeholder="https://..."
-                                    />
-                                </div>
-                                <div className="form-group" style={{ marginBottom: 0 }}>
-                                    <label className="form-label">
-                                        {t('wizard.step1.welcomeMessage', 'Welcome Message')}{' '}
-                                        <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontWeight: 400 }}>({t('common.optional', 'optional')})</span>
-                                    </label>
-                                    <textarea
-                                        className="form-textarea"
-                                        rows={2}
-                                        value={form.welcome_message}
-                                        onChange={(e) => setForm({ ...form, welcome_message: e.target.value })}
-                                        placeholder={t('wizard.step1.welcomeMessagePlaceholder', 'Message shown when users first interact with this agent')}
-                                    />
-                                </div>
-                            </div>
-                        </details>
-
-                        <details style={{ marginBottom: '16px' }}>
-                            <summary style={{ cursor: 'pointer', fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)', marginBottom: '8px' }}>
-                                {t('wizard.identity.communicationStyle')}
-                            </summary>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', paddingTop: '8px' }}>
-                                <div className="form-group" style={{ marginBottom: 0 }}>
-                                    <label className="form-label">{t('agent.fields.personality')}</label>
-                                    <textarea
-                                        className="form-textarea"
-                                        rows={2}
-                                        value={form.personality}
-                                        onChange={(e) => setForm({ ...form, personality: e.target.value })}
-                                        placeholder={t('wizard.step2.personalityPlaceholder')}
-                                    />
-                                </div>
-                                <div className="form-group" style={{ marginBottom: 0 }}>
-                                    <label className="form-label">{t('agent.fields.boundaries')}</label>
-                                    <textarea
-                                        className="form-textarea"
-                                        rows={2}
-                                        value={form.boundaries}
-                                        onChange={(e) => setForm({ ...form, boundaries: e.target.value })}
-                                        placeholder={t('wizard.step2.boundariesPlaceholder')}
-                                    />
-                                </div>
-                            </div>
-                        </details>
-
-                        <div className="form-group">
-                            <label className="form-label">{t('wizard.identity.aiModel')} *</label>
-                            {enabledModels.length > 0 ? (
-                                <>
-                                    <select
-                                        className={`form-input${fieldErrors.primary_model_id ? ' input-error' : ''}`}
-                                        value={form.primary_model_id}
+                            <div className="space-y-4">
+                                <div className="space-y-1.5">
+                                    <Label htmlFor="agent-name" error={!!fieldErrors.name}>
+                                        {t('agent.fields.name')} *
+                                    </Label>
+                                    <Input
+                                        id="agent-name"
+                                        error={!!fieldErrors.name}
+                                        value={form.name}
                                         onChange={(e) => {
-                                            setForm({ ...form, primary_model_id: e.target.value });
-                                            clearFieldError('primary_model_id');
+                                            setForm({ ...form, name: e.target.value });
+                                            clearFieldError('name');
                                         }}
-                                    >
-                                        <option value="">{t('wizard.identity.selectModel')}</option>
-                                        {enabledModels.map((m: any) => (
-                                            <option key={m.id} value={m.id}>
-                                                {m.label} ({m.provider}/{m.model})
-                                            </option>
-                                        ))}
-                                    </select>
-                                    {fieldErrors.primary_model_id && (
-                                        <div style={{ color: 'var(--error)', fontSize: '12px', marginTop: '4px' }}>{fieldErrors.primary_model_id}</div>
+                                        placeholder={t('wizard.step1.namePlaceholder')}
+                                        autoFocus
+                                        autoComplete="off"
+                                    />
+                                    {fieldErrors.name && (
+                                        <p className="text-error text-xs mt-1">{fieldErrors.name}</p>
                                     )}
-                                </>
-                            ) : (
-                                <div style={{ padding: '16px', background: 'var(--bg-elevated)', borderRadius: '8px', fontSize: '13px', color: 'var(--text-tertiary)', textAlign: 'center' }}>
-                                    {t('wizard.step1.noModels')}{' '}
-                                    <span style={{ color: 'var(--accent-primary)', cursor: 'pointer' }} onClick={() => navigate('/enterprise')}>
-                                        {t('wizard.step1.enterpriseSettings')}
-                                    </span>{' '}
-                                    {t('wizard.step1.addModels')}
+                                </div>
+
+                                <div className="space-y-1.5">
+                                    <Label htmlFor="agent-role" error={!!fieldErrors.role_description}>
+                                        {t('agent.fields.role')} *
+                                    </Label>
+                                    <Textarea
+                                        id="agent-role"
+                                        error={!!fieldErrors.role_description}
+                                        rows={2}
+                                        value={form.role_description}
+                                        onChange={(e) => {
+                                            setForm({ ...form, role_description: e.target.value });
+                                            clearFieldError('role_description');
+                                        }}
+                                        placeholder={t('wizard.roleHint')}
+                                    />
+                                    {fieldErrors.role_description && (
+                                        <p className="text-error text-xs mt-1">{fieldErrors.role_description}</p>
+                                    )}
+                                </div>
+                            </div>
+
+                            <details className="mb-4 mt-4">
+                                <summary className="cursor-pointer text-xs font-medium text-content-secondary mb-2">
+                                    {t('wizard.identity.profileExtras', 'Profile extras (bio, avatar, welcome message)')}
+                                </summary>
+                                <div className="flex flex-col gap-3 pt-2">
+                                    <div className="space-y-1.5">
+                                        <Label htmlFor="agent-bio">
+                                            {t('wizard.step1.bio', 'Bio / Background')}{' '}
+                                            <span className="text-[11px] text-content-tertiary font-normal">({t('common.optional', 'optional')})</span>
+                                        </Label>
+                                        <Textarea
+                                            id="agent-bio"
+                                            rows={2}
+                                            value={form.bio}
+                                            onChange={(e) => setForm({ ...form, bio: e.target.value })}
+                                            placeholder={t('wizard.step1.bioPlaceholder', 'Brief background about this agent...')}
+                                        />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <Label htmlFor="agent-avatar">
+                                            {t('wizard.step1.avatarUrl', 'Avatar URL')}{' '}
+                                            <span className="text-[11px] text-content-tertiary font-normal">({t('common.optional', 'optional')})</span>
+                                        </Label>
+                                        <Input
+                                            id="agent-avatar"
+                                            value={form.avatar_url}
+                                            onChange={(e) => setForm({ ...form, avatar_url: e.target.value })}
+                                            placeholder="https://..."
+                                            autoComplete="url"
+                                        />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <Label htmlFor="agent-welcome">
+                                            {t('wizard.step1.welcomeMessage', 'Welcome Message')}{' '}
+                                            <span className="text-[11px] text-content-tertiary font-normal">({t('common.optional', 'optional')})</span>
+                                        </Label>
+                                        <Textarea
+                                            id="agent-welcome"
+                                            rows={2}
+                                            value={form.welcome_message}
+                                            onChange={(e) => setForm({ ...form, welcome_message: e.target.value })}
+                                            placeholder={t('wizard.step1.welcomeMessagePlaceholder', 'Message shown when users first interact with this agent')}
+                                        />
+                                    </div>
+                                </div>
+                            </details>
+
+                            <details className="mb-4">
+                                <summary className="cursor-pointer text-xs font-medium text-content-secondary mb-2">
+                                    {t('wizard.identity.communicationStyle')}
+                                </summary>
+                                <div className="flex flex-col gap-3 pt-2">
+                                    <div className="space-y-1.5">
+                                        <Label htmlFor="agent-personality">{t('agent.fields.personality')}</Label>
+                                        <Textarea
+                                            id="agent-personality"
+                                            rows={2}
+                                            value={form.personality}
+                                            onChange={(e) => setForm({ ...form, personality: e.target.value })}
+                                            placeholder={t('wizard.step2.personalityPlaceholder')}
+                                        />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <Label htmlFor="agent-boundaries">{t('agent.fields.boundaries')}</Label>
+                                        <Textarea
+                                            id="agent-boundaries"
+                                            rows={2}
+                                            value={form.boundaries}
+                                            onChange={(e) => setForm({ ...form, boundaries: e.target.value })}
+                                            placeholder={t('wizard.step2.boundariesPlaceholder')}
+                                        />
+                                    </div>
+                                </div>
+                            </details>
+
+                            <div className="space-y-1.5">
+                                <ModelSelector
+                                    value={form.primary_model_id}
+                                    onChange={(modelId) => {
+                                        setForm({ ...form, primary_model_id: modelId });
+                                        clearFieldError('primary_model_id');
+                                    }}
+                                    label={`${t('wizard.identity.aiModel')} *`}
+                                    error={!!fieldErrors.primary_model_id}
+                                />
+                                {fieldErrors.primary_model_id && (
+                                    <p className="text-error text-xs mt-1">{fieldErrors.primary_model_id}</p>
+                                )}
+                                {enabledModels.length === 0 && (
+                                    <div className="p-4 bg-surface-elevated rounded-lg text-xs text-content-tertiary text-center">
+                                        {t('wizard.step1.noModels')}{' '}
+                                        <span
+                                            className="text-accent-primary cursor-pointer"
+                                            onClick={() => navigate('/enterprise')}
+                                        >
+                                            {t('wizard.step1.enterpriseSettings')}
+                                        </span>{' '}
+                                        {t('wizard.step1.addModels')}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {phase === 'abilities' && (
+                        <div>
+                            <h3 className="mb-1.5 font-semibold text-[15px]">
+                                {t('wizard.abilities.title')}
+                            </h3>
+                            <p className="text-xs text-content-secondary mb-4">
+                                {t('wizard.abilities.description')}
+                            </p>
+
+                            {enabledModels.length > 0 && (
+                                <div className="mb-5">
+                                    <ModelSelector
+                                        value={form.fallback_model_id}
+                                        onChange={(modelId) => setForm({ ...form, fallback_model_id: modelId })}
+                                        label={t('wizard.step2.fallbackModel', 'Fallback Model')}
+                                        description={t('common.optional', 'optional')}
+                                    />
                                 </div>
                             )}
-                        </div>
-                    </div>
-                )}
 
-                {phase === 'abilities' && (
-                    <div>
-                        <h3 style={{ marginBottom: '6px', fontWeight: 600, fontSize: '15px' }}>
-                            {t('wizard.abilities.title')}
-                        </h3>
-                        <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
-                            {t('wizard.abilities.description')}
-                        </p>
-
-                        {enabledModels.length > 0 && (
-                            <div className="form-group" style={{ marginBottom: '20px' }}>
-                                <label className="form-label">
-                                    {t('wizard.step2.fallbackModel', 'Fallback Model')}{' '}
-                                    <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontWeight: 400 }}>({t('common.optional', 'optional')})</span>
-                                </label>
-                                <select
-                                    className="form-select"
-                                    value={form.fallback_model_id}
-                                    onChange={(e) => setForm({ ...form, fallback_model_id: e.target.value })}
+                            <div className="mb-5 space-y-1.5">
+                                <Label htmlFor="agent-class">{t('wizard.abilities.agentClass', 'Agent class')}</Label>
+                                <Select
+                                    value={form.agent_class}
+                                    onValueChange={(val) => setForm({ ...form, agent_class: val as AgentCreateFormState['agent_class'] })}
                                 >
-                                    <option value="">{t('wizard.step2.fallbackNone', 'None')}</option>
-                                    {enabledModels.map((m: any) => (
-                                        <option key={m.id} value={m.id}>
-                                            {m.label} ({m.provider}/{m.model})
-                                        </option>
-                                    ))}
-                                </select>
+                                    <SelectTrigger id="agent-class">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {AGENT_CLASS_OPTIONS.map((option) => (
+                                            <SelectItem key={option.value} value={option.value}>
+                                                {t(option.labelKey, option.fallbackLabel)}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                                <p className="text-xs text-content-tertiary mt-1.5">
+                                    {t(
+                                        AGENT_CLASS_OPTIONS.find((option) => option.value === form.agent_class)?.descKey || 'wizard.abilities.agentClassInternalTenantDesc',
+                                        AGENT_CLASS_OPTIONS.find((option) => option.value === form.agent_class)?.fallbackDesc || '',
+                                    )}
+                                </p>
                             </div>
-                        )}
 
-                        <div className="form-group" style={{ marginBottom: '20px' }}>
-                            <label className="form-label">{t('wizard.abilities.agentClass', 'Agent class')}</label>
-                            <select
-                                className="form-select"
-                                value={form.agent_class}
-                                onChange={(e) => setForm({ ...form, agent_class: e.target.value as AgentCreateFormState['agent_class'] })}
-                            >
-                                {AGENT_CLASS_OPTIONS.map((option) => (
-                                    <option key={option.value} value={option.value}>
-                                        {t(option.labelKey, option.fallbackLabel)}
-                                    </option>
-                                ))}
-                            </select>
-                            <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--text-tertiary)' }}>
-                                {t(
-                                    AGENT_CLASS_OPTIONS.find((option) => option.value === form.agent_class)?.descKey || 'wizard.abilities.agentClassInternalTenantDesc',
-                                    AGENT_CLASS_OPTIONS.find((option) => option.value === form.agent_class)?.fallbackDesc || '',
-                                )}
+                            <div className="mb-5 space-y-1.5">
+                                <Label htmlFor="security-zone">{t('wizard.abilities.securityZone', 'Security zone')}</Label>
+                                <Select
+                                    value={form.security_zone}
+                                    onValueChange={(val) => setForm({ ...form, security_zone: val as AgentCreateFormState['security_zone'] })}
+                                >
+                                    <SelectTrigger id="security-zone">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {SECURITY_ZONE_OPTIONS.map((option) => (
+                                            <SelectItem key={option.value} value={option.value}>
+                                                {t(option.labelKey, option.fallbackLabel)}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                                <p className="text-xs text-content-tertiary mt-1.5">
+                                    {t(
+                                        SECURITY_ZONE_OPTIONS.find((option) => option.value === form.security_zone)?.descKey || 'wizard.abilities.securityZoneStandardDesc',
+                                        SECURITY_ZONE_OPTIONS.find((option) => option.value === form.security_zone)?.fallbackDesc || '',
+                                    )}
+                                </p>
                             </div>
-                        </div>
 
-                        <div className="form-group" style={{ marginBottom: '20px' }}>
-                            <label className="form-label">{t('wizard.abilities.securityZone', 'Security zone')}</label>
-                            <select
-                                className="form-select"
-                                value={form.security_zone}
-                                onChange={(e) => setForm({ ...form, security_zone: e.target.value as AgentCreateFormState['security_zone'] })}
-                            >
-                                {SECURITY_ZONE_OPTIONS.map((option) => (
-                                    <option key={option.value} value={option.value}>
-                                        {t(option.labelKey, option.fallbackLabel)}
-                                    </option>
-                                ))}
-                            </select>
-                            <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--text-tertiary)' }}>
-                                {t(
-                                    SECURITY_ZONE_OPTIONS.find((option) => option.value === form.security_zone)?.descKey || 'wizard.abilities.securityZoneStandardDesc',
-                                    SECURITY_ZONE_OPTIONS.find((option) => option.value === form.security_zone)?.fallbackDesc || '',
-                                )}
-                            </div>
-                        </div>
-
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px' }}>
-                            <div className="form-group" style={{ marginBottom: 0 }}>
-                                <label className="form-label">{t('wizard.abilities.dailyTokenLimit', 'Daily token limit')}</label>
-                                <input
-                                    className="form-input"
-                                    type="number"
-                                    min={0}
-                                    value={form.max_tokens_per_day}
-                                    onChange={(e) => setForm({ ...form, max_tokens_per_day: e.target.value ? Number(e.target.value) : '' })}
-                                    placeholder={t('wizard.abilities.unlimitedPlaceholder', 'Leave empty for unlimited')}
-                                />
-                            </div>
-                            <div className="form-group" style={{ marginBottom: 0 }}>
-                                <label className="form-label">{t('wizard.abilities.monthlyTokenLimit', 'Monthly token limit')}</label>
-                                <input
-                                    className="form-input"
-                                    type="number"
-                                    min={0}
-                                    value={form.max_tokens_per_month}
-                                    onChange={(e) => setForm({ ...form, max_tokens_per_month: e.target.value ? Number(e.target.value) : '' })}
-                                    placeholder={t('wizard.abilities.unlimitedPlaceholder', 'Leave empty for unlimited')}
-                                />
-                            </div>
-                        </div>
-
-                        <div className="form-group" style={{ marginBottom: '20px' }}>
-                            <label className="form-label">{t('wizard.abilities.permissionScope', 'Who can access this agent')}</label>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                <label style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', padding: '12px', borderRadius: '8px', border: form.permission_scope_type === 'company' ? '1px solid var(--accent-primary)' : '1px solid var(--border-default)', background: form.permission_scope_type === 'company' ? 'var(--accent-subtle)' : 'var(--bg-elevated)' }}>
-                                    <input
-                                        type="radio"
-                                        name="permission_scope_type"
-                                        checked={form.permission_scope_type === 'company'}
-                                        onChange={() => setForm((prev) => ({ ...prev, permission_scope_type: 'company' }))}
-                                    />
-                                    <div>
-                                        <div style={{ fontWeight: 500, fontSize: '13px' }}>{t('wizard.abilities.companyScope', 'Entire company')}</div>
-                                        <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '2px' }}>
-                                            {t('wizard.abilities.companyScopeDesc', 'Everyone in the current workspace can discover and use this agent.')}
-                                        </div>
-                                    </div>
-                                </label>
-                                <label style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', padding: '12px', borderRadius: '8px', border: form.permission_scope_type === 'user' ? '1px solid var(--accent-primary)' : '1px solid var(--border-default)', background: form.permission_scope_type === 'user' ? 'var(--accent-subtle)' : 'var(--bg-elevated)' }}>
-                                    <input
-                                        type="radio"
-                                        name="permission_scope_type"
-                                        checked={form.permission_scope_type === 'user'}
-                                        onChange={() => setForm((prev) => ({ ...prev, permission_scope_type: 'user' }))}
-                                    />
-                                    <div>
-                                        <div style={{ fontWeight: 500, fontSize: '13px' }}>{t('wizard.abilities.shareWithUsers', 'Specific users only')}</div>
-                                        <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '2px' }}>
-                                            {t('wizard.abilities.shareWithUsersDesc', 'Select exactly who should have access. Leave the list empty to keep it creator-only.')}
-                                        </div>
-                                    </div>
-                                </label>
-                            </div>
-                        </div>
-
-                        {form.permission_scope_type === 'user' && (
-                            <div className="card" style={{ marginBottom: '20px', padding: '12px' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center', marginBottom: '10px' }}>
-                                    <div>
-                                        <div style={{ fontSize: '13px', fontWeight: 600 }}>{t('wizard.abilities.shareWithUsers', 'Specific users only')}</div>
-                                        <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-                                            {t('wizard.abilities.creatorOnlyFallback', 'If you do not select anyone, only the creator will be granted manage access.')}
-                                        </div>
-                                    </div>
-                                    <input
-                                        className="form-input"
-                                        value={memberSearch}
-                                        onChange={(e) => setMemberSearch(e.target.value)}
-                                        placeholder={t('wizard.abilities.searchUsers', 'Search users by name or email')}
-                                        style={{ maxWidth: '260px' }}
+                            <div className="grid grid-cols-2 gap-3 mb-5">
+                                <div className="space-y-1.5">
+                                    <Label htmlFor="daily-limit">{t('wizard.abilities.dailyTokenLimit', 'Daily token limit')}</Label>
+                                    <Input
+                                        id="daily-limit"
+                                        type="number"
+                                        min={0}
+                                        value={form.max_tokens_per_day}
+                                        onChange={(e) => setForm({ ...form, max_tokens_per_day: e.target.value ? Number(e.target.value) : '' })}
+                                        placeholder={t('wizard.abilities.unlimitedPlaceholder', 'Leave empty for unlimited')}
+                                        autoComplete="off"
                                     />
                                 </div>
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '8px', maxHeight: '220px', overflowY: 'auto' }}>
-                                    {filteredOrgUsers.map((user: any) => (
-                                        <label key={user.id} style={{ display: 'flex', gap: '8px', alignItems: 'flex-start', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-default)', background: form.permission_scope_ids.includes(user.id) ? 'var(--accent-subtle)' : 'var(--bg-elevated)' }}>
+                                <div className="space-y-1.5">
+                                    <Label htmlFor="monthly-limit">{t('wizard.abilities.monthlyTokenLimit', 'Monthly token limit')}</Label>
+                                    <Input
+                                        id="monthly-limit"
+                                        type="number"
+                                        min={0}
+                                        value={form.max_tokens_per_month}
+                                        onChange={(e) => setForm({ ...form, max_tokens_per_month: e.target.value ? Number(e.target.value) : '' })}
+                                        placeholder={t('wizard.abilities.unlimitedPlaceholder', 'Leave empty for unlimited')}
+                                        autoComplete="off"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="mb-5 space-y-2.5">
+                                <Label>{t('wizard.abilities.permissionScope', 'Who can access this agent')}</Label>
+                                <div className="flex flex-col gap-2.5">
+                                    <label
+                                        className={`flex gap-2.5 items-start p-3 rounded-lg border cursor-pointer ${
+                                            form.permission_scope_type === 'company'
+                                                ? 'border-accent-primary bg-accent-subtle'
+                                                : 'border-edge-default bg-surface-elevated'
+                                        }`}
+                                    >
+                                        <input
+                                            type="radio"
+                                            name="permission_scope_type"
+                                            checked={form.permission_scope_type === 'company'}
+                                            onChange={() => setForm((prev) => ({ ...prev, permission_scope_type: 'company' }))}
+                                        />
+                                        <div>
+                                            <div className="font-medium text-xs">{t('wizard.abilities.companyScope', 'Entire company')}</div>
+                                            <div className="text-xs text-content-tertiary mt-0.5">
+                                                {t('wizard.abilities.companyScopeDesc', 'Everyone in the current workspace can discover and use this agent.')}
+                                            </div>
+                                        </div>
+                                    </label>
+                                    <label
+                                        className={`flex gap-2.5 items-start p-3 rounded-lg border cursor-pointer ${
+                                            form.permission_scope_type === 'user'
+                                                ? 'border-accent-primary bg-accent-subtle'
+                                                : 'border-edge-default bg-surface-elevated'
+                                        }`}
+                                    >
+                                        <input
+                                            type="radio"
+                                            name="permission_scope_type"
+                                            checked={form.permission_scope_type === 'user'}
+                                            onChange={() => setForm((prev) => ({ ...prev, permission_scope_type: 'user' }))}
+                                        />
+                                        <div>
+                                            <div className="font-medium text-xs">{t('wizard.abilities.shareWithUsers', 'Specific users only')}</div>
+                                            <div className="text-xs text-content-tertiary mt-0.5">
+                                                {t('wizard.abilities.shareWithUsersDesc', 'Select exactly who should have access. Leave the list empty to keep it creator-only.')}
+                                            </div>
+                                        </div>
+                                    </label>
+                                </div>
+                            </div>
+
+                            {form.permission_scope_type === 'user' && (
+                                <Card className="mb-5">
+                                    <CardContent className="p-3">
+                                        <div className="flex justify-between gap-3 items-center mb-2.5">
+                                            <div>
+                                                <div className="text-xs font-semibold">{t('wizard.abilities.shareWithUsers', 'Specific users only')}</div>
+                                                <div className="text-xs text-content-tertiary mt-1">
+                                                    {t('wizard.abilities.creatorOnlyFallback', 'If you do not select anyone, only the creator will be granted manage access.')}
+                                                </div>
+                                            </div>
+                                            <Input
+                                                value={memberSearch}
+                                                onChange={(e) => setMemberSearch(e.target.value)}
+                                                placeholder={t('wizard.abilities.searchUsers', 'Search users by name or email')}
+                                                className="max-w-[260px]"
+                                                autoComplete="off"
+                                            />
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-2 max-h-[220px] overflow-y-auto">
+                                            {filteredOrgUsers.map((user: any) => (
+                                                <label
+                                                    key={user.id}
+                                                    className={`flex gap-2 items-start p-2.5 rounded-lg border ${
+                                                        form.permission_scope_ids.includes(user.id)
+                                                            ? 'bg-accent-subtle'
+                                                            : 'bg-surface-elevated'
+                                                    } border-edge-default`}
+                                                >
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={form.permission_scope_ids.includes(user.id)}
+                                                        onChange={() => togglePermissionUser(user.id)}
+                                                    />
+                                                    <div className="min-w-0">
+                                                        <div className="text-xs font-medium">{user.display_name || user.username}</div>
+                                                        <div className="text-[11px] text-content-tertiary overflow-hidden text-ellipsis">
+                                                            {user.email}
+                                                        </div>
+                                                    </div>
+                                                </label>
+                                            ))}
+                                            {filteredOrgUsers.length === 0 && (
+                                                <div className="col-span-full p-4 text-center text-xs text-content-tertiary">
+                                                    {t('wizard.abilities.noUsersFound', 'No matching users found in the current workspace.')}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            )}
+
+                            <div className="mb-5 space-y-1.5">
+                                <Label htmlFor="access-level">{t('wizard.abilities.defaultAccessLevel', 'Default access level')}</Label>
+                                <Select
+                                    value={form.permission_access_level}
+                                    onValueChange={(val) => setForm({ ...form, permission_access_level: val as AgentCreateFormState['permission_access_level'] })}
+                                >
+                                    <SelectTrigger id="access-level">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="use">{t('wizard.abilities.accessUse', 'Use')}</SelectItem>
+                                        <SelectItem value="manage">{t('wizard.abilities.accessManage', 'Manage')}</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+
+                            <div className="flex flex-col gap-2">
+                                {globalSkills.map((skill: any) => {
+                                    const isDefault = skill.is_default;
+                                    const isChecked = form.skill_ids.includes(skill.id);
+                                    return (
+                                        <label
+                                            key={skill.id}
+                                            className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer ${
+                                                isChecked
+                                                    ? 'bg-accent-subtle border-accent-primary'
+                                                    : 'bg-surface-elevated border-edge-default'
+                                            } ${isDefault ? 'cursor-default' : ''}`}
+                                        >
                                             <input
                                                 type="checkbox"
-                                                checked={form.permission_scope_ids.includes(user.id)}
-                                                onChange={() => togglePermissionUser(user.id)}
+                                                checked={isChecked}
+                                                disabled={isDefault}
+                                                onChange={(e) => {
+                                                    if (isDefault) return;
+                                                    if (e.target.checked) {
+                                                        setForm({ ...form, skill_ids: [...form.skill_ids, skill.id] });
+                                                    } else {
+                                                        setForm({ ...form, skill_ids: form.skill_ids.filter((id: string) => id !== skill.id) });
+                                                    }
+                                                }}
                                             />
-                                            <div style={{ minWidth: 0 }}>
-                                                <div style={{ fontSize: '13px', fontWeight: 500 }}>{user.display_name || user.username}</div>
-                                                <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                                    {user.email}
+                                            <div className="text-lg">{skill.icon}</div>
+                                            <div className="flex-1">
+                                                <div className="flex items-center gap-1.5">
+                                                    <span className="font-medium text-xs">{skill.name}</span>
+                                                    {isDefault && (
+                                                        <Badge className="text-[10px] px-1.5 py-0">
+                                                            {t('wizard.abilities.recommendedBadge')}
+                                                        </Badge>
+                                                    )}
+                                                </div>
+                                                <div className="text-xs text-content-tertiary mt-0.5">
+                                                    {skill.description}
                                                 </div>
                                             </div>
                                         </label>
-                                    ))}
-                                    {filteredOrgUsers.length === 0 && (
-                                        <div style={{ gridColumn: '1 / -1', padding: '16px', textAlign: 'center', fontSize: '12px', color: 'var(--text-tertiary)' }}>
-                                            {t('wizard.abilities.noUsersFound', 'No matching users found in the current workspace.')}
-                                        </div>
-                                    )}
-                                </div>
+                                    );
+                                })}
+                                {globalSkills.length === 0 && (
+                                    <div className="p-4 bg-surface-elevated rounded-lg text-xs text-content-tertiary text-center">
+                                        {t('wizard.abilities.noSkills')}
+                                    </div>
+                                )}
                             </div>
-                        )}
 
-                        <div className="form-group" style={{ marginBottom: '20px' }}>
-                            <label className="form-label">{t('wizard.abilities.defaultAccessLevel', 'Default access level')}</label>
-                            <select
-                                className="form-select"
-                                value={form.permission_access_level}
-                                onChange={(e) => setForm({ ...form, permission_access_level: e.target.value as AgentCreateFormState['permission_access_level'] })}
-                            >
-                                <option value="use">{t('wizard.abilities.accessUse', 'Use')}</option>
-                                <option value="manage">{t('wizard.abilities.accessManage', 'Manage')}</option>
-                            </select>
+                            <div className="mt-5 p-3 bg-surface-secondary rounded-lg text-xs text-content-secondary">
+                                {t('wizard.abilities.approvalHint')}
+                            </div>
                         </div>
-
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            {globalSkills.map((skill: any) => {
-                                const isDefault = skill.is_default;
-                                const isChecked = form.skill_ids.includes(skill.id);
-                                return (
-                                    <label
-                                        key={skill.id}
-                                        style={{
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: '12px',
-                                            padding: '12px',
-                                            background: isChecked ? 'var(--accent-subtle)' : 'var(--bg-elevated)',
-                                            border: `1px solid ${isChecked ? 'var(--accent-primary)' : 'var(--border-default)'}`,
-                                            borderRadius: '8px',
-                                            cursor: isDefault ? 'default' : 'pointer',
-                                        }}
-                                    >
-                                        <input
-                                            type="checkbox"
-                                            checked={isChecked}
-                                            disabled={isDefault}
-                                            onChange={(e) => {
-                                                if (isDefault) return;
-                                                if (e.target.checked) {
-                                                    setForm({ ...form, skill_ids: [...form.skill_ids, skill.id] });
-                                                } else {
-                                                    setForm({ ...form, skill_ids: form.skill_ids.filter((id: string) => id !== skill.id) });
-                                                }
-                                            }}
-                                        />
-                                        <div style={{ fontSize: '18px' }}>{skill.icon}</div>
-                                        <div style={{ flex: 1 }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                <span style={{ fontWeight: 500, fontSize: '13px' }}>{skill.name}</span>
-                                                {isDefault && (
-                                                    <span
-                                                        style={{
-                                                            fontSize: '10px',
-                                                            padding: '1px 6px',
-                                                            borderRadius: '4px',
-                                                            background: 'var(--accent-primary)',
-                                                            color: '#fff',
-                                                            fontWeight: 500,
-                                                        }}
-                                                    >
-                                                        {t('wizard.abilities.recommendedBadge')}
-                                                    </span>
-                                                )}
-                                            </div>
-                                            <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '2px' }}>
-                                                {skill.description}
-                                            </div>
-                                        </div>
-                                    </label>
-                                );
-                            })}
-                            {globalSkills.length === 0 && (
-                                <div style={{ padding: '16px', background: 'var(--bg-elevated)', borderRadius: '8px', fontSize: '13px', color: 'var(--text-tertiary)', textAlign: 'center' }}>
-                                    {t('wizard.abilities.noSkills')}
-                                </div>
-                            )}
-                        </div>
-
-                        <div style={{ marginTop: '20px', padding: '12px', background: 'var(--bg-secondary)', borderRadius: '8px', fontSize: '12px', color: 'var(--text-secondary)' }}>
-                            {t('wizard.abilities.approvalHint')}
-                        </div>
-                    </div>
-                )}
-            </div>
+                    )}
+                </CardContent>
+            </Card>
         </div>
     );
 }

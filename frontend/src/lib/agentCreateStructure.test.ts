@@ -99,7 +99,7 @@ test('AgentCreate uses Recommended badge instead of Required badge', () => {
 test('AgentCreate uses dropdown for model selection instead of radio cards', () => {
     const source = read();
 
-    assert.match(source, /<select/);
+    assert.match(source, /<[Ss]elect/);
     assert.match(source, /wizard\.identity\.aiModel/);
     assert.doesNotMatch(source, /wizard\.step1\.primaryModel/);
 });

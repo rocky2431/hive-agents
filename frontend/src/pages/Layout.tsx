@@ -4,69 +4,28 @@ import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '../stores';
 import { adminApi, agentApi, authApi, notificationApi } from '../services/api';
+import { Button } from '@/components/ui/button';
+import { AgentAvatar } from '@/components/domain/agent-avatar';
+import { formatRelative } from '@/lib/date';
 
-/* ────── SVG Icons ────── */
+/* ────── SVG Icons (decorative — all carry aria-hidden) ────── */
+const I = { w: '16', h: '16', vb16: '0 0 16 16', vb24: '0 0 24 24', s: 'currentColor' } as const;
+const svg16 = (props: Record<string, string>, ...children: React.ReactNode[]) => (
+    <svg width={I.w} height={I.h} viewBox={I.vb16} fill="none" stroke={I.s} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>{children}</svg>
+);
 const SidebarIcons = {
-    home: (
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M2.5 6.5L8 2l5.5 4.5V13a1 1 0 01-1 1h-3V10H6.5v4h-3a1 1 0 01-1-1V6.5z" />
-        </svg>
-    ),
-    plus: (
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-            <path d="M8 3v10M3 8h10" />
-        </svg>
-    ),
-    settings: (
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="8" cy="8" r="2" />
-            <path d="M13.5 8a5.5 5.5 0 00-.3-1.8l1.3-1-1.2-2-1.5.6a5.5 5.5 0 00-1.6-.9L9.8 1.5H7.6l-.4 1.4a5.5 5.5 0 00-1.6.9L4 3.2 2.8 5.2l1.3 1A5.5 5.5 0 003.8 8c0 .6.1 1.2.3 1.8l-1.3 1 1.2 2 1.5-.6c.5.4 1 .7 1.6.9l.4 1.4h2.2l.4-1.4c.6-.2 1.1-.5 1.6-.9l1.5.6 1.2-2-1.3-1c.2-.6.3-1.2.3-1.8z" />
-        </svg>
-    ),
-    user: (
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="8" cy="5.5" r="2.5" />
-            <path d="M3 14v-1a4 4 0 018 0v1" />
-        </svg>
-    ),
-    sun: (
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-            <circle cx="8" cy="8" r="3" />
-            <path d="M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1 1M11.6 11.6l1 1M3.4 12.6l1-1M11.6 4.4l1-1" />
-        </svg>
-    ),
-    moon: (
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M13.5 8.5a5.5 5.5 0 01-8-4.5 5.5 5.5 0 003 10c2 0 3.8-1 4.8-2.7a4 4 0 01.2-2.8z" />
-        </svg>
-    ),
-    logout: (
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M6 14H3a1 1 0 01-1-1V3a1 1 0 011-1h3M11 11l3-3-3-3M14 8H6" />
-        </svg>
-    ),
-    globe: (
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="8" cy="8" r="6" />
-            <path d="M2 8h12M8 2a10 10 0 013 6 10 10 0 01-3 6 10 10 0 01-3-6 10 10 0 013-6z" />
-        </svg>
-    ),
-    collapse: (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M15 18l-6-6 6-6" />
-        </svg>
-    ),
-    expand: (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M9 18l6-6-6-6" />
-        </svg>
-    ),
-    bell: (
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M4 6a4 4 0 018 0c0 2 1 3.5 1.5 4.5H2.5C3 9.5 4 8 4 6z" />
-            <path d="M6.5 12.5a1.5 1.5 0 003 0" />
-        </svg>
-    ),
+    home:      svg16({}, <path key="h" d="M2.5 6.5L8 2l5.5 4.5V13a1 1 0 01-1 1h-3V10H6.5v4h-3a1 1 0 01-1-1V6.5z" />),
+    plus:      svg16({}, <path key="p" d="M8 3v10M3 8h10" />),
+    settings:  svg16({}, <circle key="c" cx="8" cy="8" r="2" />, <path key="g" d="M13.5 8a5.5 5.5 0 00-.3-1.8l1.3-1-1.2-2-1.5.6a5.5 5.5 0 00-1.6-.9L9.8 1.5H7.6l-.4 1.4a5.5 5.5 0 00-1.6.9L4 3.2 2.8 5.2l1.3 1A5.5 5.5 0 003.8 8c0 .6.1 1.2.3 1.8l-1.3 1 1.2 2 1.5-.6c.5.4 1 .7 1.6.9l.4 1.4h2.2l.4-1.4c.6-.2 1.1-.5 1.6-.9l1.5.6 1.2-2-1.3-1c.2-.6.3-1.2.3-1.8z" />),
+    user:      svg16({}, <circle key="c" cx="8" cy="5.5" r="2.5" />, <path key="p" d="M3 14v-1a4 4 0 018 0v1" />),
+    sun:       svg16({}, <circle key="c" cx="8" cy="8" r="3" />, <path key="r" d="M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1 1M11.6 11.6l1 1M3.4 12.6l1-1M11.6 4.4l1-1" />),
+    moon:      svg16({}, <path key="m" d="M13.5 8.5a5.5 5.5 0 01-8-4.5 5.5 5.5 0 003 10c2 0 3.8-1 4.8-2.7a4 4 0 01.2-2.8z" />),
+    logout:    <svg width="14" height="14" viewBox={I.vb16} fill="none" stroke={I.s} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 14H3a1 1 0 01-1-1V3a1 1 0 011-1h3M11 11l3-3-3-3M14 8H6" /></svg>,
+    globe:     <svg width="14" height="14" viewBox={I.vb16} fill="none" stroke={I.s} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="6" /><path d="M2 8h12M8 2a10 10 0 013 6 10 10 0 01-3 6 10 10 0 01-3-6 10 10 0 013-6z" /></svg>,
+    collapse:  <svg width={I.w} height={I.h} viewBox={I.vb24} fill="none" stroke={I.s} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6" /></svg>,
+    expand:    <svg width={I.w} height={I.h} viewBox={I.vb24} fill="none" stroke={I.s} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6" /></svg>,
+    bell:      svg16({}, <path key="b" d="M4 6a4 4 0 018 0c0 2 1 3.5 1.5 4.5H2.5C3 9.5 4 8 4 6z" />, <path key="c" d="M6.5 12.5a1.5 1.5 0 003 0" />),
+    briefcase: svg16({}, <rect key="r" x="2" y="5" width="12" height="9" rx="1" />, <path key="p" d="M5 5V3a2 2 0 012-2h2a2 2 0 012 2v2" />),
 };
 
 
@@ -127,32 +86,61 @@ function AccountSettingsModal({ user, onClose }: { user: any; onClose: () => voi
         setSaving(false);
     };
 
-    const inputStyle = { width: '100%', fontSize: '13px' };
-    const labelStyle = { display: 'block' as const, fontSize: '12px', fontWeight: 500, marginBottom: '4px', color: 'var(--text-secondary)' };
-
     return (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
-            <div style={{ background: 'var(--bg-primary)', borderRadius: '12px', border: '1px solid var(--border-subtle)', width: '420px', maxHeight: '90vh', overflow: 'auto', padding: '24px', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }} onClick={e => e.stopPropagation()}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                    <h3 style={{ margin: 0 }}>{t('account.title')}</h3>
-                    <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', fontSize: '18px', cursor: 'pointer', padding: '4px 8px' }}>×</button>
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50" onClick={onClose}>
+            <div
+                className="rounded-xl border border-edge-subtle bg-surface-primary w-[420px] max-h-[90vh] overflow-auto p-6 shadow-[0_20px_60px_rgba(0,0,0,0.3)]"
+                onClick={e => e.stopPropagation()}
+            >
+                <div className="flex items-center justify-between mb-5">
+                    <h3 className="m-0">{t('account.title')}</h3>
+                    <Button variant="ghost" size="sm" onClick={onClose} aria-label={t('common.close', 'Close')}>
+                        ×
+                    </Button>
                 </div>
-                {msg && <div style={{ padding: '8px 12px', borderRadius: '6px', fontSize: '12px', marginBottom: '16px', background: msgType === 'success' ? 'rgba(0,180,120,0.12)' : 'rgba(255,80,80,0.12)', color: msgType === 'success' ? 'var(--success)' : 'var(--error)' }}>{msg}</div>}
+                {msg && (
+                    <div className={`rounded-md px-3 py-2 text-xs mb-4 ${msgType === 'success' ? 'bg-success-subtle text-success' : 'bg-error-subtle text-error'}`}>
+                        {msg}
+                    </div>
+                )}
                 {/* Profile */}
-                <h4 style={{ margin: '0 0 12px', fontSize: '13px', color: 'var(--text-secondary)' }}>{t('account.profile')}</h4>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '20px' }}>
-                    <div><label style={labelStyle}>{t('account.username')}</label><input className="form-input" value={username} onChange={e => setUsername(e.target.value)} style={inputStyle} /></div>
-                    <div><label style={labelStyle}>{t('account.displayName')}</label><input className="form-input" value={displayName} onChange={e => setDisplayName(e.target.value)} style={inputStyle} /></div>
-                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}><button className="btn btn-primary" onClick={handleSaveProfile} disabled={saving} style={{ padding: '6px 16px', fontSize: '12px' }}>{saving ? '...' : t('common.save')}</button></div>
+                <h4 className="m-0 mb-3 text-[13px] text-content-secondary">{t('account.profile')}</h4>
+                <div className="flex flex-col gap-2.5 mb-5">
+                    <div>
+                        <label className="block text-xs font-medium mb-1 text-content-secondary">{t('account.username')}</label>
+                        <input className="form-input w-full text-[13px]" value={username} onChange={e => setUsername(e.target.value)} />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-medium mb-1 text-content-secondary">{t('account.displayName')}</label>
+                        <input className="form-input w-full text-[13px]" value={displayName} onChange={e => setDisplayName(e.target.value)} />
+                    </div>
+                    <div className="flex justify-end">
+                        <Button size="sm" onClick={handleSaveProfile} disabled={saving}>
+                            {saving ? '...' : t('common.save')}
+                        </Button>
+                    </div>
                 </div>
-                <div style={{ borderTop: '1px solid var(--border-subtle)', marginBottom: '20px' }} />
+                <div className="border-t border-edge-subtle mb-5" />
                 {/* Password */}
-                <h4 style={{ margin: '0 0 12px', fontSize: '13px', color: 'var(--text-secondary)' }}>{t('account.changePassword')}</h4>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    <div><label style={labelStyle}>{t('account.currentPassword')}</label><input className="form-input" type="password" value={oldPassword} onChange={e => setOldPassword(e.target.value)} style={inputStyle} /></div>
-                    <div><label style={labelStyle}>{t('account.newPassword')}</label><input className="form-input" type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder={t('account.newPasswordPlaceholder')} style={inputStyle} /></div>
-                    <div><label style={labelStyle}>{t('account.confirmPassword')}</label><input className="form-input" type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} style={inputStyle} /></div>
-                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}><button className="btn btn-primary" onClick={handleChangePassword} disabled={saving} style={{ padding: '6px 16px', fontSize: '12px' }}>{saving ? '...' : t('account.changePassword')}</button></div>
+                <h4 className="m-0 mb-3 text-[13px] text-content-secondary">{t('account.changePassword')}</h4>
+                <div className="flex flex-col gap-2.5">
+                    <div>
+                        <label className="block text-xs font-medium mb-1 text-content-secondary">{t('account.currentPassword')}</label>
+                        <input className="form-input w-full text-[13px]" type="password" value={oldPassword} onChange={e => setOldPassword(e.target.value)} />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-medium mb-1 text-content-secondary">{t('account.newPassword')}</label>
+                        <input className="form-input w-full text-[13px]" type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder={t('account.newPasswordPlaceholder')} />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-medium mb-1 text-content-secondary">{t('account.confirmPassword')}</label>
+                        <input className="form-input w-full text-[13px]" type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} />
+                    </div>
+                    <div className="flex justify-end">
+                        <Button size="sm" onClick={handleChangePassword} disabled={saving}>
+                            {saving ? '...' : t('account.changePassword')}
+                        </Button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -286,19 +274,17 @@ export default function Layout() {
             <nav className={`sidebar ${isSidebarCollapsed ? 'collapsed' : ''}`}>
                 <div className="sidebar-top">
                     <div className="sidebar-logo">
-                        <img src={theme === 'dark' ? '/logo-white.png' : '/logo-black.png'} alt="" style={{ width: 22, height: 22 }} />
+                        <img src={theme === 'dark' ? '/logo-white.png' : '/logo-black.png'} alt="" className="h-[22px] w-[22px]" />
                         <span className="sidebar-logo-text">Clawith</span>
                     </div>
 
-
-
                     <div className="sidebar-section">
                         <NavLink to="/plaza" className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`}>
-                            <span className="sidebar-item-icon" style={{ display: 'flex', fontSize: '14px' }}>🏛️</span>
+                            <span className="sidebar-item-icon flex text-sm">🏛️</span>
                             <span className="sidebar-item-text">{t('nav.plaza', 'Plaza')}</span>
                         </NavLink>
                         <NavLink to="/dashboard" className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`}>
-                            <span className="sidebar-item-icon" style={{ display: 'flex' }}>{SidebarIcons.home}</span>
+                            <span className="sidebar-item-icon flex">{SidebarIcons.home}</span>
                             <span className="sidebar-item-text">{t('nav.dashboard')}</span>
                         </NavLink>
                     </div>
@@ -307,8 +293,8 @@ export default function Layout() {
                 <div className="sidebar-scrollable">
                     {/* Sidebar search */}
                     {!isSidebarCollapsed && agents.length >= 5 && (
-                        <div style={{ padding: '4px 12px 4px', position: 'relative' }}>
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="2" strokeLinecap="round" style={{ position: 'absolute', left: '20px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
+                        <div className="relative px-3 py-1">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="2" strokeLinecap="round" className="absolute left-5 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden="true">
                                 <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" />
                             </svg>
                             <input
@@ -316,16 +302,16 @@ export default function Layout() {
                                 value={sidebarSearch}
                                 onChange={e => setSidebarSearch(e.target.value)}
                                 placeholder={t('layout.search')}
-                                style={{
-                                    width: '100%', padding: '5px 24px 5px 28px', border: '1px solid var(--border-subtle)',
-                                    borderRadius: '6px', background: 'var(--bg-secondary)', color: 'var(--text-primary)',
-                                    fontSize: '12px', outline: 'none', boxSizing: 'border-box',
-                                }}
-                                onFocus={e => e.target.style.borderColor = 'var(--primary)'}
-                                onBlur={e => e.target.style.borderColor = 'var(--border-subtle)'}
+                                className="w-full rounded-md border border-edge-subtle bg-surface-secondary text-content-primary text-xs outline-none box-border py-[5px] pr-6 pl-7 focus:border-accent-primary"
                             />
                             {sidebarSearch && (
-                                <button onClick={() => setSidebarSearch('')} style={{ position: 'absolute', right: '18px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: '12px', padding: '2px', lineHeight: 1 }}>&#x2715;</button>
+                                <button
+                                    onClick={() => setSidebarSearch('')}
+                                    className="absolute right-[18px] top-1/2 -translate-y-1/2 bg-transparent border-none text-content-tertiary cursor-pointer text-xs p-0.5 leading-none"
+                                    aria-label={t('layout.clearSearch', 'Clear search')}
+                                >
+                                    &#x2715;
+                                </button>
                             )}
                         </div>
                     )}
@@ -337,27 +323,24 @@ export default function Layout() {
                             const ap = pinnedAgents.has(a.id) ? 1 : 0;
                             const bp = pinnedAgents.has(b.id) ? 1 : 0;
                             if (ap !== bp) return bp - ap;
-                            // Sort by created_at descending (newest first)
                             const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
                             const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
                             return bTime - aTime;
                         });
                         const renderAgent = (agent: any) => {
                             const badge = getAgentBadgeStatus(agent);
-                            const avatarChar = ((Array.from(agent.name || '?')[0] as string) || '?').toUpperCase();
                             return (
-                            <div key={agent.id} style={{ position: 'relative' }} className={`sidebar-agent-item${agent.creator_id === user?.id ? ' owned' : ''}`}>
+                            <div key={agent.id} className={`relative sidebar-agent-item${agent.creator_id === user?.id ? ' owned' : ''}`}>
                                 <NavLink
                                     to={`/agents/${agent.id}`}
                                     className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`}
                                     title={agent.name}
-                                    style={{ paddingRight: '28px' }}
                                 >
-                                    <span className="sidebar-item-icon" style={{ position: 'relative' }}>
-                                        <span className={`agent-avatar${agent.agent_type === 'openclaw' ? ' openclaw' : ''}`}>{avatarChar}</span>
+                                    <span className="sidebar-item-icon relative">
+                                        <AgentAvatar name={agent.name || '?'} status={agent.status} size="sm" />
                                         {agent.agent_type === 'openclaw' && (
                                             <span className="agent-avatar-link">
-                                                <svg width="6" height="6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                                                <svg width="6" height="6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                                                     <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
                                                     <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
                                                 </svg>
@@ -372,8 +355,9 @@ export default function Layout() {
                                         onClick={e => { e.preventDefault(); e.stopPropagation(); togglePin(agent.id); }}
                                         className={`sidebar-pin-btn ${pinnedAgents.has(agent.id) ? 'pinned' : ''}`}
                                         title={pinnedAgents.has(agent.id) ? t('layout.unpin') : t('layout.pin')}
+                                        aria-label={pinnedAgents.has(agent.id) ? t('layout.unpin') : t('layout.pin')}
                                     >
-                                        <svg width="10" height="10" viewBox="0 0 24 24" fill={pinnedAgents.has(agent.id) ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                        <svg width="10" height="10" viewBox="0 0 24 24" fill={pinnedAgents.has(agent.id) ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                                             <path d="M12 17v5" /><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16h14v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V5a1 1 0 0 1 1-1h1V2H7v2h1a1 1 0 0 1 1 1z" />
                                         </svg>
                                     </button>
@@ -389,7 +373,7 @@ export default function Layout() {
                                     </div>
                                 )}
                                 {agents.length > 0 && sortedAgents.length === 0 && q && (
-                                    <div style={{ padding: '12px 16px', fontSize: '12px', color: 'var(--text-tertiary)', textAlign: 'center' }}>
+                                    <div className="px-4 py-3 text-xs text-content-tertiary text-center">
                                         {t('layout.noMatches')}
                                     </div>
                                 )}
@@ -399,132 +383,96 @@ export default function Layout() {
                 </div>
 
                 <div className="sidebar-bottom">
-                    <div className="sidebar-section" style={{ borderBottom: '1px solid var(--border-subtle)', paddingBottom: '8px', marginBottom: 0 }}>
+                    <div className="sidebar-section border-b border-edge-subtle pb-2 mb-0">
                         {user && (
                             <NavLink to="/agents/new" className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`} title={t('nav.newAgent')}>
-                                <span className="sidebar-item-icon" style={{ display: 'flex' }}>{SidebarIcons.plus}</span>
+                                <span className="sidebar-item-icon flex">{SidebarIcons.plus}</span>
                                 <span className="sidebar-item-text">{t('nav.newAgent')}</span>
                             </NavLink>
                         )}
                         {user && ['platform_admin', 'org_admin'].includes(user.role) && (
                             <NavLink to="/enterprise" className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`} title={t('nav.enterprise')}>
-                                <span className="sidebar-item-icon" style={{ display: 'flex' }}>{SidebarIcons.settings}</span>
+                                <span className="sidebar-item-icon flex">{SidebarIcons.settings}</span>
                                 <span className="sidebar-item-text">{t('nav.enterprise')}</span>
                             </NavLink>
                         )}
                         {user && user.role === 'platform_admin' && (
                             <NavLink to="/admin/companies" className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`} title={t('nav.adminCompanies', 'Companies')}>
-                                <span className="sidebar-item-icon" style={{ display: 'flex' }}>
-                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                                        <rect x="2" y="5" width="12" height="9" rx="1" /><path d="M5 5V3a2 2 0 012-2h2a2 2 0 012 2v2" />
-                                    </svg>
-                                </span>
+                                <span className="sidebar-item-icon flex">{SidebarIcons.briefcase}</span>
                                 <span className="sidebar-item-text">{t('nav.adminCompanies', 'Companies')}</span>
                             </NavLink>
                         )}
                     </div>
 
                     <div className="sidebar-footer">
-                        <div className="sidebar-footer-controls" style={{
-                            display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '12px',
-                        }}>
-                            <button className="btn btn-ghost" onClick={toggleSidebar} style={{
-                                padding: '4px 8px', display: 'flex', alignItems: 'center', justifyContent: 'center'
-                            }} title={isSidebarCollapsed ? t('layout.expandSidebar') : t('layout.collapseSidebar')}>
+                        <div className="sidebar-footer-controls flex items-center gap-1 mb-3">
+                            <Button variant="ghost" size="icon" onClick={toggleSidebar} className="h-7 w-7" aria-label={isSidebarCollapsed ? t('layout.expandSidebar') : t('layout.collapseSidebar')}>
                                 {isSidebarCollapsed ? SidebarIcons.expand : SidebarIcons.collapse}
-                            </button>
-                            <div style={{ flex: 1 }} />
+                            </Button>
+                            <div className="flex-1" />
                             {/* Notification bell */}
-                            <button className="btn btn-ghost" onClick={() => { setShowNotifications(v => !v); if (!showNotifications) refetchNotifications(); }} style={{
-                                padding: '4px 8px', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative',
-                            }} title={t('layout.notifications')}>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => { setShowNotifications(v => !v); if (!showNotifications) refetchNotifications(); }}
+                                className="relative h-7 w-7"
+                                aria-label={t('layout.notifications')}
+                            >
                                 {SidebarIcons.bell}
                                 {(unreadCount as number) > 0 && (
-                                    <span style={{
-                                        position: 'absolute', top: '-2px', right: '-4px',
-                                        minWidth: '16px', height: '16px', borderRadius: '8px',
-                                        padding: '0 4px', boxSizing: 'border-box',
-                                        background: 'var(--error)', color: '#fff',
-                                        fontSize: '10px', fontWeight: 600,
-                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                        lineHeight: 1,
-                                    }}>{(unreadCount as number) > 99 ? '99+' : unreadCount}</span>
+                                    <span className="absolute -top-0.5 -right-1 min-w-[16px] h-4 rounded-full px-1 box-border bg-error text-white text-[10px] font-semibold flex items-center justify-center leading-none">
+                                        {(unreadCount as number) > 99 ? '99+' : unreadCount}
+                                    </span>
                                 )}
-                            </button>
-                            <button className="btn btn-ghost" onClick={toggleTheme} style={{
-                                fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px',
-                                padding: '4px 8px',
-                            }}>
+                            </Button>
+                            <Button variant="ghost" size="icon" onClick={toggleTheme} className="h-7 w-7" aria-label={t('layout.toggleTheme', 'Toggle theme')}>
                                 {theme === 'dark' ? SidebarIcons.sun : SidebarIcons.moon}
-                            </button>
-                            <button className="btn btn-ghost" onClick={toggleLang} style={{
-                                fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px',
-                                padding: '4px 8px',
-                            }}>
+                            </Button>
+                            <Button variant="ghost" size="sm" onClick={toggleLang} className="h-7 gap-1 text-xs" aria-label={t('layout.toggleLanguage', 'Toggle language')}>
                                 {SidebarIcons.globe}
                                 <span>{i18n.language === 'zh' ? '中文' : 'EN'}</span>
-                            </button>
+                            </Button>
                         </div>
                         {/* Tenant switcher for platform_admin */}
                         {isPlatformAdmin && tenants.length > 1 && !isSidebarCollapsed && (
                             <select
                                 value={currentTenant}
                                 onChange={e => switchTenant(e.target.value)}
-                                style={{
-                                    width: '100%', padding: '6px 8px', marginBottom: '8px',
-                                    fontSize: '12px', borderRadius: '6px',
-                                    background: 'var(--bg-tertiary)', color: 'var(--text-primary)',
-                                    border: '1px solid var(--border-subtle)', cursor: 'pointer',
-                                }}
+                                className="w-full rounded-md border border-edge-subtle bg-surface-tertiary text-content-primary text-xs cursor-pointer px-2 py-1.5 mb-2"
                             >
                                 {tenants.map(t => (
                                     <option key={t.id} value={t.id}>{t.name}</option>
                                 ))}
                             </select>
                         )}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div className="flex items-center gap-2">
                             <div
-                                style={{
-                                    display: 'flex', alignItems: 'center', gap: '8px',
-                                    flex: 1, minWidth: 0, cursor: 'pointer',
-                                    padding: '4px 6px', borderRadius: '6px',
-                                    transition: 'background 0.15s',
-                                }}
+                                className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer rounded-md p-1.5 transition-colors hover:bg-surface-tertiary"
                                 onClick={() => setShowAccountSettings(true)}
-                                onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-tertiary)')}
-                                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                                 title={t('account.title')}
                             >
-                                <div style={{
-                                    width: '28px', height: '28px', borderRadius: 'var(--radius-md)',
-                                    background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)',
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    color: 'var(--text-tertiary)', flexShrink: 0,
-                                }}>
+                                <div className="w-7 h-7 rounded-md bg-surface-tertiary border border-edge-subtle flex items-center justify-center text-content-tertiary shrink-0">
                                     {SidebarIcons.user}
                                 </div>
-                                <div className="sidebar-footer-user-info" style={{ flex: 1, minWidth: 0 }}>
-                                    <div style={{ fontSize: '13px', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                <div className="sidebar-footer-user-info flex-1 min-w-0">
+                                    <div className="text-[13px] font-medium truncate">
                                         {user?.display_name}
                                     </div>
-                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                                    <div className="text-[11px] text-content-tertiary">
                                         {user?.role === 'platform_admin' ? t('roles.platformAdmin') :
                                             user?.role === 'org_admin' ? t('roles.orgAdmin') :
                                                 user?.role === 'agent_admin' ? t('roles.agentAdmin') : t('roles.member')}
                                     </div>
                                 </div>
                             </div>
-                            <button className="btn btn-ghost" onClick={handleLogout} style={{
-                                padding: '4px 6px', color: 'var(--text-tertiary)',
-                                display: 'flex', alignItems: 'center', flexShrink: 0,
-                            }} title={t('layout.logout', 'Logout')}>
+                            <Button variant="ghost" size="icon" onClick={handleLogout} className="h-7 w-7 text-content-tertiary shrink-0" aria-label={t('layout.logout', 'Logout')}>
                                 {SidebarIcons.logout}
-                            </button>
+                            </Button>
                         </div>
                         {/* Version */}
-                        <div style={{ textAlign: 'center', fontSize: '10px', color: 'var(--text-quaternary)', marginTop: '8px', letterSpacing: '0.3px' }}>
+                        <div className="text-center text-[10px] text-content-tertiary/60 mt-2 tracking-wide">
                             v{(typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '').split('+')[0]}
-                            <span style={{ opacity: 0.6 }}>{(typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '').includes('+') ? ` b${(typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '').split('+')[1]}` : ''}</span>
+                            <span className="opacity-60">{(typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '').includes('+') ? ` b${(typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '').split('+')[1]}` : ''}</span>
                         </div>
                     </div>
                 </div>
@@ -532,24 +480,21 @@ export default function Layout() {
 
             {/* Notification Panel */}
             {showNotifications && (
-                <div style={{
-                    position: 'fixed', top: 0, bottom: 0, left: isSidebarCollapsed ? '60px' : '220px',
-                    width: '360px', background: 'var(--bg-primary)', borderRight: '1px solid var(--border-subtle)',
-                    zIndex: 9999, display: 'flex', flexDirection: 'column',
-                    boxShadow: '4px 0 24px rgba(0,0,0,0.15)', transition: 'left 0.2s',
-                }}>
-                    <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 600, flex: 1 }}>{t('layout.notifications')}</h3>
+                <div className={`fixed top-0 bottom-0 w-[360px] bg-surface-primary border-r border-edge-subtle z-[9999] flex flex-col shadow-[4px_0_24px_rgba(0,0,0,0.15)] transition-[left] duration-200 ${isSidebarCollapsed ? 'left-[60px]' : 'left-[220px]'}`}>
+                    <div className="flex items-center gap-2 px-5 py-4 border-b border-edge-subtle">
+                        <h3 className="m-0 text-sm font-semibold flex-1">{t('layout.notifications')}</h3>
                         {(unreadCount as number) > 0 && (
-                            <button className="btn btn-ghost" onClick={markAllRead} style={{ fontSize: '11px', padding: '4px 8px' }}>
+                            <Button variant="ghost" size="sm" onClick={markAllRead} className="text-[11px]">
                                 {t('layout.markAllRead')}
-                            </button>
+                            </Button>
                         )}
-                        <button className="btn btn-ghost" onClick={() => setShowNotifications(false)} style={{ padding: '4px 8px', fontSize: '16px', lineHeight: 1 }}>×</button>
+                        <Button variant="ghost" size="icon" onClick={() => setShowNotifications(false)} className="h-7 w-7" aria-label={t('common.close', 'Close')}>
+                            ×
+                        </Button>
                     </div>
-                    <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
+                    <div className="flex-1 overflow-y-auto py-2">
                         {(notifications as any[]).length === 0 && (
-                            <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-tertiary)', fontSize: '13px' }}>
+                            <div className="text-center px-5 py-10 text-content-tertiary text-[13px]">
                                 {t('layout.noNotifications')}
                             </div>
                         )}
@@ -560,31 +505,22 @@ export default function Layout() {
                                     if (!n.is_read) markOneRead(n.id);
                                     if (n.link) { navigate(n.link); setShowNotifications(false); }
                                 }}
-                                style={{
-                                    padding: '12px 20px', cursor: n.link ? 'pointer' : 'default',
-                                    borderBottom: '1px solid var(--border-subtle)',
-                                    background: n.is_read ? 'transparent' : 'var(--bg-secondary)',
-                                    transition: 'background 0.15s',
-                                }}
-                                onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-tertiary)')}
-                                onMouseLeave={e => (e.currentTarget.style.background = n.is_read ? 'transparent' : 'var(--bg-secondary)')}
+                                className={`px-5 py-3 border-b border-edge-subtle transition-colors hover:bg-surface-tertiary ${n.link ? 'cursor-pointer' : 'cursor-default'} ${n.is_read ? 'bg-transparent' : 'bg-surface-secondary'}`}
                             >
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
-                                    {!n.is_read && <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--accent-primary)', flexShrink: 0 }} />}
-                                    <span style={{ fontSize: '12px', fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                        {n.title}
-                                    </span>
+                                <div className="flex items-center gap-1.5 mb-1">
+                                    {!n.is_read && <span className="w-1.5 h-1.5 rounded-full bg-accent-primary shrink-0" />}
+                                    <span className="text-xs font-medium flex-1 truncate">{n.title}</span>
                                 </div>
-                                {n.body && <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', lineHeight: '1.4', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.body}</div>}
-                                <div style={{ fontSize: '10px', color: 'var(--text-quaternary)', marginTop: '4px' }}>
-                                    {n.created_at ? new Date(n.created_at).toLocaleString() : ''}
+                                {n.body && <div className="text-[11px] text-content-tertiary leading-snug truncate">{n.body}</div>}
+                                <div className="text-[10px] text-content-tertiary/60 mt-1">
+                                    {formatRelative(n.created_at)}
                                 </div>
                             </div>
                         ))}
                     </div>
                 </div>
             )}
-            {showNotifications && <div style={{ position: 'fixed', inset: 0, zIndex: 9998 }} onClick={() => setShowNotifications(false)} />}
+            {showNotifications && <div className="fixed inset-0 z-[9998]" onClick={() => setShowNotifications(false)} />}
 
             <main id="main-content" className="main-content">
                 <Outlet />
