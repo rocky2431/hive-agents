@@ -50,9 +50,9 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
     async with async_session() as session:
         try:
-            # Set tenant context for PostgreSQL RLS policies
+            # Set tenant context for PostgreSQL RLS policies (parameterized to prevent injection)
             if tenant_id:
-                await session.execute(text(f"SET LOCAL app.current_tenant_id = '{tenant_id}'"))
+                await session.execute(text("SET LOCAL app.current_tenant_id = :tid"), {"tid": str(tenant_id)})
             else:
                 await session.execute(text("SET LOCAL app.current_tenant_id = ''"))
 
