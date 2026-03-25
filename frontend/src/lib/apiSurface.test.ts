@@ -44,8 +44,8 @@ test('frontend pages normalize legacy direct API paths to /api/v1', () => {
 
     assert.match(chatSource, /`\/api\/v1\/agents\/\$\{id\}\/files\/download/);
     assert.match(agentDetailSource, /`\/api\/v1\/agents\/\$\{id\}\/files\/download/);
-    assert.match(plazaSource, /\/api\/v1\/plaza\//);
-    assert.match(plazaSource, /\/api\/v1\/agents'/);
+    assert.match(plazaSource, /plazaApi\./);
+    assert.match(plazaSource, /agentApi\./);
     assert.match(adminCompaniesSource, /\/api\/v1\/enterprise\/system-settings\/notification_bar/);
     assert.match(enterpriseSettingsSource, /\/api\/v1\/enterprise\/llm-test/);
     assert.match(channelConfigSource, /\/api\/v1\/channel\//);

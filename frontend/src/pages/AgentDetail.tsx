@@ -11,8 +11,9 @@ import MarkdownRenderer from '../components/MarkdownRenderer';
 import PromptModal from '../components/PromptModal';
 import { applyStreamEvent, hydrateTimelineMessage, type TimelineMessage } from '../lib/chatParts.ts';
 import { normalizeMemoryFacts } from '../lib/memoryInsights.ts';
-import { activityApi, agentApi, capabilityApi, channelApi, enterpriseApi, fileApi, packApi, scheduleApi, skillApi, taskApi, triggerApi, uploadFileWithProgress } from '../services/api';
+import { activityApi, agentApi, capabilityApi, channelApi, chatApi, enterpriseApi, fileApi, packApi, scheduleApi, skillApi, taskApi, triggerApi } from '../services/api';
 import { useAuthStore } from '../stores';
+import type { ChatAttachment } from '../types';
 
 const TABS = ['chat', 'overview', 'skills', 'activity', 'settings'] as const;
 
@@ -1916,7 +1917,7 @@ function AgentDetailInner() {
     const [isStreaming, setIsStreaming] = useState(false);
     const [uploadProgress, setUploadProgress] = useState(-1);
     const uploadAbortRef = useRef<(() => void) | null>(null);
-    const [attachedFiles, setAttachedFiles] = useState<{ name: string; text: string; path?: string; imageUrl?: string }[]>([]);
+    const [attachedFiles, setAttachedFiles] = useState<ChatAttachment[]>([]);
     const wsRef = useRef<WebSocket | null>(null);
     const chatEndRef = useRef<HTMLDivElement>(null);
     const chatContainerRef = useRef<HTMLDivElement>(null);
@@ -2218,6 +2219,26 @@ function AgentDetailInner() {
         setAttachedFiles([]);
     };
 
+    const uploadChatFiles = async (filesToUpload: File[]) => {
+        const progress = filesToUpload.map(() => 0);
+        const requests = filesToUpload.map((file, index) =>
+            chatApi.uploadAttachment(file, id, (pct) => {
+                progress[index] = pct;
+                const allUploaded = progress.every((value) => value >= 101);
+                if (allUploaded) {
+                    setUploadProgress(101);
+                    return;
+                }
+                const bounded = progress.map((value) => Math.min(value, 100));
+                const average = bounded.reduce((sum, value) => sum + value, 0) / bounded.length;
+                setUploadProgress(Math.round(average));
+            }),
+        );
+        uploadAbortRef.current = () => requests.forEach((request) => request.abort());
+        const results = await Promise.all(requests.map((request) => request.promise));
+        setAttachedFiles((prev) => [...prev, ...results].slice(0, 10));
+    };
+
     const handleChatFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const files = Array.from(e.target.files || []);
         if (!files.length) return;
@@ -2229,20 +2250,7 @@ function AgentDetailInner() {
         
         setUploading(true); setUploadProgress(0);
         try {
-            const uploadPromises = allowedFiles.map(file => {
-                const { promise } = uploadFileWithProgress(
-                    `/chat/upload`,
-                    file,
-                    () => {}, // Avoid updating progress per file to prevent flickering, could implement total progress
-                    id ? { agent_id: id } : undefined,
-                );
-                return promise;
-            });
-            const results = await Promise.all(uploadPromises);
-            const newAttached = results.map(data => ({
-                name: data.filename, text: data.extracted_text, path: data.workspace_path, imageUrl: data.image_data_url || undefined
-            }));
-            setAttachedFiles(prev => [...prev, ...newAttached].slice(0, 10));
+            await uploadChatFiles(allowedFiles);
         } catch (err: any) {
             if (err?.message !== 'Upload cancelled') alert(t('agent.upload.failed'));
         } finally { 
@@ -2278,20 +2286,7 @@ function AgentDetailInner() {
 
         setUploading(true); setUploadProgress(0);
         try {
-            const uploadPromises = allowedFiles.map(file => {
-                const { promise } = uploadFileWithProgress(
-                    `/chat/upload`,
-                    file,
-                    () => {},
-                    id ? { agent_id: id } : undefined,
-                );
-                return promise;
-            });
-            const results = await Promise.all(uploadPromises);
-            const newAttached = results.map(data => ({
-                name: data.filename, text: data.extracted_text, path: data.workspace_path, imageUrl: data.image_data_url || undefined
-            }));
-            setAttachedFiles(prev => [...prev, ...newAttached].slice(0, 10));
+            await uploadChatFiles(allowedFiles);
         } catch (err: any) {
             if (err?.message !== 'Upload cancelled') alert(t('agent.upload.failed'));
         } finally { setUploading(false); setUploadProgress(-1); uploadAbortRef.current = null; }

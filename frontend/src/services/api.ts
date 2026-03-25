@@ -1,6 +1,17 @@
 /** API service layer */
 
-import type { Agent, AgentCreateInput, TokenResponse, User, Task, ChatMessage } from '../types';
+import type {
+    Agent,
+    AgentCreateInput,
+    ChatAttachment,
+    ChatMessage,
+    PlazaComment,
+    PlazaPost,
+    PlazaStats,
+    Task,
+    TokenResponse,
+    User,
+} from '../types';
 
 const API_BASE = '/api/v1';
 
@@ -123,6 +134,25 @@ export function uploadFileWithProgress(
     });
     return { promise, abort: () => xhr.abort() };
 }
+
+type CancelableRequest<T> = {
+    promise: Promise<T>;
+    abort: () => void;
+};
+
+type ChatUploadResponse = {
+    filename: string;
+    extracted_text: string;
+    workspace_path?: string;
+    image_data_url?: string;
+};
+
+const toChatAttachment = (payload: ChatUploadResponse): ChatAttachment => ({
+    name: payload.filename,
+    text: payload.extracted_text,
+    path: payload.workspace_path,
+    imageUrl: payload.image_data_url || undefined,
+});
 
 // ─── Auth ─────────────────────────────────────────────
 export const authApi = {
@@ -292,6 +322,23 @@ export const fileApi = {
     },
 };
 
+export const chatApi = {
+    uploadAttachment: (file: File, agentId?: string, onProgress?: (pct: number) => void): CancelableRequest<ChatAttachment> => {
+        const extraFields = agentId ? { agent_id: agentId } : undefined;
+        if (onProgress) {
+            const requestWithProgress = uploadFileWithProgress('/chat/upload', file, onProgress, extraFields);
+            return {
+                promise: requestWithProgress.promise.then((payload: ChatUploadResponse) => toChatAttachment(payload)),
+                abort: requestWithProgress.abort,
+            };
+        }
+        return {
+            promise: uploadFile('/chat/upload', file, extraFields).then((payload: ChatUploadResponse) => toChatAttachment(payload)),
+            abort: () => {},
+        };
+    },
+};
+
 // ─── Channel Config ───────────────────────────────────
 export const channelApi = {
     get: (agentId: string) =>
@@ -455,6 +502,29 @@ export const triggerApi = {
 
     delete: (agentId: string, triggerId: string) =>
         request<void>(`/agents/${agentId}/triggers/${triggerId}`, { method: 'DELETE' }),
+};
+
+export const plazaApi = {
+    list: (tenantId?: string, limit: number = 50) =>
+        request<PlazaPost[]>(`/plaza/posts?limit=${limit}${tenantId ? `&tenant_id=${tenantId}` : ''}`),
+
+    stats: (tenantId?: string) =>
+        request<PlazaStats>(`/plaza/stats${tenantId ? `?tenant_id=${tenantId}` : ''}`),
+
+    get: (postId: string) =>
+        request<PlazaPost>(`/plaza/posts/${postId}`),
+
+    create: (content: string) =>
+        request<PlazaPost>('/plaza/posts', { method: 'POST', body: JSON.stringify({ content }) }),
+
+    comment: (postId: string, content: string) =>
+        request<PlazaComment>(`/plaza/posts/${postId}/comments`, {
+            method: 'POST',
+            body: JSON.stringify({ content }),
+        }),
+
+    toggleLike: (postId: string) =>
+        request<{ liked: boolean }>(`/plaza/posts/${postId}/like`, { method: 'POST' }),
 };
 
 // ─── Audit (SecurityAuditEvent) ──────────────────────

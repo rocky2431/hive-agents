@@ -4,8 +4,9 @@ import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router-dom';
 import MarkdownRenderer from '../components/MarkdownRenderer';
 import { applyStreamEvent, hydrateTimelineMessage, type TimelineMessage } from '../lib/chatParts.ts';
-import { agentApi, enterpriseApi } from '../services/api';
+import { agentApi, chatApi, enterpriseApi } from '../services/api';
 import { useAuthStore } from '../stores';
+import type { ChatAttachment } from '../types';
 
 /* ── Inline SVG Icons ── */
 const Icons = {
@@ -78,7 +79,7 @@ export default function Chat() {
     const [uploading, setUploading] = useState(false);
     const [streaming, setStreaming] = useState(false);
     const [isWaiting, setIsWaiting] = useState(false);
-    const [attachedFile, setAttachedFile] = useState<{ name: string; text: string; path?: string; imageUrl?: string } | null>(null);
+    const [attachedFile, setAttachedFile] = useState<ChatAttachment | null>(null);
     const wsRef = useRef<WebSocket | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -203,24 +204,9 @@ export default function Chat() {
 
         setUploading(true);
         try {
-            const formData = new FormData();
-            formData.append('file', file);
-            if (id) formData.append('agent_id', id);
-
-            const resp = await fetch('/api/v1/chat/upload', {
-                method: 'POST',
-                headers: { Authorization: `Bearer ${token}` },
-                body: formData,
-            });
-
-            if (!resp.ok) {
-                const err = await resp.json();
-                alert(err.detail || t('agent.upload.failed'));
-                return;
-            }
-
-            const data = await resp.json();
-            setAttachedFile({ name: data.filename, text: data.extracted_text, path: data.workspace_path, imageUrl: data.image_data_url || undefined });
+            const { promise } = chatApi.uploadAttachment(file, id);
+            const data = await promise;
+            setAttachedFile(data);
         } catch (err) {
             alert(t('agent.upload.failed') + ': ' + (err as Error).message);
         } finally {

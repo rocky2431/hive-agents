@@ -94,6 +94,42 @@ export interface ChatMessage {
     created_at: string;
 }
 
+export interface ChatAttachment {
+    name: string;
+    text: string;
+    path?: string;
+    imageUrl?: string;
+}
+
+export interface PlazaComment {
+    id: string;
+    post_id: string;
+    author_id: string;
+    author_type: 'agent' | 'human';
+    author_name: string;
+    content: string;
+    created_at: string;
+}
+
+export interface PlazaPost {
+    id: string;
+    author_id: string;
+    author_type: 'agent' | 'human';
+    author_name: string;
+    content: string;
+    likes_count: number;
+    comments_count: number;
+    created_at: string;
+    comments?: PlazaComment[];
+}
+
+export interface PlazaStats {
+    total_posts: number;
+    total_comments: number;
+    today_posts: number;
+    top_contributors: { name: string; type: string; posts: number }[];
+}
+
 export interface TokenResponse {
     access_token: string;
     token_type: string;

@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { agentApi, plazaApi } from '../services/api';
 import { useAuthStore } from '../stores';
+import type { Agent, PlazaPost, PlazaStats } from '../types';
 
 /* ────── Inline SVG Icons (monochrome, matching Dashboard) ────── */
 
@@ -69,26 +71,6 @@ const Icons = {
     ),
 };
 
-/* ────── Helpers ────── */
-
-const fetchJson = async <T,>(url: string): Promise<T> => {
-    const token = localStorage.getItem('token');
-    const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
-    if (!res.ok) throw new Error('Failed to fetch');
-    return res.json();
-};
-
-const postJson = async (url: string, body: any) => {
-    const token = localStorage.getItem('token');
-    const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify(body),
-    });
-    if (!res.ok) throw new Error('Failed to post');
-    return res.json();
-};
-
 // Auto-detect URLs and #hashtags in text
 const linkifyContent = (text: string) => {
     const parts = text.split(/(https?:\/\/[^\s<>"'()，。！？、；：]+|#[\w\u4e00-\u9fff]+)/g);
@@ -144,42 +126,6 @@ const renderContent = (text: string) => {
     });
     return elements;
 };
-
-interface Post {
-    id: string;
-    author_id: string;
-    author_type: 'agent' | 'human';
-    author_name: string;
-    content: string;
-    likes_count: number;
-    comments_count: number;
-    created_at: string;
-    comments?: Comment[];
-}
-
-interface Comment {
-    id: string;
-    post_id: string;
-    author_id: string;
-    author_type: 'agent' | 'human';
-    author_name: string;
-    content: string;
-    created_at: string;
-}
-
-interface PlazaStats {
-    total_posts: number;
-    total_comments: number;
-    today_posts: number;
-    top_contributors: { name: string; type: string; posts: number }[];
-}
-
-interface Agent {
-    id: string;
-    name: string;
-    status: string;
-    avatar?: string;
-}
 
 /* ────── Avatar component ────── */
 
@@ -296,64 +242,56 @@ export default function Plaza() {
     const [newComment, setNewComment] = useState('');
     const tenantId = localStorage.getItem('current_tenant_id') || '';
 
-    const { data: posts = [], isLoading } = useQuery<Post[]>({
+    const { data: posts = [], isLoading } = useQuery<PlazaPost[]>({
         queryKey: ['plaza-posts', tenantId],
-        queryFn: () => fetchJson(`/api/v1/plaza/posts?limit=50${tenantId ? `&tenant_id=${tenantId}` : ''}`),
+        queryFn: () => plazaApi.list(tenantId || undefined),
         refetchInterval: 15000,
     });
 
     const { data: stats } = useQuery<PlazaStats>({
         queryKey: ['plaza-stats', tenantId],
-        queryFn: () => fetchJson(`/api/v1/plaza/stats${tenantId ? `?tenant_id=${tenantId}` : ''}`),
+        queryFn: () => plazaApi.stats(tenantId || undefined),
         refetchInterval: 30000,
     });
 
     const { data: agents = [] } = useQuery<Agent[]>({
-        queryKey: ['agents-for-plaza'],
-        queryFn: () => fetchJson('/api/v1/agents'),
+        queryKey: ['agents-for-plaza', tenantId],
+        queryFn: () => agentApi.list(tenantId || undefined),
         refetchInterval: 30000,
     });
 
-    const { data: postDetails } = useQuery<Post>({
+    const { data: postDetails } = useQuery<PlazaPost>({
         queryKey: ['plaza-post-detail', expandedPost],
-        queryFn: () => fetchJson(`/api/v1/plaza/posts/${expandedPost}`),
+        queryFn: () => plazaApi.get(expandedPost!),
         enabled: !!expandedPost,
     });
 
     const createPost = useMutation({
-        mutationFn: (content: string) => postJson('/api/v1/plaza/posts', {
-            content,
-            author_id: user?.id,
-            author_type: 'human',
-            author_name: user?.display_name || 'Anonymous',
-            tenant_id: tenantId || undefined,
-        }),
+        mutationFn: (content: string) => plazaApi.create(content),
         onSuccess: () => {
             setNewPost('');
-            queryClient.invalidateQueries({ queryKey: ['plaza-posts'] });
-            queryClient.invalidateQueries({ queryKey: ['plaza-stats'] });
+            queryClient.invalidateQueries({ queryKey: ['plaza-posts', tenantId] });
+            queryClient.invalidateQueries({ queryKey: ['plaza-stats', tenantId] });
         },
     });
 
     const addComment = useMutation({
         mutationFn: ({ postId, content }: { postId: string; content: string }) =>
-            postJson(`/api/v1/plaza/posts/${postId}/comments`, {
-                content,
-                author_id: user?.id,
-                author_type: 'human',
-                author_name: user?.display_name || 'Anonymous',
-            }),
+            plazaApi.comment(postId, content),
         onSuccess: (_, vars) => {
             setNewComment('');
-            queryClient.invalidateQueries({ queryKey: ['plaza-posts'] });
+            queryClient.invalidateQueries({ queryKey: ['plaza-posts', tenantId] });
+            queryClient.invalidateQueries({ queryKey: ['plaza-stats', tenantId] });
             queryClient.invalidateQueries({ queryKey: ['plaza-post-detail', vars.postId] });
         },
     });
 
     const likePost = useMutation({
-        mutationFn: (postId: string) =>
-            postJson(`/api/v1/plaza/posts/${postId}/like?author_id=${user?.id}&author_type=human`, {}),
-        onSuccess: () => queryClient.invalidateQueries({ queryKey: ['plaza-posts'] }),
+        mutationFn: (postId: string) => plazaApi.toggleLike(postId),
+        onSuccess: (_, postId) => {
+            queryClient.invalidateQueries({ queryKey: ['plaza-posts', tenantId] });
+            queryClient.invalidateQueries({ queryKey: ['plaza-post-detail', postId] });
+        },
     });
 
     const timeAgo = (dateStr: string) => {
