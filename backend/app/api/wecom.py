@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.permissions import check_agent_access, is_agent_creator
 from app.core.security import get_current_user
 from app.database import get_db
+from app.api.channel_secrets import resolve_secret_field
 from app.models.channel_config import ChannelConfig
 from app.models.user import User
 from app.schemas.schemas import ChannelConfigOut
@@ -97,16 +98,28 @@ async def configure_wecom_channel(
     if not is_agent_creator(current_user, agent):
         raise HTTPException(status_code=403, detail="Only creator can configure channel")
 
+    result = await db.execute(
+        select(ChannelConfig).where(
+            ChannelConfig.agent_id == agent_id,
+            ChannelConfig.channel_type == "wecom",
+        )
+    )
+    existing = result.scalar_one_or_none()
+
     # WebSocket mode fields (AI Bot)
     bot_id = data.get("bot_id", "").strip()
-    bot_secret = data.get("bot_secret", "").strip()
+    bot_secret = resolve_secret_field(
+        data,
+        "bot_secret",
+        (existing.extra_config or {}).get("bot_secret") if existing else None,
+    )
 
     # Legacy webhook mode fields
     corp_id = data.get("corp_id", "").strip()
     wecom_agent_id = data.get("wecom_agent_id", "").strip()
-    secret = data.get("secret", "").strip()
-    token = data.get("token", "").strip()
-    encoding_aes_key = data.get("encoding_aes_key", "").strip()
+    secret = resolve_secret_field(data, "secret", existing.app_secret if existing else None)
+    token = resolve_secret_field(data, "token", existing.verification_token if existing else None)
+    encoding_aes_key = resolve_secret_field(data, "encoding_aes_key", existing.encrypt_key if existing else None)
 
     # At least one mode must be configured
     has_ws_mode = bool(bot_id and bot_secret)
@@ -125,14 +138,6 @@ async def configure_wecom_channel(
         "bot_secret": bot_secret,
         "connection_mode": "websocket" if has_ws_mode else "webhook",
     }
-
-    result = await db.execute(
-        select(ChannelConfig).where(
-            ChannelConfig.agent_id == agent_id,
-            ChannelConfig.channel_type == "wecom",
-        )
-    )
-    existing = result.scalar_one_or_none()
     if existing:
         existing.app_id = corp_id
         existing.app_secret = secret

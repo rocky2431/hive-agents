@@ -1509,12 +1509,14 @@ export default function EnterpriseSettings() {
         onSuccess: () => { qc.invalidateQueries({ queryKey: ['llm-models', selectedTenantId] }); setShowAddModel(false); setEditingModelId(null); },
     });
     const updateModel = useMutation({
-        mutationFn: ({ id, data }: { id: string; data: any }) => fetchJson(`/enterprise/llm-models/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+        mutationFn: ({ id, data }: { id: string; data: any }) => fetchJson(`/enterprise/llm-models/${id}${selectedTenantId ? `?tenant_id=${selectedTenantId}` : ''}`, { method: 'PUT', body: JSON.stringify(data) }),
         onSuccess: () => { qc.invalidateQueries({ queryKey: ['llm-models', selectedTenantId] }); setShowAddModel(false); setEditingModelId(null); },
     });
     const deleteModel = useMutation({
         mutationFn: async ({ id, force = false }: { id: string; force?: boolean }) => {
-            const url = force ? `/enterprise/llm-models/${id}?force=true` : `/enterprise/llm-models/${id}`;
+            const url = force
+                ? `/enterprise/llm-models/${id}${selectedTenantId ? `?force=true&tenant_id=${selectedTenantId}` : '?force=true'}`
+                : `/enterprise/llm-models/${id}${selectedTenantId ? `?tenant_id=${selectedTenantId}` : ''}`;
             const res = await fetch(`/api${url}`, {
                 method: 'DELETE',
                 headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
@@ -1525,7 +1527,10 @@ export default function EnterpriseSettings() {
                 const msg = `This model is used by ${agents.length} agent(s):\n\n${agents.join(', ')}\n\nDelete anyway? (their model config will be cleared)`;
                 if (confirm(msg)) {
                     // Retry with force
-                    const r2 = await fetch(`/api/v1/enterprise/llm-models/${id}?force=true`, {
+                    const retryUrl = selectedTenantId
+                        ? `/api/v1/enterprise/llm-models/${id}?force=true&tenant_id=${selectedTenantId}`
+                        : `/api/v1/enterprise/llm-models/${id}?force=true`;
+                    const r2 = await fetch(retryUrl, {
                         method: 'DELETE',
                         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
                     });
@@ -1871,7 +1876,7 @@ export default function EnterpriseSettings() {
                                             const token = localStorage.getItem('token');
                                             const testData: any = { provider: modelForm.provider, model: modelForm.model, base_url: modelForm.base_url || undefined };
                                             if (modelForm.api_key) testData.api_key = modelForm.api_key;
-                                            const res = await fetch('/api/v1/enterprise/llm-test', {
+                                            const res = await fetch(`/api/v1/enterprise/llm-test${selectedTenantId ? `?tenant_id=${selectedTenantId}` : ''}`, {
                                                 method: 'POST',
                                                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                                                 body: JSON.stringify(testData),
@@ -1961,7 +1966,7 @@ export default function EnterpriseSettings() {
                                                         const testData: any = { provider: modelForm.provider, model: modelForm.model, base_url: modelForm.base_url || undefined };
                                                         if (modelForm.api_key) testData.api_key = modelForm.api_key;
                                                         testData.model_id = editingModelId;
-                                                        const res = await fetch('/api/v1/enterprise/llm-test', {
+                                                        const res = await fetch(`/api/v1/enterprise/llm-test${selectedTenantId ? `?tenant_id=${selectedTenantId}` : ''}`, {
                                                             method: 'POST',
                                                             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                                                             body: JSON.stringify(testData),

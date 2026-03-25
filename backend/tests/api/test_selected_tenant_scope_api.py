@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -29,16 +30,25 @@ class _FakeDB:
     def __init__(self, results):
         self._results = list(results)
         self.added = []
+        self.deleted = []
         self.committed = False
+        self.statements = []
 
     async def execute(self, _stmt):
+        self.statements.append(_stmt)
         return self._results.pop(0)
 
     def add(self, value):
         self.added.append(value)
 
+    async def delete(self, value):
+        self.deleted.append(value)
+
     async def commit(self):
         self.committed = True
+
+    async def rollback(self):
+        return None
 
     async def refresh(self, _value):
         return None
@@ -177,4 +187,135 @@ async def test_platform_admin_can_create_invitation_codes_for_selected_tenant():
     assert result["created"] == 2
     assert len(db.added) == 2
     assert {code.tenant_id for code in db.added} == {target_tenant_id}
+    assert db.committed is True
+
+
+@pytest.mark.asyncio
+async def test_platform_admin_can_test_selected_tenant_llm_model(monkeypatch):
+    import app.api.enterprise as enterprise_api
+
+    own_tenant_id = uuid4()
+    target_tenant_id = uuid4()
+    target_model_id = uuid4()
+    db = _FakeDB([_ScalarResult(SimpleNamespace(api_key="target-secret"))])
+
+    class _FakeClient:
+        async def complete(self, messages, max_tokens):
+            assert messages[0].content == "Say 'ok' and nothing else."
+            assert max_tokens == 16
+            return SimpleNamespace(content="ok")
+
+    def fake_create_llm_client(provider, model, api_key, base_url):
+        assert provider == "openai"
+        assert model == "gpt-4o-mini"
+        assert api_key == "target-secret"
+        assert base_url is None
+        return _FakeClient()
+
+    async def fake_write_audit_event(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr("app.services.llm_client.create_llm_client", fake_create_llm_client)
+    monkeypatch.setattr("app.core.policy.write_audit_event", fake_write_audit_event)
+
+    result = await enterprise_api.test_llm_model(
+        data=enterprise_api.LLMTestRequest(
+            provider="openai",
+            model="gpt-4o-mini",
+            model_id=str(target_model_id),
+        ),
+        tenant_id=str(target_tenant_id),
+        current_user=SimpleNamespace(id=uuid4(), role="platform_admin", tenant_id=own_tenant_id),
+        db=db,
+    )
+
+    params = db.statements[0].compile().params
+    assert target_tenant_id in params.values()
+    assert own_tenant_id not in params.values()
+    assert result["success"] is True
+    assert result["reply"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_platform_admin_can_update_selected_tenant_llm_model(monkeypatch):
+    import app.api.enterprise as enterprise_api
+
+    own_tenant_id = uuid4()
+    target_tenant_id = uuid4()
+    model_id = uuid4()
+    model = SimpleNamespace(
+        id=model_id,
+        provider="openai",
+        model="gpt-4o-mini",
+        base_url=None,
+        label="Target model",
+        api_key_encrypted="encrypted-key",
+        max_tokens_per_day=1000,
+        enabled=True,
+        supports_vision=False,
+        max_output_tokens=2048,
+        max_input_tokens=8192,
+        created_at=datetime.now(timezone.utc),
+    )
+    db = _FakeDB([_ScalarResult(model)])
+
+    async def fake_write_audit_event(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr("app.core.policy.write_audit_event", fake_write_audit_event)
+
+    result = await enterprise_api.update_llm_model(
+        model_id=model_id,
+        tenant_id=str(target_tenant_id),
+        data=enterprise_api.LLMModelUpdate(label="Updated target model"),
+        current_user=SimpleNamespace(id=uuid4(), role="platform_admin", tenant_id=own_tenant_id),
+        db=db,
+    )
+
+    params = db.statements[0].compile().params
+    assert target_tenant_id in params.values()
+    assert own_tenant_id not in params.values()
+    assert model.label == "Updated target model"
+    assert result.label == "Updated target model"
+    assert db.committed is True
+
+
+class _RowsResult:
+    def __init__(self, values):
+        self._values = values
+
+    def all(self):
+        return self._values
+
+
+@pytest.mark.asyncio
+async def test_platform_admin_can_delete_selected_tenant_llm_model(monkeypatch):
+    import app.api.enterprise as enterprise_api
+
+    own_tenant_id = uuid4()
+    target_tenant_id = uuid4()
+    model_id = uuid4()
+    model = SimpleNamespace(
+        id=model_id,
+        provider="openai",
+        model="gpt-4o-mini",
+    )
+    db = _FakeDB([_ScalarResult(model), _RowsResult([])])
+
+    async def fake_write_audit_event(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr("app.core.policy.write_audit_event", fake_write_audit_event)
+
+    await enterprise_api.remove_llm_model(
+        model_id=model_id,
+        tenant_id=str(target_tenant_id),
+        current_user=SimpleNamespace(id=uuid4(), role="platform_admin", tenant_id=own_tenant_id),
+        db=db,
+    )
+
+    params = db.statements[0].compile().params
+    assert target_tenant_id in params.values()
+    assert own_tenant_id not in params.values()
+    assert db.deleted == [model]
     assert db.committed is True

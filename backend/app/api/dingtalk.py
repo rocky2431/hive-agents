@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.permissions import check_agent_access, is_agent_creator
 from app.core.security import get_current_user
 from app.database import get_db
+from app.api.channel_secrets import resolve_secret_field
 from app.models.channel_config import ChannelConfig
 from app.models.user import User
 from app.schemas.schemas import ChannelConfigOut
@@ -34,11 +35,6 @@ async def configure_dingtalk_channel(
     if not is_agent_creator(current_user, agent):
         raise HTTPException(status_code=403, detail="Only creator can configure channel")
 
-    app_key = data.get("app_key", "").strip()
-    app_secret = data.get("app_secret", "").strip()
-    if not app_key or not app_secret:
-        raise HTTPException(status_code=422, detail="app_key and app_secret are required")
-
     result = await db.execute(
         select(ChannelConfig).where(
             ChannelConfig.agent_id == agent_id,
@@ -46,6 +42,10 @@ async def configure_dingtalk_channel(
         )
     )
     existing = result.scalar_one_or_none()
+    app_key = data.get("app_key", "").strip()
+    app_secret = resolve_secret_field(data, "app_secret", existing.app_secret if existing else None)
+    if not app_key or not app_secret:
+        raise HTTPException(status_code=422, detail="app_key and app_secret are required")
     if existing:
         existing.app_id = app_key
         existing.app_secret = app_secret

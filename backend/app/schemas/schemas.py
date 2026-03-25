@@ -291,7 +291,7 @@ class LLMModelOut(BaseModel):
 class ChannelConfigCreate(BaseModel):
     channel_type: str = "feishu"
     app_id: str
-    app_secret: str
+    app_secret: str | None = None
     encrypt_key: str | None = None
     verification_token: str | None = None
     extra_config: dict | None = None
@@ -311,6 +311,7 @@ class ChannelConfigOut(BaseModel):
     app_id: str | None = None
     app_secret: str | None = None
     encrypt_key: str | None = None
+    verification_token: str | None = None
     is_configured: bool
     is_connected: bool
     last_tested_at: datetime | None = None
@@ -324,9 +325,10 @@ class ChannelConfigOut(BaseModel):
         data = self.model_dump()
         data["app_secret"] = _mask_secret(self.app_secret)
         data["encrypt_key"] = _mask_secret(self.encrypt_key)
+        data["verification_token"] = _mask_secret(self.verification_token)
         if data.get("extra_config"):
             safe_extra = dict(data["extra_config"])
-            for key in ("app_secret", "bot_token", "signing_secret", "client_secret", "api_key"):
+            for key in ("app_secret", "bot_token", "signing_secret", "client_secret", "api_key", "bot_secret"):
                 if key in safe_extra:
                     safe_extra[key] = _mask_secret(safe_extra[key])
             data["extra_config"] = safe_extra

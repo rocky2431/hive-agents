@@ -7,6 +7,19 @@ import pytest
 from fastapi import HTTPException
 
 
+class _ScalarResult:
+    def __init__(self, value):
+        self._value = value
+
+    def scalar_one_or_none(self):
+        return self._value
+
+
+class _FakeDB:
+    async def execute(self, _stmt):
+        return _ScalarResult(None)
+
+
 @pytest.mark.asyncio
 async def test_wecom_webhook_mode_requires_wecom_agent_id(monkeypatch):
     import app.api.wecom as wecom_api
@@ -27,7 +40,7 @@ async def test_wecom_webhook_mode_requires_wecom_agent_id(monkeypatch):
                 "encoding_aes_key": "encoding-key",
             },
             current_user=SimpleNamespace(id=uuid4(), tenant_id=uuid4()),
-            db=SimpleNamespace(),
+            db=_FakeDB(),
         )
 
     assert exc.value.status_code == 422

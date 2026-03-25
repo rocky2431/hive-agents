@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.permissions import check_agent_access, is_agent_creator
 from app.core.security import get_current_user
 from app.database import get_db
+from app.api.channel_secrets import resolve_secret_field
 from app.models.channel_config import ChannelConfig
 from app.models.user import User
 from app.schemas.schemas import ChannelConfigOut
@@ -34,12 +35,6 @@ async def configure_discord_channel(
     if not is_agent_creator(current_user, agent):
         raise HTTPException(status_code=403, detail="Only creator can configure channel")
 
-    application_id = data.get("application_id", "").strip()
-    bot_token = data.get("bot_token", "").strip()
-    public_key = data.get("public_key", "").strip()
-    if not application_id or not bot_token or not public_key:
-        raise HTTPException(status_code=422, detail="application_id, bot_token, and public_key are required")
-
     result = await db.execute(
         select(ChannelConfig).where(
             ChannelConfig.agent_id == agent_id,
@@ -47,6 +42,11 @@ async def configure_discord_channel(
         )
     )
     existing = result.scalar_one_or_none()
+    application_id = data.get("application_id", "").strip()
+    bot_token = resolve_secret_field(data, "bot_token", existing.app_secret if existing else None)
+    public_key = resolve_secret_field(data, "public_key", existing.encrypt_key if existing else None)
+    if not application_id or not bot_token or not public_key:
+        raise HTTPException(status_code=422, detail="application_id, bot_token, and public_key are required")
     if existing:
         existing.app_id = application_id
         existing.app_secret = bot_token

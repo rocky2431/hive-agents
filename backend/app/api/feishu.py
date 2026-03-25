@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.permissions import check_agent_access, is_agent_creator, is_agent_expired
 from app.core.security import get_current_user
 from app.database import get_db
+from app.api.channel_secrets import resolve_secret_value
 from app.models.channel_config import ChannelConfig
 from app.models.user import User
 from app.schemas.schemas import ChannelConfigCreate, ChannelConfigOut, TokenResponse, UserOut
@@ -67,12 +68,26 @@ async def configure_channel(
         )
     )
     existing = result.scalar_one_or_none()
+    incoming_extra = data.extra_config or {}
+    existing_extra = existing.extra_config if existing else {}
+    connection_mode = incoming_extra.get("connection_mode", existing_extra.get("connection_mode", "webhook"))
+    app_secret = resolve_secret_value(data.app_secret, existing.app_secret if existing else None, preserve_missing=True)
+    encrypt_key = resolve_secret_value(data.encrypt_key, existing.encrypt_key if existing else None, preserve_missing=True)
+    verification_token = resolve_secret_value(
+        data.verification_token,
+        existing.verification_token if existing else None,
+        preserve_missing=True,
+    )
+    if not app_secret:
+        raise HTTPException(status_code=422, detail="app_secret is required")
+    if connection_mode == "webhook" and not encrypt_key and not verification_token:
+        raise HTTPException(status_code=422, detail="Webhook mode requires encrypt_key or verification_token")
     if existing:
         existing.app_id = data.app_id
-        existing.app_secret = data.app_secret
-        existing.encrypt_key = data.encrypt_key
-        existing.verification_token = data.verification_token
-        existing.extra_config = data.extra_config or {}
+        existing.app_secret = app_secret
+        existing.encrypt_key = encrypt_key
+        existing.verification_token = verification_token
+        existing.extra_config = incoming_extra or existing.extra_config or {}
         existing.is_configured = True
         await db.flush()
 
@@ -92,10 +107,10 @@ async def configure_channel(
         agent_id=agent_id,
         channel_type=data.channel_type,
         app_id=data.app_id,
-        app_secret=data.app_secret,
-        encrypt_key=data.encrypt_key,
-        verification_token=data.verification_token,
-        extra_config=data.extra_config or {},
+        app_secret=app_secret,
+        encrypt_key=encrypt_key,
+        verification_token=verification_token,
+        extra_config=incoming_extra,
         is_configured=True,
     )
     db.add(config)
@@ -188,6 +203,24 @@ def _verify_feishu_signature(encrypt_key: str, timestamp: str, nonce: str, body_
     return hmac.compare_digest(expected, signature)
 
 
+def _decrypt_feishu_payload(encrypt_key: str, encrypted_text: str) -> dict:
+    """Decrypt a Feishu webhook payload configured with Encrypt Key."""
+    import base64
+    import hashlib
+    import json
+
+    from Crypto.Cipher import AES
+    from Crypto.Util.Padding import unpad
+
+    encrypted = base64.b64decode(encrypted_text)
+    iv = encrypted[:16]
+    ciphertext = encrypted[16:]
+    aes_key = hashlib.sha256(encrypt_key.encode("utf-8")).digest()
+    cipher = AES.new(aes_key, AES.MODE_CBC, iv)
+    plaintext = unpad(cipher.decrypt(ciphertext), AES.block_size)
+    return json.loads(plaintext.decode("utf-8"))
+
+
 @router.post("/channel/feishu/{agent_id}/webhook")
 async def feishu_event_webhook(
     agent_id: uuid.UUID,
@@ -200,11 +233,6 @@ async def feishu_event_webhook(
     import json as _json_wb
     body = _json_wb.loads(body_str)
 
-    # Handle verification challenge (must respond before signature check)
-    if "challenge" in body:
-        return {"challenge": body["challenge"]}
-
-    # Verify signature when encrypt_key is configured
     result = await db.execute(
         select(ChannelConfig).where(
             ChannelConfig.agent_id == agent_id,
@@ -219,6 +247,20 @@ async def feishu_event_webhook(
         if not sig or not _verify_feishu_signature(config.encrypt_key, ts, nonce, body_str, sig):
             logger.warning(f"[Feishu] Invalid signature for agent {agent_id}")
             raise HTTPException(status_code=403, detail="Invalid signature")
+        if "encrypt" in body:
+            try:
+                body = _decrypt_feishu_payload(config.encrypt_key, body["encrypt"])
+            except Exception as exc:
+                logger.warning(f"[Feishu] Failed to decrypt webhook for agent {agent_id}: {exc}")
+                raise HTTPException(status_code=400, detail="Invalid encrypted payload") from exc
+    elif config and config.verification_token:
+        if body.get("token") != config.verification_token:
+            logger.warning(f"[Feishu] Verification token mismatch for agent {agent_id}")
+            raise HTTPException(status_code=403, detail="Invalid verification token")
+
+    # Handle verification challenge after signature / token verification
+    if "challenge" in body:
+        return {"challenge": body["challenge"]}
 
     return await process_feishu_event(agent_id, body, db)
 

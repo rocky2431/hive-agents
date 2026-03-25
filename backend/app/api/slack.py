@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.permissions import check_agent_access, is_agent_creator
 from app.core.security import get_current_user
 from app.database import get_db
+from app.api.channel_secrets import resolve_secret_field
 from app.models.channel_config import ChannelConfig
 from app.models.user import User
 from app.schemas.schemas import ChannelConfigOut
@@ -36,11 +37,6 @@ async def configure_slack_channel(
     if not is_agent_creator(current_user, agent):
         raise HTTPException(status_code=403, detail="Only creator can configure channel")
 
-    bot_token = data.get("bot_token", "").strip()
-    signing_secret = data.get("signing_secret", "").strip()
-    if not bot_token or not signing_secret:
-        raise HTTPException(status_code=422, detail="bot_token and signing_secret are required")
-
     result = await db.execute(
         select(ChannelConfig).where(
             ChannelConfig.agent_id == agent_id,
@@ -48,6 +44,10 @@ async def configure_slack_channel(
         )
     )
     existing = result.scalar_one_or_none()
+    bot_token = resolve_secret_field(data, "bot_token", existing.app_secret if existing else None)
+    signing_secret = resolve_secret_field(data, "signing_secret", existing.encrypt_key if existing else None)
+    if not bot_token or not signing_secret:
+        raise HTTPException(status_code=422, detail="bot_token and signing_secret are required")
     if existing:
         existing.app_secret = bot_token        # Bot Token
         existing.encrypt_key = signing_secret  # Signing Secret

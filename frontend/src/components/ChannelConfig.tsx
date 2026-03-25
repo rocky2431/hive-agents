@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { channelApi } from '../services/api';
+import { sanitizeChannelPayload } from '../lib/channelSecrets';
 
 // ─── Shared fetchAuth (same as AgentDetail) ─────────────
 function fetchAuth<T>(url: string, options?: RequestInit): Promise<T> {
@@ -420,23 +421,27 @@ export default function ChannelConfig({ mode, agentId, canManage = true, values,
     // ─── Build save payload for a channel ───────────────
     const buildPayload = (ch: ChannelDef, form: Record<string, string>) => {
         if (ch.id === 'feishu') {
-            return {
+            return sanitizeChannelPayload(ch.id, {
                 channel_type: 'feishu',
                 app_id: form.app_id,
                 app_secret: form.app_secret,
                 encrypt_key: form.encrypt_key || undefined,
                 extra_config: { connection_mode: connectionModes.feishu || 'websocket' },
-            };
+            });
         }
         if (ch.id === 'wecom') {
             const connMode = connectionModes.wecom || 'websocket';
             if (connMode === 'websocket') {
-                return { connection_mode: 'websocket', bot_id: form.bot_id, bot_secret: form.bot_secret };
+                return sanitizeChannelPayload(ch.id, {
+                    connection_mode: 'websocket',
+                    bot_id: form.bot_id,
+                    bot_secret: form.bot_secret,
+                });
             }
-            return { ...form, connection_mode: 'webhook' };
+            return sanitizeChannelPayload(ch.id, { ...form, connection_mode: 'webhook' });
         }
         // Generic channels
-        return form;
+        return sanitizeChannelPayload(ch.id, form);
     };
 
     // ─── Render guide steps ─────────────────────────────

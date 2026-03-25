@@ -35,6 +35,14 @@ test('EnterpriseSettings scopes tenant config tabs to the selected tenant', () =
     assert.match(source, /oidcApi\.updateConfig\(ssoForm,\s*selectedTenantId \|\| undefined\)/);
 });
 
+test('EnterpriseSettings scopes llm test update and delete requests to the selected tenant', () => {
+    const source = read(enterpriseSettingsPath);
+
+    assert.match(source, /\/api\/v1\/enterprise\/llm-test\$\{selectedTenantId \? `\?tenant_id=\$\{selectedTenantId\}` : ''\}/);
+    assert.match(source, /\/enterprise\/llm-models\/\$\{id\}\$\{selectedTenantId \? `\?tenant_id=\$\{selectedTenantId\}` : ''\}/);
+    assert.match(source, /\/api\/v1\/enterprise\/llm-models\/\$\{id\}\?force=true&tenant_id=\$\{selectedTenantId\}/);
+});
+
 test('InvitationCodes scopes CRUD requests to the selected tenant', () => {
     const source = read(invitationCodesPath);
 

@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
+from app.api.channel_secrets import resolve_secret_field
 from app.core.permissions import check_agent_access, is_agent_creator
 from app.core.security import get_current_user
 from app.database import get_db
@@ -228,15 +229,6 @@ async def configure_teams_channel(
     if not is_agent_creator(current_user, agent):
         raise HTTPException(status_code=403, detail="Only creator can configure channel")
 
-    app_id = data.get("app_id", "").strip()
-    app_secret = data.get("app_secret", "").strip()
-    tenant_id = data.get("tenant_id", "").strip()  # Optional: for single-tenant apps
-    use_managed_identity = data.get("use_managed_identity", False)  # Optional: use Azure Managed Identity
-    
-    # Validate: either managed identity OR app_id + app_secret required
-    if not use_managed_identity and (not app_id or not app_secret):
-        raise HTTPException(status_code=422, detail="Either use_managed_identity must be enabled, or app_id and app_secret are required")
-
     result = await db.execute(
         select(ChannelConfig).where(
             ChannelConfig.agent_id == agent_id,
@@ -244,6 +236,14 @@ async def configure_teams_channel(
         )
     )
     existing = result.scalar_one_or_none()
+    app_id = data.get("app_id", "").strip()
+    app_secret = resolve_secret_field(data, "app_secret", existing.app_secret if existing else None)
+    tenant_id = data.get("tenant_id", "").strip()  # Optional: for single-tenant apps
+    use_managed_identity = data.get("use_managed_identity", False)  # Optional: use Azure Managed Identity
+
+    # Validate: either managed identity OR app_id + app_secret required
+    if not use_managed_identity and (not app_id or not app_secret):
+        raise HTTPException(status_code=422, detail="Either use_managed_identity must be enabled, or app_id and app_secret are required")
     if existing:
         existing.app_id = app_id if not use_managed_identity else existing.app_id
         existing.app_secret = app_secret if not use_managed_identity else existing.app_secret

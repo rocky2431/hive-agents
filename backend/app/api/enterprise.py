@@ -58,6 +58,7 @@ class LLMTestRequest(BaseModel):
 @router.post("/llm-test")
 async def test_llm_model(
     data: LLMTestRequest,
+    tenant_id: str | None = None,
     current_user: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
@@ -65,11 +66,13 @@ async def test_llm_model(
     import time
     from app.services.llm_client import create_llm_client
 
+    target_tenant_id = resolve_tenant_scope(current_user, tenant_id)
+
     # Resolve API key: use provided key, or look up from stored model
     api_key = data.api_key if data.api_key and not data.api_key.startswith("****") else None
     if not api_key and data.model_id:
         result = await db.execute(
-            select(LLMModel).where(LLMModel.id == data.model_id, LLMModel.tenant_id == current_user.tenant_id)
+            select(LLMModel).where(LLMModel.id == data.model_id, LLMModel.tenant_id == target_tenant_id)
         )
         existing = result.scalar_one_or_none()
         if existing:
@@ -174,12 +177,14 @@ async def add_llm_model(
 async def remove_llm_model(
     model_id: uuid.UUID,
     force: bool = False,
+    tenant_id: str | None = None,
     current_user: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """Remove an LLM model from the pool (tenant-scoped)."""
+    target_tenant_id = resolve_tenant_scope(current_user, tenant_id)
     result = await db.execute(
-        select(LLMModel).where(LLMModel.id == model_id, LLMModel.tenant_id == current_user.tenant_id)
+        select(LLMModel).where(LLMModel.id == model_id, LLMModel.tenant_id == target_tenant_id)
     )
     model = result.scalar_one_or_none()
     if not model:
@@ -189,7 +194,10 @@ async def remove_llm_model(
     from sqlalchemy import or_, update
 
     ref_result = await db.execute(
-        select(Agent.name).where(or_(Agent.primary_model_id == model_id, Agent.fallback_model_id == model_id))
+        select(Agent.name).where(
+            Agent.tenant_id == target_tenant_id,
+            or_(Agent.primary_model_id == model_id, Agent.fallback_model_id == model_id),
+        )
     )
     agent_names = [row[0] for row in ref_result.all()]
 
@@ -204,8 +212,16 @@ async def remove_llm_model(
 
     # Nullify FK references in agents before deleting
     if agent_names:
-        await db.execute(update(Agent).where(Agent.primary_model_id == model_id).values(primary_model_id=None))
-        await db.execute(update(Agent).where(Agent.fallback_model_id == model_id).values(fallback_model_id=None))
+        await db.execute(
+            update(Agent)
+            .where(Agent.tenant_id == target_tenant_id, Agent.primary_model_id == model_id)
+            .values(primary_model_id=None)
+        )
+        await db.execute(
+            update(Agent)
+            .where(Agent.tenant_id == target_tenant_id, Agent.fallback_model_id == model_id)
+            .values(fallback_model_id=None)
+        )
     try:
         from app.core.policy import write_audit_event
 
@@ -215,7 +231,7 @@ async def remove_llm_model(
             severity="warn",
             actor_type="user",
             actor_id=current_user.id,
-            tenant_id=current_user.tenant_id,
+            tenant_id=target_tenant_id,
             action="delete_llm_model",
             resource_type="llm_model",
             resource_id=model.id,
@@ -232,12 +248,14 @@ async def remove_llm_model(
 async def update_llm_model(
     model_id: uuid.UUID,
     data: LLMModelUpdate,
+    tenant_id: str | None = None,
     current_user: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """Update an existing LLM model in the pool (admin, tenant-scoped)."""
+    target_tenant_id = resolve_tenant_scope(current_user, tenant_id)
     result = await db.execute(
-        select(LLMModel).where(LLMModel.id == model_id, LLMModel.tenant_id == current_user.tenant_id)
+        select(LLMModel).where(LLMModel.id == model_id, LLMModel.tenant_id == target_tenant_id)
     )
     model = result.scalar_one_or_none()
     if not model:
@@ -274,7 +292,7 @@ async def update_llm_model(
                 severity="info",
                 actor_type="user",
                 actor_id=current_user.id,
-                tenant_id=current_user.tenant_id,
+                tenant_id=target_tenant_id,
                 action="update_llm_model",
                 resource_type="llm_model",
                 resource_id=model.id,
