@@ -400,7 +400,7 @@ export default function AgentCreate() {
                                             rows={2}
                                             value={form.bio}
                                             onChange={(e) => setForm({ ...form, bio: e.target.value })}
-                                            placeholder={t('wizard.step1.bioPlaceholder', 'Brief background about this agent...')}
+                                            placeholder={t('wizard.step1.bioPlaceholder', 'Brief background about this agent…')}
                                         />
                                     </div>
                                     <div className="space-y-1.5">
@@ -412,7 +412,7 @@ export default function AgentCreate() {
                                             id="agent-avatar"
                                             value={form.avatar_url}
                                             onChange={(e) => setForm({ ...form, avatar_url: e.target.value })}
-                                            placeholder="https://..."
+                                            placeholder="https://…"
                                             autoComplete="url"
                                         />
                                     </div>

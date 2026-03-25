@@ -161,7 +161,7 @@ export default function Login() {
                 <div className="login-form-wrapper">
                     <div className="login-form-header">
                         <div className="login-form-logo">
-                            <img src="/logo-black.png" className="login-logo-img" alt="" width={28} height={28} style={{ marginRight: 8, verticalAlign: 'middle' }} />
+                            <img src="/logo-black.png" className="login-logo-img mr-2 align-middle" alt="" width={28} height={28} />
                             Clawith
                         </div>
                         <h2 className="login-form-title">

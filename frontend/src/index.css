@@ -408,6 +408,17 @@ select:focus {
   font-variant-numeric: tabular-nums;
 }
 
+/* Balanced text wrap on headings (WIG: text-wrap balance) */
+h1, h2, h3 {
+  text-wrap: balance;
+}
+
+/* Modal/drawer scroll containment (WIG: overscroll-behavior) */
+[role="dialog"],
+[aria-modal="true"] {
+  overscroll-behavior: contain;
+}
+
 /* Reduced motion preference (WIG: honor prefers-reduced-motion) */
 @media (prefers-reduced-motion: reduce) {
   *,
