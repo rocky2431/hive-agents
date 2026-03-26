@@ -31,6 +31,14 @@ async def feishu_oauth_callback(code: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Feishu auth failed: {e}")
 
     user, token = await feishu_service.login_or_register(db, feishu_user)
+
+    # Auto-provision Main Agent on first login (Phase 5)
+    try:
+        from app.services.auto_provision import ensure_main_agent
+        await ensure_main_agent(db, user)
+    except Exception:
+        logger.warning("Main Agent auto-provision failed", exc_info=True)
+
     return TokenResponse(access_token=token, user=UserOut.model_validate(user))
 
 

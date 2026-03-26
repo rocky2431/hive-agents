@@ -112,6 +112,13 @@ async def feishu_callback_desktop(
 
     user, access_token = await feishu_service.login_or_register(db, feishu_user)
 
+    # Auto-provision Main Agent on first login (Phase 5)
+    try:
+        from app.services.auto_provision import ensure_main_agent
+        await ensure_main_agent(db, user)
+    except Exception:
+        logger.warning("Main Agent auto-provision failed", exc_info=True)
+
     # P1 fix #8: revoke prior refresh tokens for same (user, device) before issuing new one
     await db.execute(
         update(RefreshToken)
