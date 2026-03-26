@@ -79,23 +79,11 @@ const Icons = {
 
 /* ────── Helpers ────── */
 
-const fetchJson = async <T,>(url: string): Promise<T> => {
-    const token = localStorage.getItem('token');
-    const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
-    if (!res.ok) throw new Error('Failed to fetch');
-    return res.json();
-};
-
-const postJson = async (url: string, body: any) => {
-    const token = localStorage.getItem('token');
-    const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify(body),
-    });
-    if (!res.ok) throw new Error('Failed to post');
-    return res.json();
-};
+import { get, post, del as delReq } from '../api/core';
+/** Strip /api prefix if present (Plaza used full URLs historically) */
+const stripApi = (url: string) => url.replace(/^\/api/, '');
+const fetchJson = async <T,>(url: string): Promise<T> => get<T>(stripApi(url));
+const postJson = async (url: string, body: any) => post(stripApi(url), body);
 
 // Auto-detect URLs, #hashtags, and @mentions in text
 const linkifyContent = (text: string) => {
@@ -563,11 +551,7 @@ export default function Plaza() {
     });
 
     const deletePost = useMutation({
-        mutationFn: (postId: string) =>
-            fetch(`/api/plaza/posts/${postId}`, {
-                method: 'DELETE',
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-            }).then(r => { if (!r.ok) throw new Error('Delete failed'); return r.json(); }),
+        mutationFn: (postId: string) => delReq(`/plaza/posts/${postId}`),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['plaza-posts'] });
             queryClient.invalidateQueries({ queryKey: ['plaza-stats'] });

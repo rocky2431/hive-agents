@@ -3,13 +3,9 @@ import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { channelApi } from '../services/api';
 
-// ─── Shared fetchAuth (same as AgentDetail) ─────────────
+import { request } from '../api/core';
 function fetchAuth<T>(url: string, options?: RequestInit): Promise<T> {
-    const token = localStorage.getItem('token');
-    return fetch(`/api${url}`, {
-        ...options,
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-    }).then(r => r.json());
+    return request<T>(options?.method || 'GET', url, options?.body ? JSON.parse(options.body as string) : undefined);
 }
 
 // ─── Types ──────────────────────────────────────────────

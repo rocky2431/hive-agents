@@ -6,18 +6,9 @@ import { saveAccentColor, getSavedAccentColor } from '../utils/theme';
 import { IconFilter } from '@tabler/icons-react';
 import PlatformDashboard from './PlatformDashboard';
 
-// Helper for authenticated JSON fetch
+import { request } from '../api/core';
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
-    const token = localStorage.getItem('token');
-    const res = await fetch(`/api${url}`, {
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        ...options,
-    });
-    if (!res.ok) {
-        const err = await res.json().catch(() => ({ detail: res.statusText }));
-        throw new Error(err.detail || res.statusText);
-    }
-    return res.json();
+    return request<T>(options?.method || 'GET', url, options?.body ? JSON.parse(options.body as string) : undefined);
 }
 
 

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { get } from '../api/core';
 
 function formatTokens(n: number | null | undefined): string {
     if (n == null) return '-';
@@ -26,17 +27,10 @@ export default function PlatformDashboard() {
             const end = new Date();
             const start = new Date();
             start.setDate(start.getDate() - days);
-            
-            const token = localStorage.getItem('token');
-            const res = await fetch(`/api/admin/metrics/timeseries?start_date=${start.toISOString()}&end_date=${end.toISOString()}`, {
-                headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-            });
-            if (res.ok) {
-                const data = await res.json();
-                setTimeSeriesData(data);
-            }
-        } catch (e) {
-            console.error('Failed to load metrics:', e);
+            const data = await get<any[]>(`/admin/metrics/timeseries?start_date=${start.toISOString()}&end_date=${end.toISOString()}`);
+            setTimeSeriesData(data);
+        } catch {
+            // Endpoint may not exist yet — graceful degrade
         }
         setLoadingStats(false);
     };
@@ -44,17 +38,11 @@ export default function PlatformDashboard() {
     const fetchLeaderboards = async () => {
         setLoadingLeaders(true);
         try {
-            const token = localStorage.getItem('token');
-            const res = await fetch('/api/admin/metrics/leaderboards', {
-                headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-            });
-            if (res.ok) {
-                const data = await res.json();
-                setTopCompanies(data.top_companies || []);
-                setTopAgents(data.top_agents || []);
-            }
-        } catch (e) {
-            console.error('Failed to load leaderboards:', e);
+            const data = await get<any>('/admin/metrics/leaderboards');
+            setTopCompanies(data.top_companies || []);
+            setTopAgents(data.top_agents || []);
+        } catch {
+            // Endpoint may not exist yet — graceful degrade
         }
         setLoadingLeaders(false);
     };

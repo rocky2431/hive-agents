@@ -42,7 +42,7 @@ export interface AgentMetrics {
 }
 
 export const agentApi = {
-  list: () => get<Agent[]>('/agents/'),
+  list: (tenantId?: string) => get<Agent[]>(`/agents/${tenantId ? `?tenant_id=${tenantId}` : ''}`),
   getById: (id: string) => get<Agent>(`/agents/${id}`),
   create: (data: AgentCreateParams) => post<Agent>('/agents/', data),
   update: (id: string, data: AgentUpdateParams) => patch<Agent>(`/agents/${id}`, data),

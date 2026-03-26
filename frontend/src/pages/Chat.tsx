@@ -4,6 +4,8 @@ import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router-dom';
 import MarkdownRenderer from '../components/MarkdownRenderer';
 import { agentApi, enterpriseApi } from '../services/api';
+import { chatApi } from '../api/domains/chat';
+import { upload } from '../api/core';
 import { useAuthStore } from '../stores';
 
 /* ── Inline SVG Icons ── */
@@ -119,10 +121,7 @@ export default function Chat() {
     // Load chat history on mount
     useEffect(() => {
         if (!id || !token) return;
-        fetch(`/api/chat/${id}/history`, {
-            headers: { Authorization: `Bearer ${token}` },
-        })
-            .then(r => r.json())
+        chatApi.getHistory(id!)
             .then((history: any[]) => {
                 if (history.length > 0) setMessages(history.map(h => {
                     const msg = parseMessage({ role: h.role, content: h.content, fileName: h.fileName, toolCalls: h.toolCalls, thinking: h.thinking, imageUrl: h.imageUrl });
@@ -249,19 +248,7 @@ export default function Chat() {
             formData.append('file', file);
             if (id) formData.append('agent_id', id);
 
-            const resp = await fetch('/api/chat/upload', {
-                method: 'POST',
-                headers: { Authorization: `Bearer ${token}` },
-                body: formData,
-            });
-
-            if (!resp.ok) {
-                const err = await resp.json();
-                alert(err.detail || t('agent.upload.failed'));
-                return;
-            }
-
-            const data = await resp.json();
+            const data = await upload<any>('/chat/upload', file, id ? { agent_id: id } : undefined);
             setAttachedFile({ name: data.filename, text: data.extracted_text, path: data.workspace_path, imageUrl: data.image_data_url || undefined });
         } catch (err) {
             alert(t('agent.upload.failed') + ': ' + (err as Error).message);

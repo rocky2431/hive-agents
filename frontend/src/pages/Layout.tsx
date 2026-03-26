@@ -3,7 +3,11 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '../stores';
-import { agentApi } from '../services/api';
+import { agentApi } from '../api/domains/agents';
+import { authApi } from '../api/domains/auth';
+import { notificationsApi } from '../api/domains/notifications';
+import { systemApi } from '../api/domains/system';
+import { get } from '../api/core';
 import {
     IconHome,
     IconPlus,
@@ -41,11 +45,9 @@ const SidebarIcons = {
     bell: <IconBell size={16} stroke={1.5} />,
 };
 
+/** Thin wrapper — uses the new adapter core but preserves the fallback-to-empty-array behavior for queries */
 const fetchJson = async <T,>(url: string): Promise<T> => {
-    const token = localStorage.getItem('token');
-    const res = await fetch(`/api${url}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
-    if (!res.ok) return [] as T;
-    return res.json();
+    try { return await get<T>(url); } catch { return [] as T; }
 };
 
 /* Compute display badge status for an agent */
@@ -81,19 +83,12 @@ function AccountSettingsModal({ user, onClose, isChinese }: { user: any; onClose
     const handleSaveProfile = async () => {
         setSaving(true);
         try {
-            const token = localStorage.getItem('token');
-            const body: any = {};
+            const body: Record<string, string> = {};
             if (username !== user?.username) body.username = username;
             if (email !== user?.email) body.email = email;
             if (displayName !== user?.display_name) body.display_name = displayName;
             if (Object.keys(body).length === 0) { showMsg(isChinese ? '没有变更' : 'No changes', 'error'); setSaving(false); return; }
-            const res = await fetch('/api/auth/me', {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                body: JSON.stringify(body),
-            });
-            if (!res.ok) { const err = await res.json().catch(() => ({ detail: 'Failed' })); throw new Error(err.detail); }
-            const updated = await res.json();
+            const updated = await authApi.updateMe(body);
             setUser(updated);
             showMsg(isChinese ? '个人信息已更新' : 'Profile updated');
         } catch (e: any) { showMsg(e.message || 'Failed', 'error'); }
@@ -106,13 +101,7 @@ function AccountSettingsModal({ user, onClose, isChinese }: { user: any; onClose
         if (newPassword !== confirmPassword) { showMsg(isChinese ? '两次密码不一致' : 'Passwords do not match', 'error'); return; }
         setSaving(true);
         try {
-            const token = localStorage.getItem('token');
-            const res = await fetch('/api/auth/me/password', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                body: JSON.stringify({ old_password: oldPassword, new_password: newPassword }),
-            });
-            if (!res.ok) { const err = await res.json().catch(() => ({ detail: 'Failed' })); throw new Error(err.detail); }
+            await authApi.changePassword({ old_password: oldPassword, new_password: newPassword });
             showMsg(isChinese ? '密码已修改' : 'Password changed');
             setOldPassword(''); setNewPassword(''); setConfirmPassword('');
         } catch (e: any) { showMsg(e.message || 'Failed', 'error'); }
@@ -156,7 +145,7 @@ function AccountSettingsModal({ user, onClose, isChinese }: { user: any; onClose
 function VersionDisplay() {
     const [info, setInfo] = useState<{ version?: string; commit?: string }>({});
     useEffect(() => {
-        fetch('/api/version').then(r => r.json()).then(setInfo).catch(() => {});
+        systemApi.getVersion().then(r => setInfo({ version: r.version })).catch(() => {});
     }, []);
     if (!info.version) return null;
     return (
@@ -196,14 +185,12 @@ export default function Layout() {
         enabled: !!user && showNotifications,
     });
     const markAllRead = async () => {
-        const token = localStorage.getItem('token');
-        await fetch('/api/notifications/read-all', { method: 'POST', headers: token ? { Authorization: `Bearer ${token}` } : {} });
+        await notificationsApi.markAllRead();
         queryClient.invalidateQueries({ queryKey: ['notifications-unread'] });
         queryClient.invalidateQueries({ queryKey: ['notifications'] });
     };
     const markOneRead = async (id: string) => {
-        const token = localStorage.getItem('token');
-        await fetch(`/api/notifications/${id}/read`, { method: 'POST', headers: token ? { Authorization: `Bearer ${token}` } : {} });
+        await notificationsApi.markRead(id);
         queryClient.invalidateQueries({ queryKey: ['notifications-unread'] });
         queryClient.invalidateQueries({ queryKey: ['notifications'] });
     };

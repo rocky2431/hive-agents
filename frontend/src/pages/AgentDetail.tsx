@@ -11,6 +11,8 @@ import MarkdownRenderer from '../components/MarkdownRenderer';
 import PromptModal from '../components/PromptModal';
 import OpenClawSettings from './OpenClawSettings';
 import { activityApi, agentApi, channelApi, enterpriseApi, fileApi, scheduleApi, skillApi, taskApi, triggerApi, uploadFileWithProgress } from '../services/api';
+import { toolsApi } from '../api/domains/tools';
+import { del } from '../api/core';
 import { useAuthStore } from '../stores';
 
 const TABS = ['status', 'aware', 'mind', 'tools', 'skills', 'relationships', 'workspace', 'chat', 'activityLog', 'approvals', 'settings'] as const;
@@ -69,16 +71,8 @@ function ToolsManager({ agentId, canManage = false }: { agentId: string; canMana
 
     const loadTools = async () => {
         try {
-            const token = localStorage.getItem('token');
-            const res = await fetch(`/api/tools/agents/${agentId}/with-config`, {
-                headers: { Authorization: `Bearer ${token}` },
-            });
-            if (res.ok) setTools(await res.json());
-            else {
-                // Fallback to old endpoint
-                const res2 = await fetch(`/api/tools/agents/${agentId}`, { headers: { Authorization: `Bearer ${token}` } });
-                if (res2.ok) setTools(await res2.json());
-            }
+            const data = await toolsApi.listWithConfig(agentId!).catch(() => toolsApi.list(agentId!));
+            setTools(data);
         } catch (e) { console.error(e); }
         setLoading(false);
     };
@@ -88,12 +82,7 @@ function ToolsManager({ agentId, canManage = false }: { agentId: string; canMana
     const toggleTool = async (toolId: string, enabled: boolean) => {
         setTools(prev => prev.map(t => t.id === toolId ? { ...t, enabled } : t));
         try {
-            const token = localStorage.getItem('token');
-            await fetch(`/api/tools/agents/${agentId}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                body: JSON.stringify([{ tool_id: toolId, enabled }]),
-            });
+            await toolsApi.updateTools(agentId!, { tools: [{ tool_id: toolId, enabled }] });
         } catch (e) { console.error(e); }
     };
 
@@ -109,14 +98,8 @@ function ToolsManager({ agentId, canManage = false }: { agentId: string; canMana
         setConfigData({});
         setConfigSaving(true);
         try {
-            const token = localStorage.getItem('token');
-            const res = await fetch(`/api/tools/agents/${agentId}/category-config/${category}`, {
-                headers: { Authorization: `Bearer ${token}` },
-            });
-            if (res.ok) {
-                const data = await res.json();
-                setConfigData(data.config || {});
-            }
+            const data = await toolsApi.getCategoryConfig(agentId!, category);
+            setConfigData((data as any).config || {});
         } catch (e) { console.error(e); }
         setConfigSaving(false);
     };
@@ -125,22 +108,13 @@ function ToolsManager({ agentId, canManage = false }: { agentId: string; canMana
         if (!configTool && !configCategory) return;
         setConfigSaving(true);
         try {
-            const token = localStorage.getItem('token');
             if (configCategory) {
-               await fetch(`/api/tools/agents/${agentId}/category-config/${configCategory}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                    body: JSON.stringify({ config: configData }),
-               });
+               await toolsApi.updateCategoryConfig(agentId!, configCategory, { config: configData });
                setConfigCategory(null);
             } else {
                 const hasSchema = configTool.config_schema?.fields?.length > 0;
                 const payload = hasSchema ? configData : JSON.parse(configJson || '{}');
-                await fetch(`/api/tools/agents/${agentId}/tool-config/${configTool.id}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                    body: JSON.stringify({ config: payload }),
-                });
+                await toolsApi.updateToolConfig(agentId!, configTool.id, payload);
                 setConfigTool(null);
             }
             loadTools();
@@ -218,13 +192,8 @@ function ToolsManager({ agentId, canManage = false }: { agentId: string; canMana
                                                 if (!confirm(t('agent.tools.confirmDelete', `Remove "${tool.display_name}" from this agent?`))) return;
                                                 setDeletingToolId(tool.id);
                                                 try {
-                                                    const token = localStorage.getItem('token');
-                                                    const res = await fetch(`/api/tools/agent-tool/${tool.agent_tool_id}`, {
-                                                        method: 'DELETE',
-                                                        headers: { Authorization: `Bearer ${token}` },
-                                                    });
-                                                    if (res.ok) await loadTools();
-                                                    else alert('Delete failed');
+                                                    await del(`/tools/agent-tool/${tool.agent_tool_id}`);
+                                                    await loadTools();
                                                 } catch (e) { alert('Delete failed: ' + e); }
                                                 setDeletingToolId(null);
                                             }}
@@ -421,13 +390,7 @@ function ToolsManager({ agentId, canManage = false }: { agentId: string; canMana
                                                         if (btn) btn.textContent = 'Testing...';
                                                         if (btn) (btn as HTMLButtonElement).disabled = true;
                                                         try {
-                                                            const token = localStorage.getItem('token');
-                                                            const res = await fetch('/api/tools/test-email', {
-                                                                method: 'POST',
-                                                                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                                                                body: JSON.stringify({ config: configData }),
-                                                            });
-                                                            const data = await res.json();
+                                                            const data = await toolsApi.testEmail({ config: configData }) as any;
                                                             if (status) {
                                                                 status.textContent = data.ok
                                                                     ? `${data.imap}\n${data.smtp}`
@@ -465,8 +428,7 @@ function ToolsManager({ agentId, canManage = false }: { agentId: string; canMana
                                 <div style={{ display: 'flex', gap: '8px', marginTop: '16px', justifyContent: 'flex-end' }}>
                                     {configTool && configTool.agent_config && Object.keys(configTool.agent_config || {}).length > 0 && (
                                         <button className="btn btn-ghost" style={{ color: 'var(--error)', marginRight: 'auto' }} onClick={async () => {
-                                            const token = localStorage.getItem('token');
-                                            await fetch(`/api/tools/agents/${agentId}/tool-config/${configTool.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ config: {} }) });
+                                            await toolsApi.updateToolConfig(agentId!, configTool.id, {});
                                             setConfigTool(null); loadTools();
                                         }}>Reset to Global</button>
                                     )}
@@ -478,12 +440,7 @@ function ToolsManager({ agentId, canManage = false }: { agentId: string; canMana
                                                 const btn = document.getElementById('cat-test-btn');
                                                 if (btn) btn.textContent = 'Testing...';
                                                 try {
-                                                    const token = localStorage.getItem('token');
-                                                    const res = await fetch(`/api/tools/agents/${agentId}/category-config/${configCategory}/test`, {
-                                                        method: 'POST',
-                                                        headers: { Authorization: `Bearer ${token}` }
-                                                    });
-                                                    const data = await res.json();
+                                                    const data = await toolsApi.testCategory(agentId!, configCategory!) as any;
                                                     alert(data.message || (data.ok ? '✅ Test successful' : '❌ Test failed: ' + data.error));
                                                 } catch (e: any) { alert('Test failed: ' + e.message); }
                                                 finally { if (btn) btn.textContent = 'Test Connection'; }
@@ -559,12 +516,9 @@ function CopyMessageButton({ text }: { text: string }) {
     );
 }
 
+import { request } from '../api/core';
 function fetchAuth<T>(url: string, options?: RequestInit): Promise<T> {
-    const token = localStorage.getItem('token');
-    return fetch(`/api${url}`, {
-        ...options,
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-    }).then(r => r.json());
+    return request<T>(options?.method || 'GET', url, options?.body ? JSON.parse(options.body as string) : undefined);
 }
 
 function RelationshipEditor({ agentId, readOnly = false }: { agentId: string; readOnly?: boolean }) {

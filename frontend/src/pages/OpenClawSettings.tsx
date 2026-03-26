@@ -4,12 +4,9 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { agentApi } from '../services/api';
 
+import { request } from '../api/core';
 function fetchAuth<T>(url: string, options?: RequestInit): Promise<T> {
-    const token = localStorage.getItem('token');
-    return fetch(`/api${url}`, {
-        ...options,
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-    }).then(r => r.json());
+    return request<T>(options?.method || 'GET', url, options?.body ? JSON.parse(options.body as string) : undefined);
 }
 
 interface OpenClawSettingsProps {

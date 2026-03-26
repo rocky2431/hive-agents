@@ -9,19 +9,9 @@ import { saveAccentColor, getSavedAccentColor, resetAccentColor, PRESET_COLORS }
 import UserManagement from './UserManagement';
 import InvitationCodes from './InvitationCodes';
 
-// API helpers for enterprise endpoints
+import { request } from '../api/core';
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
-    const token = localStorage.getItem('token');
-    const res = await fetch(`/api${url}`, {
-        ...options,
-        headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-    });
-    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || 'Error');
-    if (res.status === 204) return undefined as T;
-    return res.json();
+    return request<T>(options?.method || 'GET', url, options?.body ? JSON.parse(options.body as string) : undefined);
 }
 
 interface LLMModel {

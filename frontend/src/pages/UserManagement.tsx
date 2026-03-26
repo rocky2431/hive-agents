@@ -23,16 +23,9 @@ interface UserInfo {
     source?: string;
 }
 
-const API_PREFIX = '/api';
-
+import { request } from '../api/core';
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
-    const token = localStorage.getItem('token');
-    const res = await fetch(`${API_PREFIX}${url}`, {
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        ...options,
-    });
-    if (!res.ok) throw new Error(await res.text());
-    return res.json();
+    return request<T>(options?.method || 'GET', url, options?.body ? JSON.parse(options.body as string) : undefined);
 }
 
 const PERIOD_OPTIONS = [
