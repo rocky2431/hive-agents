@@ -1,22 +1,8 @@
 /** API service layer */
 
-import type {
-    Agent,
-    AgentCreateInput,
-    ChatAttachment,
-    ChatMessage,
-    FeatureFlag,
-    Notification,
-    PlazaComment,
-    PlazaPost,
-    PlazaStats,
-    Task,
-    TokenResponse,
-    User,
-} from '../types';
-import { extractUnreadCount, type NotificationUnreadCountPayload } from '../lib/notifications';
+import type { Agent, TokenResponse, User, Task, ChatMessage } from '../types';
 
-const API_BASE = '/api/v1';
+const API_BASE = '/api';
 
 async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
     const token = localStorage.getItem('token');
@@ -41,6 +27,7 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
         const fieldLabels: Record<string, string> = {
             name: '名称',
             role_description: '角色描述',
+            agent_type: '智能体类型',
             primary_model_id: '主模型',
             max_tokens_per_day: '每日 Token 上限',
             max_tokens_per_month: '每月 Token 上限',
@@ -138,25 +125,6 @@ export function uploadFileWithProgress(
     return { promise, abort: () => xhr.abort() };
 }
 
-type CancelableRequest<T> = {
-    promise: Promise<T>;
-    abort: () => void;
-};
-
-type ChatUploadResponse = {
-    filename: string;
-    extracted_text: string;
-    workspace_path?: string;
-    image_data_url?: string;
-};
-
-const toChatAttachment = (payload: ChatUploadResponse): ChatAttachment => ({
-    name: payload.filename,
-    text: payload.extracted_text,
-    path: payload.workspace_path,
-    imageUrl: payload.image_data_url || undefined,
-});
-
 // ─── Auth ─────────────────────────────────────────────
 export const authApi = {
     register: (data: { username: string; email: string; password: string; display_name: string }) =>
@@ -169,29 +137,6 @@ export const authApi = {
 
     updateMe: (data: Partial<User>) =>
         request<User>('/auth/me', { method: 'PATCH', body: JSON.stringify(data) }),
-
-    changePassword: (data: { current_password: string; new_password: string }) =>
-        request<any>('/auth/me/password', { method: 'PUT', body: JSON.stringify(data) }),
-
-    registrationConfig: () =>
-        request<{ invitation_code_required: boolean }>('/auth/registration-config'),
-};
-
-// ─── OIDC SSO ────────────────────────────────────────
-export const oidcApi = {
-    config: (tenantSlug?: string) =>
-        request<any>(`/auth/oidc/config${tenantSlug ? `?tenant_slug=${tenantSlug}` : ''}`),
-
-    callback: (data: { code: string; redirect_uri: string; tenant_id?: string }) =>
-        request<TokenResponse>('/auth/oidc/callback', { method: 'POST', body: JSON.stringify(data) }),
-
-    bind: (data: { code: string; redirect_uri: string }) =>
-        request<any>('/auth/oidc/bind', { method: 'POST', body: JSON.stringify(data) }),
-
-    getConfig: (tenantId?: string) => request<any>(`/enterprise/oidc-config${tenantId ? `?tenant_id=${tenantId}` : ''}`),
-
-    updateConfig: (data: { issuer_url: string; client_id: string; client_secret: string; scopes?: string; auto_provision?: boolean; display_name?: string }, tenantId?: string) =>
-        request<any>(`/enterprise/oidc-config${tenantId ? `?tenant_id=${tenantId}` : ''}`, { method: 'PUT', body: JSON.stringify(data) }),
 };
 
 // ─── Tenants ──────────────────────────────────────────
@@ -227,13 +172,10 @@ export const adminApi = {
 export const agentApi = {
     list: (tenantId?: string) => request<Agent[]>(`/agents/${tenantId ? `?tenant_id=${tenantId}` : ''}`),
 
-    sessions: (id: string, scope: 'mine' | 'all' = 'mine') =>
-        request<any[]>(`/agents/${id}/sessions?scope=${scope}`),
-
     get: (id: string) => request<Agent>(`/agents/${id}`),
 
-    create: (data: AgentCreateInput) =>
-        request<Agent>('/agents/', { method: 'POST', body: JSON.stringify(data) }),
+    create: (data: any) =>
+        request<any>('/agents/', { method: 'POST', body: JSON.stringify(data) }),
 
     update: (id: string, data: Partial<Agent>) =>
         request<Agent>(`/agents/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
@@ -253,17 +195,8 @@ export const agentApi = {
     collaborators: (id: string) =>
         request<any[]>(`/agents/${id}/collaborators`),
 
-    delegateTask: (id: string, data: { to_agent_id: string; task_title: string; task_description?: string }) =>
-        request<any>(`/agents/${id}/collaborate/delegate`, { method: 'POST', body: JSON.stringify(data) }),
-
-    sendCollaborationMessage: (id: string, data: { to_agent_id: string; message: string; msg_type?: string }) =>
-        request<any>(`/agents/${id}/collaborate/message`, { method: 'POST', body: JSON.stringify(data) }),
-
-    handoverCandidates: (id: string) =>
-        request<any[]>(`/agents/${id}/handover-candidates`),
-
-    handover: (id: string, newCreatorId: string) =>
-        request<any>(`/agents/${id}/handover`, { method: 'POST', body: JSON.stringify({ new_creator_id: newCreatorId }) }),
+    templates: () =>
+        request<any[]>('/agents/templates'),
 
     // OpenClaw gateway
     generateApiKey: (id: string) =>
@@ -271,92 +204,6 @@ export const agentApi = {
 
     gatewayMessages: (id: string) =>
         request<any[]>(`/agents/${id}/gateway-messages`),
-
-    gatewaySetupGuide: (id: string) =>
-        request<any>(`/gateway/setup-guide/${id}`),
-
-    gatewaySetupGuideWithKey: async (id: string, apiKey: string) => {
-        const res = await fetch(`${API_BASE}/gateway/setup-guide/${id}`, {
-            headers: { 'X-Api-Key': apiKey },
-        });
-        if (!res.ok) {
-            const error = await res.json().catch(() => ({ detail: 'Failed to load setup guide' }));
-            throw new Error(error.detail || 'Failed to load setup guide');
-        }
-        return res.json();
-    },
-
-    createSession: (id: string, title?: string) =>
-        request<any>(`/agents/${id}/sessions`, {
-            method: 'POST',
-            body: JSON.stringify(title ? { title } : {}),
-        }),
-
-    deleteSession: (id: string, sessionId: string) =>
-        request<void>(`/agents/${id}/sessions/${sessionId}`, { method: 'DELETE' }),
-
-    getSessionMessages: (id: string, sessionId: string) =>
-        request<any[]>(`/agents/${id}/sessions/${sessionId}/messages`),
-
-    resolveApproval: (id: string, approvalId: string, data: { action: string; reason?: string }) =>
-        request<any>(`/agents/${id}/approvals/${approvalId}/resolve`, {
-            method: 'POST',
-            body: JSON.stringify(data),
-        }),
-
-    listApprovals: (id: string) =>
-        request<any[]>(`/agents/${id}/approvals`),
-
-    // Permissions
-    getPermissions: (id: string) =>
-        request<any>(`/agents/${id}/permissions`),
-
-    updatePermissions: (id: string, data: { scope_type: string; scope_ids: string[]; access_level: string }) =>
-        request<any>(`/agents/${id}/permissions`, {
-            method: 'PUT',
-            body: JSON.stringify(data),
-        }),
-
-    // Relationships (human)
-    listRelationships: (id: string) =>
-        request<any[]>(`/agents/${id}/relationships/`),
-
-    updateRelationships: (id: string, data: { relationships: any[] }) =>
-        request<any>(`/agents/${id}/relationships/`, {
-            method: 'PUT',
-            body: JSON.stringify(data),
-        }),
-
-    deleteRelationship: (id: string, relId: string) =>
-        request<void>(`/agents/${id}/relationships/${relId}`, { method: 'DELETE' }),
-
-    // Relationships (agent-to-agent)
-    listAgentRelationships: (id: string) =>
-        request<any[]>(`/agents/${id}/relationships/agents`),
-
-    updateAgentRelationships: (id: string, data: { relationships: any[] }) =>
-        request<any>(`/agents/${id}/relationships/agents`, {
-            method: 'PUT',
-            body: JSON.stringify(data),
-        }),
-
-    deleteAgentRelationship: (id: string, relId: string) =>
-        request<void>(`/agents/${id}/relationships/agents/${relId}`, { method: 'DELETE' }),
-};
-
-// ─── Config History ──────────────────────────────────
-export const configHistoryApi = {
-    list: (agentId: string) =>
-        request<any[]>(`/config-history/agent/${agentId}`),
-
-    getVersion: (agentId: string, version: string) =>
-        request<any>(`/config-history/agent/${agentId}/${version}`),
-
-    rollback: (agentId: string, data: { target_version: number }) =>
-        request<any>(`/config-history/agent/${agentId}/rollback`, {
-            method: 'POST',
-            body: JSON.stringify(data),
-        }),
 };
 
 // ─── Tasks ────────────────────────────────────────────
@@ -417,26 +264,6 @@ export const fileApi = {
     },
 };
 
-export const chatApi = {
-    history: (sessionId: string) =>
-        request<any[]>(`/chat/${sessionId}/history`),
-
-    uploadAttachment: (file: File, agentId?: string, onProgress?: (pct: number) => void): CancelableRequest<ChatAttachment> => {
-        const extraFields = agentId ? { agent_id: agentId } : undefined;
-        if (onProgress) {
-            const requestWithProgress = uploadFileWithProgress('/chat/upload', file, onProgress, extraFields);
-            return {
-                promise: requestWithProgress.promise.then((payload: ChatUploadResponse) => toChatAttachment(payload)),
-                abort: requestWithProgress.abort,
-            };
-        }
-        return {
-            promise: uploadFile('/chat/upload', file, extraFields).then((payload: ChatUploadResponse) => toChatAttachment(payload)),
-            abort: () => {},
-        };
-    },
-};
-
 // ─── Channel Config ───────────────────────────────────
 export const channelApi = {
     get: (agentId: string) =>
@@ -446,7 +273,7 @@ export const channelApi = {
         request<any>(`/agents/${agentId}/channel`, { method: 'POST', body: JSON.stringify(data) }),
 
     update: (agentId: string, data: any) =>
-        request<any>(`/agents/${agentId}/channel`, { method: 'POST', body: JSON.stringify(data) }),
+        request<any>(`/agents/${agentId}/channel`, { method: 'PUT', body: JSON.stringify(data) }),
 
     delete: (agentId: string) =>
         request<void>(`/agents/${agentId}/channel`, { method: 'DELETE' }),
@@ -461,6 +288,7 @@ export const enterpriseApi = {
         const tid = localStorage.getItem('current_tenant_id');
         return request<any[]>(`/enterprise/llm-models${tid ? `?tenant_id=${tid}` : ''}`);
     },
+    templates: () => request<any[]>('/agents/templates'),
 
     // Enterprise Knowledge Base
     kbFiles: (path: string = '') =>
@@ -482,133 +310,6 @@ export const enterpriseApi = {
         request(`/enterprise/knowledge-base/content?path=${encodeURIComponent(path)}`, {
             method: 'DELETE',
         }),
-
-    openvikingStatus: () =>
-        request<{ connected: boolean; version?: string; reason?: string }>('/enterprise/knowledge-base/openviking-status'),
-
-    // Memory configuration
-    memoryConfig: (tenantId?: string) =>
-        request<any>(`/enterprise/memory/config${tenantId ? `?tenant_id=${tenantId}` : ''}`),
-    updateMemoryConfig: (data: any, tenantId?: string) =>
-        request<any>(`/enterprise/memory/config${tenantId ? `?tenant_id=${tenantId}` : ''}`, { method: 'PUT', body: JSON.stringify(data) }),
-    agentMemory: (agentId: string) =>
-        request<{ facts: any[] }>(`/enterprise/memory/agents/${agentId}/memory`),
-    sessionSummary: (sessionId: string) =>
-        request<{ session_id: string; summary: string | null; title: string | null }>(`/enterprise/memory/sessions/${sessionId}/summary`),
-
-    // Org members search
-    searchOrgMembers: (params: Record<string, string>) => {
-        const qs = new URLSearchParams(params);
-        return request<any[]>(`/enterprise/org/members?${qs}`);
-    },
-
-    // LLM test
-    llmTest: (data: any, tenantId?: string) =>
-        request<any>(`/enterprise/llm-test${tenantId ? `?tenant_id=${tenantId}` : ''}`, {
-            method: 'POST',
-            body: JSON.stringify(data),
-        }),
-
-    // System settings
-    getSystemSetting: (key: string, tenantId?: string) =>
-        request<any>(`/enterprise/system-settings/${key}${tenantId ? `?tenant_id=${tenantId}` : ''}`),
-
-    updateSystemSetting: (key: string, data: any, tenantId?: string) =>
-        request<any>(`/enterprise/system-settings/${key}${tenantId ? `?tenant_id=${tenantId}` : ''}`, {
-            method: 'PUT',
-            body: JSON.stringify(data),
-        }),
-
-    // Invitation codes
-    listInvitationCodes: (params?: Record<string, string>) => {
-        const qs = params ? new URLSearchParams(params) : '';
-        return request<any>(`/enterprise/invitation-codes${qs ? `?${qs}` : ''}`);
-    },
-
-    createInvitationCodes: (data: any, tenantId?: string) =>
-        request<any>(`/enterprise/invitation-codes${tenantId ? `?tenant_id=${tenantId}` : ''}`, {
-            method: 'POST',
-            body: JSON.stringify(data),
-        }),
-
-    deleteInvitationCode: (id: string, tenantId?: string) =>
-        request<void>(`/enterprise/invitation-codes/${id}${tenantId ? `?tenant_id=${tenantId}` : ''}`, {
-            method: 'DELETE',
-        }),
-
-    exportInvitationCodes: (tenantId?: string) => {
-        const token = localStorage.getItem('token');
-        return fetch(`${API_BASE}/enterprise/invitation-codes/export${tenantId ? `?tenant_id=${tenantId}` : ''}`, {
-            headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
-    },
-};
-
-// ─── Organization ─────────────────────────────────────
-export const orgApi = {
-    listDepartments: (tenantId?: string) =>
-        request<any[]>(`/org/departments${tenantId ? `?tenant_id=${tenantId}` : ''}`),
-
-    createDepartment: (data: any, tenantId?: string) =>
-        request<any>(`/org/departments${tenantId ? `?tenant_id=${tenantId}` : ''}`, {
-            method: 'POST',
-            body: JSON.stringify(data),
-        }),
-
-    updateDepartment: (deptId: string, data: any, tenantId?: string) =>
-        request<any>(`/org/departments/${deptId}${tenantId ? `?tenant_id=${tenantId}` : ''}`, {
-            method: 'PATCH',
-            body: JSON.stringify(data),
-        }),
-
-    deleteDepartment: (deptId: string, tenantId?: string) =>
-        request<void>(`/org/departments/${deptId}${tenantId ? `?tenant_id=${tenantId}` : ''}`, {
-            method: 'DELETE',
-        }),
-
-    listUsers: (params?: Record<string, string>) => {
-        const qs = params ? new URLSearchParams(params) : '';
-        return request<any[]>(`/org/users${qs ? `?${qs}` : ''}`);
-    },
-
-    updateUser: (userId: string, data: any) =>
-        request<any>(`/org/users/${userId}`, {
-            method: 'PATCH',
-            body: JSON.stringify(data),
-        }),
-};
-
-// ─── Notifications ───────────────────────────────────
-export const notificationApi = {
-    list: (params?: { limit?: number; offset?: number; unreadOnly?: boolean }) => {
-        const qs = new URLSearchParams();
-        if (params?.limit) qs.set('limit', String(params.limit));
-        if (params?.offset) qs.set('offset', String(params.offset));
-        if (params?.unreadOnly) qs.set('unread_only', 'true');
-        return request<Notification[]>(`/notifications${qs.size ? `?${qs}` : ''}`);
-    },
-
-    unreadCount: async () => {
-        const payload = await request<NotificationUnreadCountPayload>('/notifications/unread-count');
-        return extractUnreadCount(payload);
-    },
-
-    markRead: (id: string) =>
-        request<void>(`/notifications/${id}/read`, { method: 'POST' }),
-
-    markAllRead: () =>
-        request<void>('/notifications/read-all', { method: 'POST' }),
-};
-
-// ─── Feature Flags ────────────────────────────────────
-export const featureFlagApi = {
-    list: () => request<FeatureFlag[]>('/feature-flags/'),
-    create: (data: Record<string, unknown>) =>
-        request<FeatureFlag>('/feature-flags/', { method: 'POST', body: JSON.stringify(data) }),
-    update: (flagId: string, data: Record<string, unknown>) =>
-        request<FeatureFlag>(`/feature-flags/${flagId}`, { method: 'PATCH', body: JSON.stringify(data) }),
-    delete: (flagId: string) =>
-        request<void>(`/feature-flags/${flagId}`, { method: 'DELETE' }),
 };
 
 // ─── Activity Logs ────────────────────────────────────
@@ -624,6 +325,12 @@ export const messageApi = {
 
     unreadCount: () =>
         request<{ unread_count: number }>('/messages/unread-count'),
+
+    markRead: (messageId: string) =>
+        request<void>(`/messages/${messageId}/read`, { method: 'PUT' }),
+
+    markAllRead: () =>
+        request<void>('/messages/read-all', { method: 'PUT' }),
 };
 
 // ─── Schedules ────────────────────────────────────────
@@ -703,147 +410,4 @@ export const triggerApi = {
 
     delete: (agentId: string, triggerId: string) =>
         request<void>(`/agents/${agentId}/triggers/${triggerId}`, { method: 'DELETE' }),
-};
-
-export const plazaApi = {
-    list: (tenantId?: string, limit: number = 50) =>
-        request<PlazaPost[]>(`/plaza/posts?limit=${limit}${tenantId ? `&tenant_id=${tenantId}` : ''}`),
-
-    stats: (tenantId?: string) =>
-        request<PlazaStats>(`/plaza/stats${tenantId ? `?tenant_id=${tenantId}` : ''}`),
-
-    get: (postId: string) =>
-        request<PlazaPost>(`/plaza/posts/${postId}`),
-
-    create: (content: string) =>
-        request<PlazaPost>('/plaza/posts', { method: 'POST', body: JSON.stringify({ content }) }),
-
-    comment: (postId: string, content: string) =>
-        request<PlazaComment>(`/plaza/posts/${postId}/comments`, {
-            method: 'POST',
-            body: JSON.stringify({ content }),
-        }),
-
-    toggleLike: (postId: string) =>
-        request<{ liked: boolean }>(`/plaza/posts/${postId}/like`, { method: 'POST' }),
-};
-
-// ─── Audit (SecurityAuditEvent) ──────────────────────
-export const auditApi = {
-    query: (params: Record<string, string | number | undefined>) => {
-        const qs = new URLSearchParams();
-        for (const [k, v] of Object.entries(params)) {
-            if (v !== undefined && v !== '') qs.set(k, String(v));
-        }
-        return request<{ items: any[]; total: number; page: number; page_size: number }>(
-            `/enterprise/audit?${qs}`,
-        );
-    },
-
-    exportCsv: (params: Record<string, string | undefined>) => {
-        const qs = new URLSearchParams();
-        for (const [k, v] of Object.entries(params)) {
-            if (v !== undefined && v !== '') qs.set(k, String(v));
-        }
-        const token = localStorage.getItem('token');
-        return fetch(`${API_BASE}/enterprise/audit/export?${qs}`, {
-            headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
-    },
-
-    verifyChain: (eventId: string) =>
-        request<{ valid: boolean; event_hash: string; computed_hash: string; predecessor_id: string | null }>(
-            `/enterprise/audit/${eventId}/chain`,
-        ),
-};
-
-// ─── Capability Policies ─────────────────────────────
-export const capabilityApi = {
-    definitions: () => request<any[]>('/enterprise/capabilities/definitions'),
-
-    list: (agentId?: string) =>
-        request<any[]>(`/enterprise/capabilities${agentId ? `?agent_id=${agentId}` : ''}`),
-
-    upsert: (data: { capability: string; agent_id?: string; allowed: boolean; requires_approval: boolean }) =>
-        request<any>('/enterprise/capabilities', { method: 'PUT', body: JSON.stringify(data) }),
-
-    delete: (policyId: string) =>
-        request<void>(`/enterprise/capabilities/${policyId}`, { method: 'DELETE' }),
-};
-
-// ─── Onboarding ──────────────────────────────────────
-export const onboardingApi = {
-    status: () => request<{ items: any[]; completed: number; total: number }>('/enterprise/onboarding-status'),
-};
-
-// ─── Pack Catalog & Capability Summary ───────────────
-// ─── User Management (admin quota endpoints) ─────────
-export const userApi = {
-    list: (tenantId?: string) => {
-        const qs = tenantId ? `?tenant_id=${tenantId}` : '';
-        return request<any[]>(`/users/${qs}`);
-    },
-
-    updateQuota: (userId: string, data: {
-        quota_message_limit?: number;
-        quota_message_period?: string;
-        quota_max_agents?: number;
-        quota_agent_ttl_hours?: number;
-    }) =>
-        request<any>(`/users/${userId}/quota`, {
-            method: 'PATCH',
-            body: JSON.stringify(data),
-        }),
-};
-
-export const packApi = {
-    catalog: () => request<any[]>('/packs'),
-
-    updatePolicy: (packName: string, enabled: boolean) =>
-        request<any>(`/enterprise/packs/policies/${encodeURIComponent(packName)}`, {
-            method: 'PUT',
-            body: JSON.stringify({ enabled }),
-        }),
-
-    mcpRegistry: () =>
-        request<any[]>('/enterprise/mcp-servers'),
-
-    importMcp: (data: {
-        server_id?: string;
-        mcp_url?: string;
-        server_name?: string;
-        config?: Record<string, unknown>;
-    }) =>
-        request<any>('/enterprise/mcp-servers/import', {
-            method: 'POST',
-            body: JSON.stringify(data),
-        }),
-
-    deleteMcp: (serverKey: string) =>
-        request<any>(`/enterprise/mcp-servers/${encodeURIComponent(serverKey)}`, {
-            method: 'DELETE',
-        }),
-
-    agentPacks: (agentId: string) =>
-        request<{ kernel_tools: string[]; available_packs: any[]; channel_backed_packs: any[]; skill_declared_packs: any[] }>(
-            `/agents/${agentId}/packs`,
-        ),
-
-    capabilitySummary: (agentId: string) =>
-        request<{
-            kernel_tools: string[];
-            available_packs: any[];
-            channel_backed_packs: any[];
-            skill_declared_packs: any[];
-            capability_policies: any[];
-            pending_approvals: number;
-        }>(`/agents/${agentId}/capability-summary`),
-
-    sessionRuntime: (sessionId: string) =>
-        request<{
-            activated_packs: string[];
-            used_tools: string[];
-            blocked_capabilities: any[];
-            compaction_count: number;
-        }>(`/chat/sessions/${sessionId}/runtime-summary`),
 };

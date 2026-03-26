@@ -2,33 +2,82 @@ import { useQuery } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router-dom';
-import { AgentAvatar } from '@/components/domain/agent-avatar';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import MarkdownRenderer from '@/components/MarkdownRenderer';
-import { formatRelative } from '@/lib/date';
-import { applyStreamEvent, hydrateTimelineMessage, type TimelineMessage } from '@/lib/chatParts.ts';
-import { agentApi, chatApi, enterpriseApi } from '@/services/api';
-import { useAuthStore } from '@/stores';
-import type { ChatAttachment } from '@/types';
+import MarkdownRenderer from '../components/MarkdownRenderer';
+import { agentApi, enterpriseApi } from '../services/api';
+import { useAuthStore } from '../stores';
 
-import { ChatIcons as Icons, getEventPresentation } from '@/components/chat/chat-icons';
+/* ── Inline SVG Icons ── */
+const Icons = {
+    bot: (
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="5" width="12" height="10" rx="2" />
+            <circle cx="7" cy="10" r="1" fill="currentColor" stroke="none" />
+            <circle cx="11" cy="10" r="1" fill="currentColor" stroke="none" />
+            <path d="M9 2v3M6 2h6" />
+        </svg>
+    ),
+    user: (
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="8" cy="5.5" r="2.5" />
+            <path d="M3 14v-1a4 4 0 018 0v1" />
+        </svg>
+    ),
+    chat: (
+        <svg width="28" height="28" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M2 3a1 1 0 011-1h10a1 1 0 011 1v7a1 1 0 01-1 1H5l-3 3V3z" />
+            <path d="M5 5.5h6M5 8h4" />
+        </svg>
+    ),
+    clip: (
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M13.5 7l-5.8 5.8a3 3 0 01-4.2-4.2L9.3 2.8a2 2 0 012.8 2.8L6.3 11.4a1 1 0 01-1.4-1.4L10.7 4.2" />
+        </svg>
+    ),
+    loader: (
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+            <path d="M8 2v3M8 11v3M3.8 3.8l2.1 2.1M10.1 10.1l2.1 2.1M2 8h3M11 8h3M3.8 12.2l2.1-2.1M10.1 5.9l2.1-2.1" />
+        </svg>
+    ),
+    tool: (
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M10.5 10.5L14 14M4.5 2a2.5 2.5 0 00-1.8 4.2l5.1 5.1A2.5 2.5 0 1012 7.2L6.8 2.2A2.5 2.5 0 004.5 2z" />
+        </svg>
+    ),
+};
+
+interface ToolCall {
+    name: string;
+    args: any;
+    result?: string;
+}
+
+interface Message {
+    role: 'user' | 'assistant';
+    content: string;
+    fileName?: string;
+    toolCalls?: ToolCall[];
+    thinking?: string;
+    imageUrl?: string;
+    timestamp?: string;
+}
 
 export default function Chat() {
     const { t } = useTranslation();
     const { id } = useParams<{ id: string }>();
     const token = useAuthStore((s) => s.token);
-    const [messages, setMessages] = useState<TimelineMessage[]>([]);
+    const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState('');
     const [connected, setConnected] = useState(false);
     const [uploading, setUploading] = useState(false);
     const [streaming, setStreaming] = useState(false);
     const [isWaiting, setIsWaiting] = useState(false);
-    const [attachedFile, setAttachedFile] = useState<ChatAttachment | null>(null);
+    const [attachedFile, setAttachedFile] = useState<{ name: string; text: string; path?: string; imageUrl?: string } | null>(null);
     const wsRef = useRef<WebSocket | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const pendingToolCalls = useRef<ToolCall[]>([]);
+    const streamContent = useRef('');
+    const thinkingContent = useRef('');
 
     const { data: agent } = useQuery({
         queryKey: ['agent', id],
@@ -46,21 +95,40 @@ export default function Chat() {
         (m: any) => m.id === agent.primary_model_id && m.supports_vision
     );
 
-    const resolveHistoryImageUrl = (fileName: string) => {
-        if (!id || !token) return undefined;
-        return `/api/v1/agents/${id}/files/download?path=workspace/uploads/${encodeURIComponent(fileName)}&token=${token}`;
+    const parseMessage = (msg: Message): Message => {
+        if (msg.role !== 'user') return msg;
+        // Standard web chat format: [file:name.pdf]\ncontent
+        const newFmt = msg.content.match(/^\[file:([^\]]+)\]\n?/);
+        if (newFmt) return { ...msg, fileName: newFmt[1], content: msg.content.slice(newFmt[0].length).trim() };
+        // Feishu/Slack channel format: [\u6587\u4ef6\u5df2\u4e0a\u4f20: workspace/uploads/name]
+        const chanFmt = msg.content.match(/^\[\u6587\u4ef6\u5df2\u4e0a\u4f20: (?:workspace\/uploads\/)?([^\]\n]+)\]/);
+        if (chanFmt) {
+            const raw = chanFmt[1]; const fileName = raw.split('/').pop() || raw;
+            return { ...msg, fileName, content: msg.content.slice(chanFmt[0].length).trim() };
+        }
+        // Old format: [File: name.pdf]\nFile location:...\nQuestion: user_msg
+        const oldFmt = msg.content.match(/^\[File: ([^\]]+)\]/);
+        if (oldFmt) {
+            const fileName = oldFmt[1];
+            const qMatch = msg.content.match(/\nQuestion: ([\s\S]+)$/);
+            return { ...msg, fileName, content: qMatch ? qMatch[1].trim() : '' };
+        }
+        return msg;
     };
 
     // Load chat history on mount
     useEffect(() => {
         if (!id || !token) return;
-        chatApi.history(id)
+        fetch(`/api/chat/${id}/history`, {
+            headers: { Authorization: `Bearer ${token}` },
+        })
+            .then(r => r.json())
             .then((history: any[]) => {
-                if (history.length > 0) {
-                    setMessages(history.map((entry) => hydrateTimelineMessage(entry, {
-                        resolveImageUrl: resolveHistoryImageUrl,
-                    })));
-                }
+                if (history.length > 0) setMessages(history.map(h => {
+                    const msg = parseMessage({ role: h.role, content: h.content, fileName: h.fileName, toolCalls: h.toolCalls, thinking: h.thinking, imageUrl: h.imageUrl });
+                    msg.timestamp = h.created_at || undefined;
+                    return msg;
+                }));
             })
             .catch(() => { /* ignore */ });
     }, [id, token]);
@@ -98,30 +166,60 @@ export default function Chat() {
                 if (['thinking', 'chunk', 'tool_call', 'done', 'error', 'quota_exceeded'].includes(data.type)) {
                     setIsWaiting(false);
                 }
-                if (['thinking', 'chunk', 'tool_call'].includes(data.type)) {
-                    setStreaming(true);
-                }
-                if (['done', 'error', 'quota_exceeded'].includes(data.type)) {
+                if (['error', 'quota_exceeded'].includes(data.type)) {
                     setStreaming(false);
                 }
 
-                if (['thinking', 'chunk', 'tool_call', 'done'].includes(data.type)) {
-                    setMessages((prev) => applyStreamEvent(prev, data, new Date().toISOString()));
-                } else if (data.type === 'error' || data.type === 'quota_exceeded') {
-                    const content = data.content || data.detail || data.message || 'Request denied';
-                    setMessages((prev) => [...prev, {
-                        role: 'assistant',
-                        content: `\u26A0\uFE0F ${content}`,
-                        timestamp: new Date().toISOString(),
-                    }]);
+                if (data.type === 'thinking') {
+                    // Accumulate thinking content
+                    thinkingContent.current += data.content;
+                    setMessages(prev => {
+                        const last = prev[prev.length - 1];
+                        if (last && last.role === 'assistant') {
+                            const updated = [...prev];
+                            updated[updated.length - 1] = { ...last, thinking: thinkingContent.current };
+                            return updated;
+                        }
+                        return [...prev, { role: 'assistant', content: '', thinking: thinkingContent.current, timestamp: new Date().toISOString() }];
+                    });
+                } else if (data.type === 'chunk') {
+                    // Streaming text chunk — accumulate and update live preview
+                    streamContent.current += data.content;
+                    setMessages(prev => {
+                        const last = prev[prev.length - 1];
+                        if (last && last.role === 'assistant') {
+                            // Update the streaming message in-place
+                            const updated = [...prev];
+                            updated[updated.length - 1] = { ...last, content: streamContent.current };
+                            return updated;
+                        }
+                        return [...prev, { role: 'assistant', content: streamContent.current, timestamp: new Date().toISOString() }];
+                    });
+                } else if (data.type === 'tool_call') {
+                    if (data.status === 'done') {
+                        pendingToolCalls.current.push({ name: data.name, args: data.args, result: data.result });
+                    }
+                } else if (data.type === 'done') {
+                    // Final response — replace streaming message with final + tool calls
+                    const toolCalls = pendingToolCalls.current.length > 0 ? [...pendingToolCalls.current] : undefined;
+                    const thinking = thinkingContent.current || undefined;
+                    pendingToolCalls.current = [];
+                    streamContent.current = '';
+                    thinkingContent.current = '';
+                    setStreaming(false);
+                    setMessages(prev => {
+                        const updated = [...prev];
+                        // Replace the last streaming assistant message
+                        if (updated.length > 0 && updated[updated.length - 1].role === 'assistant') {
+                            updated[updated.length - 1] = { role: 'assistant', content: data.content, toolCalls, thinking };
+                        } else {
+                            updated.push({ role: 'assistant', content: data.content, toolCalls, thinking });
+                        }
+                        return updated;
+                    });
                 } else {
                     // Legacy format: {role, content}
-                    setMessages((prev) => [...prev, hydrateTimelineMessage({
-                        ...data,
-                        created_at: new Date().toISOString(),
-                    }, {
-                        resolveImageUrl: resolveHistoryImageUrl,
-                    })]);
+                    setMessages(prev => [...prev, { role: data.role, content: data.content }]);
                 }
             };
         };
@@ -147,9 +245,24 @@ export default function Chat() {
 
         setUploading(true);
         try {
-            const { promise } = chatApi.uploadAttachment(file, id);
-            const data = await promise;
-            setAttachedFile(data);
+            const formData = new FormData();
+            formData.append('file', file);
+            if (id) formData.append('agent_id', id);
+
+            const resp = await fetch('/api/chat/upload', {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${token}` },
+                body: formData,
+            });
+
+            if (!resp.ok) {
+                const err = await resp.json();
+                alert(err.detail || t('agent.upload.failed'));
+                return;
+            }
+
+            const data = await resp.json();
+            setAttachedFile({ name: data.filename, text: data.extracted_text, path: data.workspace_path, imageUrl: data.image_data_url || undefined });
         } catch (err) {
             alert(t('agent.upload.failed') + ': ' + (err as Error).message);
         } finally {
@@ -163,6 +276,9 @@ export default function Chat() {
         if (!input.trim() && !attachedFile) return;
 
         // Reset streaming state for new response
+        pendingToolCalls.current = [];
+        streamContent.current = '';
+        thinkingContent.current = '';
         setIsWaiting(true);
         setStreaming(true);
 
@@ -171,25 +287,27 @@ export default function Chat() {
 
         if (attachedFile) {
             if (attachedFile.imageUrl && supportsVision) {
+                // Vision model — embed image data marker for direct analysis
                 const imageMarker = `[image_data:${attachedFile.imageUrl}]`;
                 contentForLLM = userMsg
                     ? `${imageMarker}\n${userMsg}`
-                    : `${imageMarker}\n${t('chat.analyzeImage')}`;
-                userMsg = userMsg || `${t('chat.imageLabel')} ${attachedFile.name}`;
+                    : `${imageMarker}\n请分析这张图片`;
+                userMsg = userMsg || `[图片] ${attachedFile.name}`;
             } else if (attachedFile.imageUrl) {
+                // Non-vision model — just reference the file path
                 const wsPath = attachedFile.path || '';
                 contentForLLM = userMsg
-                    ? `[${t('chat.imageUploaded', 'Image uploaded')}: ${attachedFile.name}, ${t('chat.savedAt', 'saved at')} ${wsPath}]\n\n${userMsg}`
-                    : `[${t('chat.imageUploaded', 'Image uploaded')}: ${attachedFile.name}, ${t('chat.savedAt', 'saved at')} ${wsPath}]\n${t('chat.analyzeImageFile', 'Please describe or process this image file. You can use the read_document tool to read it.')}`;
-                userMsg = userMsg || `${t('chat.imageLabel')} ${attachedFile.name}`;
+                    ? `[图片文件已上传: ${attachedFile.name}，保存在 ${wsPath}]\n\n${userMsg}`
+                    : `[图片文件已上传: ${attachedFile.name}，保存在 ${wsPath}]\n请描述或处理这个图片文件。你可以使用 read_document 工具读取它。`;
+                userMsg = userMsg || `[图片] ${attachedFile.name}`;
             } else {
                 const wsPath = attachedFile.path || '';
                 const codePath = wsPath.replace(/^workspace\//, '');
                 const fileLoc = wsPath ? `\nFile location: ${wsPath} (for read_file/read_document tools)\nIn execute_code, use relative path: "${codePath}" (working directory is workspace/)` : '';
-                const fileContext = `${t('chat.fileLabel')} ${attachedFile.name}]${fileLoc}\n\n${attachedFile.text}`;
+                const fileContext = `[文件: ${attachedFile.name}]${fileLoc}\n\n${attachedFile.text}`;
                 contentForLLM = userMsg
-                    ? `${fileContext}\n\n${t('chat.userQuestion')} ${userMsg}`
-                    : `${t('chat.analyzeFileContent', 'Please read and analyze the following file content')}:\n\n${fileContext}`;
+                    ? `${fileContext}\n\n用户问题: ${userMsg}`
+                    : `请阅读并分析以下文件内容:\n\n${fileContext}`;
                 userMsg = userMsg || `[${t('agent.chat.attachment')}] ${attachedFile.name}`;
             }
         }
@@ -207,7 +325,7 @@ export default function Chat() {
     };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+        if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && !isWaiting && !streaming) {
             e.preventDefault();
             sendMessage();
         }
@@ -216,15 +334,15 @@ export default function Chat() {
     return (
         <div>
             <div className="page-header">
-                <div className="flex items-center gap-3">
-                    <AgentAvatar name={agent?.name || '...'} size="md" />
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{ width: '36px', height: '36px', borderRadius: 'var(--radius-md)', background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-tertiary)' }}>
+                        {Icons.bot}
+                    </div>
                     <div>
-                        <h1 className="page-title text-lg">{agent?.name || '...'}</h1>
-                        <div className="flex items-center gap-1.5 text-xs">
+                        <h1 className="page-title" style={{ fontSize: '18px' }}>{agent?.name || '...'}</h1>
+                        <div style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                             <span className={`status-dot ${connected ? 'running' : 'stopped'}`} />
-                            <span className="text-content-tertiary">
-                                {connected ? t('agent.chat.connected') : t('agent.chat.disconnected')}
-                            </span>
+                            <span style={{ color: 'var(--text-tertiary)' }}>{connected ? t('agent.chat.connected') : t('agent.chat.disconnected')}</span>
                         </div>
                     </div>
                 </div>
@@ -233,142 +351,110 @@ export default function Chat() {
             <div className="chat-container">
                 <div className="chat-messages">
                     {messages.length === 0 && (
-                        <div className="text-center py-15 text-content-tertiary">
-                            <div className="mb-3 flex justify-center">{Icons.chat}</div>
+                        <div style={{ textAlign: 'center', padding: '60px', color: 'var(--text-tertiary)' }}>
+                            <div style={{ marginBottom: '12px', display: 'flex', justifyContent: 'center' }}>{Icons.chat}</div>
                             <div>{t('agent.chat.startConversation', { name: agent?.name || t('nav.newAgent') })}</div>
-                            <div className="text-xs mt-2 opacity-70">{t('agent.chat.fileSupport')}</div>
+                            <div style={{ fontSize: '12px', marginTop: '8px', opacity: 0.7 }}>{t('agent.chat.fileSupport')}</div>
                         </div>
                     )}
                     {messages.map((msg, i) => (
-                        <div key={i} className={`chat-message ${msg.role === 'user' ? 'user' : 'assistant'}`}>
-                            <div className="chat-avatar text-content-tertiary">
-                                {msg.role === 'user' ? Icons.user : msg.role === 'tool_call' ? Icons.tool : Icons.bot}
+                        <div key={i} className={`chat-message ${msg.role}`}>
+                            <div className="chat-avatar" style={{ color: 'var(--text-tertiary)' }}>
+                                {msg.role === 'user' ? Icons.user : Icons.bot}
                             </div>
                             <div className="chat-bubble">
-                                {msg.role === 'event' && (() => {
-                                    const ev = getEventPresentation(msg, t);
-                                    return (
-                                        <div className={`mb-2 rounded-lg border border-edge-subtle p-2.5 ${ev.bg}`}>
-                                            <div className="flex items-center gap-2 mb-1">
-                                                <span className="text-[13px]">{ev.icon}</span>
-                                                <span className="text-xs font-semibold">{ev.title}</span>
-                                                {msg.eventStatus && (
-                                                    <span className="ml-auto text-[10px] text-content-tertiary uppercase">
-                                                        {msg.eventStatus.replace(/_/g, ' ')}
-                                                    </span>
-                                                )}
-                                            </div>
-                                            {msg.eventToolName && (
-                                                <div className="text-[11px] text-content-tertiary mb-1 font-mono">
-                                                    {msg.eventToolName}
-                                                </div>
-                                            )}
-                                            <div className="text-xs leading-relaxed text-content-secondary whitespace-pre-wrap break-words">
-                                                {msg.content}
-                                            </div>
-                                            {msg.eventPacks && msg.eventPacks.length > 0 && (
-                                                <div className="mt-2 flex flex-col gap-1.5">
-                                                    {msg.eventPacks.map((pack, packIndex) => {
-                                                        const packName = typeof pack.name === 'string' ? pack.name : 'unknown_pack';
-                                                        const packSummary = typeof pack.summary === 'string' ? pack.summary : '';
-                                                        const packTools = Array.isArray(pack.tools) ? pack.tools.map((tool) => String(tool)).join(', ') : '';
-                                                        return (
-                                                            <div key={packIndex} className="text-[11px] text-content-secondary border-t border-edge-subtle pt-1.5">
-                                                                <div className="font-semibold">{packName}</div>
-                                                                {packSummary && <div className="mt-0.5">{packSummary}</div>}
-                                                                {packTools && (
-                                                                    <div className="mt-1 font-mono text-content-tertiary">
-                                                                        {packTools}
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        );
-                                                    })}
-                                                </div>
-                                            )}
-                                            {msg.eventApprovalId && (
-                                                <div className="mt-1.5 text-[11px] text-content-tertiary font-mono">
-                                                    Approval ID: {msg.eventApprovalId}
-                                                </div>
-                                            )}
-                                        </div>
-                                    );
-                                })()}
                                 {msg.fileName && (() => {
                                     const fe = msg.fileName!.split('.').pop()?.toLowerCase() ?? '';
                                     const isImage = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'].includes(fe);
                                     if (isImage && msg.imageUrl) {
-                                        return (
-                                            <div className="mb-1">
-                                                <img
-                                                    src={msg.imageUrl}
-                                                    alt={msg.fileName}
-                                                    className="max-w-60 max-h-45 rounded-lg border border-edge-subtle"
-                                                />
-                                            </div>
-                                        );
+                                        return (<div style={{ marginBottom: '4px' }}>
+                                            <img src={msg.imageUrl} alt={msg.fileName} style={{ maxWidth: '240px', maxHeight: '180px', borderRadius: '8px', border: '1px solid var(--border-subtle)' }} />
+                                        </div>);
                                     }
                                     const fi = fe === 'pdf' ? '\uD83D\uDCC4' : (fe === 'csv' || fe === 'xlsx' || fe === 'xls') ? '\uD83D\uDCCA' : (fe === 'docx' || fe === 'doc') ? '\uD83D\uDCDD' : '\uD83D\uDCCE';
-                                    return (
-                                        <Badge variant="secondary" className={`gap-1.5 rounded-md ${msg.content ? 'mb-1' : ''}`}>
-                                            <span>{fi}</span>
-                                            <span className="font-medium text-content-primary max-w-[200px] truncate">
-                                                {msg.fileName}
-                                            </span>
-                                        </Badge>
-                                    );
+                                    return (<div style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', background: 'rgba(0,0,0,0.08)', borderRadius: '6px', padding: '4px 8px', marginBottom: msg.content ? '4px' : '0', fontSize: '11px', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)' }}><span>{fi}</span><span style={{ fontWeight: 500, color: 'var(--text-primary)', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{msg.fileName}</span></div>);
                                 })()}
                                 {msg.thinking && (
-                                    <details className="mb-2 text-xs rounded-md border border-[rgba(147,130,220,0.15)] bg-[rgba(147,130,220,0.08)]">
-                                        <summary className="px-2.5 py-1.5 cursor-pointer text-[rgba(147,130,220,0.9)] font-medium select-none flex items-center gap-1">
-                                            {'\uD83D\uDCAD'} Thinking
+                                    <details style={{
+                                        marginBottom: '8px', fontSize: '12px',
+                                        background: 'rgba(147, 130, 220, 0.08)', borderRadius: '6px',
+                                        border: '1px solid rgba(147, 130, 220, 0.15)',
+                                    }}>
+                                        <summary style={{
+                                            padding: '6px 10px', cursor: 'pointer',
+                                            color: 'rgba(147, 130, 220, 0.9)', fontWeight: 500,
+                                            userSelect: 'none', display: 'flex', alignItems: 'center', gap: '4px',
+                                        }}>
+                                            💭 Thinking
                                         </summary>
-                                        <div className="px-2.5 pt-1 pb-2 text-xs leading-relaxed text-content-secondary whitespace-pre-wrap break-words max-h-[300px] overflow-auto">
+                                        <div style={{
+                                            padding: '4px 10px 8px',
+                                            fontSize: '12px', lineHeight: '1.6',
+                                            color: 'var(--text-secondary)',
+                                            whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                                            maxHeight: '300px', overflow: 'auto',
+                                        }}>
                                             {msg.thinking}
                                         </div>
                                     </details>
                                 )}
-                                {msg.role === 'tool_call' ? (
-                                    <details className="text-xs rounded-md border border-accent-subtle bg-accent-subtle overflow-hidden">
-                                        <summary className="px-2.5 py-1.5 cursor-pointer text-accent-text font-medium select-none flex items-center gap-1.5">
-                                            <span className="flex">{msg.toolStatus === 'running' ? Icons.loader : Icons.tool}</span>
-                                            <span>{msg.toolName || 'tool'}</span>
-                                            {msg.toolStatus === 'running' && (
-                                                <span className="ml-auto text-content-tertiary text-[11px]">
-                                                    {t('common.loading')}
-                                                </span>
-                                            )}
+                                {msg.toolCalls && msg.toolCalls.length > 0 && (
+                                    <details style={{
+                                        marginBottom: '8px', fontSize: '12px',
+                                        background: 'var(--accent-subtle)', borderRadius: '6px',
+                                        padding: '0',
+                                    }}>
+                                        <summary style={{
+                                            padding: '6px 10px', cursor: 'pointer',
+                                            color: 'var(--accent-text)', fontWeight: 500,
+                                            userSelect: 'none',
+                                        }}>
+                                            {Icons.tool} {msg.toolCalls.length} tool call{msg.toolCalls.length > 1 ? 's' : ''}
                                         </summary>
-                                        <div className="px-2.5 pt-1 pb-2">
-                                            {msg.toolArgs !== undefined && (
-                                                <div className="font-mono text-[11px] text-content-tertiary whitespace-pre-wrap break-all">
-                                                    {typeof msg.toolArgs === 'string' ? msg.toolArgs : JSON.stringify(msg.toolArgs, null, 2)}
+                                        <div style={{ padding: '4px 10px 8px' }}>
+                                            {msg.toolCalls.map((tc, j) => (
+                                                <div key={j} style={{
+                                                    marginBottom: j < msg.toolCalls!.length - 1 ? '6px' : 0,
+                                                    borderBottom: j < msg.toolCalls!.length - 1 ? '1px solid var(--border-subtle)' : 'none',
+                                                    paddingBottom: j < msg.toolCalls!.length - 1 ? '6px' : 0,
+                                                }}>
+                                                    <div style={{ fontWeight: 600, color: 'var(--accent-text)', marginBottom: '2px' }}>
+                                                        {tc.name}
+                                                    </div>
+                                                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-tertiary)', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                                                        {JSON.stringify(tc.args)}
+                                                    </div>
+                                                    {tc.result && (
+                                                        <div style={{
+                                                            marginTop: '4px', fontSize: '11px', color: 'var(--text-secondary)',
+                                                            fontFamily: 'var(--font-mono)', whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+                                                            maxHeight: '120px', overflow: 'auto',
+                                                        }}>
+                                                            {tc.result}
+                                                        </div>
+                                                    )}
                                                 </div>
-                                            )}
-                                            {msg.toolResult && (
-                                                <div className="mt-1.5 text-[11px] text-content-secondary font-mono whitespace-pre-wrap break-all max-h-[120px] overflow-auto">
-                                                    {msg.toolResult}
-                                                </div>
-                                            )}
+                                            ))}
                                         </div>
                                     </details>
-                                ) : msg.role === 'assistant' ? (
+                                )}
+                                {msg.role === 'assistant' ? (
                                     streaming && !msg.content && i === messages.length - 1 ? (
                                         <div className="thinking-indicator">
                                             <div className="thinking-dots">
                                                 <span /><span /><span />
                                             </div>
-                                            <span className="text-content-tertiary text-[13px]">{t('agent.chat.thinking', 'Thinking...')}</span>
+                                            <span style={{ color: 'var(--text-tertiary)', fontSize: '13px' }}>{t('agent.chat.thinking', 'Thinking...')}</span>
                                         </div>
                                     ) : (
                                         <MarkdownRenderer content={msg.content} />
                                     )
-                                ) : msg.role === 'event' ? null : (
-                                    <div className="whitespace-pre-wrap">{msg.content}</div>
+                                ) : (
+                                    <div style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</div>
                                 )}
                                 {msg.timestamp && (
-                                    <div className="text-[10px] text-content-tertiary mt-1 opacity-70">
-                                        {formatRelative(msg.timestamp)}
+                                    <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginTop: '4px', opacity: 0.7 }}>
+                                        {new Date(msg.timestamp).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                                     </div>
                                 )}
                             </div>
@@ -376,7 +462,7 @@ export default function Chat() {
                     ))}
                     {(isWaiting || (streaming && (messages.length === 0 || messages[messages.length - 1].role === 'user'))) && (
                         <div className="chat-message assistant">
-                            <div className="chat-avatar text-content-tertiary">
+                            <div className="chat-avatar" style={{ color: 'var(--text-tertiary)' }}>
                                 {Icons.bot}
                             </div>
                             <div className="chat-bubble">
@@ -384,7 +470,7 @@ export default function Chat() {
                                     <div className="thinking-dots">
                                         <span /><span /><span />
                                     </div>
-                                    <span className="text-content-tertiary text-[13px]">{t('agent.chat.thinking', 'Thinking...')}</span>
+                                    <span style={{ color: 'var(--text-tertiary)', fontSize: '13px' }}>{t('agent.chat.thinking', 'Thinking...')}</span>
                                 </div>
                             </div>
                         </div>
@@ -393,23 +479,27 @@ export default function Chat() {
                 </div>
 
                 {attachedFile && (
-                    <div className="flex items-center justify-between px-3 py-1.5 text-xs bg-surface-elevated border-t border-edge-subtle">
-                        <span className="flex items-center gap-1.5">
+                    <div style={{
+                        padding: '6px 12px',
+                        background: 'var(--bg-elevated)',
+                        borderTop: '1px solid var(--border-subtle)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        fontSize: '12px',
+                    }}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                             {attachedFile.imageUrl ? (
-                                <img src={attachedFile.imageUrl} alt={attachedFile.name} className="w-8 h-8 rounded object-cover" />
+                                <img src={attachedFile.imageUrl} alt={attachedFile.name} style={{ width: '32px', height: '32px', borderRadius: '4px', objectFit: 'cover' }} />
                             ) : (
-                                <span className="flex">{Icons.clip}</span>
+                                <span style={{ display: 'flex' }}>{Icons.clip}</span>
                             )}
                             {attachedFile.name}
                         </span>
-                        <Button
-                            variant="ghost"
-                            size="sm"
+                        <button
                             onClick={() => setAttachedFile(null)}
-                            className="text-content-tertiary text-sm"
-                        >
-                            {'\u2715'}
-                        </Button>
+                            style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: '14px' }}
+                        >✕</button>
                     </div>
                 )}
 
@@ -418,47 +508,34 @@ export default function Chat() {
                         type="file"
                         ref={fileInputRef}
                         onChange={handleFileSelect}
-                        className="hidden"
+                        style={{ display: 'none' }}
+
                     />
-                    <Button
-                        variant="secondary"
-                        size="icon"
+                    <button
+                        className="btn btn-secondary"
                         onClick={() => fileInputRef.current?.click()}
                         disabled={!connected || uploading || isWaiting || streaming}
-                        aria-label={t('agent.workspace.uploadFile')}
+                        style={{ padding: '8px 12px', fontSize: '16px', minWidth: 'auto' }}
+                        title={t('agent.workspace.uploadFile')}
                     >
                         {uploading ? Icons.loader : Icons.clip}
-                    </Button>
-                    <Input
-                        className="flex-1 h-10 rounded-[10px] bg-surface-secondary"
+                    </button>
+                    <input
+                        className="chat-input"
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
                         onKeyDown={handleKeyDown}
                         placeholder={attachedFile ? t('agent.chat.askAboutFile', { name: attachedFile.name }) : t('chat.placeholder')}
-                        disabled={!connected || isWaiting || streaming}
+                        disabled={!connected}
                     />
                     {(streaming || isWaiting) ? (
-                        <button
-                            className="btn-stop-generation"
-                            onClick={() => {
-                                if (wsRef.current?.readyState === WebSocket.OPEN) {
-                                    wsRef.current.send(JSON.stringify({ type: 'abort' }));
-                                    setStreaming(false);
-                                    setIsWaiting(false);
-                                }
-                            }}
-                            aria-label={t('chat.stop', 'Stop')}
-                        >
+                        <button className="btn btn-stop-generation" onClick={() => { if (wsRef.current?.readyState === WebSocket.OPEN) { wsRef.current.send(JSON.stringify({ type: 'abort' })); setStreaming(false); setIsWaiting(false); } }} title={t('chat.stop', 'Stop')}>
                             <span className="stop-icon" />
                         </button>
                     ) : (
-                        <Button
-                            onClick={sendMessage}
-                            disabled={!connected || (!input.trim() && !attachedFile)}
-                            aria-label={t('chat.send')}
-                        >
+                        <button className="btn btn-primary" onClick={sendMessage} disabled={!connected || (!input.trim() && !attachedFile)}>
                             {t('chat.send')}
-                        </Button>
+                        </button>
                     )}
                 </div>
             </div>

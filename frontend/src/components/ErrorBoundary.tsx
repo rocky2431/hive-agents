@@ -1,5 +1,4 @@
-import { Component, ErrorInfo, ReactNode } from 'react';
-import i18n from '../i18n';
+import React, { Component, ErrorInfo, ReactNode } from 'react';
 
 interface Props {
     children?: ReactNode;
@@ -22,9 +21,7 @@ class ErrorBoundary extends Component<Props, State> {
     }
 
     public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-        if (import.meta.env.DEV) {
-            console.error('Uncaught error:', error, errorInfo);
-        }
+        console.error('Uncaught error:', error, errorInfo);
     }
 
     public render() {
@@ -33,22 +30,22 @@ class ErrorBoundary extends Component<Props, State> {
                 return this.props.fallback;
             }
             return (
-                <div className="mx-auto mt-10 max-w-xl rounded-lg bg-surface-secondary p-5 text-content-primary shadow-md">
-                    <h2 className="mb-4 flex items-center gap-2 text-error">
-                        <span className="text-2xl" aria-hidden="true">⚠️</span> {i18n.t('errorBoundary.title')}
+                <div style={{ padding: '20px', color: 'var(--text-primary)', maxWidth: '600px', margin: '40px auto', background: 'var(--bg-card)', borderRadius: '8px', boxShadow: 'var(--shadow-md)' }}>
+                    <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '0 0 16px 0', color: 'var(--error)' }}>
+                        <span style={{ fontSize: '24px' }}>⚠️</span> Oops, something went wrong.
                     </h2>
-                    <p className="mb-4 text-content-secondary">
-                        {i18n.t('errorBoundary.description')}
+                    <p style={{ color: 'var(--text-secondary)', marginBottom: '16px' }}>
+                        An unexpected error occurred. You can try refreshing the page or contact support if the problem persists.
                     </p>
-                    <details className="mb-5 whitespace-pre-wrap rounded border border-edge-default bg-surface-primary p-3 text-sm text-error">
-                        <summary className="mb-2 cursor-pointer font-bold">{i18n.t('errorBoundary.errorDetails')}</summary>
+                    <details style={{ whiteSpace: 'pre-wrap', marginBottom: '20px', padding: '12px', background: 'var(--bg-secondary)', borderRadius: '4px', fontSize: '13px', border: '1px solid var(--border-color)', color: 'var(--error)' }}>
+                        <summary style={{ cursor: 'pointer', fontWeight: 'bold', marginBottom: '8px' }}>Error Details</summary>
                         {this.state.error && this.state.error.toString()}
                     </details>
                     <button
                         className="btn btn-primary"
                         onClick={() => window.location.reload()}
                     >
-                        {i18n.t('errorBoundary.refreshPage')}
+                        Refresh Page
                     </button>
                 </div>
             );

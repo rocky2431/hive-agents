@@ -7,7 +7,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import MarkdownRenderer from './MarkdownRenderer';
-import { cn } from '@/lib/cn';
 
 // ─── Types ─────────────────────────────────────────────
 
@@ -57,6 +56,13 @@ function isTextFile(name: string): boolean {
     return !base.includes('.') || base.startsWith('.');
 }
 
+const IMAGE_EXTS = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.bmp', '.ico'];
+
+function isImage(name: string): boolean {
+    const n = name.toLowerCase();
+    return IMAGE_EXTS.some(ext => n.endsWith(ext));
+}
+
 // ─── Component ─────────────────────────────────────────
 
 export default function FileBrowser({
@@ -65,7 +71,7 @@ export default function FileBrowser({
     features = {},
     fileFilter,
     singleFile,
-    uploadAccept = '.pdf,.docx,.xlsx,.pptx,.txt,.md,.csv,.json,.xml,.yaml,.yml,.js,.ts,.py,.html,.css,.sh,.log',
+    uploadAccept = '.pdf,.docx,.xlsx,.pptx,.txt,.md,.csv,.json,.xml,.yaml,.yml,.js,.ts,.py,.html,.css,.sh,.log,.png,.jpg,.jpeg,.gif,.svg,.webp',
     title,
     readOnly = false,
     onRefresh,
@@ -251,9 +257,9 @@ export default function FileBrowser({
     const renderBreadcrumbs = () => {
         if (!directoryNavigation || singleFile) return null;
         return (
-            <div className="text-xs flex items-center gap-1 mb-2 flex-wrap">
+            <div style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '8px', flexWrap: 'wrap' }}>
                 <span
-                    className="cursor-pointer text-accent-primary font-medium"
+                    style={{ cursor: 'pointer', color: 'var(--accent-primary)', fontWeight: 500 }}
                     onClick={() => { setCurrentPath(rootPath); setViewing(null); setEditing(false); }}
                 >
                     📁 {rootPath || 'root'}
@@ -262,9 +268,9 @@ export default function FileBrowser({
                     const upTo = pathParts.slice(0, (rootPath ? rootPath.split('/').filter(Boolean).length : 0) + i + 1).join('/');
                     return (
                         <span key={upTo}>
-                            <span className="text-content-tertiary"> / </span>
+                            <span style={{ color: 'var(--text-tertiary)' }}> / </span>
                             <span
-                                className="cursor-pointer text-accent-primary"
+                                style={{ cursor: 'pointer', color: 'var(--accent-primary)' }}
                                 onClick={() => { setCurrentPath(upTo); setViewing(null); setEditing(false); }}
                             >
                                 {part}
@@ -281,10 +287,11 @@ export default function FileBrowser({
     const renderToast = () => {
         if (!toast) return null;
         return (
-            <div className={cn(
-                'fixed top-5 right-5 z-[20000] px-5 py-3 rounded-lg text-white text-sm font-medium shadow-lg',
-                toast.type === 'success' ? 'bg-green-500/90' : 'bg-red-500/90'
-            )}>
+            <div style={{
+                position: 'fixed', top: '20px', right: '20px', zIndex: 20000, padding: '12px 20px', borderRadius: '8px',
+                background: toast.type === 'success' ? 'rgba(34, 197, 94, 0.9)' : 'rgba(239, 68, 68, 0.9)',
+                color: '#fff', fontSize: '14px', fontWeight: 500, boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+            }}>
                 {toast.message}
             </div>
         );
@@ -295,12 +302,12 @@ export default function FileBrowser({
     const renderDeleteModal = () => {
         if (!deleteTarget) return null;
         return (
-            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[10000]"
+            <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000 }}
                 onClick={(e) => { if (e.target === e.currentTarget) setDeleteTarget(null); }}>
-                <div className="bg-surface-primary rounded-xl p-6 w-[380px] border border-edge-subtle shadow-2xl">
-                    <h4 className="mb-3 text-[15px]">{t('common.delete')}</h4>
-                    <p className="text-[13px] text-content-secondary mb-5">Delete "{deleteTarget.name}"?</p>
-                    <div className="flex justify-end gap-2">
+                <div style={{ background: 'var(--bg-primary)', borderRadius: '12px', padding: '24px', width: '380px', border: '1px solid var(--border-subtle)', boxShadow: '0 20px 60px rgba(0,0,0,0.4)' }}>
+                    <h4 style={{ marginBottom: '12px', fontSize: '15px' }}>{t('common.delete')}</h4>
+                    <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '20px' }}>Delete "{deleteTarget.name}"?</p>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
                         <button className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>{t('common.cancel')}</button>
                         <button className="btn btn-danger" onClick={handleDelete}>{t('common.delete')}</button>
                     </div>
@@ -314,19 +321,20 @@ export default function FileBrowser({
     const renderPromptModal = () => {
         if (!promptModal) return null;
         return (
-            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[10000]"
+            <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000 }}
                 onClick={(e) => { if (e.target === e.currentTarget) { setPromptModal(null); setPromptValue(''); } }}>
-                <div className="bg-surface-primary rounded-xl p-6 w-[400px] border border-edge-subtle shadow-2xl">
-                    <h4 className="mb-4 text-[15px]">{promptModal.title}</h4>
+                <div style={{ background: 'var(--bg-primary)', borderRadius: '12px', padding: '24px', width: '400px', border: '1px solid var(--border-subtle)', boxShadow: '0 20px 60px rgba(0,0,0,0.4)' }}>
+                    <h4 style={{ marginBottom: '16px', fontSize: '15px' }}>{promptModal.title}</h4>
                     <input
-                        className="form-input mb-4"
+                        className="form-input"
                         autoFocus
                         placeholder={promptModal.placeholder}
                         value={promptValue}
                         onChange={e => setPromptValue(e.target.value)}
                         onKeyDown={e => { if (e.key === 'Enter') handlePromptConfirm(); }}
+                        style={{ marginBottom: '16px' }}
                     />
-                    <div className="flex justify-end gap-2">
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
                         <button className="btn btn-secondary" onClick={() => { setPromptModal(null); setPromptValue(''); }}>{t('common.cancel')}</button>
                         <button className="btn btn-primary" onClick={handlePromptConfirm} disabled={!promptValue.trim()}>OK</button>
                     </div>
@@ -341,13 +349,13 @@ export default function FileBrowser({
     if (singleFile) {
         return (
             <div className="card">
-                <div className="flex justify-between items-center mb-3">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                     {title ? <h3>{title}</h3> : <div />}
                     {edit && (
                         !editing ? (
                             <button className="btn btn-secondary" onClick={() => { setEditContent(content); setEditing(true); }}>{t('agent.soul.editButton')}</button>
                         ) : (
-                            <div className="flex gap-2">
+                            <div style={{ display: 'flex', gap: '8px' }}>
                                 <button className="btn btn-secondary" onClick={() => setEditing(false)}>{t('common.cancel')}</button>
                                 <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
                                     {saving ? t('agent.soul.saving') : t('agent.soul.saveButton')}
@@ -357,19 +365,20 @@ export default function FileBrowser({
                     )}
                 </div>
                 {editing ? (
-                    <textarea ref={textareaRef} className="form-textarea font-mono text-[13px] leading-relaxed min-h-[200px] resize-y overflow-hidden" value={editContent} onChange={e => setEditContent(e.target.value)} />
+                    <textarea ref={textareaRef} className="form-textarea" value={editContent} onChange={e => setEditContent(e.target.value)}
+                        style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', lineHeight: '1.6', minHeight: '200px', resize: 'vertical', overflow: 'hidden' }} />
                 ) : !contentLoaded ? (
-                    <div className="p-5 text-content-tertiary text-center">{t('common.loading')}</div>
+                    <div style={{ padding: '20px', color: 'var(--text-tertiary)', textAlign: 'center' }}>{t('common.loading')}</div>
                 ) : content ? (
                     singleFile?.endsWith('.md') ? (
-                        <MarkdownRenderer content={content} className="py-1" />
+                        <MarkdownRenderer content={content} style={{ padding: '4px 0' }} />
                     ) : (
-                        <pre className="whitespace-pre-wrap font-mono text-[13px] leading-relaxed m-0">
+                        <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'var(--font-mono)', fontSize: '13px', lineHeight: '1.6', margin: 0 }}>
                             {content}
                         </pre>
                     )
                 ) : (
-                    <div className="p-5 text-content-tertiary text-center text-[13px]">
+                    <div style={{ padding: '20px', color: 'var(--text-tertiary)', textAlign: 'center', fontSize: '13px' }}>
                         {t('common.noData', 'No content yet. Click Edit to add.')}
                     </div>
                 )}
@@ -385,52 +394,65 @@ export default function FileBrowser({
         const isText = isTextFile(viewing);
         return (
             <div>
-                <div className="flex items-center gap-2 mb-3">
-                    <button className="btn btn-secondary px-2.5 py-1 text-xs"
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                    <button className="btn btn-secondary" style={{ padding: '4px 10px', fontSize: '12px' }}
                         onClick={() => { setViewing(null); setEditing(false); }}>← {t('common.back')}</button>
-                    <span className="text-xs font-mono text-content-secondary flex-1">{viewing}</span>
+                    <span style={{ fontSize: '12px', fontFamily: 'monospace', color: 'var(--text-secondary)', flex: 1 }}>{viewing}</span>
                     {isText && edit && (
                         !editing ? (
-                            <button className="btn btn-secondary px-3 py-1 text-xs"
+                            <button className="btn btn-secondary" style={{ padding: '4px 12px', fontSize: '12px' }}
                                 onClick={() => { setEditContent(content); setEditing(true); }}>✏️ {t('agent.soul.editButton')}</button>
                         ) : (
-                            <div className="flex gap-1.5">
-                                <button className="btn btn-secondary px-3 py-1 text-xs"
+                            <div style={{ display: 'flex', gap: '6px' }}>
+                                <button className="btn btn-secondary" style={{ padding: '4px 12px', fontSize: '12px' }}
                                     onClick={() => setEditing(false)}>{t('common.cancel')}</button>
-                                <button className="btn btn-primary px-3 py-1 text-xs"
+                                <button className="btn btn-primary" style={{ padding: '4px 12px', fontSize: '12px' }}
                                     disabled={saving} onClick={handleSave}>{saving ? 'Saving...' : t('common.save')}</button>
                             </div>
                         )
                     )}
                     {api.downloadUrl && (
-                        <a href={api.downloadUrl(viewing)} download className="no-underline">
-                            <button className="btn btn-secondary px-3 py-1 text-xs">⬇ {t('common.download', 'Download')}</button>
+                        <a href={api.downloadUrl(viewing)} download style={{ textDecoration: 'none' }}>
+                            <button className="btn btn-secondary" style={{ padding: '4px 12px', fontSize: '12px' }}>⬇ {t('common.download', 'Download')}</button>
                         </a>
                     )}
                     {canDelete && (
-                        <button className="btn btn-danger px-2.5 py-1 text-xs"
+                        <button className="btn btn-danger" style={{ padding: '4px 10px', fontSize: '12px' }}
                             onClick={() => setDeleteTarget({ path: viewing, name: viewing.split('/').pop() || viewing })}>×</button>
                     )}
                 </div>
                 <div className="card">
                     {isText ? (
                         editing ? (
-                            <textarea ref={textareaRef} className="form-textarea font-mono text-xs leading-relaxed min-h-[200px] resize-y overflow-hidden" value={editContent} onChange={e => setEditContent(e.target.value)} />
+                            <textarea ref={textareaRef} className="form-textarea" value={editContent} onChange={e => setEditContent(e.target.value)}
+                                style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', lineHeight: '1.6', minHeight: '200px', resize: 'vertical', overflow: 'hidden' }} />
                         ) : viewing?.endsWith('.md') ? (
-                            <MarkdownRenderer content={content || ''} className="p-1" />
+                            <MarkdownRenderer content={content || ''} style={{ padding: '4px' }} />
                         ) : (
-                            <pre className="whitespace-pre-wrap font-mono text-xs leading-normal m-0">
+                            <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'var(--font-mono)', fontSize: '12px', lineHeight: '1.5', margin: 0 }}>
                                 {content || t('common.noData', 'No content yet')}
                             </pre>
                         )
+                    ) : isImage(viewing) ? (
+                        <div style={{ textAlign: 'center', padding: '20px', background: 'var(--bg-tertiary)', borderRadius: '8px' }}>
+                            {api.downloadUrl ? (
+                                <img 
+                                    src={api.downloadUrl(viewing)} 
+                                    alt={viewing.split('/').pop()} 
+                                    style={{ maxWidth: '100%', maxHeight: '600px', objectFit: 'contain', borderRadius: '4px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} 
+                                />
+                            ) : (
+                                <div style={{ padding: '20px', color: 'var(--text-tertiary)' }}>Cannot preview image without download URL</div>
+                            )}
+                        </div>
                     ) : (
-                        <div className="text-center p-10 text-content-tertiary">
-                            <div className="text-5xl mb-3">⌇</div>
-                            <div className="text-sm font-medium mb-1">{viewing.split('/').pop()}</div>
-                            <div className="text-xs mb-4">Binary file — cannot preview</div>
+                        <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-tertiary)' }}>
+                            <div style={{ fontSize: '48px', marginBottom: '12px' }}>⌇</div>
+                            <div style={{ fontSize: '14px', fontWeight: 500, marginBottom: '4px' }}>{viewing.split('/').pop()}</div>
+                            <div style={{ fontSize: '12px', marginBottom: '16px' }}>Binary file — cannot preview</div>
                             {api.downloadUrl && (
-                                <a href={api.downloadUrl(viewing)} download className="no-underline">
-                                    <button className="btn btn-primary text-[13px] px-5 py-2">⬇ {t('common.download', 'Download')}</button>
+                                <a href={api.downloadUrl(viewing)} download style={{ textDecoration: 'none' }}>
+                                    <button className="btn btn-primary" style={{ fontSize: '13px', padding: '8px 20px' }}>⬇ {t('common.download', 'Download')}</button>
                                 </a>
                             )}
                         </div>
@@ -448,27 +470,27 @@ export default function FileBrowser({
     return (
         <div>
             {/* Toolbar */}
-            <div className="flex justify-between items-center mb-2.5 flex-wrap gap-2">
-                {title && <h3 className="m-0">{title}</h3>}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
+                {title && <h3 style={{ margin: 0 }}>{title}</h3>}
                 {renderBreadcrumbs()}
-                <div className="flex gap-1.5 ml-auto">
+                <div style={{ display: 'flex', gap: '6px', marginLeft: 'auto' }}>
                     {upload && api.upload && (
-                        <button className="btn btn-secondary text-xs" onClick={handleUpload}>⬆ Upload</button>
+                        <button className="btn btn-secondary" style={{ fontSize: '12px' }} onClick={handleUpload}>⬆ Upload</button>
                     )}
                     {newFolder && (
-                        <button className="btn btn-secondary text-xs"
+                        <button className="btn btn-secondary" style={{ fontSize: '12px' }}
                             onClick={() => setPromptModal({ title: t('agent.workspace.newFolder'), placeholder: t('agent.workspace.newFolderName'), action: 'newFolder' })}>
                             📁 {t('agent.workspace.newFolder')}
                         </button>
                     )}
                     {newFile && !fileFilter && (
-                        <button className="btn btn-primary text-xs"
+                        <button className="btn btn-primary" style={{ fontSize: '12px' }}
                             onClick={() => setPromptModal({ title: t('agent.workspace.newFile', 'New File'), placeholder: 'filename.md', action: 'newFile' })}>
                             + {t('agent.workspace.newFile', 'New File')}
                         </button>
                     )}
                     {newFile && fileFilter?.includes('.md') && (
-                        <button className="btn btn-primary text-xs"
+                        <button className="btn btn-primary" style={{ fontSize: '12px' }}
                             onClick={() => setPromptModal({ title: 'New Skill', placeholder: 'skill-name', action: 'newSkill' })}>
                             + New Skill
                         </button>
@@ -478,27 +500,27 @@ export default function FileBrowser({
 
             {/* File list */}
             {loading ? (
-                <div className="p-5 text-content-tertiary text-center">{t('common.loading')}</div>
+                <div style={{ padding: '20px', color: 'var(--text-tertiary)', textAlign: 'center' }}>{t('common.loading')}</div>
             ) : uploadProgress ? (
-                <div className="card p-4">
-                    <div className="flex items-center gap-2.5 mb-2">
-                        <span className="text-[13px]">⬆</span>
-                        <span className="text-[13px] font-medium flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{uploadProgress.fileName}</span>
-                        <span className="text-xs text-content-tertiary tabular-nums">{uploadProgress.percent}%</span>
+                <div className="card" style={{ padding: '16px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                        <span style={{ fontSize: '13px' }}>⬆</span>
+                        <span style={{ fontSize: '13px', fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{uploadProgress.fileName}</span>
+                        <span style={{ fontSize: '12px', color: 'var(--text-tertiary)', fontVariantNumeric: 'tabular-nums' }}>{uploadProgress.percent}%</span>
                     </div>
-                    <div className="h-1 rounded-sm bg-surface-secondary overflow-hidden">
-                        <div className="h-full rounded-sm bg-accent-primary transition-[width] duration-150 ease-out" style={{ width: `${uploadProgress.percent}%` }} />
+                    <div style={{ height: '4px', borderRadius: '2px', background: 'var(--bg-tertiary)', overflow: 'hidden' }}>
+                        <div style={{ height: '100%', borderRadius: '2px', background: 'var(--accent-primary)', width: `${uploadProgress.percent}%`, transition: 'width 0.15s ease' }} />
                     </div>
                 </div>
             ) : files.length === 0 ? (
-                <div className="card text-center p-10 text-content-tertiary">
+                <div className="card" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-tertiary)' }}>
                     {t('common.noData')}
                 </div>
             ) : (
-                <div className="flex flex-col gap-1">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                     {/* Back button for subdirectories */}
                     {directoryNavigation && currentPath !== rootPath && (
-                        <div className="card flex items-center px-3 py-2 cursor-pointer opacity-70"
+                        <div className="card" style={{ display: 'flex', alignItems: 'center', padding: '8px 12px', cursor: 'pointer', opacity: 0.7 }}
                             onClick={() => {
                                 const parts = currentPath.split('/').filter(Boolean);
                                 parts.pop();
@@ -506,11 +528,12 @@ export default function FileBrowser({
                                 setViewing(null);
                                 setEditing(false);
                             }}>
-                            <span className="text-[13px]">↩ ..</span>
+                            <span style={{ fontSize: '13px' }}>↩ ..</span>
                         </div>
                     )}
                     {files.map((f) => (
-                        <div key={f.name} className="card flex items-center justify-between px-3 py-2.5 cursor-pointer"
+                        <div key={f.name} className="card"
+                            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', cursor: 'pointer' }}
                             onClick={() => {
                                 if (f.is_dir && directoryNavigation) {
                                     setCurrentPath(f.path || `${currentPath}/${f.name}`);
@@ -521,22 +544,22 @@ export default function FileBrowser({
                                     setEditing(false);
                                 }
                             }}>
-                            <div className="flex items-center gap-2">
-                                <span className="text-[13px] text-content-tertiary">{f.is_dir ? '/' : '·'}</span>
-                                <span className="font-medium text-[13px]">{fileFilter?.includes('.md') ? f.name.replace('.md', '') : f.name}</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span style={{ fontSize: '13px', color: 'var(--text-tertiary)' }}>{f.is_dir ? '/' : '·'}</span>
+                                <span style={{ fontWeight: 500, fontSize: '13px' }}>{fileFilter?.includes('.md') ? f.name.replace('.md', '') : f.name}</span>
                             </div>
-                            <div className="flex items-center gap-2">
-                                {f.size != null && <span className="text-[11px] text-content-tertiary">{(f.size / 1024).toFixed(1)} KB</span>}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                {f.size != null && <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{(f.size / 1024).toFixed(1)} KB</span>}
                                 {!f.is_dir && api.downloadUrl && (
                                     <a href={api.downloadUrl(f.path || `${currentPath}/${f.name}`)} download
                                         onClick={(e) => e.stopPropagation()}
                                         title={t('common.download', 'Download')}
-                                        className="px-1.5 py-0.5 text-[11px] text-accent-primary no-underline rounded">
+                                        style={{ padding: '2px 6px', fontSize: '11px', color: 'var(--accent-primary)', textDecoration: 'none', borderRadius: '4px' }}>
                                         ⬇
                                     </a>
                                 )}
-                                {canDelete && !f.is_dir && (
-                                    <button className="btn btn-ghost px-1.5 py-0.5 text-[11px] text-error"
+                                {canDelete && (
+                                    <button className="btn btn-ghost" style={{ padding: '2px 6px', fontSize: '11px', color: 'var(--error)' }}
                                         onClick={(e) => { e.stopPropagation(); setDeleteTarget({ path: f.path || `${currentPath}/${f.name}`, name: f.name }); }}>
                                         ×
                                     </button>

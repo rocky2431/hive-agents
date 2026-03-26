@@ -1,15 +1,9 @@
 /**
- * User Management — admin page to view and manage user quotas.
+ * User Management — admin page to view and manage user quotas and roles.
  */
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { orgApi, userApi } from '@/services/api';
-import { formatDateTime } from '@/lib/date';
-import { Card } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@/components/ui/select';
-import { Label } from '@/components/ui/label';
+import { useAuthStore } from '../stores';
 
 interface UserInfo {
     id: string;
@@ -17,8 +11,6 @@ interface UserInfo {
     email: string;
     display_name: string;
     role: string;
-    department_id?: string;
-    title?: string;
     is_active: boolean;
     quota_message_limit: number;
     quota_message_period: string;
@@ -31,19 +23,36 @@ interface UserInfo {
     source?: string;
 }
 
-const PERIOD_VALUES = ['permanent', 'daily', 'weekly', 'monthly'] as const;
+const API_PREFIX = '/api';
+
+async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
+    const token = localStorage.getItem('token');
+    const res = await fetch(`${API_PREFIX}${url}`, {
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        ...options,
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+const PERIOD_OPTIONS = [
+    { value: 'permanent', label: 'Permanent' },
+    { value: 'daily', label: 'Daily' },
+    { value: 'weekly', label: 'Weekly' },
+    { value: 'monthly', label: 'Monthly' },
+];
+
 const PAGE_SIZE = 15;
 
 export default function UserManagement() {
-    const { t } = useTranslation();
+    const { t, i18n } = useTranslation();
+    const isChinese = i18n.language?.startsWith('zh');
+    const { user: currentUser, setUser } = useAuthStore();
 
     const [users, setUsers] = useState<UserInfo[]>([]);
     const [loading, setLoading] = useState(true);
     const [editingUserId, setEditingUserId] = useState<string | null>(null);
     const [editForm, setEditForm] = useState({
-        display_name: '',
-        title: '',
-        department_id: '',
         quota_message_limit: 50,
         quota_message_period: 'permanent',
         quota_max_agents: 2,
@@ -51,53 +60,30 @@ export default function UserManagement() {
     });
     const [saving, setSaving] = useState(false);
     const [toast, setToast] = useState('');
+    const [changingRoleUserId, setChangingRoleUserId] = useState<string | null>(null);
 
+    // Search, sort & pagination
     const [searchQuery, setSearchQuery] = useState('');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
     const [page, setPage] = useState(1);
-    const [departments, setDepartments] = useState<any[]>([]);
-
-    const tenantId = localStorage.getItem('current_tenant_id') || '';
 
     const loadUsers = async () => {
         setLoading(true);
         try {
-            const data = await userApi.list(tenantId || undefined);
+            const tenantId = localStorage.getItem('current_tenant_id') || '';
+            const data = await fetchJson<UserInfo[]>(`/users/${tenantId ? `?tenant_id=${tenantId}` : ''}`);
             setUsers(data);
         } catch (e) {
-            if (import.meta.env.DEV) console.error('Failed to load users', e);
+            console.error('Failed to load users', e);
         }
         setLoading(false);
     };
 
-    const loadDepartments = async () => {
-        try {
-            const data = await orgApi.listDepartments(tenantId || undefined);
-            const flattened: any[] = [];
-            const walk = (items: any[], level = 0) => {
-                items.forEach((item) => {
-                    flattened.push({ ...item, level });
-                    if (item.children?.length) walk(item.children, level + 1);
-                });
-            };
-            walk(data);
-            setDepartments(flattened);
-        } catch (e) {
-            if (import.meta.env.DEV) console.error('Failed to load departments', e);
-        }
-    };
-
-    useEffect(() => {
-        loadUsers();
-        loadDepartments();
-    }, []);
+    useEffect(() => { loadUsers(); }, []);
 
     const startEdit = (user: UserInfo) => {
         setEditingUserId(user.id);
         setEditForm({
-            display_name: user.display_name || '',
-            title: user.title || '',
-            department_id: user.department_id || '',
             quota_message_limit: user.quota_message_limit,
             quota_message_period: user.quota_message_period,
             quota_max_agents: user.quota_max_agents,
@@ -109,37 +95,80 @@ export default function UserManagement() {
         if (!editingUserId) return;
         setSaving(true);
         try {
-            await orgApi.updateUser(editingUserId, {
-                display_name: editForm.display_name,
-                title: editForm.title || null,
-                department_id: editForm.department_id || null,
+            await fetchJson(`/users/${editingUserId}/quota`, {
+                method: 'PATCH',
+                body: JSON.stringify(editForm),
             });
-            await userApi.updateQuota(editingUserId, {
-                quota_message_limit: editForm.quota_message_limit,
-                quota_message_period: editForm.quota_message_period,
-                quota_max_agents: editForm.quota_max_agents,
-                quota_agent_ttl_hours: editForm.quota_agent_ttl_hours,
-            });
-            setToast(t('userMgmt.quotaUpdated'));
+            setToast(isChinese ? '✅ 配额已更新' : '✅ Quota updated');
             setTimeout(() => setToast(''), 2000);
             setEditingUserId(null);
             loadUsers();
         } catch (e: any) {
-            setToast(e.message);
+            setToast(`❌ ${e.message}`);
             setTimeout(() => setToast(''), 3000);
         }
         setSaving(false);
     };
 
-    const periodLabel = (period: string) => t(`userMgmt.period.${period}`, period);
+    // ── Role change handler ──
+    const handleRoleChange = async (userId: string, newRole: string) => {
+        setChangingRoleUserId(userId);
+        try {
+            await fetchJson(`/users/${userId}/role`, {
+                method: 'PATCH',
+                body: JSON.stringify({ role: newRole }),
+            });
+            setToast(isChinese ? 'Role updated' : 'Role updated');
+            setTimeout(() => setToast(''), 2000);
+            // If changed own role, update auth store
+            if (userId === currentUser?.id) {
+                setUser({ ...currentUser, role: newRole as any });
+            }
+            loadUsers();
+        } catch (e: any) {
+            const detail = (() => { try { return JSON.parse(e.message)?.detail; } catch { return e.message; } })();
+            setToast(`Error: ${detail || e.message}`);
+            setTimeout(() => setToast(''), 4000);
+        }
+        setChangingRoleUserId(null);
+    };
+
+    const periodLabel = (period: string) => {
+        if (isChinese) {
+            const map: Record<string, string> = { permanent: '永久', daily: '每天', weekly: '每周', monthly: '每月' };
+            return map[period] || period;
+        }
+        return PERIOD_OPTIONS.find(p => p.value === period)?.label || period;
+    };
+
+    // Role label & styling helpers
+    const roleBadge = (role: string) => {
+        const styles: Record<string, { bg: string; color: string; label: string; labelZh: string }> = {
+            platform_admin: { bg: 'rgba(239,68,68,0.12)', color: '#ef4444', label: 'Platform Admin', labelZh: 'Platform Admin' },
+            org_admin:      { bg: 'rgba(168,85,247,0.12)', color: '#a855f7', label: 'Admin', labelZh: 'Admin' },
+        };
+        const s = styles[role];
+        if (!s) return null;
+        return (
+            <span style={{ marginLeft: '6px', fontSize: '10px', background: s.bg, color: s.color, borderRadius: '4px', padding: '1px 6px', fontWeight: 500 }}>
+                {isChinese ? s.labelZh : s.label}
+            </span>
+        );
+    };
+
+    const formatDate = (iso?: string) => {
+        if (!iso) return '-';
+        const d = new Date(iso);
+        return d.toLocaleString(isChinese ? 'zh-CN' : 'en-US', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+    };
 
     // Search filter
     const filtered = searchQuery.trim()
         ? users.filter(u => {
             const q = searchQuery.toLowerCase();
-            return u.username?.toLowerCase().includes(q)
-                || u.display_name?.toLowerCase().includes(q)
-                || u.email?.toLowerCase().includes(q);
+            return (u.username?.toLowerCase().includes(q))
+                || (u.display_name?.toLowerCase().includes(q))
+                || (u.email?.toLowerCase().includes(q));
         })
         : users;
 
@@ -159,262 +188,250 @@ export default function UserManagement() {
         setPage(1);
     };
 
-    const gridCols = 'grid grid-cols-[1.4fr_1.4fr_0.8fr_0.9fr_0.8fr_0.8fr_0.8fr_0.8fr_100px] gap-2.5';
-
     return (
         <div>
             {toast && (
-                <div className={`fixed top-5 right-5 px-5 py-2.5 rounded-lg text-white text-xs z-[9999] transition-all ${toast.includes('error') || toast.includes('Error') ? 'bg-error' : 'bg-success'}`}>
+                <div style={{
+                    position: 'fixed', top: '20px', right: '20px', padding: '10px 20px',
+                    borderRadius: '8px', background: toast.startsWith('✅') ? 'var(--success)' : 'var(--error)',
+                    color: '#fff', fontSize: '13px', zIndex: 9999, transition: 'all 0.3s',
+                }}>
                     {toast}
                 </div>
             )}
 
             {loading ? (
-                <div className="text-center py-10 text-content-tertiary">
+                <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-tertiary)' }}>
                     {t('common.loading')}...
                 </div>
             ) : (
-                <div className="flex flex-col gap-2">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     {/* Search bar */}
-                    <div className="relative mb-1">
-                        <Input
+                    <div style={{ position: 'relative', marginBottom: '4px' }}>
+                        <input
+                            className="form-input"
                             type="text"
-                            placeholder={t('userMgmt.searchPlaceholder')}
+                            placeholder={isChinese ? '搜索用户名、显示名或邮箱…' : 'Search username, name or email…'}
                             value={searchQuery}
                             onChange={e => { setSearchQuery(e.target.value); setPage(1); }}
-                            className="max-w-[360px] text-xs"
-                            autoComplete="off"
+                            style={{
+                                width: '100%', maxWidth: '360px', fontSize: '13px',
+                                padding: '8px 12px 8px 12px',
+                                background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)',
+                                borderRadius: '8px',
+                            }}
                         />
                         {searchQuery && (
-                            <span className="text-xs text-content-tertiary ml-3">
-                                {t('userMgmt.userCount', { filtered: filtered.length, total: users.length })}
+                            <span style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginLeft: '12px' }}>
+                                {isChinese ? `${filtered.length} / ${users.length} 位用户` : `${filtered.length} / ${users.length} users`}
                             </span>
                         )}
                     </div>
 
                     {/* Header */}
-                    <div className={`${gridCols} px-4 py-2.5 text-[11px] font-semibold text-content-tertiary uppercase tracking-wide`}>
-                        <div>{t('enterprise.users.user')}</div>
+                    <div style={{
+                        display: 'grid', gridTemplateColumns: '1.4fr 1.4fr 0.8fr 0.7fr 0.7fr 0.8fr 0.8fr 0.8fr 0.8fr 100px',
+                        gap: '10px', padding: '10px 16px', fontSize: '11px', fontWeight: 600,
+                        color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em',
+                    }}>
+                        <div>{t('enterprise.users.user', isChinese ? '用户' : 'User')}</div>
                         <div>{t('enterprise.users.email', 'Email')}</div>
-                        <button
-                            type="button"
-                            className="cursor-pointer select-none flex items-center gap-0.5 bg-transparent border-none p-0 text-[11px] font-semibold text-content-tertiary uppercase tracking-wide"
+                        {/* Created At with sort toggle */}
+                        <div
+                            style={{ cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: '3px' }}
                             onClick={toggleSort}
-                            title={t('userMgmt.sortToggle')}
-                            aria-label={t('userMgmt.sortToggle')}
+                            title={isChinese ? '点击切换排序' : 'Click to toggle sort order'}
                         >
-                            {t('userMgmt.joined')} {sortOrder === 'asc' ? '\u2191' : '\u2193'}
-                        </button>
-                        <div>{t('userMgmt.source')}</div>
-                        <div>{t('enterprise.users.msgQuota')}</div>
-                        <div>{t('enterprise.users.period')}</div>
-                        <div>{t('enterprise.users.agents')}</div>
+                            {isChinese ? '注册时间' : 'Joined'} {sortOrder === 'asc' ? '↑' : '↓'}
+                        </div>
+                        <div>{isChinese ? '角色' : 'Role'}</div>
+                        <div>{isChinese ? '来源' : 'Source'}</div>
+                        <div>{t('enterprise.users.msgQuota', isChinese ? '消息配额' : 'Msg Quota')}</div>
+                        <div>{t('enterprise.users.period', isChinese ? '周期' : 'Period')}</div>
+                        <div>{t('enterprise.users.agents', isChinese ? '数字员工' : 'Agents')}</div>
                         <div>{t('enterprise.users.ttl', 'TTL')}</div>
-                        <div />
+                        <div></div>
                     </div>
 
                     {paged.map(user => (
                         <div key={user.id}>
-                            <Card className={`${gridCols} items-center px-4 py-3`}>
+                            <div className="card" style={{
+                                display: 'grid', gridTemplateColumns: '1.4fr 1.4fr 0.8fr 0.7fr 0.7fr 0.8fr 0.8fr 0.8fr 0.8fr 100px',
+                                gap: '10px', alignItems: 'center', padding: '12px 16px',
+                            }}>
                                 <div>
-                                    <div className="font-medium text-sm">
+                                    <div style={{ fontWeight: 500, fontSize: '14px' }}>
                                         {user.display_name || user.username}
-                                        {user.role === 'platform_admin' && (
-                                            <span className="ml-1.5 text-[10px] bg-accent-primary text-white rounded px-1.5 py-px">
-                                                {t('common.admin')}
-                                            </span>
-                                        )}
+                                        {roleBadge(user.role)}
                                     </div>
-                                    <div className="text-[11px] text-content-tertiary">@{user.username}</div>
+                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>@{user.username}</div>
                                 </div>
-                                <div className="text-xs text-content-secondary">{user.email}</div>
-                                <div className="text-[11px] text-content-secondary">{formatDateTime(user.created_at)}</div>
+                                <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{user.email}</div>
+                                <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{formatDate(user.created_at)}</div>
+                                {/* Role selector — only for admin users, not for platform_admin targets */}
                                 <div>
-                                    {user.source === 'feishu' ? (
-                                        <span className="text-[10px] bg-blue-500/10 text-blue-500 rounded px-1.5 py-0.5 whitespace-nowrap">
-                                            {t('common.channels.feishu')}
-                                        </span>
+                                    {currentUser?.role && ['platform_admin', 'org_admin'].includes(currentUser.role) && user.role !== 'platform_admin' ? (
+                                        <select
+                                            className="form-input"
+                                            value={user.role}
+                                            disabled={changingRoleUserId === user.id}
+                                            onChange={e => {
+                                                const newRole = e.target.value;
+                                                const confirmMsg = isChinese
+                                                    ? `确认将 ${user.display_name || user.username} 的角色更改为 ${newRole === 'org_admin' ? 'Admin' : 'Member'}？`
+                                                    : `Change ${user.display_name || user.username}'s role to ${newRole === 'org_admin' ? 'Admin' : 'Member'}?`;
+                                                if (confirm(confirmMsg)) handleRoleChange(user.id, newRole);
+                                            }}
+                                            style={{ fontSize: '11px', padding: '2px 4px', width: '100%', minWidth: 0 }}
+                                        >
+                                            <option value="member">{isChinese ? 'Member' : 'Member'}</option>
+                                            <option value="org_admin">{isChinese ? 'Admin' : 'Admin'}</option>
+                                        </select>
                                     ) : (
-                                        <span className="text-[10px] bg-success/10 text-success rounded px-1.5 py-0.5 whitespace-nowrap">
-                                            {t('userMgmt.registered')}
+                                        <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                                            {user.role === 'platform_admin' ? 'Platform Admin'
+                                                : user.role === 'org_admin' ? 'Admin' : 'Member'}
                                         </span>
                                     )}
                                 </div>
                                 <div>
-                                    <span className="text-[13px] font-medium">{user.quota_messages_used}</span>
-                                    <span className="text-[11px] text-content-tertiary"> / {user.quota_message_limit}</span>
+                                    {user.source === 'feishu' ? (
+                                        <span style={{ fontSize: '10px', background: 'rgba(58,132,255,0.12)', color: '#3a84ff', borderRadius: '4px', padding: '2px 7px', whiteSpace: 'nowrap' }}>
+                                            飞书
+                                        </span>
+                                    ) : (
+                                        <span style={{ fontSize: '10px', background: 'rgba(0,180,120,0.12)', color: 'var(--success)', borderRadius: '4px', padding: '2px 7px', whiteSpace: 'nowrap' }}>
+                                            {isChinese ? '注册' : 'Reg'}
+                                        </span>
+                                    )}
                                 </div>
                                 <div>
-                                    <span className="badge badge-info text-[10px]">{periodLabel(user.quota_message_period)}</span>
+                                    <span style={{ fontSize: '13px', fontWeight: 500 }}>{user.quota_messages_used}</span>
+                                    <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}> / {user.quota_message_limit}</span>
                                 </div>
                                 <div>
-                                    <span className="text-[13px] font-medium">{user.agents_count}</span>
-                                    <span className="text-[11px] text-content-tertiary"> / {user.quota_max_agents}</span>
+                                    <span className="badge badge-info" style={{ fontSize: '10px' }}>{periodLabel(user.quota_message_period)}</span>
                                 </div>
-                                <div className="text-xs">{user.quota_agent_ttl_hours}h</div>
                                 <div>
-                                    <Button
-                                        variant="secondary"
-                                        size="sm"
+                                    <span style={{ fontSize: '13px', fontWeight: 500 }}>{user.agents_count}</span>
+                                    <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}> / {user.quota_max_agents}</span>
+                                </div>
+                                <div style={{ fontSize: '12px' }}>{user.quota_agent_ttl_hours}h</div>
+                                <div>
+                                    <button
+                                        className="btn btn-secondary"
+                                        style={{ padding: '4px 10px', fontSize: '11px' }}
                                         onClick={() => editingUserId === user.id ? setEditingUserId(null) : startEdit(user)}
                                     >
-                                        {editingUserId === user.id ? t('common.cancel') : t('common.edit', 'Edit')}
-                                    </Button>
+                                        {editingUserId === user.id ? t('common.cancel') : `✏️ ${t('common.edit')}`}
+                                    </button>
                                 </div>
-                            </Card>
+                            </div>
 
                             {/* Inline edit form */}
                             {editingUserId === user.id && (
-                                <Card className="mt-1 p-4 bg-surface-secondary border-l-[3px] border-l-accent-primary">
-                                    <div className="grid grid-cols-4 gap-4 mb-3">
-                                        <div className="space-y-1">
-                                            <Label htmlFor={`dn-${user.id}`} className="text-[11px]">
-                                                {t('userMgmt.displayName', 'Display name')}
-                                            </Label>
-                                            <Input
-                                                id={`dn-${user.id}`}
-                                                value={editForm.display_name}
-                                                onChange={e => setEditForm({ ...editForm, display_name: e.target.value })}
-                                                autoComplete="name"
-                                            />
-                                        </div>
-                                        <div className="space-y-1">
-                                            <Label htmlFor={`title-${user.id}`} className="text-[11px]">
-                                                {t('userMgmt.title', 'Title')}
-                                            </Label>
-                                            <Input
-                                                id={`title-${user.id}`}
-                                                value={editForm.title}
-                                                onChange={e => setEditForm({ ...editForm, title: e.target.value })}
-                                                autoComplete="organization-title"
-                                            />
-                                        </div>
-                                        <div className="space-y-1">
-                                            <Label htmlFor={`dept-${user.id}`} className="text-[11px]">
-                                                {t('userMgmt.department', 'Department')}
-                                            </Label>
-                                            <Select
-                                                value={editForm.department_id}
-                                                onValueChange={v => setEditForm({ ...editForm, department_id: v === '__none__' ? '' : v })}
-                                            >
-                                                <SelectTrigger id={`dept-${user.id}`}>
-                                                    <SelectValue placeholder={t('common.none', 'None')} />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <SelectItem value="__none__">{t('common.none', 'None')}</SelectItem>
-                                                    {departments.map(dept => (
-                                                        <SelectItem key={dept.id} value={dept.id}>
-                                                            {'\u2014 '.repeat(dept.level)}{dept.name}
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                        <div className="space-y-1">
-                                            <Label className="text-[11px]">
-                                                {t('userMgmt.role', 'Role')}
-                                            </Label>
-                                            <Input value={user.role} disabled />
-                                        </div>
-                                    </div>
-                                    <div className="grid grid-cols-4 gap-4">
-                                        <div className="space-y-1">
-                                            <Label htmlFor={`ml-${user.id}`} className="text-[11px]">
-                                                {t('enterprise.users.msgLimit')}
-                                            </Label>
-                                            <Input
-                                                id={`ml-${user.id}`}
-                                                type="number"
-                                                min={0}
+                                <div className="card" style={{
+                                    marginTop: '4px', padding: '16px',
+                                    background: 'var(--bg-secondary)',
+                                    borderLeft: '3px solid var(--accent-color)',
+                                }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '16px' }}>
+                                        <div className="form-group">
+                                            <label className="form-label" style={{ fontSize: '11px' }}>
+                                                {t('enterprise.users.msgLimit', isChinese ? '消息限额' : 'Message Limit')}
+                                            </label>
+                                            <input
+                                                className="form-input"
+                                                type="number" min={0}
                                                 value={editForm.quota_message_limit}
                                                 onChange={e => setEditForm({ ...editForm, quota_message_limit: Number(e.target.value) })}
-                                                autoComplete="off"
                                             />
                                         </div>
-                                        <div className="space-y-1">
-                                            <Label htmlFor={`per-${user.id}`} className="text-[11px]">
-                                                {t('enterprise.users.period')}
-                                            </Label>
-                                            <Select
+                                        <div className="form-group">
+                                            <label className="form-label" style={{ fontSize: '11px' }}>
+                                                {t('enterprise.users.period', isChinese ? '重置周期' : 'Period')}
+                                            </label>
+                                            <select
+                                                className="form-input"
                                                 value={editForm.quota_message_period}
-                                                onValueChange={v => setEditForm({ ...editForm, quota_message_period: v })}
+                                                onChange={e => setEditForm({ ...editForm, quota_message_period: e.target.value })}
                                             >
-                                                <SelectTrigger id={`per-${user.id}`}>
-                                                    <SelectValue />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {PERIOD_VALUES.map(v => (
-                                                        <SelectItem key={v} value={v}>{periodLabel(v)}</SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
+                                                {PERIOD_OPTIONS.map(p => (
+                                                    <option key={p.value} value={p.value}>{periodLabel(p.value)}</option>
+                                                ))}
+                                            </select>
                                         </div>
-                                        <div className="space-y-1">
-                                            <Label htmlFor={`ma-${user.id}`} className="text-[11px]">
-                                                {t('enterprise.users.maxAgents')}
-                                            </Label>
-                                            <Input
-                                                id={`ma-${user.id}`}
-                                                type="number"
-                                                min={0}
+                                        <div className="form-group">
+                                            <label className="form-label" style={{ fontSize: '11px' }}>
+                                                {t('enterprise.users.maxAgents', isChinese ? '最多数字员工' : 'Max Agents')}
+                                            </label>
+                                            <input
+                                                className="form-input"
+                                                type="number" min={0}
                                                 value={editForm.quota_max_agents}
                                                 onChange={e => setEditForm({ ...editForm, quota_max_agents: Number(e.target.value) })}
-                                                autoComplete="off"
                                             />
                                         </div>
-                                        <div className="space-y-1">
-                                            <Label htmlFor={`ttl-${user.id}`} className="text-[11px]">
-                                                {t('enterprise.users.agentTTL')}
-                                            </Label>
-                                            <Input
-                                                id={`ttl-${user.id}`}
-                                                type="number"
-                                                min={1}
+                                        <div className="form-group">
+                                            <label className="form-label" style={{ fontSize: '11px' }}>
+                                                {t('enterprise.users.agentTTL', isChinese ? '员工存活时长(h)' : 'Agent TTL (hours)')}
+                                            </label>
+                                            <input
+                                                className="form-input"
+                                                type="number" min={1}
                                                 value={editForm.quota_agent_ttl_hours}
                                                 onChange={e => setEditForm({ ...editForm, quota_agent_ttl_hours: Number(e.target.value) })}
-                                                autoComplete="off"
                                             />
                                         </div>
                                     </div>
-                                    <div className="mt-3 flex gap-2 justify-end">
-                                        <Button variant="secondary" onClick={() => setEditingUserId(null)}>
+                                    <div style={{ marginTop: '12px', display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                                        <button className="btn btn-secondary" onClick={() => setEditingUserId(null)}>
                                             {t('common.cancel')}
-                                        </Button>
-                                        <Button onClick={handleSave} loading={saving}>
+                                        </button>
+                                        <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
                                             {saving ? t('common.loading') : t('common.save', 'Save')}
-                                        </Button>
+                                        </button>
                                     </div>
-                                </Card>
+                                </div>
                             )}
                         </div>
                     ))}
 
                     {users.length === 0 && (
-                        <div className="text-center py-10 text-content-tertiary">
+                        <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-tertiary)' }}>
                             {t('common.noData')}
                         </div>
                     )}
 
                     {/* Pagination */}
                     {totalPages > 1 && (
-                        <div className="flex justify-center items-center gap-2 mt-4">
-                            <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>
-                                {'\u2039'} {t('userMgmt.prev')}
-                            </Button>
+                        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', marginTop: '16px' }}>
+                            <button
+                                className="btn btn-secondary"
+                                style={{ padding: '4px 10px', fontSize: '12px' }}
+                                disabled={page <= 1}
+                                onClick={() => setPage(p => p - 1)}
+                            >
+                                ‹ {isChinese ? '上一页' : 'Prev'}
+                            </button>
                             {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
-                                <Button
+                                <button
                                     key={p}
-                                    variant={p === page ? 'default' : 'secondary'}
-                                    size="sm"
-                                    className="min-w-[32px]"
+                                    className={`btn ${p === page ? 'btn-primary' : 'btn-secondary'}`}
+                                    style={{ padding: '4px 10px', fontSize: '12px', minWidth: '32px' }}
                                     onClick={() => setPage(p)}
                                 >
                                     {p}
-                                </Button>
+                                </button>
                             ))}
-                            <Button variant="secondary" size="sm" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>
-                                {t('userMgmt.next')} {'\u203A'}
-                            </Button>
+                            <button
+                                className="btn btn-secondary"
+                                style={{ padding: '4px 10px', fontSize: '12px' }}
+                                disabled={page >= totalPages}
+                                onClick={() => setPage(p => p + 1)}
+                            >
+                                {isChinese ? '下一页' : 'Next'} ›
+                            </button>
                         </div>
                     )}
                 </div>

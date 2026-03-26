@@ -1,15 +1,12 @@
 import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
 import { channelApi } from '../services/api';
-import { sanitizeChannelPayload } from '../lib/channelSecrets';
-import { cn } from '../lib/cn';
 
 // ─── Shared fetchAuth (same as AgentDetail) ─────────────
 function fetchAuth<T>(url: string, options?: RequestInit): Promise<T> {
     const token = localStorage.getItem('token');
-    return fetch(`/api/v1${url}`, {
+    return fetch(`/api${url}`, {
         ...options,
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     }).then(r => r.json());
@@ -43,8 +40,7 @@ interface ChannelDef {
     icon: ReactNode;
     nameKey: string;
     nameFallback: string;
-    descKey: string;
-    descFallback: string;
+    desc: string;
     // API endpoint slug: e.g. 'slack-channel', 'discord-channel'
     apiSlug?: string;
     // Feishu uses channelApi instead of fetchAuth
@@ -59,10 +55,8 @@ interface ChannelDef {
     wsGuide?: GuideConfig;
     // Whether this channel shows feishu permission JSON block
     showPermJson?: boolean;
-    // Webhook URL label key
-    webhookLabelKey?: string;
-    // Webhook URL label fallback
-    webhookLabelFallback?: string;
+    // Webhook URL label
+    webhookLabel?: string;
     // Channels only shown in edit mode (not in create wizard)
     editOnly?: boolean;
     // Custom fields for websocket mode (wecom)
@@ -72,19 +66,21 @@ interface ChannelDef {
 }
 
 // ─── SVG Icons ──────────────────────────────────────────
-const SlackIcon = <img src="/slack.png" alt="Slack" width="20" height="20" className="rounded" />;
+const SlackIcon = <img src="/slack.png" alt="Slack" width="20" height="20" style={{ borderRadius: '4px' }} />;
 
-const DiscordIcon = <img src="/discord.png" alt="Discord" width="20" height="20" className="rounded" />;
+const DiscordIcon = <img src="/discord.png" alt="Discord" width="20" height="20" style={{ borderRadius: '4px' }} />;
 
-const FeishuIcon = <img src="/feishu.png" alt="Feishu" width="20" height="20" className="rounded" />;
+const FeishuIcon = <img src="/feishu.png" alt="Feishu" width="20" height="20" style={{ borderRadius: '4px' }} />;
 
-const TeamsIcon = <img src="/teams.png" alt="Teams" width="20" height="20" className="rounded" />;
+const TeamsIcon = <img src="/teams.png" alt="Teams" width="20" height="20" style={{ borderRadius: '4px' }} />;
 
-const WeComIcon = <img src="/wecom.png" alt="WeCom" width="20" height="20" className="rounded" />;
+const WeComIcon = <img src="/wecom.png" alt="WeCom" width="20" height="20" style={{ borderRadius: '4px' }} />;
 
-const DingTalkIcon = <img src="/dingtalk.png" alt="DingTalk" width="20" height="20" className="rounded" />;
+const DingTalkIcon = <img src="/dingtalk.png" alt="DingTalk" width="20" height="20" style={{ borderRadius: '4px' }} />;
 
-const AtlassianIcon = <img src="/atlassian.png" alt="Atlassian" width="20" height="20" className="rounded" />;
+const AtlassianIcon = <img src="/atlassian.png" alt="Atlassian" width="20" height="20" style={{ borderRadius: '4px' }} />;
+
+const AgentBayIcon = <span style={{ fontSize: '16px' }}>🌩️</span>;
 
 // Eye icons for password toggle
 const EyeOpen = <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>;
@@ -97,107 +93,101 @@ const CHANNEL_REGISTRY: ChannelDef[] = [
         icon: SlackIcon,
         nameKey: 'common.channels.slack',
         nameFallback: 'Slack',
-        descKey: 'channel.slackDesc',
-        descFallback: 'Slack Bot',
+        desc: 'Slack Bot',
         apiSlug: 'slack-channel',
         fields: [
-            { key: 'bot_token', label: 'channel.botToken', placeholder: 'xoxb-...', type: 'password', required: true },
-            { key: 'signing_secret', label: 'channel.signingSecret', type: 'password', required: true },
+            { key: 'bot_token', label: 'Bot Token', placeholder: 'xoxb-...', type: 'password', required: true },
+            { key: 'signing_secret', label: 'Signing Secret', type: 'password', required: true },
         ],
         guide: { prefix: 'channelGuide.slack', steps: 8 },
-        webhookLabelKey: 'channel.webhookUrlEventSub',
-        webhookLabelFallback: 'Webhook URL (Event Subscriptions URL)',
+        webhookLabel: 'Webhook URL (Event Subscriptions URL)',
     },
     {
         id: 'discord',
         icon: DiscordIcon,
         nameKey: 'common.channels.discord',
         nameFallback: 'Discord',
-        descKey: 'channel.discordDesc',
-        descFallback: 'Slash Commands (/ask)',
+        desc: 'Gateway / Webhook',
         apiSlug: 'discord-channel',
+        connectionMode: true,
         fields: [
-            { key: 'application_id', label: 'channel.applicationId', placeholder: '1234567890', required: true },
-            { key: 'bot_token', label: 'channel.botToken', type: 'password', required: true },
-            { key: 'public_key', label: 'channel.publicKey', required: true },
+            { key: 'application_id', label: 'Application ID', placeholder: '1234567890', required: true },
+            { key: 'bot_token', label: 'Bot Token', type: 'password', required: true },
+            { key: 'public_key', label: 'Public Key', required: true },
+        ],
+        wsFields: [
+            { key: 'bot_token', label: 'Bot Token', type: 'password', required: true },
         ],
         guide: { prefix: 'channelGuide.discord', steps: 7 },
-        webhookLabelKey: 'channel.interactionsEndpointUrl',
-        webhookLabelFallback: 'Interactions Endpoint URL',
+        wsGuide: { prefix: 'channelGuide.discord', steps: 4 },
+        webhookLabel: 'Interactions Endpoint URL',
     },
     {
         id: 'teams',
         icon: TeamsIcon,
         nameKey: 'common.channels.teams',
         nameFallback: 'Microsoft Teams',
-        descKey: 'channel.teamsDesc',
-        descFallback: 'Teams Bot',
+        desc: 'Teams Bot',
         apiSlug: 'teams-channel',
         fields: [
-            { key: 'app_id', label: 'channel.appIdClientId', placeholder: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx', required: true },
-            { key: 'app_secret', label: 'channel.appSecretClientSecret', type: 'password', required: true },
+            { key: 'app_id', label: 'App ID (Client ID)', placeholder: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx', required: true },
+            { key: 'app_secret', label: 'App Secret (Client Secret)', type: 'password', required: true },
             { key: 'tenant_id', label: 'channelGuide.teams.tenantId', placeholder: 'channelGuide.teams.tenantIdPlaceholder' },
         ],
         guide: { prefix: 'channelGuide.teams', steps: 5 },
-        webhookLabelKey: 'channel.messagingEndpointUrl',
-        webhookLabelFallback: 'Messaging Endpoint URL',
+        webhookLabel: 'Messaging Endpoint URL',
     },
     {
         id: 'feishu',
         icon: FeishuIcon,
         nameKey: 'agent.settings.channel.feishu',
         nameFallback: 'Feishu / Lark',
-        descKey: 'channel.feishuDesc',
-        descFallback: 'Feishu / Lark',
+        desc: 'Feishu / Lark',
         useChannelApi: true,
         connectionMode: true,
         fields: [
-            { key: 'app_id', label: 'channel.appId', placeholder: 'cli_xxxxxxxxxxxxxxxx', required: true },
-            { key: 'app_secret', label: 'channel.appSecret', type: 'password', required: true },
-            { key: 'encrypt_key', label: 'channel.encryptKey', type: 'password' },
+            { key: 'app_id', label: 'App ID', placeholder: 'cli_xxxxxxxxxxxxxxxx', required: true },
+            { key: 'app_secret', label: 'App Secret', type: 'password', required: true },
+            { key: 'encrypt_key', label: 'Encrypt Key', type: 'password' },
         ],
         guide: { prefix: 'channelGuide.feishu', steps: 8 },
         wsGuide: { prefix: 'channelGuide.feishu', steps: 8 },
         showPermJson: true,
-        webhookLabelKey: 'channel.webhookUrl',
-        webhookLabelFallback: 'Webhook URL',
+        webhookLabel: 'Webhook URL',
     },
     {
         id: 'wecom',
         icon: WeComIcon,
         nameKey: 'common.channels.wecom',
         nameFallback: 'WeCom',
-        descKey: 'channel.wecomDesc',
-        descFallback: 'WebSocket / Webhook',
+        desc: 'WebSocket / Webhook',
         apiSlug: 'wecom-channel',
         connectionMode: true,
         fields: [
-            { key: 'corp_id', label: 'channel.corpId', required: true },
-            { key: 'wecom_agent_id', label: 'channel.agentId', required: true },
-            { key: 'secret', label: 'channel.secret', type: 'password', required: true },
-            { key: 'token', label: 'channel.token', required: true },
-            { key: 'encoding_aes_key', label: 'channel.encodingAesKey', required: true },
+            { key: 'corp_id', label: 'CorpID', required: true },
+            { key: 'wecom_agent_id', label: 'AgentID', required: true },
+            { key: 'secret', label: 'Secret', type: 'password', required: true },
+            { key: 'token', label: 'Token', required: true },
+            { key: 'encoding_aes_key', label: 'EncodingAESKey', required: true },
         ],
         wsFields: [
-            { key: 'bot_id', label: 'channel.botId', placeholder: 'aibXXXXXXXXXXXX', required: true },
-            { key: 'bot_secret', label: 'channel.botSecret', type: 'password', required: true },
+            { key: 'bot_id', label: 'Bot ID', placeholder: 'aibXXXXXXXXXXXX', required: true },
+            { key: 'bot_secret', label: 'Bot Secret', type: 'password', required: true },
         ],
         guide: { prefix: 'channelGuide.wecom', steps: 6 },
         wsGuide: { prefix: 'channelGuide.wecom', steps: 6 },
-        webhookLabelKey: 'channel.webhookUrl',
-        webhookLabelFallback: 'Webhook URL',
+        webhookLabel: 'Webhook URL',
     },
     {
         id: 'dingtalk',
         icon: DingTalkIcon,
         nameKey: 'common.channels.dingtalk',
         nameFallback: 'DingTalk',
-        descKey: 'channel.dingtalkDesc',
-        descFallback: 'Stream Mode',
+        desc: 'Stream Mode',
         apiSlug: 'dingtalk-channel',
         fields: [
-            { key: 'app_key', label: 'channel.appKey', type: 'password', required: true },
-            { key: 'app_secret', label: 'channel.appSecretLabel', type: 'password', required: true },
+            { key: 'app_key', label: 'AppKey', type: 'password', required: true },
+            { key: 'app_secret', label: 'AppSecret', type: 'password', required: true },
         ],
         guide: { prefix: 'channelGuide.dingtalk', steps: 6 },
     },
@@ -206,15 +196,29 @@ const CHANNEL_REGISTRY: ChannelDef[] = [
         icon: AtlassianIcon,
         nameKey: 'common.channels.atlassian',
         nameFallback: 'Atlassian',
-        descKey: 'channel.atlassianDesc',
-        descFallback: 'Jira / Confluence / Compass (Rovo MCP)',
+        desc: 'Jira / Confluence / Compass (Rovo MCP)',
         apiSlug: 'atlassian-channel',
         hasTestConnection: true,
         fields: [
-            { key: 'api_key', label: 'channel.apiKey', type: 'password', required: true },
-            { key: 'cloud_id', label: 'channel.cloudId', placeholder: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx' },
+            { key: 'api_key', label: 'API Key', type: 'password', required: true },
+            { key: 'cloud_id', label: 'Cloud ID', placeholder: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx' },
         ],
         guide: { prefix: 'channelGuide.atlassian', steps: 5 },
+    },
+    {
+        id: 'agentbay',
+        icon: AgentBayIcon,
+        nameKey: 'common.channels.agentbay',
+        nameFallback: 'AgentBay',
+        desc: 'Browser & Code Execution (阿里云)',
+        apiSlug: 'agentbay-channel',
+        hasTestConnection: true,
+        editOnly: true,
+        fields: [
+            { key: 'api_key', label: 'API Key', type: 'password', required: true },
+            { key: 'base_url', label: 'Base URL', placeholder: 'https://agentbay.aliyuncs.com/api/v1' },
+        ],
+        guide: { prefix: 'channelGuide.agentbay', steps: 3 },
     },
 ];
 
@@ -239,9 +243,9 @@ const FEISHU_PERM_DISPLAY = `{
 }`;
 
 // ─── Copy Button helper ─────────────────────────────────
-function CopyBtn({ url, title }: { url: string; title?: string }) {
+function CopyBtn({ url }: { url: string }) {
     return (
-        <button title={title} className="inline-flex items-center justify-center ml-1.5 px-1 py-px cursor-pointer rounded-sm border border-edge-default bg-surface-primary text-content-secondary align-middle leading-none"
+        <button title="Copy" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginLeft: '6px', padding: '1px 4px', cursor: 'pointer', borderRadius: '3px', border: '1px solid var(--border-color)', background: 'var(--bg-primary)', color: 'var(--text-secondary)', verticalAlign: 'middle', lineHeight: 1 }}
             onClick={() => navigator.clipboard.writeText(url)}>
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="4" y="4" width="9" height="11" rx="1.5" /><path d="M3 11H2a1 1 0 01-1-1V2a1 1 0 011-1h8a1 1 0 011 1v1" />
@@ -273,6 +277,7 @@ export default function ChannelConfig({ mode, agentId, canManage = true, values,
     const [connectionModes, setConnectionModes] = useState<Record<string, string>>({
         feishu: 'websocket',
         wecom: 'websocket',
+        discord: 'gateway',
     });
 
     // Password visibility
@@ -282,6 +287,10 @@ export default function ChannelConfig({ mode, agentId, canManage = true, values,
     // Atlassian test connection state
     const [atlassianTesting, setAtlassianTesting] = useState(false);
     const [atlassianTestResult, setAtlassianTestResult] = useState<{ ok: boolean; message?: string; tool_count?: number; error?: string } | null>(null);
+
+    // AgentBay test connection state
+    const [agentbayTesting, setAgentbayTesting] = useState(false);
+    const [agentbayTestResult, setAgentbayTestResult] = useState<{ ok: boolean; message?: string; error?: string } | null>(null);
 
     // ─── Edit mode: queries for each channel ────────────
     const enabled = mode === 'edit' && !!agentId;
@@ -346,6 +355,11 @@ export default function ChannelConfig({ mode, agentId, canManage = true, values,
         queryFn: () => fetchAuth<any>(`/agents/${agentId}/atlassian-channel`).catch(() => null),
         enabled: enabled,
     });
+    const { data: agentbayConfig } = useQuery({
+        queryKey: ['agentbay-channel', agentId],
+        queryFn: () => fetchAuth<any>(`/agents/${agentId}/agentbay-channel`).catch(() => null),
+        enabled: enabled,
+    });
 
     // Helper: get config data for a channel
     const getConfig = (id: string): any => {
@@ -357,6 +371,7 @@ export default function ChannelConfig({ mode, agentId, canManage = true, values,
             case 'dingtalk': return dingtalkConfig;
             case 'wecom': return wecomConfig;
             case 'atlassian': return atlassianConfig;
+            case 'agentbay': return agentbayConfig;
             default: return null;
         }
     };
@@ -390,7 +405,6 @@ export default function ChannelConfig({ mode, agentId, canManage = true, values,
             setForms(prev => ({ ...prev, [ch.id]: {} }));
             setEditing(ch.id, false);
         },
-        onError: (err: Error) => toast.error(err.message || 'Failed to save channel config'),
     });
 
     const deleteMutation = useMutation({
@@ -406,8 +420,8 @@ export default function ChannelConfig({ mode, agentId, canManage = true, values,
                 : [[`${ch.apiSlug}`, agentId]];
             keys.forEach(k => queryClient.invalidateQueries({ queryKey: k }));
             if (ch.id === 'atlassian') setAtlassianTestResult(null);
+            if (ch.id === 'agentbay') setAgentbayTestResult(null);
         },
-        onError: (err: Error) => toast.error(err.message || 'Failed to delete channel config'),
     });
 
     const testAtlassian = async () => {
@@ -422,30 +436,45 @@ export default function ChannelConfig({ mode, agentId, canManage = true, values,
         setAtlassianTesting(false);
     };
 
+    const testAgentBay = async () => {
+        setAgentbayTesting(true);
+        setAgentbayTestResult(null);
+        try {
+            const res = await fetchAuth<any>(`/agents/${agentId}/agentbay-channel/test`, { method: 'POST' });
+            setAgentbayTestResult(res);
+        } catch (e: any) {
+            setAgentbayTestResult({ ok: false, error: String(e) });
+        }
+        setAgentbayTesting(false);
+    };
+
     // ─── Build save payload for a channel ───────────────
     const buildPayload = (ch: ChannelDef, form: Record<string, string>) => {
         if (ch.id === 'feishu') {
-            return sanitizeChannelPayload(ch.id, {
+            return {
                 channel_type: 'feishu',
                 app_id: form.app_id,
                 app_secret: form.app_secret,
                 encrypt_key: form.encrypt_key || undefined,
                 extra_config: { connection_mode: connectionModes.feishu || 'websocket' },
-            });
+            };
         }
         if (ch.id === 'wecom') {
             const connMode = connectionModes.wecom || 'websocket';
             if (connMode === 'websocket') {
-                return sanitizeChannelPayload(ch.id, {
-                    connection_mode: 'websocket',
-                    bot_id: form.bot_id,
-                    bot_secret: form.bot_secret,
-                });
+                return { connection_mode: 'websocket', bot_id: form.bot_id, bot_secret: form.bot_secret };
             }
-            return sanitizeChannelPayload(ch.id, { ...form, connection_mode: 'webhook' });
+            return { ...form, connection_mode: 'webhook' };
+        }
+        if (ch.id === 'discord') {
+            const connMode = connectionModes.discord || 'gateway';
+            if (connMode === 'websocket') {
+                return { bot_token: form.bot_token, connection_mode: 'gateway' };
+            }
+            return { ...form, connection_mode: 'webhook' };
         }
         // Generic channels
-        return sanitizeChannelPayload(ch.id, form);
+        return form;
     };
 
     // ─── Render guide steps ─────────────────────────────
@@ -455,20 +484,20 @@ export default function ChannelConfig({ mode, agentId, canManage = true, values,
         const noteKey = isWs && ch.wsGuide ? `${ch.wsGuide.prefix}.ws_note` : (guide.noteKey || `${guide.prefix}.note`);
 
         return (
-            <details className="mb-2 text-xs text-content-secondary">
-                <summary className="cursor-pointer font-medium text-content-primary select-none list-none flex items-center gap-1.5">
-                    <span className="text-[10px]">&#9654;</span> {t('channelGuide.setupGuide')}
+            <details style={{ marginBottom: '8px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                <summary style={{ cursor: 'pointer', fontWeight: 500, color: 'var(--text-primary)', userSelect: 'none', listStyle: 'none', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ fontSize: '10px' }}>&#9654;</span> {t('channelGuide.setupGuide')}
                 </summary>
-                <ol className="pl-4 my-2 leading-[1.9]">
+                <ol style={{ paddingLeft: '16px', margin: '8px 0', lineHeight: 1.9 }}>
                     {Array.from({ length: stepCount }, (_, i) => (
                         <li key={i}>{t(`${prefix}${i + 1}`)}</li>
                     ))}
                 </ol>
                 {ch.showPermJson && (
-                    <div className="my-2 rounded-md border border-edge-default overflow-hidden">
-                        <div className="flex items-center justify-between px-2.5 py-1 bg-surface-secondary border-b border-edge-default">
-                            <span className="text-[10px] text-content-secondary font-medium">{t('channelGuide.feishuPermJson')}</span>
-                            <button type="button" className="text-[10px] px-[7px] py-px cursor-pointer rounded-sm border border-edge-default bg-surface-primary text-content-secondary"
+                    <div style={{ margin: '8px 0', borderRadius: '6px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 10px', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-color)' }}>
+                            <span style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 500 }}>{t('channelGuide.feishuPermJson')}</span>
+                            <button type="button" style={{ fontSize: '10px', padding: '1px 7px', cursor: 'pointer', borderRadius: '3px', border: '1px solid var(--border-color)', background: 'var(--bg-primary)', color: 'var(--text-secondary)' }}
                                 onClick={(e) => {
                                     const btn = e.currentTarget;
                                     navigator.clipboard.writeText(FEISHU_PERM_JSON).then(() => {
@@ -479,10 +508,10 @@ export default function ChannelConfig({ mode, agentId, canManage = true, values,
                                     });
                                 }}>{t('channelGuide.feishuPermCopy')}</button>
                         </div>
-                        <pre className="m-0 px-2.5 py-1.5 text-[10px] font-mono leading-normal bg-surface-primary text-content-secondary overflow-x-auto select-all">{FEISHU_PERM_DISPLAY}</pre>
+                        <pre style={{ margin: 0, padding: '6px 10px', fontSize: '10px', fontFamily: 'var(--font-mono)', lineHeight: 1.5, background: 'var(--bg-primary)', color: 'var(--text-secondary)', overflowX: 'auto', userSelect: 'all' }}>{FEISHU_PERM_DISPLAY}</pre>
                     </div>
                 )}
-                <div className="text-[11px] text-content-tertiary bg-surface-secondary px-2.5 py-1.5 rounded-md">
+                <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', background: 'var(--bg-secondary)', padding: '6px 10px', borderRadius: '6px' }}>
                     {t(noteKey)}
                 </div>
             </details>
@@ -493,33 +522,34 @@ export default function ChannelConfig({ mode, agentId, canManage = true, values,
     const renderField = (field: ChannelField, channelId: string, fieldValue: string, onFieldChange: (val: string) => void) => {
         const fieldId = `${channelId}_${field.key}`;
         const isSecret = field.type === 'password';
-        const labelText = t(field.label);
+        const labelText = field.label.startsWith('channelGuide.') ? t(field.label) : field.label;
         const placeholderText = field.placeholder?.startsWith('channelGuide.') ? t(field.placeholder) : field.placeholder;
 
         return (
             <div key={field.key}>
-                <label className="text-xs font-medium block mb-1">
+                <label style={{ fontSize: '12px', fontWeight: 500, display: 'block', marginBottom: '4px' }}>
                     {labelText} {field.required && '*'}
-                    {!field.required && <span className="font-normal text-content-tertiary"> ({t('channel.optional')})</span>}
+                    {!field.required && <span style={{ fontWeight: 400, color: 'var(--text-tertiary)' }}> (Optional)</span>}
                 </label>
-                <div className="relative">
+                <div style={{ position: 'relative' }}>
                     <input
-                        className={cn(mode === 'edit' ? 'input' : 'form-input', mode === 'edit' && 'text-xs w-full', isSecret && mode === 'edit' && 'pr-9')}
+                        className={mode === 'edit' ? 'input' : 'form-input'}
                         type={isSecret && !showPwds[fieldId] ? 'password' : 'text'}
                         value={fieldValue}
                         onChange={e => onFieldChange(e.target.value)}
                         placeholder={placeholderText || ''}
+                        style={mode === 'edit' ? { fontSize: '12px', paddingRight: isSecret ? '36px' : undefined, width: '100%' } : undefined}
                     />
                     {isSecret && (
                         <button type="button" onClick={() => togglePwd(fieldId)}
-                            className="absolute right-2 top-1/2 -translate-y-1/2 bg-transparent border-none cursor-pointer text-content-tertiary p-0.5 flex items-center">
+                            style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: '2px', display: 'flex', alignItems: 'center' }}>
                             {showPwds[fieldId] ? EyeClosed : EyeOpen}
                         </button>
                     )}
                 </div>
                 {/* Tenant ID hint for Teams */}
                 {channelId === 'teams' && field.key === 'tenant_id' && (
-                    <div className="text-[11px] text-content-tertiary mt-1">{t('channelGuide.teams.tenantIdHint')}</div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>{t('channelGuide.teams.tenantIdHint')}</div>
                 )}
             </div>
         );
@@ -532,10 +562,10 @@ export default function ChannelConfig({ mode, agentId, canManage = true, values,
         // Ensure we default to 'websocket' for connectionMode in create view if enabled
         const connMode = ch.connectionMode ? (connectionModes[ch.id] || 'websocket') : null;
         const isWs = connMode === 'websocket';
-
+        
         // Active fields for current mode
         const activeFields = (ch.connectionMode && isWs && ch.wsFields) ? ch.wsFields : ch.fields;
-
+        
         // Special Feishu field filtering (hide encrypt_key if websocket mode)
         const formFields = ch.id === 'feishu' && isWs
             ? ch.fields.filter(f => f.key !== 'encrypt_key')
@@ -544,47 +574,48 @@ export default function ChannelConfig({ mode, agentId, canManage = true, values,
         // Determine if configured (any required field has value)
         const hasValues = formFields.some(f => f.required && values?.[`${ch.id}_${f.key}`]);
 
-        let subtitle = t(ch.descKey, ch.descFallback);
+        let subtitle = ch.desc;
         if (ch.connectionMode && hasValues) {
-            subtitle = isWs ? t('channel.websocketMode') : t('channel.webhookMode');
+            subtitle = isWs ? 'WebSocket Mode' : 'Webhook Mode';
         }
 
         return (
-            <div key={ch.id} className="border border-edge-default rounded-lg overflow-hidden mb-2">
+            <div key={ch.id} style={{ border: '1px solid var(--border-default)', borderRadius: '8px', overflow: 'hidden', marginBottom: '8px' }}>
                 <div
                     onClick={() => toggleChannel(ch.id)}
-                    className={cn(
-                        'flex items-center gap-3 p-3.5 cursor-pointer',
-                        isOpen ? 'bg-[var(--accent-subtle)] border-b border-edge-default' : 'bg-surface-elevated',
-                    )}
+                    style={{
+                        display: 'flex', alignItems: 'center', gap: '12px', padding: '14px',
+                        cursor: 'pointer', background: isOpen ? 'var(--accent-subtle)' : 'var(--bg-elevated)',
+                        borderBottom: isOpen ? '1px solid var(--border-default)' : 'none',
+                    }}
                 >
                     {ch.icon}
-                    <div className="flex-1">
-                        <div className="font-medium text-[13px]">{t(ch.nameKey, ch.nameFallback)}</div>
-                        <div className="text-[11px] text-content-tertiary">{subtitle}</div>
+                    <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 500, fontSize: '13px' }}>{t(ch.nameKey, ch.nameFallback)}</div>
+                        <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{subtitle}</div>
                     </div>
-                    {hasValues && <span className="text-[10px] px-2 py-0.5 rounded-[10px] bg-[rgba(16,185,129,0.15)] text-[rgb(16,185,129)] font-medium">{t('channel.configured')}</span>}
-                    <span className={cn('text-xs text-content-tertiary transition-transform duration-200', isOpen && 'rotate-180')}>&#9660;</span>
+                    {hasValues && <span style={{ fontSize: '10px', padding: '2px 8px', borderRadius: '10px', background: 'rgba(16,185,129,0.15)', color: 'rgb(16,185,129)', fontWeight: 500 }}>{t('agent.settings.channel.configured', 'Configured')}</span>}
+                    <span style={{ fontSize: '12px', color: 'var(--text-tertiary)', transition: 'transform 0.2s', transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}>&#9660;</span>
                 </div>
                 {isOpen && (
-                    <div className="p-4">
+                    <div style={{ padding: '16px' }}>
                         {/* Connection Mode Toggle */}
                         {ch.connectionMode && (
-                            <div className="mb-4 flex items-center gap-2">
-                                <label className="text-xs font-medium w-[120px]">{t('channel.connectionMode')}</label>
-                                <label className="flex items-center gap-1 text-[13px] cursor-pointer">
+                            <div style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <label style={{ fontSize: '12px', fontWeight: 500, width: '120px' }}>{t('agent.settings.channel.mode', 'Connection Mode')}</label>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '13px', cursor: 'pointer' }}>
                                     <input type="radio" checked={isWs} onChange={() => setConnectionModes(p => ({ ...p, [ch.id]: 'websocket' }))} />
-                                    {t('channel.websocketRecommended')}
+                                    {t('agent.settings.channel.modeWs', 'WebSocket (Recommended)')}
                                 </label>
-                                <label className="flex items-center gap-1 text-[13px] cursor-pointer ml-3">
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '13px', cursor: 'pointer', marginLeft: '12px' }}>
                                     <input type="radio" checked={!isWs} onChange={() => setConnectionModes(p => ({ ...p, [ch.id]: 'webhook' }))} />
-                                    {t('channel.webhook')}
+                                    {t('agent.settings.channel.modeWebhook', 'Webhook')}
                                 </label>
                             </div>
                         )}
-
+                        
                         {renderGuide(ch.guide, !!isWs, ch)}
-
+                        
                         {formFields.map(field => (
                             <div className="form-group" key={field.key}>
                                 {renderField(
@@ -620,13 +651,13 @@ export default function ChannelConfig({ mode, agentId, canManage = true, values,
         const configConnMode = config?.extra_config?.connection_mode;
 
         // Determine desc subtitle based on current mode
-        let subtitle = t(ch.descKey, ch.descFallback);
+        let subtitle = ch.desc;
         if (ch.connectionMode && config) {
-            subtitle = configConnMode === 'websocket' ? t('channel.websocketMode') : subtitle;
+            subtitle = configConnMode === 'websocket' ? 'WebSocket Mode' : ch.desc;
         }
 
         // Webhook URL for this channel
-        const webhookUrl = webhook?.webhook_url || `${window.location.origin}/api/v1/channel/${ch.id === 'feishu' ? 'feishu' : ch.apiSlug?.replace('-channel', '')}/${agentId}/webhook`;
+        const webhookUrl = webhook?.webhook_url || `${window.location.origin}/api/channel/${ch.id === 'feishu' ? 'feishu' : ch.apiSlug?.replace('-channel', '')}/${agentId}/webhook`;
 
         // Determine which fields to use (wecom websocket mode has different fields)
         const activeFields = (ch.connectionMode && isWs && ch.wsFields) ? ch.wsFields : ch.fields;
@@ -641,106 +672,123 @@ export default function ChannelConfig({ mode, agentId, canManage = true, values,
         const allRequired = formFields.filter(f => f.required).every(f => form[f.key]);
 
         return (
-            <div key={ch.id} className="border border-edge-subtle rounded-lg overflow-hidden mb-3">
+            <div key={ch.id} style={{ border: '1px solid var(--border-subtle)', borderRadius: '8px', overflow: 'hidden', marginBottom: '12px' }}>
                 {/* Header */}
-                <button
-                    type="button"
-                    onClick={() => toggleChannel(ch.id)}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleChannel(ch.id); } }}
-                    aria-expanded={isOpen}
-                    aria-label={t(ch.nameKey, ch.nameFallback)}
-                    className="flex w-full items-center justify-between px-4 py-3.5 cursor-pointer transition-colors duration-150 hover:bg-[var(--bg-hover)] bg-transparent border-none text-left">
-                    <div className="flex items-center gap-2">
+                <div onClick={() => toggleChannel(ch.id)}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', cursor: 'pointer', transition: 'background 0.15s' }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-hover)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         {ch.icon}
                         <div>
-                            <div className="font-semibold text-sm">{t(ch.nameKey, ch.nameFallback)}</div>
-                            <div className="text-[11px] text-content-tertiary">{subtitle}</div>
+                            <div style={{ fontWeight: 600, fontSize: '14px' }}>{t(ch.nameKey, ch.nameFallback)}</div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{subtitle}</div>
                         </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                        {config && <span className={`badge ${isConfigured ? 'badge-success' : 'badge-warning'}`}>{isConfigured ? t('channel.configured') : t('channel.notConfigured')}</span>}
-                        <span className={cn('text-xs text-content-tertiary transition-transform duration-200', isOpen && 'rotate-180')}>&#9660;</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {config && <span className={`badge ${isConfigured ? 'badge-success' : 'badge-warning'}`}>{isConfigured ? t('agent.settings.channel.configured') : t('agent.settings.channel.notConfigured')}</span>}
+                        <span style={{ fontSize: '12px', color: 'var(--text-tertiary)', transition: 'transform 0.2s', transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}>&#9660;</span>
                     </div>
-                </button>
+                </div>
 
                 {/* Body */}
                 {isOpen && (
-                    <div className="px-4 pb-4 border-t border-edge-subtle">
+                    <div style={{ padding: '0 16px 16px', borderTop: '1px solid var(--border-subtle)' }}>
                         {!canManage ? (
-                            <div className="text-xs text-content-tertiary italic p-3 bg-surface-secondary rounded-md">
-                                {t('channel.noPermission')}
+                            <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', fontStyle: 'italic', padding: '12px', background: 'var(--bg-secondary)', borderRadius: '6px' }}>
+                                Only the creator or admin can configure communication channels.
                             </div>
                         ) : isConfigured && !isEditing ? (
                             /* ── Configured view ── */
                             <div>
                                 {/* Feishu websocket status */}
                                 {ch.id === 'feishu' && configConnMode === 'websocket' && (
-                                    <div className="bg-surface-secondary rounded-md p-2.5 text-xs mb-3">
-                                        <div className="flex items-center gap-1.5 mb-1.5">
-                                            <span className="w-1.5 h-1.5 rounded-full bg-[#00D6B9] inline-block"></span>
-                                            <span className="text-content-secondary">{t('channel.connectedWebsocket')}</span>
+                                    <div style={{ background: 'var(--bg-secondary)', borderRadius: '6px', padding: '10px', fontSize: '12px', marginBottom: '12px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
+                                            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#00D6B9', display: 'inline-block' }}></span>
+                                            <span style={{ color: 'var(--text-secondary)' }}>Connected via WebSocket (No callback URL needed)</span>
                                         </div>
-                                        <div className="text-[11px] text-content-tertiary">App ID: <code>{config.app_id}</code></div>
+                                        <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>App ID: <code>{config.app_id}</code></div>
                                     </div>
                                 )}
                                 {ch.id === 'feishu' && configConnMode !== 'websocket' && (
-                                    <div className="text-xs text-content-tertiary mb-2">
-                                        <div className="mb-1">{t('channel.modeLabel')}: <strong>{t('channel.webhook')}</strong></div>
+                                    <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '8px' }}>
+                                        <div style={{ marginBottom: '4px' }}>Mode: <strong>Webhook</strong></div>
                                         <div>App ID: <code>{config.app_id}</code></div>
                                     </div>
                                 )}
 
                                 {/* WeCom websocket status */}
                                 {ch.id === 'wecom' && configConnMode === 'websocket' && (
-                                    <div className="bg-surface-secondary rounded-md p-2.5 text-xs mb-3">
-                                        <div className="flex items-center gap-1.5">
-                                            <span className="w-1.5 h-1.5 rounded-full bg-[#07C160] inline-block"></span>
-                                            <span className="text-content-secondary">{t('channel.connectedWebsocket')}</span>
+                                    <div style={{ background: 'var(--bg-secondary)', borderRadius: '6px', padding: '10px', fontSize: '12px', marginBottom: '12px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#07C160', display: 'inline-block' }}></span>
+                                            <span style={{ color: 'var(--text-secondary)' }}>Connected via WebSocket (No callback URL needed)</span>
                                         </div>
                                     </div>
                                 )}
 
                                 {/* Webhook URL (non-websocket channels) */}
-                                {ch.webhookLabelKey && !(ch.connectionMode && configConnMode === 'websocket') && ch.id !== 'dingtalk' && ch.id !== 'atlassian' && (
-                                    <div className="bg-surface-secondary rounded-md p-2.5 text-xs font-mono mb-3">
-                                        <div className="text-content-tertiary mb-1.5">{t(ch.webhookLabelKey!, ch.webhookLabelFallback || '')}</div>
-                                        <div className="leading-relaxed break-all">
-                                            <span className="text-accent-primary">{webhookUrl}</span>
-                                            <CopyBtn url={webhookUrl} title={t('channel.copy')} />
+                                {ch.webhookLabel && !(ch.connectionMode && configConnMode === 'websocket') && ch.id !== 'dingtalk' && ch.id !== 'atlassian' && (
+                                    <div style={{ background: 'var(--bg-secondary)', borderRadius: '6px', padding: '10px', fontSize: '12px', fontFamily: 'var(--font-mono)', marginBottom: '12px' }}>
+                                        <div style={{ color: 'var(--text-tertiary)', marginBottom: '6px' }}>{ch.webhookLabel}</div>
+                                        <div style={{ lineHeight: 1.6, wordBreak: 'break-all' }}>
+                                            <span style={{ color: 'var(--accent-primary)' }}>{webhookUrl}</span>
+                                            <CopyBtn url={webhookUrl} />
                                         </div>
                                     </div>
                                 )}
 
                                 {/* Discord extra hint */}
-                                {ch.id === 'discord' && (
-                                    <div className="text-[11px] text-content-tertiary mb-2">{t('channel.discordHint')}</div>
+                                {ch.id === 'discord' && configConnMode !== 'gateway' && (
+                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '8px' }}>Use <code>/ask message:&lt;your question&gt;</code> to talk to this agent</div>
+                                )}
+                                {ch.id === 'discord' && configConnMode === 'gateway' && (
+                                    <div style={{ background: 'var(--bg-secondary)', borderRadius: '6px', padding: '10px', fontSize: '12px', marginBottom: '12px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
+                                            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#5865F2', display: 'inline-block' }}></span>
+                                            <span style={{ color: 'var(--text-secondary)' }}>Connected via Gateway (No public URL needed)</span>
+                                        </div>
+                                        <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>@mention the bot or send a DM to interact</div>
+                                    </div>
                                 )}
 
                                 {/* DingTalk stream mode hint */}
                                 {ch.id === 'dingtalk' && (
-                                    <div className="text-[11px] text-content-tertiary mb-2 p-2 px-2.5 bg-surface-secondary rounded-md">
-                                        {t('channel.streamModeActive')}
+                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '8px', padding: '8px 10px', background: 'var(--bg-secondary)', borderRadius: '6px' }}>
+                                        Stream mode active. No webhook URL needed.
                                     </div>
                                 )}
 
                                 {/* Atlassian status */}
                                 {ch.id === 'atlassian' && (
-                                    <div className="bg-surface-secondary rounded-md p-2.5 text-xs mb-3">
-                                        <div className="text-content-tertiary mb-1">{t('channel.status')}</div>
-                                        <div className="text-content-primary font-medium">{t('channel.atlassianConfigured')}</div>
-                                        {config.cloud_id && <div className="text-content-tertiary mt-1 text-[11px]">Cloud ID: <code>{config.cloud_id}</code></div>}
+                                    <div style={{ background: 'var(--bg-secondary)', borderRadius: '6px', padding: '10px', fontSize: '12px', marginBottom: '12px' }}>
+                                        <div style={{ color: 'var(--text-tertiary)', marginBottom: '4px' }}>Status</div>
+                                        <div style={{ color: 'var(--text-primary)', fontWeight: 500 }}>API Key configured — Jira / Confluence / Compass tools available</div>
+                                        {config.cloud_id && <div style={{ color: 'var(--text-tertiary)', marginTop: '4px', fontSize: '11px' }}>Cloud ID: <code>{config.cloud_id}</code></div>}
                                     </div>
                                 )}
                                 {ch.id === 'atlassian' && atlassianTestResult && (
-                                    <div className={cn(
-                                        'px-3 py-2 rounded-md text-xs mb-2.5 border',
-                                        atlassianTestResult.ok
-                                            ? 'bg-[rgba(16,185,129,0.08)] border-[rgba(16,185,129,0.25)] text-[rgb(5,150,105)]'
-                                            : 'bg-[rgba(239,68,68,0.08)] border-[rgba(239,68,68,0.25)] text-[rgb(220,38,38)]',
-                                    )}>
+                                    <div style={{ padding: '8px 12px', borderRadius: '6px', fontSize: '12px', marginBottom: '10px', background: atlassianTestResult.ok ? 'rgba(16,185,129,0.08)' : 'rgba(239,68,68,0.08)', border: `1px solid ${atlassianTestResult.ok ? 'rgba(16,185,129,0.25)' : 'rgba(239,68,68,0.25)'}`, color: atlassianTestResult.ok ? 'rgb(5,150,105)' : 'rgb(220,38,38)' }}>
                                         {atlassianTestResult.ok
-                                            ? (atlassianTestResult.message || t('channel.atlassianConnected', { count: atlassianTestResult.tool_count }))
-                                            : atlassianTestResult.error}
+                                            ? `${atlassianTestResult.message || `Connected — ${atlassianTestResult.tool_count} tools available`}`
+                                            : `${atlassianTestResult.error}`}
+                                    </div>
+                                )}
+
+                                {/* AgentBay status */}
+                                {ch.id === 'agentbay' && (
+                                    <div style={{ background: 'var(--bg-secondary)', borderRadius: '6px', padding: '10px', fontSize: '12px', marginBottom: '12px' }}>
+                                        <div style={{ color: 'var(--text-tertiary)', marginBottom: '4px' }}>Status</div>
+                                        <div style={{ color: 'var(--text-primary)', fontWeight: 500 }}>API Key configured — Browser & Code tools available</div>
+                                        {config.base_url && <div style={{ color: 'var(--text-tertiary)', marginTop: '4px', fontSize: '11px' }}>Base URL: <code>{config.base_url}</code></div>}
+                                    </div>
+                                )}
+                                {ch.id === 'agentbay' && agentbayTestResult && (
+                                    <div style={{ padding: '8px 12px', borderRadius: '6px', fontSize: '12px', marginBottom: '10px', background: agentbayTestResult.ok ? 'rgba(16,185,129,0.08)' : 'rgba(239,68,68,0.08)', border: `1px solid ${agentbayTestResult.ok ? 'rgba(16,185,129,0.25)' : 'rgba(239,68,68,0.25)'}`, color: agentbayTestResult.ok ? 'rgb(5,150,105)' : 'rgb(220,38,38)' }}>
+                                        {agentbayTestResult.ok
+                                            ? `${agentbayTestResult.message || 'Connected to AgentBay'}`
+                                            : `${agentbayTestResult.error}`}
                                     </div>
                                 )}
 
@@ -748,13 +796,18 @@ export default function ChannelConfig({ mode, agentId, canManage = true, values,
                                 {renderGuide(ch.guide, !!(ch.connectionMode && configConnMode === 'websocket'), ch)}
 
                                 {/* Action buttons */}
-                                <div className="flex gap-2 flex-wrap">
-                                    {ch.hasTestConnection && (
-                                        <button className="btn btn-secondary text-xs px-3 py-1" onClick={testAtlassian} disabled={atlassianTesting}>
-                                            {atlassianTesting ? t('channel.testing') : t('channel.testConnection')}
+                                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                    {ch.hasTestConnection && ch.id === 'atlassian' && (
+                                        <button className="btn btn-secondary" style={{ fontSize: '12px', padding: '4px 12px' }} onClick={testAtlassian} disabled={atlassianTesting}>
+                                            {atlassianTesting ? 'Testing...' : 'Test Connection'}
                                         </button>
                                     )}
-                                    <button className="btn btn-secondary text-xs px-3 py-1"
+                                    {ch.hasTestConnection && ch.id === 'agentbay' && (
+                                        <button className="btn btn-secondary" style={{ fontSize: '12px', padding: '4px 12px' }} onClick={testAgentBay} disabled={agentbayTesting}>
+                                            {agentbayTesting ? 'Testing...' : 'Test Connection'}
+                                        </button>
+                                    )}
+                                    <button className="btn btn-secondary" style={{ fontSize: '12px', padding: '4px 12px' }}
                                         onClick={() => {
                                             // Populate form with existing config data
                                             const prefill: Record<string, string> = {};
@@ -780,9 +833,15 @@ export default function ChannelConfig({ mode, agentId, canManage = true, values,
                                                 prefill.bot_token = config.app_secret || '';
                                                 prefill.signing_secret = config.encrypt_key || '';
                                             } else if (ch.id === 'discord') {
-                                                prefill.application_id = config.app_id || '';
-                                                prefill.bot_token = config.app_secret || '';
-                                                prefill.public_key = config.encrypt_key || '';
+                                                const cm = config.extra_config?.connection_mode === 'gateway' ? 'websocket' : 'webhook';
+                                                setConnectionModes(prev => ({ ...prev, discord: cm }));
+                                                if (cm === 'websocket') {
+                                                    prefill.bot_token = config.app_secret || '';
+                                                } else {
+                                                    prefill.application_id = config.app_id || '';
+                                                    prefill.bot_token = config.app_secret || '';
+                                                    prefill.public_key = config.encrypt_key || '';
+                                                }
                                             } else if (ch.id === 'teams') {
                                                 prefill.app_id = config.app_id || '';
                                                 prefill.app_secret = config.app_secret || '';
@@ -793,32 +852,34 @@ export default function ChannelConfig({ mode, agentId, canManage = true, values,
                                             } else if (ch.id === 'atlassian') {
                                                 prefill.api_key = '';
                                                 prefill.cloud_id = config.cloud_id || '';
+                                            } else if (ch.id === 'agentbay') {
+                                                prefill.api_key = '';
+                                                prefill.base_url = config.base_url || '';
                                             }
                                             setForms(prev => ({ ...prev, [ch.id]: prefill }));
                                             setEditing(ch.id, true);
-                                        }}>{t('channel.edit')}</button>
-                                    <button className="btn btn-danger text-xs px-3 py-1"
-                                        onClick={() => deleteMutation.mutate({ ch })}
-                                        disabled={deleteMutation.isPending}>{deleteMutation.isPending ? t('common.loading') : t('channel.disconnect')}</button>
+                                        }}>Edit</button>
+                                    <button className="btn btn-danger" style={{ fontSize: '12px', padding: '4px 12px' }}
+                                        onClick={() => deleteMutation.mutate({ ch })}>Disconnect</button>
                                 </div>
                             </div>
                         ) : (
                             /* ── Form view (new or editing) ── */
-                            <div className="flex flex-col gap-2">
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                 {/* Connection mode toggle (feishu, wecom) */}
                                 {ch.connectionMode && (
-                                    <div className="mb-2">
-                                        <label className="text-xs font-medium block mb-2">{t('channel.connectionMode')}</label>
-                                        <div className="flex gap-4 mb-2">
-                                            <label className="text-xs flex items-center gap-1.5 cursor-pointer">
+                                    <div style={{ marginBottom: '8px' }}>
+                                        <label style={{ fontSize: '12px', fontWeight: 500, display: 'block', marginBottom: '8px' }}>{t('wizard.step5.connectionMode')}</label>
+                                        <div style={{ display: 'flex', gap: '16px', marginBottom: '8px' }}>
+                                            <label style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
                                                 <input type="radio" name={`${ch.id}_connection_mode`} value="websocket" checked={connMode === 'websocket'}
                                                     onChange={() => setConnectionModes(prev => ({ ...prev, [ch.id]: 'websocket' }))} />
-                                                {t('channel.websocketRecommended')}
+                                                {t('wizard.step5.modeWebsocket')}
                                             </label>
-                                            <label className="text-xs flex items-center gap-1.5 cursor-pointer">
+                                            <label style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
                                                 <input type="radio" name={`${ch.id}_connection_mode`} value="webhook" checked={connMode === 'webhook'}
                                                     onChange={() => setConnectionModes(prev => ({ ...prev, [ch.id]: 'webhook' }))} />
-                                                {t('channel.webhook')}
+                                                {t('wizard.step5.modeWebhook')}
                                             </label>
                                         </div>
                                     </div>
@@ -834,24 +895,34 @@ export default function ChannelConfig({ mode, agentId, canManage = true, values,
                                 {/* Atlassian extra hints */}
                                 {ch.id === 'atlassian' && (
                                     <>
-                                        <div className="text-[11px] text-content-tertiary -mt-1">
-                                            {t('channel.atlassianApiKeyHint')}
+                                        <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '-4px' }}>
+                                            Service account key starts with <code>ATSTT</code>. Personal API token: base64-encode <code>email:token</code> and prefix with <code>Basic </code>
                                         </div>
-                                        <div className="text-[11px] text-content-tertiary">{t('channel.atlassianCloudIdHint')}</div>
+                                        <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>Required for multi-site setups. Find it at <code>your-site.atlassian.net/_edge/tenant_info</code></div>
+                                    </>
+                                )}
+
+                                {/* AgentBay extra hints */}
+                                {ch.id === 'agentbay' && (
+                                    <>
+                                        <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '-4px' }}>
+                                            Get your API key from <a href="https://www.aliyun.com/product/agentbay" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary-color)' }}>Aliyun AgentBay Console</a>
+                                        </div>
+                                        <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>Leave Base URL empty to use the default endpoint</div>
                                     </>
                                 )}
 
                                 {/* Save / Cancel buttons */}
-                                <div className="flex gap-2 mt-1">
-                                    <button className="btn btn-primary text-xs self-start"
+                                <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                                    <button className="btn btn-primary" style={{ fontSize: '12px', alignSelf: 'flex-start' }}
                                         onClick={() => {
                                             const payload = buildPayload(ch, form);
                                             saveMutation.mutate({ ch, data: payload });
                                         }}
                                         disabled={!allRequired || saveMutation.isPending}>
-                                        {saveMutation.isPending ? t('common.loading') : (isEditing ? t('channel.saveChanges') : t('channel.saveConfig'))}
+                                        {saveMutation.isPending ? t('common.loading') : (isEditing ? 'Save Changes' : t('agent.settings.channel.saveChannel'))}
                                     </button>
-                                    {isEditing && <button className="btn btn-secondary text-xs" onClick={() => setEditing(ch.id, false)}>{t('common.cancel')}</button>}
+                                    {isEditing && <button className="btn btn-secondary" style={{ fontSize: '12px' }} onClick={() => setEditing(ch.id, false)}>Cancel</button>}
                                 </div>
                             </div>
                         )}
@@ -864,19 +935,23 @@ export default function ChannelConfig({ mode, agentId, canManage = true, values,
     // ─── Render ─────────────────────────────────────────
     if (mode === 'create') {
         return (
-            <div className="flex flex-col gap-2">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {/* Configurable channels */}
                 {CHANNEL_REGISTRY.filter(ch => !ch.editOnly).map(renderCreateChannel)}
 
                 {/* Disabled channels: configure in settings after creation */}
                 {CHANNEL_REGISTRY.filter(ch => ch.editOnly).map(ch => (
-                    <div key={ch.id} className="flex items-center gap-3 p-3.5 bg-surface-elevated border border-edge-default rounded-lg opacity-70">
+                    <div key={ch.id} style={{
+                        display: 'flex', alignItems: 'center', gap: '12px', padding: '14px',
+                        background: 'var(--bg-elevated)', border: '1px solid var(--border-default)',
+                        borderRadius: '8px', opacity: 0.7,
+                    }}>
                         {ch.icon}
-                        <div className="flex-1">
-                            <div className="font-medium text-[13px]">{t(ch.nameKey, ch.nameFallback)}</div>
-                            <div className="text-[11px] text-content-tertiary">{t(ch.descKey, ch.descFallback)}</div>
+                        <div style={{ flex: 1 }}>
+                            <div style={{ fontWeight: 500, fontSize: '13px' }}>{t(ch.nameKey, ch.nameFallback)}</div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{ch.desc}</div>
                         </div>
-                        <span className="text-[10px] px-2 py-0.5 rounded-[10px] bg-surface-secondary text-content-tertiary font-medium">{t('channel.configureInSettings')}</span>
+                        <span style={{ fontSize: '10px', padding: '2px 8px', borderRadius: '10px', background: 'var(--bg-secondary)', color: 'var(--text-tertiary)', fontWeight: 500 }}>Configure in Settings</span>
                     </div>
                 ))}
             </div>
@@ -885,11 +960,15 @@ export default function ChannelConfig({ mode, agentId, canManage = true, values,
 
     // Edit mode
     return (
-        <div className="card mb-3">
-            <h4 className="mb-3">{t('agent.settings.channel.title')}</h4>
-            <p className="text-xs text-content-tertiary mb-2">{t('channel.description')}</p>
-            <div className="px-3.5 py-2.5 rounded-lg mb-4 bg-[rgba(59,130,246,0.08)] border border-[rgba(59,130,246,0.2)] text-xs text-content-secondary leading-relaxed">
-                {t('channel.syncHint')}
+        <div className="card" style={{ marginBottom: '12px' }}>
+            <h4 style={{ marginBottom: '12px' }}>{t('agent.settings.channel.title')}</h4>
+            <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '8px' }}>{t('agent.settings.channel.title')}</p>
+            <div style={{
+                padding: '10px 14px', borderRadius: '8px', marginBottom: '16px',
+                background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)',
+                fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.6',
+            }}>
+                {t('agent.settings.channel.syncHint', 'Before configuring the Feishu bot, please sync your organization structure in Enterprise Settings → Org Structure first. This ensures the bot can identify message senders.')}
             </div>
             {CHANNEL_REGISTRY.map(renderEditChannel)}
         </div>
