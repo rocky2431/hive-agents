@@ -39,12 +39,12 @@ export function ModelSelector({ value, onChange, label, description, error, clas
             {description && (
                 <p className="text-xs text-content-tertiary mt-0.5 mb-1">{description}</p>
             )}
-            <Select value={value || ''} onValueChange={onChange}>
+            <Select value={value || '__none__'} onValueChange={(v) => onChange(v === '__none__' ? '' : v)}>
                 <SelectTrigger error={error}>
                     <SelectValue placeholder={isLoading ? t('common.loading', 'Loading\u2026') : t('enterprise.llm.selectModel', 'Select model\u2026')} />
                 </SelectTrigger>
                 <SelectContent>
-                    <SelectItem value="">
+                    <SelectItem value="__none__">
                         {t('common.none', 'None')}
                     </SelectItem>
                     {Object.entries(grouped).map(([provider, providerModels]) => {

@@ -35,10 +35,10 @@ function StatsBar({ agents, allTasks }: { agents: Agent[]; allTasks: Task[] }) {
     ];
 
     return (
-        <div className="mb-6 grid grid-cols-4 gap-px overflow-hidden rounded-lg border border-edge-subtle bg-edge-subtle">
+        <div className="mb-8 grid grid-cols-4 gap-4">
             {stats.map((s, i) => (
-                <div key={i} className="flex flex-col gap-0.5 bg-surface-secondary px-5 py-4">
-                    <span className="text-xs text-content-tertiary">{s.label}</span>
+                <div key={i} className="card flex flex-col gap-1 px-5 py-5">
+                    <span className="text-xs font-medium text-content-tertiary">{s.label}</span>
                     <span className="text-2xl font-semibold tracking-tight text-content-primary tabular-nums">{s.value}</span>
                     <span className="text-[11px] text-content-tertiary">{s.sub}</span>
                 </div>
@@ -58,7 +58,7 @@ function AgentRow({ agent, tasks, recentActivity }: { agent: Agent; tasks: Task[
     return (
         <button
             onClick={() => navigate(`/agents/${agent.id}`)}
-            className="grid w-full cursor-pointer grid-cols-[220px_1fr_150px_100px] items-center gap-4 rounded-md px-4 py-3 text-left transition-colors hover:bg-surface-hover"
+            className="grid w-full cursor-pointer grid-cols-[220px_1fr_150px_100px] items-center gap-4 rounded-md px-5 py-4 text-left transition-colors hover:bg-surface-hover"
         >
             <div className="flex min-w-0 items-center gap-2.5">
                 <AgentAvatar name={agent.name} avatarUrl={agent.avatar_url} status={agent.status} size="md" showStatusDot />
@@ -116,7 +116,7 @@ function ActivityFeed({ activities, agents }: { activities: any[]; agents: Agent
             {activities.map((act, i) => {
                 const agent = agentMap.get(act.agent_id);
                 return (
-                    <div key={act.id || i} className="flex items-start gap-3 px-3 py-1.5 text-sm">
+                    <div key={act.id || i} className="flex items-start gap-3 px-4 py-3 text-sm border-b border-edge-subtle last:border-b-0">
                         <span className="min-w-[52px] shrink-0 pt-0.5 font-mono text-[11px] text-content-tertiary tabular-nums">
                             {formatRelative(act.created_at)}
                         </span>
@@ -221,8 +221,8 @@ export default function Dashboard() {
                     <StatsBar agents={agents} allTasks={allTasks} />
 
                     {/* Agent List */}
-                    <Card className="mb-8 overflow-hidden">
-                        <div className="grid grid-cols-[220px_1fr_150px_100px] border-b border-edge-subtle px-4 py-2.5 text-[11px] font-medium uppercase tracking-wide text-content-tertiary">
+                    <Card className="mb-8 overflow-hidden p-0">
+                        <div className="grid grid-cols-[220px_1fr_150px_100px] border-b border-edge-subtle px-5 py-3.5 text-[11px] font-semibold uppercase tracking-wide text-content-tertiary">
                             <span>{t('dashboard.table.agent')}</span>
                             <span>{t('dashboard.table.latestActivity')}</span>
                             <span>{t('dashboard.table.token')}</span>
@@ -250,8 +250,8 @@ export default function Dashboard() {
                     </Card>
 
                     {/* Activity Feed */}
-                    <Card className="overflow-hidden">
-                        <div className="flex items-center justify-between border-b border-edge-subtle px-4 py-3">
+                    <Card className="overflow-hidden p-0">
+                        <div className="flex items-center justify-between border-b border-edge-subtle px-5 py-4">
                             <h3 className="flex items-center gap-1.5 text-sm font-medium text-content-secondary">
                                 {t('dashboard.globalActivity')}
                             </h3>
