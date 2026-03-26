@@ -24,7 +24,7 @@ async def _upload_image(agent_id: uuid.UUID, ws: Path, arguments: dict) -> str:
     file_path = arguments.get("file_path")
     url = arguments.get("url")
     file_name = arguments.get("file_name")
-    folder = arguments.get("folder", "/clawith")
+    folder = arguments.get("folder", "/hive")
 
     if not file_path and not url:
         return "❌ Please provide either 'file_path' (workspace path) or 'url' (public image URL)"

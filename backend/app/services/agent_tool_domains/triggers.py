@@ -142,7 +142,7 @@ async def _handle_set_trigger(agent_id: uuid.UUID, arguments: dict) -> str:
             settings = get_settings()
             base = getattr(settings, 'PUBLIC_URL', '') or ''
             if not base:
-                base = 'https://try.clawith.ai'  # fallback
+                base = 'https://try.hive.ai'  # fallback
             webhook_url = f"{base.rstrip('/')}/api/webhooks/t/{config['token']}"
             return f"✅ Webhook trigger '{name}' created.\n\nWebhook URL: {webhook_url}\n\nTell the user to configure this URL in their external service (e.g. GitHub, Grafana). When the service sends a POST to this URL, you will be woken up with the payload as context."
 

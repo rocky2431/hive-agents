@@ -56,7 +56,7 @@ async def send_feishu_message(agent_id: uuid.UUID, arguments: dict) -> str:
 
 @tool(ToolMeta(
     name="send_web_message",
-    description="Send a message to a user on the Clawith web platform. The message will appear in their web chat history and be pushed in real-time if they are online. Use this to proactively notify web users.",
+    description="Send a message to a user on the Hive web platform. The message will appear in their web chat history and be pushed in real-time if they are online. Use this to proactively notify web users.",
     parameters={
         "type": "object",
         "properties": {
@@ -166,7 +166,7 @@ async def send_channel_file(agent_id: uuid.UUID, workspace: Path, arguments: dic
             },
             "folder": {
                 "type": "string",
-                "description": "Optional CDN folder path, e.g. /agents/reports. Defaults to /clawith.",
+                "description": "Optional CDN folder path, e.g. /agents/reports. Defaults to /hive.",
             },
         },
     },

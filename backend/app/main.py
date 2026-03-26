@@ -1,4 +1,4 @@
-"""Clawith Backend — FastAPI Application Entry Point."""
+"""Hive Backend — FastAPI Application Entry Point."""
 
 from contextlib import asynccontextmanager
 

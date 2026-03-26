@@ -1,6 +1,6 @@
 """OpenViking HTTP client — thin async wrapper around the OpenViking REST API.
 
-Maps Clawith's multi-tenancy onto OpenViking's identity model:
+Maps Hive's multi-tenancy onto OpenViking's identity model:
   account_id = tenant_id
   user_id = user_id
   agent_id = agent_id
@@ -39,7 +39,7 @@ def _get_client() -> httpx.AsyncClient | None:
 
 
 def _identity_headers(tenant_id: str, user_id: str | None = None, agent_id: str | None = None) -> dict[str, str]:
-    """Build OpenViking identity headers from Clawith entities."""
+    """Build OpenViking identity headers from Hive entities."""
     headers = {"X-OpenViking-Account": tenant_id}
     if user_id:
         headers["X-OpenViking-User"] = user_id

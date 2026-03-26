@@ -1,14 +1,14 @@
-# Clawith Enterprise AI SaaS Architecture Proposal
+# Hive Enterprise AI SaaS Architecture Proposal
 
 > Cross-validated by 4 independent expert architects (Security, Platform, AI/Agent, Integration)
-> Based on deep code analysis of Clawith, deer-flow, and OpenViking
+> Based on deep code analysis of Hive, deer-flow, and OpenViking
 > Date: 2026-03-16
 
 ---
 
 ## Executive Summary
 
-This proposal transforms Clawith from a prototype multi-agent platform into an enterprise-grade AI SaaS capable of serving both internal digital employees and external customer-facing agents, with healthcare/finance-grade data isolation, full version control, and a knowledge backbone powered by OpenViking.
+This proposal transforms Hive from a prototype multi-agent platform into an enterprise-grade AI SaaS capable of serving both internal digital employees and external customer-facing agents, with healthcare/finance-grade data isolation, full version control, and a knowledge backbone powered by OpenViking.
 
 **Confidence Assessment: 92%**
 
@@ -71,7 +71,7 @@ This proposal transforms Clawith from a prototype multi-agent platform into an e
 ### Unanimous Agreements (4/4 experts)
 
 1. **Middleware chain, NOT LangGraph** for agent execution
-   - Clawith agents are persistent entities handling arbitrary requests, not pipeline workflows
+   - Hive agents are persistent entities handling arbitrary requests, not pipeline workflows
    - Middleware is composable, testable, optional per-agent
    - Deer-flow itself uses middleware within LangGraph — the middleware is the reusable pattern
 
@@ -315,7 +315,7 @@ plugins (
     tenant_id UUID,          -- null = global
     name VARCHAR UNIQUE,
     type VARCHAR,            -- python_module, mcp_server, webhook, skill_based
-    module_path VARCHAR,     -- "clawith_plugins.github:github_tools"
+    module_path VARCHAR,     -- "hive_plugins.github:github_tools"
     webhook_url VARCHAR,
     config_schema JSONB,
     capabilities JSONB,      -- ["tool", "middleware", "preprocessor"]
@@ -351,7 +351,7 @@ Redis-cached (30s TTL). Frontend evaluates on login via `GET /api/v1/feature-fla
 
 **URI mapping:**
 
-| Clawith Entity | viking:// URI | Access |
+| Hive Entity | viking:// URI | Access |
 |---|---|---|
 | Org knowledge base | `viking://resources/` | All tenant agents (read) |
 | Team knowledge | `viking://resources/teams/{dept_id}/` | Dept-scoped agents |
@@ -392,7 +392,7 @@ Replaces: Redis pub/sub (1 stream), file-based agent inbox, in-memory WebSocket 
 
 | Tier | Storage | Purpose | Latency |
 |------|---------|---------|---------|
-| Hot cache | Local `/tmp/clawith_workspaces/{agent_id}/` | Active session files | < 1ms |
+| Hot cache | Local `/tmp/hive_workspaces/{agent_id}/` | Active session files | < 1ms |
 | Persistent | OpenViking `viking://agent/{agent_id}/` | All durable data | 5-20ms |
 
 Write-through for memory/soul (synchronous). Write-behind for workspace files (async).
@@ -532,7 +532,7 @@ backend/app/
 ## Appendix: Confidence Methodology
 
 7 agents conducted independent analysis:
-- 3 research agents (deer-flow, OpenViking, Clawith audit)
+- 3 research agents (deer-flow, OpenViking, Hive audit)
 - 4 expert architects (Security, Platform, AI/Agent, Integration)
 
 Confidence scored per dimension as: `min(agreement_rate, evidence_strength, implementation_feasibility)`:

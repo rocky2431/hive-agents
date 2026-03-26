@@ -27,7 +27,7 @@ def _default_agent_data_dir() -> str:
     """Use Docker path in containers, user-writable path on local hosts."""
     if _running_in_container():
         return "/data/agents"
-    return str(Path.home() / ".clawith" / "data" / "agents")
+    return str(Path.home() / ".hive" / "data" / "agents")
 
 
 def _read_version() -> str:
@@ -46,14 +46,14 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
     # App
-    APP_NAME: str = "Clawith"
+    APP_NAME: str = "Hive"
     APP_VERSION: str = _read_version()
     DEBUG: bool = False
     SECRET_KEY: str = "change-me-in-production"
     API_PREFIX: str = "/api"
 
     # Database
-    DATABASE_URL: str = "postgresql+asyncpg://clawith:clawith@localhost:5432/clawith"
+    DATABASE_URL: str = "postgresql+asyncpg://hive:hive@localhost:5432/hive"
 
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
@@ -68,7 +68,7 @@ class Settings(BaseSettings):
     AGENT_TEMPLATE_DIR: str = "/app/agent_template"
 
     # Docker (for Agent containers)
-    DOCKER_NETWORK: str = "clawith_network"
+    DOCKER_NETWORK: str = "hive_network"
     OPENCLAW_IMAGE: str = "openclaw:local"
     OPENCLAW_GATEWAY_PORT: int = 18789
 

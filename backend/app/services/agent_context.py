@@ -15,7 +15,7 @@ from app.skills import SkillRegistry, WorkspaceSkillLoader
 settings = get_settings()
 
 # Two workspace roots exist — tool workspace and persistent data
-TOOL_WORKSPACE = Path("/tmp/clawith_workspaces")
+TOOL_WORKSPACE = Path("/tmp/hive_workspaces")
 PERSISTENT_DATA = Path(settings.AGENT_DATA_DIR)
 
 

@@ -2,13 +2,13 @@ services:
   postgres:
     image: postgres:15-alpine
     environment:
-      POSTGRES_USER: clawith
-      POSTGRES_PASSWORD: clawith
-      POSTGRES_DB: clawith
+      POSTGRES_USER: hive
+      POSTGRES_PASSWORD: hive
+      POSTGRES_DB: hive
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U clawith" ]
+      test: [ "CMD-SHELL", "pg_isready -U hive" ]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -32,7 +32,7 @@ services:
     restart: unless-stopped
     command: ["/bin/bash", "/app/entrypoint.sh"]
     environment:
-      DATABASE_URL: postgresql+asyncpg://clawith:clawith@postgres:5432/clawith
+      DATABASE_URL: postgresql+asyncpg://hive:hive@postgres:5432/hive
       REDIS_URL: redis://redis:6379/0
       AGENT_DATA_DIR: /data/agents
       AGENT_TEMPLATE_DIR: /app/agent_template
@@ -41,7 +41,7 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:3000","http://localhost:5173"]}  # Set explicit origins in production!
       FEISHU_APP_ID: ${FEISHU_APP_ID:-}
       FEISHU_APP_SECRET: ${FEISHU_APP_SECRET:-}
-      DOCKER_NETWORK: clawith_network
+      DOCKER_NETWORK: hive_network
       # GitHub personal access token — fallback for ClawHub/GitHub skill imports
       # when no tenant-level token is configured. Raises API rate limit from 60 to 5,000/hr.
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
@@ -80,4 +80,4 @@ volumes:
 
 networks:
   default:
-    name: clawith_network
+    name: hive_network

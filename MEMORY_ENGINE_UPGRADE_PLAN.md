@@ -2,7 +2,7 @@
 
 ## 目标
 
-把 Clawith 当前的 memory 从“兼容层 + 文件读取”升级成真正的 memory engine。
+把 Hive 当前的 memory 从“兼容层 + 文件读取”升级成真正的 memory engine。
 
 目标不是追求最复杂，而是做到：
 
@@ -22,13 +22,13 @@
 
 当前关键文件：
 
-- [memory/store.py](/Users/rocky243/vc-saas/Clawith/backend/app/memory/store.py)
-- [memory_service.py](/Users/rocky243/vc-saas/Clawith/backend/app/services/memory_service.py)
-- [prompt_builder.py](/Users/rocky243/vc-saas/Clawith/backend/app/runtime/prompt_builder.py)
+- [memory/store.py](/Users/rocky243/vc-saas/Hive/backend/app/memory/store.py)
+- [memory_service.py](/Users/rocky243/vc-saas/Hive/backend/app/services/memory_service.py)
+- [prompt_builder.py](/Users/rocky243/vc-saas/Hive/backend/app/runtime/prompt_builder.py)
 
 当前问题：
 
-1. [store.py](/Users/rocky243/vc-saas/Clawith/backend/app/memory/store.py) 只是 `Compatibility memory store`
+1. [store.py](/Users/rocky243/vc-saas/Hive/backend/app/memory/store.py) 只是 `Compatibility memory store`
 2. semantic memory 仍主要来自 `memory.json` 最近 15 条
 3. retrieval 没有独立排序/裁剪/组装层
 4. working / episodic / semantic / external 还没有真正形成 pipeline
@@ -265,8 +265,8 @@ class MemoryItem:
 
 改动文件：
 
-- [store.py](/Users/rocky243/vc-saas/Clawith/backend/app/memory/store.py)
-- [memory_service.py](/Users/rocky243/vc-saas/Clawith/backend/app/services/memory_service.py)
+- [store.py](/Users/rocky243/vc-saas/Hive/backend/app/memory/store.py)
+- [memory_service.py](/Users/rocky243/vc-saas/Hive/backend/app/services/memory_service.py)
 - 新增 `retriever.py`
 - 新增 `assembler.py`
 

@@ -32,12 +32,12 @@ COPY --from=deps /usr/local/bin/ /usr/local/bin/
 # Copy backend code into /app
 COPY backend/ .
 
-RUN useradd --create-home clawith && \
+RUN useradd --create-home hive && \
     mkdir -p /data/agents && \
     chmod +x /app/entrypoint.sh && \
-    chown -R clawith:clawith /app /data
+    chown -R hive:hive /app /data
 
-USER clawith
+USER hive
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
     CMD curl -f http://localhost:8000/api/health || exit 1

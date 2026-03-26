@@ -1,4 +1,4 @@
-# Clawith Agent-Native SaaS 执行与权限架构草案
+# Hive Agent-Native SaaS 执行与权限架构草案
 
 > 基于当前代码状态整理
 > 日期：2026-03-20
@@ -8,7 +8,7 @@
 
 ## 1. 结论摘要
 
-当前 Clawith 的方向是对的：它已经不是单纯的聊天产品，而是在朝着“有身份、有记忆、有工作空间的 agent-native SaaS”演进。
+当前 Hive 的方向是对的：它已经不是单纯的聊天产品，而是在朝着“有身份、有记忆、有工作空间的 agent-native SaaS”演进。
 
 但如果要真正走向企业可用和规模化，必须把下面三件事收敛成统一架构：
 
@@ -122,7 +122,7 @@
 
 ```mermaid
 flowchart TD
-    U[员工/管理员/触发器] --> CP[Clawith Control Plane]
+    U[员工/管理员/触发器] --> CP[Hive Control Plane]
     CP --> RT[Agent Runtime]
     RT --> MEM[Memory System]
     RT --> CAP[Capability Policy]
@@ -553,7 +553,7 @@ flowchart TD
 
 ### 原则一
 
-**Clawith 的 agent 默认是云端编排实体，不是本地常驻代理。**
+**Hive 的 agent 默认是云端编排实体，不是本地常驻代理。**
 
 ### 原则二
 

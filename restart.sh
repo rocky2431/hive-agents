@@ -1,5 +1,5 @@
 #!/bin/bash
-# Clawith — Restart Script
+# Hive — Restart Script
 # Usage: ./restart.sh [--source]
 #   --source  Force source (non-Docker) mode even if Docker is available
 
@@ -50,7 +50,7 @@ load_env() {
         set +a
     fi
 
-    : "${DATABASE_URL:=postgresql+asyncpg://clawith:clawith@localhost:5432/clawith?ssl=disable}"
+    : "${DATABASE_URL:=postgresql+asyncpg://hive:hive@localhost:5432/hive?ssl=disable}"
     export DATABASE_URL
 
     PG_PORT=$(echo "$DATABASE_URL" | grep -oP 'localhost:\K[0-9]+' 2>/dev/null || echo "$DATABASE_URL" | sed -n 's/.*localhost:\([0-9]*\).*/\1/p')
@@ -208,7 +208,7 @@ print_info() {
 
     echo ""
     echo -e "${GREEN}═══════════════════════════════════════${NC}"
-    echo -e "${GREEN}  Clawith running!${NC}"
+    echo -e "${GREEN}  Hive running!${NC}"
     echo -e "${GREEN}═══════════════════════════════════════${NC}"
     echo ""
     echo -e "  ${CYAN}Local:${NC}   http://localhost:$FRONTEND_PORT"
@@ -226,14 +226,14 @@ run_docker_mode() {
     if [ "$FORCE_SOURCE" = true ]; then
         return 1
     fi
-    # Only switch to Docker mode when there are RUNNING Clawith containers
-    if command -v docker &>/dev/null && docker ps --filter 'name=clawith' --filter 'status=running' -q 2>/dev/null | grep -q .; then
+    # Only switch to Docker mode when there are RUNNING Hive containers
+    if command -v docker &>/dev/null && docker ps --filter 'name=hive' --filter 'status=running' -q 2>/dev/null | grep -q .; then
         echo -e "${YELLOW}Detected running Docker containers. Starting in Docker mode...${NC}"
         echo -e "  ${YELLOW}Tip: use --source to force source (non-Docker) mode.${NC}"
         DIR_NAME=$(basename "$(dirname "$ROOT")")
         [ -z "$DIR_NAME" ] && DIR_NAME="custom"
 
-        PROJECT_NAME="clawith-${DIR_NAME}"
+        PROJECT_NAME="hive-${DIR_NAME}"
         echo -e "  Using project name: ${GREEN}$PROJECT_NAME${NC}"
         export COMPOSE_PROJECT_NAME="$PROJECT_NAME"
 

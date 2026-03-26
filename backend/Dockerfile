@@ -33,12 +33,12 @@ COPY --from=deps /usr/local/bin/ /usr/local/bin/
 # Copy application code
 COPY . .
 
-RUN useradd --create-home clawith && \
+RUN useradd --create-home hive && \
     mkdir -p /data/agents && \
     chmod +x /app/entrypoint.sh && \
-    chown -R clawith:clawith /app /data
+    chown -R hive:hive /app /data
 
-USER clawith
+USER hive
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \

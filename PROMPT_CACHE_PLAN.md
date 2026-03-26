@@ -2,7 +2,7 @@
 
 ## 目标
 
-把 Clawith 当前“每次都全量重建 system prompt”的模式，升级成：
+把 Hive 当前“每次都全量重建 system prompt”的模式，升级成：
 
 - `session 内冻结的 prompt 前缀`
 - `每轮可变的动态尾部`
@@ -18,9 +18,9 @@
 
 当前链路的真实实现：
 
-- [prompt_builder.py](/Users/rocky243/vc-saas/Clawith/backend/app/runtime/prompt_builder.py)
-- [engine.py](/Users/rocky243/vc-saas/Clawith/backend/app/kernel/engine.py)
-- [agent_context.py](/Users/rocky243/vc-saas/Clawith/backend/app/services/agent_context.py)
+- [prompt_builder.py](/Users/rocky243/vc-saas/Hive/backend/app/runtime/prompt_builder.py)
+- [engine.py](/Users/rocky243/vc-saas/Hive/backend/app/kernel/engine.py)
+- [agent_context.py](/Users/rocky243/vc-saas/Hive/backend/app/services/agent_context.py)
 
 当前问题：
 
@@ -151,9 +151,9 @@ def apply_prompt_cache_hints(messages: list[LLMMessage], provider: str) -> list[
 
 改动文件：
 
-- [session.py](/Users/rocky243/vc-saas/Clawith/backend/app/runtime/session.py)
-- [prompt_builder.py](/Users/rocky243/vc-saas/Clawith/backend/app/runtime/prompt_builder.py)
-- [engine.py](/Users/rocky243/vc-saas/Clawith/backend/app/kernel/engine.py)
+- [session.py](/Users/rocky243/vc-saas/Hive/backend/app/runtime/session.py)
+- [prompt_builder.py](/Users/rocky243/vc-saas/Hive/backend/app/runtime/prompt_builder.py)
+- [engine.py](/Users/rocky243/vc-saas/Hive/backend/app/kernel/engine.py)
 
 ### Phase 2: Dynamic Suffix
 
@@ -168,9 +168,9 @@ def apply_prompt_cache_hints(messages: list[LLMMessage], provider: str) -> list[
 
 改动文件：
 
-- [prompt_builder.py](/Users/rocky243/vc-saas/Clawith/backend/app/runtime/prompt_builder.py)
-- [memory_service.py](/Users/rocky243/vc-saas/Clawith/backend/app/services/memory_service.py)
-- [knowledge_inject.py](/Users/rocky243/vc-saas/Clawith/backend/app/services/knowledge_inject.py)
+- [prompt_builder.py](/Users/rocky243/vc-saas/Hive/backend/app/runtime/prompt_builder.py)
+- [memory_service.py](/Users/rocky243/vc-saas/Hive/backend/app/services/memory_service.py)
+- [knowledge_inject.py](/Users/rocky243/vc-saas/Hive/backend/app/services/knowledge_inject.py)
 
 ### Phase 3: Provider Cache Hints
 
@@ -181,7 +181,7 @@ def apply_prompt_cache_hints(messages: list[LLMMessage], provider: str) -> list[
 
 改动文件：
 
-- [llm_client.py](/Users/rocky243/vc-saas/Clawith/backend/app/services/llm_client.py)
+- [llm_client.py](/Users/rocky243/vc-saas/Hive/backend/app/services/llm_client.py)
 
 ## TDD 计划
 

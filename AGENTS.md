@@ -4,7 +4,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ## Project Overview
 
-Clawith is an open-source **multi-agent collaboration platform** — enterprise "digital employees" with persistent identity, long-term memory, private workspaces, and autonomous trigger-driven execution. Built with FastAPI (Python) backend + React 19 (TypeScript) frontend.
+Hive is an open-source **multi-agent collaboration platform** — enterprise "digital employees" with persistent identity, long-term memory, private workspaces, and autonomous trigger-driven execution. Built with FastAPI (Python) backend + React 19 (TypeScript) frontend.
 
 Version is tracked in the root `VERSION` file (shared by both frontend and backend).
 
@@ -137,7 +137,7 @@ Key vars in `.env` (see `.env.example`):
 - `DATABASE_URL` — PostgreSQL connection string (must include `?ssl=disable` for local dev)
 - `REDIS_URL` — Redis connection
 - `SECRET_KEY`, `JWT_SECRET_KEY` — security keys
-- `AGENT_DATA_DIR` — agent workspace root (default: `~/.clawith/data/agents` local, `/data/agents` in Docker)
+- `AGENT_DATA_DIR` — agent workspace root (default: `~/.hive/data/agents` local, `/data/agents` in Docker)
 - `JINA_API_KEY` — for web search/read tools (optional, works without but rate-limited)
 - `FEISHU_APP_ID`, `FEISHU_APP_SECRET` — Feishu SSO (optional)
 

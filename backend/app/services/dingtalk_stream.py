@@ -74,8 +74,8 @@ class DingTalkStreamManager:
             # Reference to manager's main loop for async dispatch
             main_loop = self._main_loop
 
-            class ClawithChatbotHandler(dingtalk_stream.ChatbotHandler):
-                """Custom handler that dispatches messages to the Clawith LLM pipeline."""
+            class HiveChatbotHandler(dingtalk_stream.ChatbotHandler):
+                """Custom handler that dispatches messages to the Hive LLM pipeline."""
 
                 async def process(self, callback: dingtalk_stream.CallbackMessage):
                     """Handle incoming bot message from DingTalk Stream.
@@ -139,7 +139,7 @@ class DingTalkStreamManager:
             client = dingtalk_stream.DingTalkStreamClient(credential=credential)
             client.register_callback_handler(
                 dingtalk_stream.chatbot.ChatbotMessage.TOPIC,
-                ClawithChatbotHandler(),
+                HiveChatbotHandler(),
             )
 
             logger.info(f"[DingTalk Stream] Connecting for agent {agent_id}...")

@@ -18,9 +18,9 @@
 
 真实执行位置：
 
-- [engine.py](/Users/rocky243/vc-saas/Clawith/backend/app/kernel/engine.py)
-- [service.py](/Users/rocky243/vc-saas/Clawith/backend/app/tools/service.py)
-- [runtime.py](/Users/rocky243/vc-saas/Clawith/backend/app/tools/runtime.py)
+- [engine.py](/Users/rocky243/vc-saas/Hive/backend/app/kernel/engine.py)
+- [service.py](/Users/rocky243/vc-saas/Hive/backend/app/tools/service.py)
+- [runtime.py](/Users/rocky243/vc-saas/Hive/backend/app/tools/runtime.py)
 
 当前行为：
 
@@ -86,7 +86,7 @@
 
 ### 1. Tool Definition 增加执行属性
 
-在 [types.py](/Users/rocky243/vc-saas/Clawith/backend/app/tools/types.py) 增加：
+在 [types.py](/Users/rocky243/vc-saas/Hive/backend/app/tools/types.py) 增加：
 
 ```python
 @dataclass(slots=True)
@@ -102,14 +102,14 @@ class ToolDefinition:
 
 ### 2. Registry 提供能力判断
 
-在 [registry.py](/Users/rocky243/vc-saas/Clawith/backend/app/tools/registry.py) 增加：
+在 [registry.py](/Users/rocky243/vc-saas/Hive/backend/app/tools/registry.py) 增加：
 
 - `is_parallel_safe(name)`
 - `is_read_only(name)`
 
 ### 3. Kernel 提供 batch executor
 
-在 [engine.py](/Users/rocky243/vc-saas/Clawith/backend/app/kernel/engine.py) 中新增：
+在 [engine.py](/Users/rocky243/vc-saas/Hive/backend/app/kernel/engine.py) 中新增：
 
 - `_execute_tool_batch_sequential(...)`
 - `_execute_tool_batch_parallel(...)`
@@ -159,14 +159,14 @@ class ToolDefinition:
 
 改动文件：
 
-- [types.py](/Users/rocky243/vc-saas/Clawith/backend/app/tools/types.py)
-- [registry.py](/Users/rocky243/vc-saas/Clawith/backend/app/tools/registry.py)
+- [types.py](/Users/rocky243/vc-saas/Hive/backend/app/tools/types.py)
+- [registry.py](/Users/rocky243/vc-saas/Hive/backend/app/tools/registry.py)
 
 ### Phase 2: Kernel Batch Execution
 
 改动文件：
 
-- [engine.py](/Users/rocky243/vc-saas/Clawith/backend/app/kernel/engine.py)
+- [engine.py](/Users/rocky243/vc-saas/Hive/backend/app/kernel/engine.py)
 
 ### Phase 3: 扩大白名单
 

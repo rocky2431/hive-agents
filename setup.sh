@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ────────────────────────────────────────────────
-# Clawith — First-time Setup Script
+# Hive — First-time Setup Script
 # Sets up backend, frontend, database, and seed data.
 # ────────────────────────────────────────────────
 set -e
@@ -33,13 +33,13 @@ if command -v "$PYTHON_BIN" &>/dev/null; then
     PY_MAJOR=$(echo "$PY_VER" | cut -d. -f1)
     PY_MINOR=$(echo "$PY_VER" | cut -d. -f2)
     if [ "$PY_MAJOR" -lt 3 ] || ([ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 12 ]); then
-        echo -e "${RED}Python $PY_VER detected, but Clawith requires Python >= 3.12.${NC}"
+        echo -e "${RED}Python $PY_VER detected, but Hive requires Python >= 3.12.${NC}"
         echo ""
         echo "  Please install Python 3.12+:"
         echo "    Ubuntu:     sudo apt install python3.12 python3.12-venv"
         echo "    CentOS:     sudo dnf install python3.12"
         echo "    macOS:      brew install python@3.12"
-        echo "    Conda:      conda create -n clawith python=3.12"
+        echo "    Conda:      conda create -n hive python=3.12"
         echo ""
         echo "  Or set PYTHON_BIN to point to a valid python3.12+ binary:"
         echo "    PYTHON_BIN=/path/to/python3.12 bash setup.sh"
@@ -59,7 +59,7 @@ NPM_MIRROR="--registry https://registry.npmmirror.com"
 
 echo ""
 echo -e "${CYAN}═══════════════════════════════════════${NC}"
-echo -e "${CYAN}  🦞 Clawith — First-time Setup${NC}"
+echo -e "${CYAN}  🦞 Hive — First-time Setup${NC}"
 echo -e "${CYAN}═══════════════════════════════════════${NC}"
 echo ""
 
@@ -131,23 +131,23 @@ if PG_BIN_DIR=$(find_psql 2>/dev/null); then
 
         # Try to create role and database
         ROLE_EXISTS=false
-        if psql -h localhost -p $PG_PORT -U "$USER" -d postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname='clawith'" 2>/dev/null | grep -q 1; then
+        if psql -h localhost -p $PG_PORT -U "$USER" -d postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname='hive'" 2>/dev/null | grep -q 1; then
             ROLE_EXISTS=true
-            echo -e "  ${GREEN}✓${NC} Role 'clawith' already exists"
-        elif sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='clawith'" 2>/dev/null | grep -q 1; then
+            echo -e "  ${GREEN}✓${NC} Role 'hive' already exists"
+        elif sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='hive'" 2>/dev/null | grep -q 1; then
             ROLE_EXISTS=true
-            echo -e "  ${GREEN}✓${NC} Role 'clawith' already exists"
+            echo -e "  ${GREEN}✓${NC} Role 'hive' already exists"
         fi
 
         if [ "$ROLE_EXISTS" = false ]; then
             # Try 1: as current user
-            if createuser -h localhost -p $PG_PORT clawith 2>/dev/null; then
-                psql -h localhost -p $PG_PORT -U "$USER" -d postgres -c "ALTER ROLE clawith WITH LOGIN PASSWORD 'clawith';" &>/dev/null
-                echo -e "  ${GREEN}✓${NC} Created PostgreSQL role: clawith"
+            if createuser -h localhost -p $PG_PORT hive 2>/dev/null; then
+                psql -h localhost -p $PG_PORT -U "$USER" -d postgres -c "ALTER ROLE hive WITH LOGIN PASSWORD 'hive';" &>/dev/null
+                echo -e "  ${GREEN}✓${NC} Created PostgreSQL role: hive"
             # Try 2: via sudo -u postgres (standard Linux setup)
-            elif sudo -u postgres createuser clawith 2>/dev/null && \
-                 sudo -u postgres psql -c "ALTER ROLE clawith WITH LOGIN PASSWORD 'clawith';" &>/dev/null; then
-                echo -e "  ${GREEN}✓${NC} Created PostgreSQL role: clawith (via sudo)"
+            elif sudo -u postgres createuser hive 2>/dev/null && \
+                 sudo -u postgres psql -c "ALTER ROLE hive WITH LOGIN PASSWORD 'hive';" &>/dev/null; then
+                echo -e "  ${GREEN}✓${NC} Created PostgreSQL role: hive (via sudo)"
             else
                 echo -e "  ${YELLOW}⚠${NC}  Could not create role in existing PG — will init a local instance"
                 PG_BIN_DIR=""  # Force local PG setup below
@@ -156,18 +156,18 @@ if PG_BIN_DIR=$(find_psql 2>/dev/null); then
 
         if [ -n "$PG_BIN_DIR" ] || command -v psql &>/dev/null; then
             DB_EXISTS=false
-            if psql -h localhost -p $PG_PORT -U "$USER" -lqt 2>/dev/null | cut -d\| -f1 | grep -qw clawith; then
+            if psql -h localhost -p $PG_PORT -U "$USER" -lqt 2>/dev/null | cut -d\| -f1 | grep -qw hive; then
                 DB_EXISTS=true
-            elif sudo -u postgres psql -lqt 2>/dev/null | cut -d\| -f1 | grep -qw clawith; then
+            elif sudo -u postgres psql -lqt 2>/dev/null | cut -d\| -f1 | grep -qw hive; then
                 DB_EXISTS=true
             fi
 
             if [ "$DB_EXISTS" = true ]; then
-                echo -e "  ${GREEN}✓${NC} Database 'clawith' already exists"
+                echo -e "  ${GREEN}✓${NC} Database 'hive' already exists"
             else
-                if createdb -h localhost -p $PG_PORT -O clawith clawith 2>/dev/null || \
-                   sudo -u postgres createdb -O clawith clawith 2>/dev/null; then
-                    echo -e "  ${GREEN}✓${NC} Created database: clawith"
+                if createdb -h localhost -p $PG_PORT -O hive hive 2>/dev/null || \
+                   sudo -u postgres createdb -O hive hive 2>/dev/null; then
+                    echo -e "  ${GREEN}✓${NC} Created database: hive"
                 fi
             fi
         fi
@@ -179,7 +179,7 @@ if PG_BIN_DIR=$(find_psql 2>/dev/null); then
 fi
 
 # --- Local PG instance: install + initdb if needed ---
-if [ -z "$PG_BIN_DIR" ] && ! (PGPASSWORD=clawith psql -h localhost -p 5432 -U clawith -d clawith -c "SELECT 1" &>/dev/null); then
+if [ -z "$PG_BIN_DIR" ] && ! (PGPASSWORD=hive psql -h localhost -p 5432 -U hive -d hive -c "SELECT 1" &>/dev/null); then
     echo -e "  ${CYAN}↓${NC} No usable PostgreSQL found — setting up a local instance..."
     PG_MANAGED_BY_US=true
     PGDATA="$ROOT/.pgdata"
@@ -246,15 +246,15 @@ if [ -z "$PG_BIN_DIR" ] && ! (PGPASSWORD=clawith psql -h localhost -p 5432 -U cl
             done
             # Create role and database
             if command -v psql &>/dev/null; then
-                if ! psql -h localhost -p $PG_PORT -U postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname='clawith'" 2>/dev/null | grep -q 1; then
-                    sudo -u postgres createuser clawith 2>/dev/null || createuser -h localhost -p $PG_PORT clawith 2>/dev/null || true
-                    sudo -u postgres psql -c "ALTER ROLE clawith WITH LOGIN PASSWORD 'clawith';" 2>/dev/null || \
-                        psql -h localhost -p $PG_PORT -U postgres -c "ALTER ROLE clawith WITH LOGIN PASSWORD 'clawith';" 2>/dev/null || true
-                    echo -e "  ${GREEN}✓${NC} Created role: clawith"
+                if ! psql -h localhost -p $PG_PORT -U postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname='hive'" 2>/dev/null | grep -q 1; then
+                    sudo -u postgres createuser hive 2>/dev/null || createuser -h localhost -p $PG_PORT hive 2>/dev/null || true
+                    sudo -u postgres psql -c "ALTER ROLE hive WITH LOGIN PASSWORD 'hive';" 2>/dev/null || \
+                        psql -h localhost -p $PG_PORT -U postgres -c "ALTER ROLE hive WITH LOGIN PASSWORD 'hive';" 2>/dev/null || true
+                    echo -e "  ${GREEN}✓${NC} Created role: hive"
                 fi
-                if ! psql -h localhost -p $PG_PORT -U postgres -lqt 2>/dev/null | cut -d\| -f1 | grep -qw clawith; then
-                    sudo -u postgres createdb -O clawith clawith 2>/dev/null || createdb -h localhost -p $PG_PORT -O clawith clawith 2>/dev/null || true
-                    echo -e "  ${GREEN}✓${NC} Created database: clawith"
+                if ! psql -h localhost -p $PG_PORT -U postgres -lqt 2>/dev/null | cut -d\| -f1 | grep -qw hive; then
+                    sudo -u postgres createdb -O hive hive 2>/dev/null || createdb -h localhost -p $PG_PORT -O hive hive 2>/dev/null || true
+                    echo -e "  ${GREEN}✓${NC} Created database: hive"
                 fi
                 PG_MANAGED_BY_US=false  # System manages PG now
             fi
@@ -320,14 +320,14 @@ if [ -z "$PG_BIN_DIR" ] && ! (PGPASSWORD=clawith psql -h localhost -p 5432 -U cl
             fi
 
             # Create role and database
-            if ! psql -h localhost -p "$PG_PORT" -U postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname='clawith'" 2>/dev/null | grep -q 1; then
-                createuser -h localhost -p "$PG_PORT" -U postgres clawith 2>/dev/null || true
-                psql -h localhost -p "$PG_PORT" -U postgres -c "ALTER ROLE clawith WITH LOGIN PASSWORD 'clawith';" &>/dev/null
-                echo -e "  ${GREEN}✓${NC} Created role: clawith"
+            if ! psql -h localhost -p "$PG_PORT" -U postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname='hive'" 2>/dev/null | grep -q 1; then
+                createuser -h localhost -p "$PG_PORT" -U postgres hive 2>/dev/null || true
+                psql -h localhost -p "$PG_PORT" -U postgres -c "ALTER ROLE hive WITH LOGIN PASSWORD 'hive';" &>/dev/null
+                echo -e "  ${GREEN}✓${NC} Created role: hive"
             fi
-            if ! psql -h localhost -p "$PG_PORT" -U postgres -lqt 2>/dev/null | cut -d\| -f1 | grep -qw clawith; then
-                createdb -h localhost -p "$PG_PORT" -U postgres -O clawith clawith 2>/dev/null
-                echo -e "  ${GREEN}✓${NC} Created database: clawith"
+            if ! psql -h localhost -p "$PG_PORT" -U postgres -lqt 2>/dev/null | cut -d\| -f1 | grep -qw hive; then
+                createdb -h localhost -p "$PG_PORT" -U postgres -O hive hive 2>/dev/null
+                echo -e "  ${GREEN}✓${NC} Created database: hive"
             fi
         else
             echo -e "  ${RED}✗${NC} Could not set up PostgreSQL automatically."
@@ -345,7 +345,7 @@ if [ -z "$PG_BIN_DIR" ] && ! (PGPASSWORD=clawith psql -h localhost -p 5432 -U cl
 fi
 
 # Ensure DATABASE_URL is correct in .env
-DB_URL="postgresql+asyncpg://clawith:clawith@localhost:${PG_PORT}/clawith?ssl=disable"
+DB_URL="postgresql+asyncpg://hive:hive@localhost:${PG_PORT}/hive?ssl=disable"
 if grep -q "^DATABASE_URL=" "$ROOT/.env" 2>/dev/null; then
     # Update existing DATABASE_URL
     sed -i "s|^DATABASE_URL=.*|DATABASE_URL=${DB_URL}|" "$ROOT/.env" 2>/dev/null || \
@@ -428,12 +428,12 @@ else
     echo "  Common fixes:"
     echo "    1. Make sure PostgreSQL is running"
     echo "    2. Set DATABASE_URL in .env, e.g.:"
-    echo "       DATABASE_URL=postgresql+asyncpg://clawith:clawith@localhost:5432/clawith?ssl=disable"
+    echo "       DATABASE_URL=postgresql+asyncpg://hive:hive@localhost:5432/hive?ssl=disable"
     echo "    3. Create the database first:"
-    echo "       createdb clawith"
+    echo "       createdb hive"
     echo "    4. If you see 'Ident authentication failed', configure pg_hba.conf:"
     echo "       Add this line BEFORE other host rules:"
-    echo "       host  all  clawith  127.0.0.1/32  md5"
+    echo "       host  all  hive  127.0.0.1/32  md5"
     echo "       Then reload: sudo systemctl reload postgresql"
     echo ""
     echo "  After fixing, re-run: bash setup.sh"

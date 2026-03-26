@@ -190,7 +190,7 @@ class AgentManager:
             container = self.docker_client.containers.run(
                 settings.OPENCLAW_IMAGE,
                 detach=True,
-                name=f"clawith-agent-{str(agent.id)[:8]}",
+                name=f"hive-agent-{str(agent.id)[:8]}",
                 network=settings.DOCKER_NETWORK,
                 ports={f"{settings.OPENCLAW_GATEWAY_PORT}/tcp": container_port},
                 volumes={
@@ -201,8 +201,8 @@ class AgentManager:
                 },
                 restart_policy={"Name": "unless-stopped"},
                 labels={
-                    "clawith.agent_id": str(agent.id),
-                    "clawith.agent_name": agent.name,
+                    "hive.agent_id": str(agent.id),
+                    "hive.agent_name": agent.name,
                 },
             )
 

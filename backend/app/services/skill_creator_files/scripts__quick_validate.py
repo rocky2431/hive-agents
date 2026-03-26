@@ -72,7 +72,7 @@ def validate_skill(skill_path):
         return False, f"Name must be a string, got {type(name).__name__}"
     name = name.strip()
     if name:
-        # Support both portable kebab-case skills and built-in display-name skills used by Clawith.
+        # Support both portable kebab-case skills and built-in display-name skills used by Hive.
         if not re.match(r'^[A-Za-z0-9][A-Za-z0-9 _-]*$', name):
             return False, (
                 f"Name '{name}' contains unsupported characters. "

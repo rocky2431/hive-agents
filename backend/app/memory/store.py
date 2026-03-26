@@ -250,7 +250,7 @@ class PersistentMemoryStore:
 
 
 class FileBackedMemoryStore:
-    """Build runtime memory context from the current Clawith storage layout."""
+    """Build runtime memory context from the current Hive storage layout."""
 
     def __init__(
         self,

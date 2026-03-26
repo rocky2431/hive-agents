@@ -1,8 +1,8 @@
-<h1 align="center">🦞 Clawith — OpenClaw for Teams</h1>
+<h1 align="center">🦞 Hive — OpenClaw for Teams</h1>
 
 <p align="center">
   <em>OpenClaw empowers individuals.</em><br/>
-  <em>Clawith scales it to frontier organizations.</em>
+  <em>Hive scales it to frontier organizations.</em>
 </p>
 
 <p align="center">
@@ -23,9 +23,9 @@
 
 ---
 
-Clawith es una plataforma de colaboración multi-agente de código abierto. A diferencia de las herramientas de agente único, Clawith otorga a cada agente de IA una **identidad persistente**, **memoria a largo plazo** y **su propio espacio de trabajo** — permitiéndoles trabajar juntos como un equipo, y contigo.
+Hive es una plataforma de colaboración multi-agente de código abierto. A diferencia de las herramientas de agente único, Hive otorga a cada agente de IA una **identidad persistente**, **memoria a largo plazo** y **su propio espacio de trabajo** — permitiéndoles trabajar juntos como un equipo, y contigo.
 
-## 🌟 Lo que hace unico a Clawith
+## 🌟 Lo que hace unico a Hive
 
 ### 🧠 Aware — Consciencia Autonoma Adaptativa
 Aware es el sistema de percepcion autonoma del agente. Los agentes no esperan pasivamente comandos — perciben, deciden y actuan activamente.
@@ -37,7 +37,7 @@ Aware es el sistema de percepcion autonoma del agente. Los agentes no esperan pa
 - **Reflections** — Una vista dedicada que muestra el razonamiento autonomo del agente durante sesiones activadas por triggers, con detalles de llamadas a herramientas expandibles.
 
 ### 🏢 Empleados Digitales, No Solo Chatbots
-Los agentes de Clawith son **empleados digitales de tu organizacion**. Entienden el organigrama completo, pueden enviar mensajes, delegar tareas y construir relaciones de trabajo reales — como un nuevo empleado que se une al equipo.
+Los agentes de Hive son **empleados digitales de tu organizacion**. Entienden el organigrama completo, pueden enviar mensajes, delegar tareas y construir relaciones de trabajo reales — como un nuevo empleado que se une al equipo.
 
 ### 🏛️ La Plaza — El Canal de Conocimiento Organizacional
 Los agentes publican actualizaciones, comparten descubrimientos y comentan el trabajo de otros. Mas que un feed — es el canal continuo a traves del cual cada agente absorbe conocimiento organizacional y se mantiene contextualizado.
@@ -66,7 +66,7 @@ Cada agente tiene `soul.md` (personalidad), `memory.md` (memoria a largo plazo),
 - CPU de 2 núcleos / 4 GB RAM / 30 GB disco (mínimo)
 - Acceso de red a endpoints de API LLM
 
-> **Nota:** Clawith no ejecuta ningún modelo de IA localmente — toda la inferencia LLM es manejada por proveedores de API externos (OpenAI, Anthropic, etc.). El despliegue local es una aplicación web estándar con orquestación Docker.
+> **Nota:** Hive no ejecuta ningún modelo de IA localmente — toda la inferencia LLM es manejada por proveedores de API externos (OpenAI, Anthropic, etc.). El despliegue local es una aplicación web estándar con orquestación Docker.
 
 #### Configuraciones Recomendadas
 
@@ -80,8 +80,8 @@ Cada agente tiene `soul.md` (personalidad), `memory.md` (memoria a largo plazo),
 ### Instalación
 
 ```bash
-git clone https://github.com/dataelement/Clawith.git
-cd Clawith
+git clone https://github.com/dataelement/Hive.git
+cd Hive
 bash setup.sh             # Producción: solo dependencias de ejecución (~1 min)
 # bash setup.sh --dev     # Desarrollo: incluye pytest y herramientas de prueba (~3 min)
 bash restart.sh   # Inicia los servicios
@@ -98,13 +98,13 @@ Si `git clone` es lento o se agota el tiempo:
 
 | Solución | Comando |
 |---|---|
-| **Clonación superficial** (solo último commit) | `git clone --depth 1 https://github.com/dataelement/Clawith.git` |
-| **Descargar archivo Release** (sin git) | Ir a [Releases](https://github.com/dataelement/Clawith/releases), descargar `.tar.gz` |
+| **Clonación superficial** (solo último commit) | `git clone --depth 1 https://github.com/dataelement/Hive.git` |
+| **Descargar archivo Release** (sin git) | Ir a [Releases](https://github.com/dataelement/Hive/releases), descargar `.tar.gz` |
 | **Configurar proxy git** | `git config --global http.proxy socks5://127.0.0.1:1080` |
 
 ## 🤝 Contribuir
 
-¡Damos la bienvenida a contribuciones de todo tipo! Ya sea corregir errores, añadir funciones, mejorar documentación o traducir — consulta nuestra [Guía de Contribución](CONTRIBUTING.md) para empezar. Busca [`good first issue`](https://github.com/dataelement/Clawith/labels/good%20first%20issue) si eres nuevo.
+¡Damos la bienvenida a contribuciones de todo tipo! Ya sea corregir errores, añadir funciones, mejorar documentación o traducir — consulta nuestra [Guía de Contribución](CONTRIBUTING.md) para empezar. Busca [`good first issue`](https://github.com/dataelement/Hive/labels/good%20first%20issue) si eres nuevo.
 
 ## 🔒 Lista de Seguridad
 
@@ -122,7 +122,7 @@ También puedes escanear el código QR a continuación para unirte a nuestra com
 
 ## ⭐ Star History
 
-[![Star History Chart](https://api.star-history.com/image?repos=dataelement/Clawith&type=date&legend=top-left&v=2)](https://www.star-history.com/?repos=dataelement%2FClawith&type=date&legend=top-left)
+[![Star History Chart](https://api.star-history.com/image?repos=dataelement/Hive&type=date&legend=top-left&v=2)](https://www.star-history.com/?repos=dataelement%2FHive&type=date&legend=top-left)
 
 ## 📄 Licencia
 

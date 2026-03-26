@@ -141,7 +141,7 @@ async def upload_file(
         workspace_path = f"workspace/uploads/{save_path.name}"
     else:
         # Fallback: save to /tmp (legacy behavior)
-        fallback_dir = Path("/tmp/clawith_uploads")
+        fallback_dir = Path("/tmp/hive_uploads")
         fallback_dir.mkdir(exist_ok=True)
         file_id = str(uuid.uuid4())[:8]
         save_path = fallback_dir / f"{file_id}_{safe_filename}"
