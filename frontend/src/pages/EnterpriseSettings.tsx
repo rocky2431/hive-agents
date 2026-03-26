@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { enterpriseApi, skillApi } from '../services/api';
+import { enterpriseApi } from '../api/domains/enterprise';
+import { skillApi } from '../api/domains/skills';
 import PromptModal from '../components/PromptModal';
 import FileBrowser from '../components/FileBrowser';
 import type { FileBrowserApi } from '../components/FileBrowser';
@@ -9,7 +10,7 @@ import { saveAccentColor, getSavedAccentColor, resetAccentColor, PRESET_COLORS }
 import UserManagement from './UserManagement';
 import InvitationCodes from './InvitationCodes';
 
-import { request } from '../api/core';
+import { request, get, post, put, del } from '../api/core';
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
     return request<T>(options?.method || 'GET', url, options?.body ? JSON.parse(options.body as string) : undefined);
 }
@@ -933,19 +934,7 @@ function BroadcastSection() {
         setSending(true);
         setResult(null);
         try {
-            const token = localStorage.getItem('token');
-            const res = await fetch('/api/notifications/broadcast', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                body: JSON.stringify({ title: title.trim(), body: body.trim() }),
-            });
-            if (!res.ok) {
-                const err = await res.json().catch(() => ({}));
-                alert(err.detail || 'Failed to send broadcast');
-                setSending(false);
-                return;
-            }
-            const data = await res.json();
+            const data = await post<any>('/notifications/broadcast', { title: title.trim(), body: body.trim() });
             setResult({ users: data.users_notified, agents: data.agents_notified });
             setTitle('');
             setBody('');
@@ -1137,20 +1126,13 @@ export default function EnterpriseSettings() {
     const [jinaKeyMasked, setJinaKeyMasked] = useState('');  // stored key from DB
     useEffect(() => {
         if (activeTab !== 'tools') return;
-        const token = localStorage.getItem('token');
-        fetch('/api/enterprise/system-settings/jina_api_key', { headers: { Authorization: `Bearer ${token}` } })
-            .then(r => r.json())
+        get<any>('/enterprise/system-settings/jina_api_key')
             .then(d => { if (d.value?.api_key) setJinaKeyMasked(d.value.api_key.slice(0, 8) + '••••••••'); })
             .catch(() => { });
     }, [activeTab]);
     const saveJinaKey = async () => {
         setJinaKeySaving(true);
-        const token = localStorage.getItem('token');
-        await fetch('/api/enterprise/system-settings/jina_api_key', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-            body: JSON.stringify({ value: { api_key: jinaKey } }),
-        });
+        await put('/enterprise/system-settings/jina_api_key', { value: { api_key: jinaKey } });
         setJinaKeyMasked(jinaKey.slice(0, 8) + '••••••••');
         setJinaKey('');
         setJinaKeySaving(false);
@@ -1158,12 +1140,7 @@ export default function EnterpriseSettings() {
         setTimeout(() => setJinaKeySaved(false), 2000);
     };
     const clearJinaKey = async () => {
-        const token = localStorage.getItem('token');
-        await fetch('/api/enterprise/system-settings/jina_api_key', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-            body: JSON.stringify({ value: {} }),
-        });
+        await put('/enterprise/system-settings/jina_api_key', { value: {} });
         setJinaKeyMasked('');
         setJinaKey('');
     };
@@ -1200,26 +1177,19 @@ export default function EnterpriseSettings() {
     });
     const deleteModel = useMutation({
         mutationFn: async ({ id, force = false }: { id: string; force?: boolean }) => {
-            const url = force ? `/enterprise/llm-models/${id}?force=true` : `/enterprise/llm-models/${id}`;
-            const res = await fetch(`/api${url}`, {
-                method: 'DELETE',
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-            });
-            if (res.status === 409) {
-                const data = await res.json();
-                const agents = data.detail?.agents || [];
-                const msg = `This model is used by ${agents.length} agent(s):\n\n${agents.join(', ')}\n\nDelete anyway? (their model config will be cleared)`;
-                if (confirm(msg)) {
-                    // Retry with force
-                    const r2 = await fetch(`/api/enterprise/llm-models/${id}?force=true`, {
-                        method: 'DELETE',
-                        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-                    });
-                    if (!r2.ok && r2.status !== 204) throw new Error('Delete failed');
+            try {
+                await del(`/enterprise/llm-models/${id}${force ? '?force=true' : ''}`);
+            } catch (err: any) {
+                if (err?.status === 409) {
+                    const agents = err?.detail?.agents || [];
+                    const msg = `This model is used by ${agents.length} agent(s):\n\n${agents.join(', ')}\n\nDelete anyway?`;
+                    if (confirm(msg)) {
+                        await del(`/enterprise/llm-models/${id}?force=true`);
+                    }
+                    return;
                 }
-                return;
+                throw err;
             }
-            if (!res.ok && res.status !== 204) throw new Error('Delete failed');
         },
         onSuccess: () => qc.invalidateQueries({ queryKey: ['llm-models', selectedTenantId] }),
     });
@@ -1364,15 +1334,9 @@ export default function EnterpriseSettings() {
                                         const origText = btn?.textContent || '';
                                         if (btn) btn.textContent = t('enterprise.llm.testing');
                                         try {
-                                            const token = localStorage.getItem('token');
                                             const testData: any = { provider: modelForm.provider, model: modelForm.model, base_url: modelForm.base_url || undefined };
                                             if (modelForm.api_key) testData.api_key = modelForm.api_key;
-                                            const res = await fetch('/api/enterprise/llm-test', {
-                                                method: 'POST',
-                                                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                                                body: JSON.stringify(testData),
-                                            });
-                                            const result = await res.json();
+                                            const result = await post<any>('/enterprise/llm-test', testData);
                                             if (result.success) {
                                                 if (btn) { btn.textContent = t('enterprise.llm.testSuccess', { latency: result.latency_ms }); btn.style.color = 'var(--success)'; }
                                                 setTimeout(() => { if (btn) { btn.textContent = origText; btn.style.color = ''; } }, 3000);
@@ -1471,12 +1435,7 @@ export default function EnterpriseSettings() {
                                                         const testData: any = { provider: modelForm.provider, model: modelForm.model, base_url: modelForm.base_url || undefined };
                                                         if (modelForm.api_key) testData.api_key = modelForm.api_key;
                                                         testData.model_id = editingModelId;
-                                                        const res = await fetch('/api/enterprise/llm-test', {
-                                                            method: 'POST',
-                                                            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                                                            body: JSON.stringify(testData),
-                                                        });
-                                                        const result = await res.json();
+                                                        const result = await post<any>('/enterprise/llm-test', testData);
                                                         if (result.success) {
                                                             if (btn) { btn.textContent = t('enterprise.llm.testSuccess', { latency: result.latency_ms }); btn.style.color = 'var(--success)'; }
                                                             setTimeout(() => { if (btn) { btn.textContent = origText; btn.style.color = ''; } }, 3000);
@@ -1516,12 +1475,7 @@ export default function EnterpriseSettings() {
                                                 <button
                                                     onClick={async () => {
                                                         try {
-                                                            const token = localStorage.getItem('token');
-                                                            await fetch(`/api/enterprise/llm-models/${m.id}`, {
-                                                                method: 'PUT',
-                                                                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                                                                body: JSON.stringify({ enabled: !m.enabled }),
-                                                            });
+                                                            await put(`/enterprise/llm-models/${m.id}`, { enabled: !m.enabled });
                                                             qc.invalidateQueries({ queryKey: ['llm-models', selectedTenantId] });
                                                         } catch (e) { console.error(e); }
                                                     }}
@@ -2105,9 +2059,7 @@ export default function EnterpriseSettings() {
                                                                                         // Pre-load jina api_key from system_settings
                                                                                         if (tool.name === 'jina_search' || tool.name === 'jina_read') {
                                                                                             try {
-                                                                                                const token = localStorage.getItem('token');
-                                                                                                const res = await fetch('/api/enterprise/system-settings/jina_api_key', { headers: { Authorization: `Bearer ${token}` } });
-                                                                                                const d = await res.json();
+                                                                                                const d = await get<any>('/enterprise/system-settings/jina_api_key');
                                                                                                 if (d.value?.api_key) cfg.api_key = d.value.api_key;
                                                                                             } catch { }
                                                                                         }
@@ -2178,12 +2130,7 @@ export default function EnterpriseSettings() {
                                                                                         if (tool.name === 'jina_search' || tool.name === 'jina_read') {
                                                                                             // Save api_key to system_settings (shared by both jina tools)
                                                                                             if (editingConfig.api_key) {
-                                                                                                const token = localStorage.getItem('token');
-                                                                                                await fetch('/api/enterprise/system-settings/jina_api_key', {
-                                                                                                    method: 'PUT',
-                                                                                                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                                                                                                    body: JSON.stringify({ value: { api_key: editingConfig.api_key } }),
-                                                                                                });
+                                                                                                await put('/enterprise/system-settings/jina_api_key', { value: { api_key: editingConfig.api_key } });
                                                                                             }
                                                                                         } else {
                                                                                             await fetchJson(`/tools/${tool.id}`, { method: 'PUT', body: JSON.stringify({ config: editingConfig }) });

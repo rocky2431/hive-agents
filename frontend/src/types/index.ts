@@ -38,6 +38,7 @@ export interface Agent {
     context_window_size?: number;
     agent_type?: 'native' | 'openclaw';
     openclaw_last_seen?: string;
+    api_key?: string;
     created_at: string;
     last_active_at?: string;
 }

@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../stores';
-import { agentApi } from '../services/api';
+import { agentApi } from '../api/domains/agents';
 import ConfirmModal from '../components/ConfirmModal';
 
 /* ────── Inline SVG Icons (monochrome, matching Dashboard) ────── */

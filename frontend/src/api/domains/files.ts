@@ -9,6 +9,8 @@ export interface FileInfo {
   path: string;
   type: 'file' | 'directory';
   size: number;
+  is_dir: boolean;
+  [key: string]: unknown;
 }
 
 export interface FileContent {
@@ -27,14 +29,25 @@ export const fileApi = {
     put<void>(`/agents/${agentId}/files/content`, { path, content }),
   remove: (agentId: string, path: string) =>
     del(`/agents/${agentId}/files/content?path=${encodeURIComponent(path)}`),
-  upload: (agentId: string, file: File, path?: string) =>
-    upload<void>(`/agents/${agentId}/files/upload`, file, path ? { path } : undefined),
+  delete: (agentId: string, path: string) =>
+    del(`/agents/${agentId}/files/content?path=${encodeURIComponent(path)}`),
+  downloadUrl: (agentId: string, path: string) => {
+    const token = localStorage.getItem('token');
+    return `/api/agents/${agentId}/files/download?path=${encodeURIComponent(path)}&token=${token}`;
+  },
+  upload: (agentId: string, file: File, path?: string, onProgress?: (pct: number) => void) => {
+    if (onProgress) {
+      const { uploadFileWithProgress: ufp } = require('../core/upload-progress');
+      return ufp(`/agents/${agentId}/files/upload${path ? `?path=${encodeURIComponent(path)}` : ''}`, file, onProgress).promise;
+    }
+    return upload<any>(`/agents/${agentId}/files/upload`, file, path ? { path } : undefined);
+  },
   download: (agentId: string, path: string) =>
     get<Blob>(`/agents/${agentId}/files/download?path=${encodeURIComponent(path)}`),
   importSkill: (agentId: string, skillId: string) =>
-    post<void>(`/agents/${agentId}/files/import-skill`, { skill_id: skillId }),
+    post<any>(`/agents/${agentId}/files/import-skill`, { skill_id: skillId }),
   importFromClawHub: (agentId: string, slug: string) =>
-    post<void>(`/agents/${agentId}/files/import-from-clawhub`, { slug }),
+    post<any>(`/agents/${agentId}/files/import-from-clawhub`, { slug }),
   importFromUrl: (agentId: string, url: string) =>
-    post<void>(`/agents/${agentId}/files/import-from-url`, { url }),
+    post<any>(`/agents/${agentId}/files/import-from-url`, { url }),
 };

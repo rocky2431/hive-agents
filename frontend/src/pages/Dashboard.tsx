@@ -2,7 +2,9 @@ import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { agentApi, taskApi, activityApi } from '../services/api';
+import { agentApi } from '../api/domains/agents';
+import { taskApi } from '../api/domains/tasks';
+import { activityApi } from '../api/domains/activity';
 import type { Agent, Task } from '../types';
 
 /* ────── Inline SVG Icons (monochrome) ────── */

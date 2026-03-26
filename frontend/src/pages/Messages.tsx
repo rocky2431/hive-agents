@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { messageApi } from '../services/api';
+import { messageApi } from '../api/domains/messages';
 
 const ACTION_ICONS: Record<string, string> = {
     text: '💬',

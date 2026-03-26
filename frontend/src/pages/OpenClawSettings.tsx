@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { agentApi } from '../services/api';
+import { agentApi } from '../api/domains/agents';
 
 import { request } from '../api/core';
 function fetchAuth<T>(url: string, options?: RequestInit): Promise<T> {
@@ -61,7 +61,7 @@ export default function OpenClawSettings({ agent, agentId }: OpenClawSettingsPro
     const handleDelete = async () => {
         setDeleting(true);
         try {
-            await agentApi.delete(agentId);
+            await agentApi.remove(agentId);
             queryClient.invalidateQueries({ queryKey: ['agents'] });
             navigate('/');
         } catch (e) {

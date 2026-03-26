@@ -2,7 +2,10 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { agentApi, channelApi, enterpriseApi, skillApi } from '../services/api';
+import { agentApi } from '../api/domains/agents';
+import { channelApi } from '../api/domains/channels';
+import { enterpriseApi } from '../api/domains/enterprise';
+import { skillApi } from '../api/domains/skills';
 import ChannelConfig from '../components/ChannelConfig';
 
 const STEPS = ['basicInfo', 'personality', 'skills', 'permissions', 'channel'] as const;

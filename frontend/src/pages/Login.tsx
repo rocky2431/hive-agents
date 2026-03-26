@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../stores';
-import { authApi } from '../services/api';
+import { authApi } from '../api/domains/auth';
 
 export default function Login() {
     const { t, i18n } = useTranslation();

@@ -11,7 +11,9 @@ export interface Company {
   is_active: boolean;
   user_count?: number;
   agent_count?: number;
+  admin_invitation_code?: string;
   created_at: string;
+  [key: string]: any;
 }
 
 export interface PlatformSettings {
@@ -21,7 +23,7 @@ export interface PlatformSettings {
 
 export const adminApi = {
   listCompanies: () => get<Company[]>('/admin/companies'),
-  createCompany: (data: { name: string; slug: string }) => post<Company>('/admin/companies', data),
+  createCompany: (data: { name: string; slug?: string }) => post<Company>('/admin/companies', data),
   toggleCompany: (id: string) => put<void>(`/admin/companies/${id}/toggle`),
   getPlatformSettings: () => get<PlatformSettings>('/admin/platform-settings'),
   updatePlatformSettings: (data: Partial<PlatformSettings>) => put<PlatformSettings>('/admin/platform-settings', data),

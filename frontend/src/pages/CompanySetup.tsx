@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../stores';
-import { tenantApi, authApi } from '../services/api';
+import { authApi } from '../api/domains/auth';
+import { systemApi } from '../api/domains/system';
 
 export default function CompanySetup() {
     const { t, i18n } = useTranslation();
@@ -19,7 +20,7 @@ export default function CompanySetup() {
 
     useEffect(() => {
         // Check if self-creation is allowed
-        tenantApi.registrationConfig().then((d: any) => {
+        systemApi.getRegistrationConfig().then((d: any) => {
             setAllowCreate(d.allow_self_create_company);
         }).catch(() => {});
     }, []);
@@ -33,7 +34,7 @@ export default function CompanySetup() {
 
     const refreshUser = async () => {
         try {
-            const me = await authApi.me();
+            const me = await authApi.getMe();
             const token = useAuthStore.getState().token;
             if (token) setAuth(me, token);
         } catch { /* ignore */ }
@@ -44,7 +45,7 @@ export default function CompanySetup() {
         setError('');
         setLoading(true);
         try {
-            await tenantApi.join(inviteCode);
+            await systemApi.joinTenant({ invitation_code: inviteCode });
             await refreshUser();
             navigate('/');
         } catch (err: any) {
@@ -59,7 +60,7 @@ export default function CompanySetup() {
         setError('');
         setLoading(true);
         try {
-            await tenantApi.selfCreate({ name: companyName });
+            await systemApi.createTenant({ name: companyName });
             await refreshUser();
             // Navigate to Enterprise Settings to configure LLM models
             navigate('/enterprise');

@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { channelApi } from '../services/api';
+import { channelApi } from '../api/domains/channels';
 
 import { request } from '../api/core';
 function fetchAuth<T>(url: string, options?: RequestInit): Promise<T> {

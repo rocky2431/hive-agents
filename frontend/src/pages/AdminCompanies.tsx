@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { adminApi } from '../services/api';
+import { adminApi } from '../api/domains/admin';
 import { useAuthStore } from '../stores';
 import { saveAccentColor, getSavedAccentColor } from '../utils/theme';
 import { IconFilter } from '@tabler/icons-react';

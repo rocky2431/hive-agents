@@ -47,6 +47,8 @@ export interface SystemSetting {
 export const enterpriseApi = {
   /** LLM models */
   listLLMModels: () => get<LLMModel[]>('/enterprise/llm-models'),
+  llmModels: () => get<LLMModel[]>('/enterprise/llm-models'),
+  templates: () => get<unknown[]>('/role-templates'),
   createLLMModel: (data: Partial<LLMModel> & { api_key?: string }) => post<LLMModel>('/enterprise/llm-models', data),
   updateLLMModel: (id: string, data: Partial<LLMModel> & { api_key?: string }) =>
     put<LLMModel>(`/enterprise/llm-models/${id}`, data),
@@ -78,6 +80,16 @@ export const enterpriseApi = {
   getSetting: (key: string) => get<SystemSetting>(`/enterprise/system-settings/${key}`),
   updateSetting: (key: string, value: Record<string, unknown>) =>
     put<SystemSetting>(`/enterprise/system-settings/${key}`, { value }),
+
+  /** Knowledge base */
+  kbFiles: (tenantId?: string) => get<any[]>(`/enterprise/knowledge-base/files${tenantId ? `?tenant_id=${tenantId}` : ''}`),
+  kbRead: (path: string) => get<any>(`/enterprise/knowledge-base/content?path=${encodeURIComponent(path)}`),
+  kbWrite: (path: string, content: string) => put<any>('/enterprise/knowledge-base/content', { path, content }),
+  kbDelete: (path: string) => del(`/enterprise/knowledge-base/content?path=${encodeURIComponent(path)}`),
+  kbUpload: (file: File, path?: string) => {
+    const { upload } = require('../core');
+    return upload('/enterprise/knowledge-base/upload', file, path ? { path } : undefined);
+  },
 
   /** OIDC */
   getOIDCConfig: () => get<Record<string, unknown>>('/enterprise/oidc-config'),

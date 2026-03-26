@@ -39,6 +39,10 @@ export interface AgentMetrics {
   total_messages: number;
   total_tool_calls: number;
   avg_response_time?: number;
+  tasks?: any;
+  approvals?: any;
+  activity?: any;
+  [key: string]: any;
 }
 
 export const agentApi = {

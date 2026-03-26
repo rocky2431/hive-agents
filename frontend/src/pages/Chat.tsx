@@ -3,7 +3,8 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router-dom';
 import MarkdownRenderer from '../components/MarkdownRenderer';
-import { agentApi, enterpriseApi } from '../services/api';
+import { agentApi } from '../api/domains/agents';
+import { enterpriseApi } from '../api/domains/enterprise';
 import { chatApi } from '../api/domains/chat';
 import { upload } from '../api/core';
 import { useAuthStore } from '../stores';
@@ -83,7 +84,7 @@ export default function Chat() {
 
     const { data: agent } = useQuery({
         queryKey: ['agent', id],
-        queryFn: () => agentApi.get(id!),
+        queryFn: () => agentApi.getById(id!),
         enabled: !!id,
     });
 

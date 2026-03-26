@@ -10,9 +10,18 @@ import ChannelConfig from '../components/ChannelConfig';
 import MarkdownRenderer from '../components/MarkdownRenderer';
 import PromptModal from '../components/PromptModal';
 import OpenClawSettings from './OpenClawSettings';
-import { activityApi, agentApi, channelApi, enterpriseApi, fileApi, scheduleApi, skillApi, taskApi, triggerApi, uploadFileWithProgress } from '../services/api';
+import { agentApi } from '../api/domains/agents';
+import { activityApi } from '../api/domains/activity';
+import { channelApi } from '../api/domains/channels';
+import { enterpriseApi } from '../api/domains/enterprise';
+import { fileApi } from '../api/domains/files';
+import { scheduleApi } from '../api/domains/schedules';
+import { skillApi } from '../api/domains/skills';
+import { taskApi } from '../api/domains/tasks';
+import { triggerApi } from '../api/domains/triggers';
+import { uploadFileWithProgress } from '../api/core/upload-progress';
 import { toolsApi } from '../api/domains/tools';
-import { del } from '../api/core';
+import { get, post, patch as patchReq, del } from '../api/core';
 import { useAuthStore } from '../stores';
 
 const TABS = ['status', 'aware', 'mind', 'tools', 'skills', 'relationships', 'workspace', 'chat', 'activityLog', 'approvals', 'settings'] as const;
@@ -779,7 +788,7 @@ function AgentDetailInner() {
 
     const { data: agent, isLoading } = useQuery({
         queryKey: ['agent', id],
-        queryFn: () => agentApi.get(id!),
+        queryFn: () => agentApi.getById(id!),
         enabled: !!id,
     });
 
@@ -809,10 +818,7 @@ function AgentDetailInner() {
     const { data: reflectionSessions = [] } = useQuery({
         queryKey: ['reflection-sessions', id],
         queryFn: async () => {
-            const tkn = localStorage.getItem('token');
-            const res = await fetch(`/api/agents/${id}/sessions?scope=all`, { headers: { Authorization: `Bearer ${tkn}` } });
-            if (!res.ok) return [];
-            const all = await res.json();
+            const all = await get<any[]>(`/agents/${id}/sessions?scope=all`).catch(() => [] as any[]);
             return all.filter((s: any) => s.source_channel === 'trigger');
         },
         enabled: !!id && activeTab === 'aware',
@@ -942,14 +948,10 @@ function AgentDetailInner() {
         if (!agentId) return [];
         if (!silent && currentAgentIdRef.current === agentId) setSessionsLoading(true);
         try {
-            const tkn = localStorage.getItem('token');
-            const res = await fetch(`/api/agents/${agentId}/sessions?scope=mine`, { headers: { Authorization: `Bearer ${tkn}` } });
-            if (res.ok) {
-                const data = await res.json();
-                if (currentAgentIdRef.current === agentId) setSessions(data);
-                if (!silent && currentAgentIdRef.current === agentId) setSessionsLoading(false);
-                return data;
-            }
+            const data = await get<any[]>(`/agents/${agentId}/sessions?scope=mine`);
+            if (currentAgentIdRef.current === agentId) setSessions(data);
+            if (!silent && currentAgentIdRef.current === agentId) setSessionsLoading(false);
+            return data;
         } catch { }
         if (!silent && currentAgentIdRef.current === agentId) setSessionsLoading(false);
         return [];
@@ -959,13 +961,9 @@ function AgentDetailInner() {
         if (!id) return;
         setAllSessionsLoading(true);
         try {
-            const tkn = localStorage.getItem('token');
-            const res = await fetch(`/api/agents/${id}/sessions?scope=all`, { headers: { Authorization: `Bearer ${tkn}` } });
-            if (res.ok) {
-                const all = await res.json();
-                if (currentAgentIdRef.current === id) {
-                    setAllSessions(all.filter((s: any) => s.source_channel !== 'trigger'));
-                }
+            const all = await get<any[]>(`/agents/${id}/sessions?scope=all`);
+            if (currentAgentIdRef.current === id) {
+                setAllSessions(all.filter((s: any) => s.source_channel !== 'trigger'));
             }
         } catch { }
         setAllSessionsLoading(false);
@@ -1024,22 +1022,11 @@ function AgentDetailInner() {
     const createNewSession = async () => {
         if (!id) return;
         try {
-            const tkn = localStorage.getItem('token');
-            const res = await fetch(`/api/agents/${id}/sessions`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tkn}` },
-                body: JSON.stringify({}),
-            });
-            if (res.ok) {
-                const newSess = await res.json();
-                setSessions(prev => [newSess, ...prev]);
-                setIsStreaming(false);
-                setIsWaiting(false);
-                await selectSession(newSess);
-            } else {
-                const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
-                console.error('Failed to create session:', err);
-                alert(`Failed to create session: ${err.detail || res.status}`);
-            }
+            const newSess = await post<any>(`/agents/${id}/sessions`, {});
+            setSessions(prev => [newSess, ...prev]);
+            setIsStreaming(false);
+            setIsWaiting(false);
+            await selectSession(newSess);
         } catch (err: any) {
             console.error('Failed to create session:', err);
             alert(`Failed to create session: ${err.message || err}`);
@@ -1048,9 +1035,8 @@ function AgentDetailInner() {
 
     const deleteSession = async (sessionId: string) => {
         if (!confirm(t('chat.deleteConfirm', 'Delete this session and all its messages? This cannot be undone.'))) return;
-        const tkn = localStorage.getItem('token');
         try {
-            await fetch(`/api/agents/${id}/sessions/${sessionId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${tkn}` } });
+            await del(`/agents/${id}/sessions/${sessionId}`);
             if (id) closeSessionSocket(buildSessionRuntimeKey(id, sessionId), true);
             // If deleted the active session, clear it
             if (activeSession?.id === sessionId) {
@@ -1090,13 +1076,8 @@ function AgentDetailInner() {
     const saveExpiry = async (permanent = false) => {
         setExpirySaving(true);
         try {
-            const token = localStorage.getItem('token');
             const body = permanent ? { expires_at: null } : { expires_at: expiryValue ? new Date(expiryValue).toISOString() : null };
-            await fetch(`/api/agents/${id}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                body: JSON.stringify(body),
-            });
+            await patchReq(`/agents/${id}`, body);
             queryClient.invalidateQueries({ queryKey: ['agent', id] });
             setShowExpiryModal(false);
         } catch (e) { alert('Failed: ' + e); }
@@ -1735,7 +1716,7 @@ function AgentDetailInner() {
 
     const { data: metrics } = useQuery({
         queryKey: ['metrics', id],
-        queryFn: () => agentApi.metrics(id!).catch(() => null),
+        queryFn: () => agentApi.getMetrics(id!).catch(() => null),
         enabled: !!id && activeTab === 'status',
         retry: false,
     });
@@ -3718,12 +3699,7 @@ function AgentDetailInner() {
                             });
                             const resolveMut = useMutation({
                                 mutationFn: async ({ approvalId, action }: { approvalId: string; action: string }) => {
-                                    const token = localStorage.getItem('token');
-                                    return fetch(`/api/agents/${id}/approvals/${approvalId}/resolve`, {
-                                        method: 'POST',
-                                        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-                                        body: JSON.stringify({ action }),
-                                    });
+                                    return agentApi.resolveApproval(id!, approvalId, { action });
                                 },
                                 onSuccess: () => {
                                     refetchApprovals();
@@ -4501,7 +4477,7 @@ function AgentDetailInner() {
                                                 <span style={{ fontSize: '13px', color: 'var(--error)', fontWeight: 600 }}>{t('agent.settings.danger.deleteWarning')}</span>
                                                 <button className="btn btn-danger" onClick={async () => {
                                                     try {
-                                                        await agentApi.delete(id!);
+                                                        await agentApi.remove(id!);
                                                         queryClient.invalidateQueries({ queryKey: ['agents'] });
                                                         navigate('/');
                                                     } catch (err: any) {
