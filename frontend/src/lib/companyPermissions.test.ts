@@ -37,7 +37,7 @@ test('company lifecycle actions are reserved for platform admins', () => {
 });
 
 test('EnterpriseSettings no longer issues DELETE /tenants requests for company lifecycle actions', () => {
-    const source = read();
+    const source = readEnterpriseModule();
 
     assert.doesNotMatch(source, /method:\s*'DELETE'[\s\S]*\/tenants\/\$\{selectedTenantId\}/);
     assert.match(source, /adminApi\.toggleCompany/);

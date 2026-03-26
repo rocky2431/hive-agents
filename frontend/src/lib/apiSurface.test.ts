@@ -71,7 +71,7 @@ test('frontend pages normalize legacy direct API paths to /api/v1', () => {
 
     assert.match(apiSource, /const API_BASE = '\/api\/v1'/);
     assert.match(chatSource, /`\/api\/v1\/agents\/\$\{id\}\/files\/download/);
-    assert.match(agentDetailSource, /`\/api\/v1\/agents\/\$\{id\}\/files\/download/);
+    assert.match(agentDetailSource, /`\/api\/v1\/agents\/\$\{agentId\}\/files\/download/);
     assert.match(plazaSource, /plazaApi\./);
     assert.match(plazaSource, /agentApi\./);
     assert.match(adminCompaniesSource, /enterpriseApi\.getSystemSetting\('notification_bar'\)/);

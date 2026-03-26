@@ -42,7 +42,7 @@ test('EnterpriseSettings scopes tenant config tabs to the selected tenant', () =
 
     assert.match(source, /\/enterprise\/tenant-quotas\$\{selectedTenantId \? `\?tenant_id=\$\{selectedTenantId\}` : ''\}/);
     assert.match(source, /\/enterprise\/memory\/config\$\{tenantId \? `\?tenant_id=\$\{tenantId\}` : ''\}/);
-    assert.match(source, /<MemoryTab key=\{selectedTenantId \|\| 'memory-default'\} models=\{models\} tenantId=\{selectedTenantId \|\| undefined\} \/>/);
+    assert.match(source, /<MemoryTab key=\{selectedTenantId \|\| 'memory-default'\} models=\{models\} tenantId=\{tenantIdProp\} \/>/);
     assert.match(source, /oidcApi\.getConfig\(selectedTenantId \|\| undefined\)/);
     assert.match(source, /oidcApi\.updateConfig\(ssoForm,\s*selectedTenantId \|\| undefined\)/);
 });
