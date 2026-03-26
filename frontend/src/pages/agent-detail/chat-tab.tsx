@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import MarkdownRenderer from '../../components/MarkdownRenderer';
@@ -8,27 +9,12 @@ import { agentApi, chatApi, enterpriseApi } from '../../services/api';
 import { useAuthStore } from '../../stores';
 import type { ChatAttachment } from '../../types';
 
-/* ── Helper: timeline event display ── */
-const getTimelineEventPresentation = (msg: TimelineMessage) => {
-    if (msg.eventType === 'permission') {
-        return {
-            icon: '\uD83D\uDD12',
-            title: msg.eventTitle || 'Permission Gate',
-            bgClass: 'bg-[rgba(245,158,11,0.10)]',
-        };
-    }
-    if (msg.eventType === 'pack_activation') {
-        return {
-            icon: '\uD83E\uDDF0',
-            title: msg.eventTitle || 'Capability Packs Activated',
-            bgClass: 'bg-[rgba(59,130,246,0.10)]',
-        };
-    }
-    return {
-        icon: '\uD83D\uDDDC\uFE0F',
-        title: msg.eventTitle || 'Context Compacted',
-        bgClass: 'bg-surface-secondary',
-    };
+import { getEventPresentation as getTimelineEventPresentationShared } from '@/components/chat/chat-icons';
+
+/* ── Helper: timeline event display (delegates to shared) ── */
+const getTimelineEventPresentation = (msg: TimelineMessage, t: any) => {
+    const result = getTimelineEventPresentationShared(msg, t);
+    return { icon: result.icon, title: result.title, bgClass: result.bgClass };
 };
 
 type ChatMsg = TimelineMessage;
@@ -41,6 +27,7 @@ export interface ChatTabProps {
 
 export function ChatTab({ agentId, agent, canManage }: ChatTabProps) {
     const { t, i18n } = useTranslation();
+    const navigate = useNavigate();
     const token = useAuthStore((s) => s.token);
     const currentUser = useAuthStore((s) => s.user);
     const isAdmin = currentUser?.role === 'platform_admin' || currentUser?.role === 'org_admin';
@@ -470,7 +457,7 @@ export function ChatTab({ agentId, agent, canManage }: ChatTabProps) {
 
     /** Render a timeline event row (permission gate, pack activation, context compacted) */
     const renderEventRow = (msg: ChatMsg, i: number) => {
-        const eventUi = getTimelineEventPresentation(msg);
+        const eventUi = getTimelineEventPresentation(msg, t);
         return (
             <div key={i} className="flex gap-2 mb-1.5 pl-9 min-w-0">
                 <div className={`flex-1 min-w-0 rounded-lg ${eventUi.bgClass} border border-edge-subtle px-3 py-2.5`}>
@@ -568,6 +555,20 @@ export function ChatTab({ agentId, agent, canManage }: ChatTabProps) {
         <div className="flex flex-1 min-h-0" style={{ height: 'calc(100vh - 206px)' }}>
             {/* ── Left: session sidebar ── */}
             <div className="w-[220px] shrink-0 border-r border-edge-subtle flex flex-col overflow-hidden">
+                {/* Fullscreen button */}
+                <div className="flex items-center justify-between px-3 py-2 border-b border-edge-subtle">
+                    <span className="text-xs font-medium text-content-secondary">{t('chat.sessions', 'Sessions')}</span>
+                    <button
+                        onClick={() => navigate(`/agents/${agentId}/chat`)}
+                        className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-content-tertiary hover:text-content-primary hover:bg-surface-hover transition-colors bg-transparent border-none cursor-pointer"
+                        title={t('chat.fullscreen', 'Open fullscreen')}
+                    >
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4" />
+                        </svg>
+                        {t('chat.fullscreen', 'Fullscreen')}
+                    </button>
+                </div>
                 {/* Tab row */}
                 <div className="flex items-center px-3 pt-2.5 gap-1 border-b border-edge-subtle">
                     <button

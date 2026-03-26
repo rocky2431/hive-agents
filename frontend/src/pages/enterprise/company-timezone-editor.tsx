@@ -55,7 +55,7 @@ export function CompanyTimezoneEditor() {
             qc.invalidateQueries({ queryKey: ['tenant-detail', tenantId] });
             setSaved(true);
             setTimeout(() => setSaved(false), 2000);
-        } catch (e: any) { console.error('[EnterpriseSettings] save failed:', e?.message || e); }
+        } catch (e: any) { if (import.meta.env.DEV) console.error('[EnterpriseSettings] save failed:', e?.message || e); }
         setSaving(false);
     };
 

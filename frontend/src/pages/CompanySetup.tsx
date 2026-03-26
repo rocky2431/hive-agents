@@ -61,7 +61,7 @@ export default function CompanySetup() {
         try {
             await tenantApi.selfCreate({ name: companyName });
             await refreshUser();
-            navigate('/enterprise');
+            navigate('/workspace');
         } catch (err: any) {
             setError(err.message || t('companySetup.createFailed'));
         } finally {

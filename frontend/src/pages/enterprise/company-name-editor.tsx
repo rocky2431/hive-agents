@@ -34,7 +34,7 @@ export function CompanyNameEditor() {
             qc.invalidateQueries({ queryKey: ['tenants'] });
             setSaved(true);
             setTimeout(() => setSaved(false), 2000);
-        } catch (e: any) { console.error('[EnterpriseSettings] save failed:', e?.message || e); }
+        } catch (e: any) { if (import.meta.env.DEV) console.error('[EnterpriseSettings] save failed:', e?.message || e); }
         setSaving(false);
     };
 

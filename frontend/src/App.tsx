@@ -134,22 +134,25 @@ export default function App() {
                 <Route path="/login" element={<Login />} />
                 <Route path="/setup-company" element={<CompanySetup />} />
                 <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-                    <Route index element={<Navigate to="/plaza" replace />} />
-                    <Route path="dashboard" element={<Dashboard />} />
+                    <Route index element={<Navigate to="/home" replace />} />
+                    {/* Primary routes */}
+                    <Route path="home" element={<Dashboard />} />
                     <Route path="plaza" element={<Plaza />} />
                     <Route path="agents/new" element={<AgentCreate />} />
                     <Route path="agents/:id" element={<AgentDetail />} />
                     <Route path="agents/:id/chat" element={<Chat />} />
                     <Route path="messages" element={<Messages />} />
                     <Route path="notifications" element={<NotificationCenter />} />
+                    {/* Workspace (enterprise management) */}
                     <Route
-                        path="enterprise"
+                        path="workspace"
                         element={<RoleRoute allowedRoles={['platform_admin', 'org_admin']}><EnterpriseSettings /></RoleRoute>}
                     />
                     <Route
                         path="invitations"
                         element={<RoleRoute allowedRoles={['platform_admin', 'org_admin']}><InvitationCodes /></RoleRoute>}
                     />
+                    {/* Admin routes */}
                     <Route
                         path="admin/companies"
                         element={<RoleRoute allowedRoles={['platform_admin']}><AdminCompanies /></RoleRoute>}
@@ -158,6 +161,9 @@ export default function App() {
                         path="admin/feature-flags"
                         element={<RoleRoute allowedRoles={['platform_admin']}><FeatureFlagsPage /></RoleRoute>}
                     />
+                    {/* Backward-compat redirects */}
+                    <Route path="dashboard" element={<Navigate to="/home" replace />} />
+                    <Route path="enterprise" element={<Navigate to="/workspace" replace />} />
                 </Route>
             </Routes>
         </Suspense>

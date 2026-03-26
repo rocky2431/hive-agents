@@ -50,7 +50,7 @@ export function InfoTab({
             setTimeout(() => setCompanyIntroSaved(false), 2000);
         } catch (e: unknown) {
             const msg = e instanceof Error ? e.message : String(e);
-            console.error('[InfoTab] save failed:', msg);
+            if (import.meta.env.DEV) console.error('[InfoTab] save failed:', msg);
         }
         setCompanyIntroSaving(false);
     };
@@ -139,7 +139,7 @@ export function InfoTab({
                     aria-label={t('enterprise.companyIntro.title', 'Company Intro')}
                     value={companyIntro}
                     onChange={e => setCompanyIntro(e.target.value)}
-                    placeholder={`# Company Name\nClawith\n\n# About\nOpenClaw\uD83E\uDD9E For Teams\nOpen Source \u00B7 Multi-OpenClaw Collaboration\n\nOpenClaw empowers individuals.\nClawith scales it to frontier organizations.`}
+                    placeholder={`# Company Name\nHive\n\n# About\nOpenClaw\uD83E\uDD9E For Teams\nOpen Source \u00B7 Multi-Agent Collaboration\n\nOpenClaw empowers individuals.\nHive scales it to frontier organizations.`}
                 />
                 <div className="mt-3 flex gap-2 items-center">
                     <button className="btn btn-primary" onClick={saveCompanyIntro} disabled={companyIntroSaving}>

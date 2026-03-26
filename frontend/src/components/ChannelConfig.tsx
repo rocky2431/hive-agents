@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { channelApi } from '../services/api';
 import { sanitizeChannelPayload } from '../lib/channelSecrets';
 import { cn } from '../lib/cn';
@@ -389,6 +390,7 @@ export default function ChannelConfig({ mode, agentId, canManage = true, values,
             setForms(prev => ({ ...prev, [ch.id]: {} }));
             setEditing(ch.id, false);
         },
+        onError: (err: Error) => toast.error(err.message || 'Failed to save channel config'),
     });
 
     const deleteMutation = useMutation({
@@ -405,6 +407,7 @@ export default function ChannelConfig({ mode, agentId, canManage = true, values,
             keys.forEach(k => queryClient.invalidateQueries({ queryKey: k }));
             if (ch.id === 'atlassian') setAtlassianTestResult(null);
         },
+        onError: (err: Error) => toast.error(err.message || 'Failed to delete channel config'),
     });
 
     const testAtlassian = async () => {
@@ -640,8 +643,13 @@ export default function ChannelConfig({ mode, agentId, canManage = true, values,
         return (
             <div key={ch.id} className="border border-edge-subtle rounded-lg overflow-hidden mb-3">
                 {/* Header */}
-                <div onClick={() => toggleChannel(ch.id)}
-                    className="flex items-center justify-between px-4 py-3.5 cursor-pointer transition-colors duration-150 hover:bg-[var(--bg-hover)]">
+                <button
+                    type="button"
+                    onClick={() => toggleChannel(ch.id)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleChannel(ch.id); } }}
+                    aria-expanded={isOpen}
+                    aria-label={t(ch.nameKey, ch.nameFallback)}
+                    className="flex w-full items-center justify-between px-4 py-3.5 cursor-pointer transition-colors duration-150 hover:bg-[var(--bg-hover)] bg-transparent border-none text-left">
                     <div className="flex items-center gap-2">
                         {ch.icon}
                         <div>
@@ -653,7 +661,7 @@ export default function ChannelConfig({ mode, agentId, canManage = true, values,
                         {config && <span className={`badge ${isConfigured ? 'badge-success' : 'badge-warning'}`}>{isConfigured ? t('channel.configured') : t('channel.notConfigured')}</span>}
                         <span className={cn('text-xs text-content-tertiary transition-transform duration-200', isOpen && 'rotate-180')}>&#9660;</span>
                     </div>
-                </div>
+                </button>
 
                 {/* Body */}
                 {isOpen && (

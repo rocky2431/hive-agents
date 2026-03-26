@@ -123,7 +123,7 @@ export default function Login() {
                         {t('login.heroBadge')}
                     </div>
                     <h1 className="login-hero-title">
-                        Clawith<br />
+                        Hive<br />
                         <span className="text-[0.65em] font-semibold opacity-85">{t('login.heroSubtitle')}</span>
                     </h1>
                     <p className="login-hero-desc">
@@ -162,7 +162,7 @@ export default function Login() {
                     <div className="login-form-header">
                         <div className="login-form-logo">
                             <img src="/logo-black.png" className="login-logo-img mr-2 align-middle" alt="" width={28} height={28} />
-                            Clawith
+                            Hive
                         </div>
                         <h2 className="login-form-title">
                             {isRegister ? t('auth.register') : t('auth.login')}

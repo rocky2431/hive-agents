@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 
+import { toast } from 'sonner';
 import ChannelConfig from '../../components/ChannelConfig';
 import { agentApi, enterpriseApi, scheduleApi } from '../../services/api';
 import { useAuthStore } from '../../stores';
@@ -14,6 +15,8 @@ import {
     CapabilityPolicyManager,
     schedToCron,
 } from './index';
+import { AdminSettingsSection } from './settings-admin-section';
+import { HeartbeatSection } from './settings-heartbeat-section';
 
 interface SettingsTabProps {
     agentId: string;
@@ -58,14 +61,14 @@ export function SettingsTab({ agentId, agent, canManage }: SettingsTabProps) {
                 agent_class: agent.agent_class || 'internal_tenant',
                 security_zone: agent.security_zone || 'standard',
                 context_window_size: agent.context_window_size ?? 100,
-                max_tool_rounds: (agent as any).max_tool_rounds ?? 50,
+                max_tool_rounds: agent.max_tool_rounds ?? 50,
                 max_tokens_per_day: agent.max_tokens_per_day || '',
                 max_tokens_per_month: agent.max_tokens_per_month || '',
-                max_triggers: (agent as any).max_triggers ?? 20,
-                min_poll_interval_min: (agent as any).min_poll_interval_min ?? 5,
-                webhook_rate_limit: (agent as any).webhook_rate_limit ?? 5,
-                bio: (agent as any).bio || '',
-                avatar_url: (agent as any).avatar_url || '',
+                max_triggers: agent.max_triggers ?? 20,
+                min_poll_interval_min: agent.min_poll_interval_min ?? 5,
+                webhook_rate_limit: agent.webhook_rate_limit ?? 5,
+                bio: agent.bio || '',
+                avatar_url: agent.avatar_url || '',
             });
             settingsInitRef.current = true;
         }
@@ -74,7 +77,7 @@ export function SettingsTab({ agentId, agent, canManage }: SettingsTabProps) {
     // Welcome message editor state
     const [wmDraft, setWmDraft] = useState('');
     const [wmSaved, setWmSaved] = useState(false);
-    useEffect(() => { setWmDraft((agent as any)?.welcome_message || ''); }, [(agent as any)?.welcome_message]);
+    useEffect(() => { setWmDraft(agent?.welcome_message || ''); }, [agent?.welcome_message]);
 
     // Reset cached state when switching to a different agent
     const prevIdRef = useRef(agentId);
@@ -121,11 +124,13 @@ export function SettingsTab({ agentId, agent, canManage }: SettingsTabProps) {
         mutationFn: ({ sid, enabled }: { sid: string; enabled: boolean }) =>
             scheduleApi.update(agentId, sid, { is_enabled: enabled }),
         onSuccess: () => queryClient.invalidateQueries({ queryKey: ['schedules', agentId] }),
+        onError: (err: Error) => toast.error(err.message),
     });
 
     const deleteScheduleMut = useMutation({
         mutationFn: (sid: string) => scheduleApi.delete(agentId, sid),
         onSuccess: () => queryClient.invalidateQueries({ queryKey: ['schedules', agentId] }),
+        onError: (err: Error) => toast.error(err.message),
     });
 
     const triggerScheduleMut = useMutation({
@@ -170,17 +175,17 @@ export function SettingsTab({ agentId, agent, canManage }: SettingsTabProps) {
     const hasChanges = (
         settingsForm.primary_model_id !== (agent?.primary_model_id || '') ||
         settingsForm.fallback_model_id !== (agent?.fallback_model_id || '') ||
-        settingsForm.agent_class !== ((agent as any)?.agent_class || 'internal_tenant') ||
-        settingsForm.security_zone !== ((agent as any)?.security_zone || 'standard') ||
+        settingsForm.agent_class !== (agent?.agent_class || 'internal_tenant') ||
+        settingsForm.security_zone !== (agent?.security_zone || 'standard') ||
         settingsForm.context_window_size !== (agent?.context_window_size ?? 100) ||
-        settingsForm.max_tool_rounds !== ((agent as any)?.max_tool_rounds ?? 50) ||
+        settingsForm.max_tool_rounds !== (agent?.max_tool_rounds ?? 50) ||
         String(settingsForm.max_tokens_per_day) !== String(agent?.max_tokens_per_day || '') ||
         String(settingsForm.max_tokens_per_month) !== String(agent?.max_tokens_per_month || '') ||
-        settingsForm.max_triggers !== ((agent as any)?.max_triggers ?? 20) ||
-        settingsForm.min_poll_interval_min !== ((agent as any)?.min_poll_interval_min ?? 5) ||
-        settingsForm.webhook_rate_limit !== ((agent as any)?.webhook_rate_limit ?? 5) ||
-        settingsForm.bio !== ((agent as any)?.bio || '') ||
-        settingsForm.avatar_url !== ((agent as any)?.avatar_url || '')
+        settingsForm.max_triggers !== (agent?.max_triggers ?? 20) ||
+        settingsForm.min_poll_interval_min !== (agent?.min_poll_interval_min ?? 5) ||
+        settingsForm.webhook_rate_limit !== (agent?.webhook_rate_limit ?? 5) ||
+        settingsForm.bio !== (agent?.bio || '') ||
+        settingsForm.avatar_url !== (agent?.avatar_url || '')
     );
 
     const handleSaveSettings = async () => {
@@ -396,7 +401,7 @@ export function SettingsTab({ agentId, agent, canManage }: SettingsTabProps) {
                 </div>
 
                 {/* Model Selection -- native agents only */}
-                {(agent as any)?.agent_type !== 'openclaw' && (
+                {agent?.agent_type !== 'openclaw' && (
                 <div className="card mb-3">
                     <h4 className="mb-3">{t('agent.settings.modelConfig')}</h4>
                     <div className="flex flex-col gap-3">
@@ -435,7 +440,7 @@ export function SettingsTab({ agentId, agent, canManage }: SettingsTabProps) {
                 )}
 
                 {/* Context Window + Max Tool Rounds -- native agents only */}
-                {(agent as any)?.agent_type !== 'openclaw' && (<>
+                {agent?.agent_type !== 'openclaw' && (<>
                 <div className="card mb-3">
                     <h4 className="mb-3">{t('agent.settings.conversationContext')}</h4>
                     <div>
@@ -508,7 +513,7 @@ export function SettingsTab({ agentId, agent, canManage }: SettingsTabProps) {
                 </div>
 
                 {/* Trigger Limits -- native agents only */}
-                {(agent as any)?.agent_type !== 'openclaw' && (
+                {agent?.agent_type !== 'openclaw' && (
                     <div className="card mb-3">
                         <h4 className="mb-1">{t('agentDetail.triggerLimits')}</h4>
                         <p className="text-xs text-content-tertiary mb-3">
@@ -590,7 +595,7 @@ export function SettingsTab({ agentId, agent, canManage }: SettingsTabProps) {
                 </div>
 
                 {/* Capability Policy -- native agents only */}
-                {(agent as any)?.agent_type !== 'openclaw' && (
+                {agent?.agent_type !== 'openclaw' && (
                     <CapabilityPolicyManager agentId={agentId} />
                 )}
 
@@ -743,101 +748,7 @@ export function SettingsTab({ agentId, agent, canManage }: SettingsTabProps) {
                 </div>
 
                 {/* Heartbeat */}
-                <div className="card mb-3">
-                    <h4 className="mb-1 flex items-center gap-2">
-                        {t('agent.settings.heartbeat.title', 'Heartbeat')}
-                    </h4>
-                    <p className="text-xs text-content-tertiary mb-4">
-                        {t('agent.settings.heartbeat.description', 'Periodic awareness check -- agent proactively monitors the plaza and work environment.')}
-                    </p>
-                    <div className="flex flex-col gap-3.5">
-                        {/* Enable toggle */}
-                        <div className="flex items-center justify-between p-2.5 bg-surface-elevated rounded-lg border border-edge-subtle">
-                            <div>
-                                <div className="font-medium text-[13px]">{t('agent.settings.heartbeat.enabled', 'Enable Heartbeat')}</div>
-                                <div className="text-[11px] text-content-tertiary">{t('agent.settings.heartbeat.enabledDesc', 'Agent will periodically check plaza and work status')}</div>
-                            </div>
-                            <label className={cn('relative inline-block w-[44px] h-[24px]', canManage ? 'cursor-pointer' : 'cursor-default')}>
-                                <input
-                                    type="checkbox"
-                                    aria-label={t('agent.settings.heartbeat.enabled', 'Enable Heartbeat')}
-                                    checked={agent?.heartbeat_enabled ?? true}
-                                    disabled={!canManage}
-                                    onChange={async (e) => {
-                                        if (!canManage) return;
-                                        await agentApi.update(agentId, { heartbeat_enabled: e.target.checked } as any);
-                                        queryClient.invalidateQueries({ queryKey: ['agent', agentId] });
-                                    }}
-                                    className="opacity-0 w-0 h-0"
-                                />
-                                <span
-                                    className={cn(
-                                        'absolute inset-0 rounded-xl transition-colors duration-200',
-                                        (agent?.heartbeat_enabled ?? true) ? 'bg-accent-primary' : 'bg-surface-tertiary',
-                                        !canManage && 'opacity-60',
-                                    )}
-                                >
-                                    <span
-                                        className="absolute top-[3px] w-[18px] h-[18px] bg-white rounded-full transition-[left] duration-200"
-                                        style={{ left: (agent?.heartbeat_enabled ?? true) ? '23px' : '3px' }}
-                                    />
-                                </span>
-                            </label>
-                        </div>
-
-                        {/* Interval */}
-                        <div className="flex items-center justify-between p-2.5 bg-surface-elevated rounded-lg border border-edge-subtle">
-                            <div>
-                                <div className="font-medium text-[13px]">{t('agent.settings.heartbeat.interval', 'Check Interval')}</div>
-                                <div className="text-[11px] text-content-tertiary">{t('agent.settings.heartbeat.intervalDesc', 'How often the agent checks for updates')}</div>
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                                <input
-                                    type="number"
-                                    className={cn('input w-[80px] text-xs', !canManage && 'opacity-60')}
-                                    disabled={!canManage}
-                                    min={1}
-                                    defaultValue={agent?.heartbeat_interval_minutes ?? 120}
-                                    key={agent?.heartbeat_interval_minutes}
-                                    onBlur={async (e) => {
-                                        if (!canManage) return;
-                                        const val = Math.max(1, Number(e.target.value) || 120);
-                                        e.target.value = String(val);
-                                        await agentApi.update(agentId, { heartbeat_interval_minutes: val } as any);
-                                        queryClient.invalidateQueries({ queryKey: ['agent', agentId] });
-                                    }}
-                                />
-                                <span className="text-xs text-content-tertiary">{t('common.minutes', 'min')}</span>
-                            </div>
-                        </div>
-
-                        {/* Active Hours */}
-                        <div className="flex items-center justify-between p-2.5 bg-surface-elevated rounded-lg border border-edge-subtle">
-                            <div>
-                                <div className="font-medium text-[13px]">{t('agent.settings.heartbeat.activeHours', 'Active Hours')}</div>
-                                <div className="text-[11px] text-content-tertiary">{t('agent.settings.heartbeat.activeHoursDesc', 'Only trigger heartbeat during these hours (HH:MM-HH:MM)')}</div>
-                            </div>
-                            <input
-                                className={cn('input w-[140px] text-xs text-center', !canManage && 'opacity-60')}
-                                disabled={!canManage}
-                                value={agent?.heartbeat_active_hours ?? '09:00-18:00'}
-                                onChange={async (e) => {
-                                    if (!canManage) return;
-                                    await agentApi.update(agentId, { heartbeat_active_hours: e.target.value } as any);
-                                    queryClient.invalidateQueries({ queryKey: ['agent', agentId] });
-                                }}
-                                placeholder="09:00-18:00"
-                            />
-                        </div>
-
-                        {/* Last Heartbeat */}
-                        {agent?.last_heartbeat_at && (
-                            <div className="text-xs text-content-tertiary pl-1">
-                                {t('agent.settings.heartbeat.lastRun', 'Last heartbeat')}: {new Date(agent.last_heartbeat_at).toLocaleString()}
-                            </div>
-                        )}
-                    </div>
-                </div>
+                <HeartbeatSection agentId={agentId} agent={agent} canManage={canManage} />
 
                 {/* Channel Config */}
                 <div className="mb-3">
@@ -856,126 +767,31 @@ export function SettingsTab({ agentId, agent, canManage }: SettingsTabProps) {
                             <div className="text-[11px] text-content-tertiary">{t('agent.settings.contextWindowDesc', 'The context window size configured for this agent\'s LLM model')}</div>
                         </div>
                         <div className="text-[15px] font-semibold text-content-primary">
-                            {((agent as any)?.context_window_size ?? 100).toLocaleString()} {t('agent.settings.contextWindowTokens', 'rounds')}
+                            {(agent?.context_window_size ?? 100).toLocaleString()} {t('agent.settings.contextWindowTokens', 'rounds')}
                         </div>
                     </div>
                 </div>
 
-                {/* Admin Settings -- platform_admin / org_admin only */}
-                {isAdmin && (
-                <div className="card mb-3 border-warning">
-                    <h4 className="mb-1">{t('agent.settings.admin.title', 'Admin Settings')}</h4>
-                    <p className="text-xs text-content-tertiary mb-4">
-                        {t('agent.settings.admin.description', 'These settings are only visible to platform and organization admins.')}
-                    </p>
-                    <div className="flex flex-col gap-3.5">
-                        {/* Security Zone */}
-                        <div className="flex items-center justify-between p-2.5 bg-surface-elevated rounded-lg border border-edge-subtle">
-                            <div>
-                                <div className="font-medium text-[13px]">{t('agent.settings.securityZone', 'Security Zone')}</div>
-                                <div className="text-[11px] text-content-tertiary">{t('agent.settings.securityZoneDesc', 'Controls the security sandbox level for this agent')}</div>
+                {/* Admin Settings + Danger Zone */}
+                {isAdmin && <AdminSettingsSection agentId={agentId} agent={agent} />}
+                {!isAdmin && (
+                    <div className="card border-error">
+                        <h4 className="mb-3 text-error">{t('agent.settings.danger.title')}</h4>
+                        <p className="text-[13px] text-content-secondary mb-3">{t('agent.settings.danger.deleteWarning')}</p>
+                        {!showDeleteConfirm ? (
+                            <button className="btn btn-danger" onClick={() => setShowDeleteConfirm(true)}>{t('agent.settings.danger.deleteAgent')}</button>
+                        ) : (
+                            <div className="flex gap-2 items-center">
+                                <span className="text-[13px] font-semibold text-error">{t('agent.settings.danger.deleteWarning')}</span>
+                                <button className="btn btn-danger" onClick={async () => {
+                                    try { await agentApi.delete(agentId); queryClient.invalidateQueries({ queryKey: ['agents'] }); navigate('/'); }
+                                    catch (err) { toast.error((err as Error).message || 'Failed'); }
+                                }}>{t('agent.settings.danger.confirmDelete')}</button>
+                                <button className="btn btn-secondary" onClick={() => setShowDeleteConfirm(false)}>{t('common.cancel')}</button>
                             </div>
-                            <select
-                                className="input w-[160px] text-xs"
-                                value={(agent as any)?.security_zone || 'standard'}
-                                onChange={async (e) => {
-                                    await agentApi.update(agentId, { security_zone: e.target.value } as any);
-                                    queryClient.invalidateQueries({ queryKey: ['agent', agentId] });
-                                }}
-                            >
-                                <option value="public">{t('agent.zone.public', 'Public')}</option>
-                                <option value="standard">{t('agent.zone.standard', 'Standard')}</option>
-                                <option value="restricted">{t('agent.zone.restricted', 'Restricted')}</option>
-                            </select>
-                        </div>
-
-                        {/* Agent Class */}
-                        <div className="flex items-center justify-between p-2.5 bg-surface-elevated rounded-lg border border-edge-subtle">
-                            <div>
-                                <div className="font-medium text-[13px]">{t('agent.settings.agentClass', 'Agent Class')}</div>
-                                <div className="text-[11px] text-content-tertiary">{t('agent.settings.agentClassDesc', 'Classification that determines the agent\'s operational scope')}</div>
-                            </div>
-                            <select
-                                className="input w-[180px] text-xs"
-                                value={(agent as any)?.agent_class || 'internal_tenant'}
-                                onChange={async (e) => {
-                                    await agentApi.update(agentId, { agent_class: e.target.value } as any);
-                                    queryClient.invalidateQueries({ queryKey: ['agent', agentId] });
-                                }}
-                            >
-                                <option value="internal_system">{t('agent.class.internal_system', 'System Agent')}</option>
-                                <option value="internal_tenant">{t('agent.class.internal_tenant', 'Internal Agent')}</option>
-                                <option value="external_gateway">{t('agent.class.external_gateway', 'Gateway Agent')}</option>
-                                <option value="external_api">{t('agent.class.external_api', 'API Agent')}</option>
-                            </select>
-                        </div>
-
-                        {/* Expires At */}
-                        <div className="flex items-center justify-between p-2.5 bg-surface-elevated rounded-lg border border-edge-subtle">
-                            <div>
-                                <div className="font-medium text-[13px]">{t('agent.settings.expiresAt', 'Service Expiry Date')}</div>
-                                <div className="text-[11px] text-content-tertiary">
-                                    {(agent as any)?.expires_at
-                                        ? t('agent.settings.expiresAtCurrent', 'Expires: ') + new Date((agent as any).expires_at).toLocaleString()
-                                        : t('agent.settings.expiresAtNone', 'No expiry set (never expires)')}
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                                <input
-                                    type="datetime-local"
-                                    className="input w-[200px] text-xs"
-                                    defaultValue={(agent as any)?.expires_at ? new Date((agent as any).expires_at).toISOString().slice(0, 16) : ''}
-                                    key={(agent as any)?.expires_at}
-                                    onBlur={async (e) => {
-                                        const val = e.target.value ? new Date(e.target.value).toISOString() : null;
-                                        await agentApi.update(agentId, { expires_at: val } as any);
-                                        queryClient.invalidateQueries({ queryKey: ['agent', agentId] });
-                                    }}
-                                />
-                                {(agent as any)?.expires_at && (
-                                    <button
-                                        onClick={async () => {
-                                            await agentApi.update(agentId, { expires_at: null } as any);
-                                            queryClient.invalidateQueries({ queryKey: ['agent', agentId] });
-                                        }}
-                                        className="px-2 py-1 rounded-md border border-edge-subtle bg-transparent cursor-pointer text-[11px] text-content-tertiary"
-                                        title={t('agent.settings.clearExpiry', 'Clear expiry')}
-                                    >
-                                        {t('agent.settings.clearExpiry', 'Clear')}
-                                    </button>
-                                )}
-                            </div>
-                        </div>
+                        )}
                     </div>
-                </div>
                 )}
-
-                {/* Danger Zone */}
-                <div className="card border-error">
-                    <h4 className="mb-3 text-error">{t('agent.settings.danger.title')}</h4>
-                    <p className="text-[13px] text-content-secondary mb-3">
-                        {t('agent.settings.danger.deleteWarning')}
-                    </p>
-                    {!showDeleteConfirm ? (
-                        <button className="btn btn-danger" onClick={() => setShowDeleteConfirm(true)}>
-                            {t('agent.settings.danger.deleteAgent')}
-                        </button>
-                    ) : (
-                        <div className="flex gap-2 items-center">
-                            <span className="text-[13px] font-semibold text-error">{t('agent.settings.danger.deleteWarning')}</span>
-                            <button className="btn btn-danger" onClick={async () => {
-                                try {
-                                    await agentApi.delete(agentId);
-                                    queryClient.invalidateQueries({ queryKey: ['agents'] });
-                                    navigate('/');
-                                } catch (err: any) {
-                                    alert(err?.message || 'Failed to delete agent');
-                                }
-                            }}>{t('agent.settings.danger.confirmDelete')}</button>
-                            <button className="btn btn-secondary" onClick={() => setShowDeleteConfirm(false)}>{t('common.cancel')}</button>
-                        </div>
-                    )}
-                </div>
             </div>
 
             {/* Toast notification */}

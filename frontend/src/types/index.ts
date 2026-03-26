@@ -115,6 +115,7 @@ export interface Agent {
     agent_class?: AgentClass;
     security_zone?: SecurityZone;
     openclaw_last_seen?: string;
+    access_level?: 'use' | 'manage';
     created_at: string;
     last_active_at?: string;
 }

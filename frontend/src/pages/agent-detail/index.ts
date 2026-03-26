@@ -1,3 +1,4 @@
+export { AgentProvider, useAgent } from './agent-context';
 export { ConfigVersionHistory } from './config-version-history';
 export { CollaborationPanel } from './collaboration-panel';
 export { OpenClawGatewayPanel } from './openclaw-gateway-panel';
@@ -14,3 +15,6 @@ export { OverviewTab } from './overview-tab';
 export { SkillsTab } from './skills-tab';
 export { ActivityTab } from './activity-tab';
 export { SettingsTab } from './settings-tab';
+export { CapabilitiesTab } from './capabilities-tab';
+export { ConnectionsTab } from './connections-tab';
+export { AutomationTab } from './automation-tab';

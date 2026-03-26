@@ -40,7 +40,13 @@ class UserOut(BaseModel):
     department_id: uuid.UUID | None = None
     title: str | None = None
     feishu_open_id: str | None = None
+    oidc_sub: str | None = None
     is_active: bool
+    quota_message_limit: int | None = None
+    quota_message_period: str | None = None
+    quota_messages_used: int | None = None
+    quota_max_agents: int | None = None
+    quota_agent_ttl_hours: int | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

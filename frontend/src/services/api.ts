@@ -446,7 +446,7 @@ export const channelApi = {
         request<any>(`/agents/${agentId}/channel`, { method: 'POST', body: JSON.stringify(data) }),
 
     update: (agentId: string, data: any) =>
-        request<any>(`/agents/${agentId}/channel`, { method: 'PUT', body: JSON.stringify(data) }),
+        request<any>(`/agents/${agentId}/channel`, { method: 'POST', body: JSON.stringify(data) }),
 
     delete: (agentId: string) =>
         request<void>(`/agents/${agentId}/channel`, { method: 'DELETE' }),

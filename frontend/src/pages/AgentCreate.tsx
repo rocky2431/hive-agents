@@ -479,7 +479,7 @@ export default function AgentCreate() {
                                         <button
                                             type="button"
                                             className="text-accent-primary cursor-pointer bg-transparent border-none p-0 text-xs"
-                                            onClick={() => navigate('/enterprise')}
+                                            onClick={() => navigate('/workspace')}
                                         >
                                             {t('wizard.step1.enterpriseSettings')}
                                         </button>{' '}

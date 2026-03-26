@@ -1,9 +1,11 @@
 import React, { useState, Component, ErrorInfo } from 'react';
+import i18n from 'i18next';
 import { useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { parseAsStringLiteral, useQueryState } from 'nuqs';
 import { useTranslation } from 'react-i18next';
 
+import { toast } from 'sonner';
 import { agentApi } from '../services/api';
 import {
     OverviewTab,
@@ -11,13 +13,18 @@ import {
     ChatTab,
     ActivityTab,
     SettingsTab,
+    CapabilitiesTab,
+    ConnectionsTab,
+    AutomationTab,
 } from './agent-detail';
 import { useAuthStore } from '../stores';
+import { AgentProvider } from './agent-detail/agent-context';
 import { AgentAvatar } from '@/components/domain/agent-avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Pencil } from 'lucide-react';
 
-const TABS = ['chat', 'overview', 'skills', 'activity', 'settings'] as const;
+const TABS = ['chat', 'overview', 'capabilities', 'skills', 'automation', 'connections', 'activity', 'settings'] as const;
 
 function AgentDetailInner() {
     const { t } = useTranslation();
@@ -49,12 +56,12 @@ function AgentDetailInner() {
     const [expirySaving, setExpirySaving] = useState(false);
 
     const openExpiryModal = () => {
-        const cur = (agent as any)?.expires_at;
+        const cur = agent?.expires_at;
         setExpiryValue(cur ? new Date(cur).toISOString().slice(0, 16) : '');
         setShowExpiryModal(true);
     };
     const addHours = (h: number) => {
-        const base = (agent as any)?.expires_at ? new Date((agent as any).expires_at) : new Date();
+        const base = agent?.expires_at ? new Date(agent.expires_at) : new Date();
         setExpiryValue(new Date(base.getTime() + h * 3600_000).toISOString().slice(0, 16));
     };
     const saveExpiry = async (permanent = false) => {
@@ -67,7 +74,7 @@ function AgentDetailInner() {
             queryClient.invalidateQueries({ queryKey: ['agent', id] });
             setShowExpiryModal(false);
         } catch (e) {
-            alert('Failed: ' + e);
+            toast.error((e as Error).message || 'Failed to update expiry');
         }
         setExpirySaving(false);
     };
@@ -80,24 +87,25 @@ function AgentDetailInner() {
         if (agent.status === 'error') return 'error';
         if (agent.status === 'creating') return 'creating';
         if (agent.status === 'stopped') return 'stopped';
-        if ((agent as any).agent_type === 'openclaw' && agent.status === 'running' && (agent as any).openclaw_last_seen) {
-            const elapsed = Date.now() - new Date((agent as any).openclaw_last_seen).getTime();
+        if (agent.agent_type === 'openclaw' && agent.status === 'running' && agent.openclaw_last_seen) {
+            const elapsed = Date.now() - new Date(agent.openclaw_last_seen).getTime();
             if (elapsed > 60 * 60 * 1000) return 'disconnected';
         }
         return agent.status === 'running' ? 'running' : 'idle';
     };
     const statusKey = computeStatusKey();
-    const canManage = (agent as any).access_level === 'manage' || isAdmin;
+    const canManage = agent.access_level === 'manage' || isAdmin;
+    const refreshAgent = () => queryClient.invalidateQueries({ queryKey: ['agent', id] });
 
     return (
-        <>
+        <AgentProvider value={{ agentId: id!, agent, canManage, queryClient, refreshAgent }}>
             <div>
                 {/* ── Header ── */}
                 <div className="page-header">
                     <div className="flex items-center gap-4">
                         <AgentAvatar
                             name={agent.name}
-                            avatarUrl={(agent as any).avatar_url}
+                            avatarUrl={agent.avatar_url}
                             status={agent.status as any}
                             size="lg"
                         />
@@ -173,17 +181,17 @@ function AgentDetailInner() {
                                     </span>
                                 )}
 
-                                {(agent as any).is_expired && <Badge variant="error">Expired</Badge>}
+                                {agent.is_expired && <Badge variant="error">Expired</Badge>}
 
-                                {(agent as any).agent_type === 'openclaw' && (
+                                {agent.agent_type === 'openclaw' && (
                                     <span className="rounded bg-gradient-to-br from-indigo-500 to-purple-500 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-white">
                                         OpenClaw · Lab
                                     </span>
                                 )}
 
-                                {!(agent as any).is_expired && (agent as any).expires_at && (
+                                {!agent.is_expired && agent.expires_at && (
                                     <span className="text-[11px] text-content-tertiary">
-                                        Expires: {new Date((agent as any).expires_at).toLocaleString()}
+                                        Expires: {new Date(agent.expires_at).toLocaleString()}
                                     </span>
                                 )}
 
@@ -193,7 +201,7 @@ function AgentDetailInner() {
                                         aria-label={t('agent.settings.expiry.setExpiry')}
                                         className="rounded bg-transparent px-1 py-px text-[11px] text-content-tertiary hover:bg-surface-secondary"
                                     >
-                                        ✏️ {t((agent as any).expires_at || (agent as any).is_expired ? 'agent.settings.expiry.renew' : 'agent.settings.expiry.setExpiry')}
+                                        <Pencil size={11} className="inline mr-0.5" /> {t(agent.expires_at || agent.is_expired ? 'agent.settings.expiry.renew' : 'agent.settings.expiry.setExpiry')}
                                     </button>
                                 )}
                             </p>
@@ -202,7 +210,7 @@ function AgentDetailInner() {
 
                     <div className="flex gap-2">
                         <Button onClick={() => setActiveTab('chat')}>{t('agent.actions.chat')}</Button>
-                        {(agent as any)?.agent_type !== 'openclaw' && (
+                        {agent?.agent_type !== 'openclaw' && (
                             <>
                                 {agent.status === 'stopped' ? (
                                     <Button variant="secondary" onClick={async () => { await agentApi.start(id!); queryClient.invalidateQueries({ queryKey: ['agent', id] }); }}>
@@ -219,18 +227,32 @@ function AgentDetailInner() {
                 </div>
 
                 {/* ── Tab bar ── */}
-                <div className="tabs">
+                <div className="tabs" role="tablist" aria-label={t('agent.tabs.label', 'Agent sections')}>
                     {TABS.filter((tab) => {
-                        if ((agent as any)?.access_level === 'use' && tab === 'settings') return false;
-                        if ((agent as any)?.agent_type === 'openclaw') {
+                        if (agent?.access_level === 'use' && tab === 'settings') return false;
+                        if (agent?.agent_type === 'openclaw') {
                             return ['chat', 'overview', 'activity', 'settings'].includes(tab);
                         }
                         return true;
                     }).map((tab) => (
                         <div
                             key={tab}
+                            role="tab"
+                            tabIndex={activeTab === tab ? 0 : -1}
+                            aria-selected={activeTab === tab}
+                            aria-controls={`tabpanel-${tab}`}
                             className={`tab ${activeTab === tab ? 'active' : ''}`}
                             onClick={() => setActiveTab(tab)}
+                            onKeyDown={(e) => {
+                                const visible = TABS.filter(t2 => {
+                                    if (agent?.access_level === 'use' && t2 === 'settings') return false;
+                                    if (agent?.agent_type === 'openclaw') return ['chat', 'overview', 'activity', 'settings'].includes(t2);
+                                    return true;
+                                });
+                                const idx = visible.indexOf(tab);
+                                if (e.key === 'ArrowRight' && idx < visible.length - 1) { setActiveTab(visible[idx + 1]); e.preventDefault(); }
+                                if (e.key === 'ArrowLeft' && idx > 0) { setActiveTab(visible[idx - 1]); e.preventDefault(); }
+                            }}
                         >
                             {t(`agent.tabs.${tab}`)}
                         </div>
@@ -239,8 +261,11 @@ function AgentDetailInner() {
 
                 {/* ── Tab content ── */}
                 {activeTab === 'overview' && <OverviewTab agentId={id!} agent={agent} />}
-                {activeTab === 'skills' && <SkillsTab agentId={id!} canManage={canManage} />}
                 {activeTab === 'chat' && <ChatTab agentId={id!} agent={agent} canManage={canManage} />}
+                {activeTab === 'capabilities' && <CapabilitiesTab agentId={id!} agent={agent} canManage={canManage} />}
+                {activeTab === 'skills' && <SkillsTab agentId={id!} canManage={canManage} />}
+                {activeTab === 'automation' && <AutomationTab agentId={id!} canManage={canManage} />}
+                {activeTab === 'connections' && <ConnectionsTab agentId={id!} agent={agent} canManage={canManage} />}
                 {activeTab === 'activity' && <ActivityTab agentId={id!} agent={agent} canManage={canManage} />}
                 {activeTab === 'settings' && <SettingsTab agentId={id!} agent={agent} canManage={canManage} />}
             </div>
@@ -282,7 +307,7 @@ function AgentDetailInner() {
                     </div>
                 </div>
             )}
-        </>
+        </AgentProvider>
     );
 }
 
@@ -299,18 +324,20 @@ class AgentDetailErrorBoundary extends Component<
         return { hasError: true, error };
     }
     componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-        console.error('AgentDetail crash caught by error boundary:', error, errorInfo);
+        if (import.meta.env.DEV) {
+            console.error('AgentDetail crash caught by error boundary:', error, errorInfo);
+        }
     }
     render() {
         if (this.state.hasError) {
             return (
                 <div className="flex h-[60vh] flex-col items-center justify-center gap-4">
-                    <div className="text-xl font-semibold text-content-primary">Something went wrong</div>
+                    <div className="text-xl font-semibold text-content-primary">{i18n.t('errorBoundary.title', 'Something went wrong')}</div>
                     <div className="max-w-md text-center text-sm text-content-tertiary">
-                        {this.state.error?.message || 'An unexpected error occurred while loading this page.'}
+                        {this.state.error?.message || i18n.t('errorBoundary.description', 'An unexpected error occurred while loading this page.')}
                     </div>
                     <Button onClick={() => { this.setState({ hasError: false, error: null }); window.location.reload(); }}>
-                        Reload Page
+                        {i18n.t('errorBoundary.reload', 'Reload Page')}
                     </Button>
                 </div>
             );

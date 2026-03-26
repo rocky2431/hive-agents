@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { activityApi, agentApi } from '@/services/api';
 import { AgentOperationsPanel } from '@/pages/agent-detail';
+import type { ApprovalRequest } from '@/types';
 
 interface ActivityTabProps {
     agentId: string;
@@ -168,8 +169,8 @@ function ApprovalsSection({ agentId }: { agentId: string }) {
         },
     });
 
-    const pending = (approvals as any[]).filter((a: any) => a.status === 'pending');
-    const resolved = (approvals as any[]).filter((a: any) => a.status !== 'pending');
+    const pending = (approvals as ApprovalRequest[]).filter(a => a.status === 'pending');
+    const resolved = (approvals as ApprovalRequest[]).filter(a => a.status !== 'pending');
 
     const statusStyle = (s: string): React.CSSProperties => ({
         padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600,

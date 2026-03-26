@@ -1,6 +1,14 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* ── Geist Font ── */
+@font-face { font-family: 'Geist'; src: url('/fonts/Geist-Regular.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Geist'; src: url('/fonts/Geist-Medium.woff2') format('woff2'); font-weight: 500; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Geist'; src: url('/fonts/Geist-SemiBold.woff2') format('woff2'); font-weight: 600; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Geist'; src: url('/fonts/Geist-Bold.woff2') format('woff2'); font-weight: 700; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Geist Mono'; src: url('/fonts/GeistMono-Regular.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Geist Mono'; src: url('/fonts/GeistMono-Medium.woff2') format('woff2'); font-weight: 500; font-style: normal; font-display: swap; }
+
 /* ═══════════════════════════════════════════════════════
    Tailwind Theme — Maps existing CSS vars to utilities
    e.g. bg-surface-primary, text-content-primary, etc.
@@ -43,24 +51,24 @@
   --color-status-error: var(--status-error);
 
   /* ── Typography ── */
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --font-sans: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'Geist Mono', 'JetBrains Mono', 'Fira Code', monospace;
 
   /* NOTE: Font sizes deliberately NOT in @theme to avoid overriding
      Tailwind's built-in text-sm/text-xs line-height pairing.
      Legacy CSS vars (--text-xs etc.) remain in :root for existing inline styles. */
 
-  /* ── Border Radius ── */
+  /* ── Border Radius (Linear tight) ── */
   --radius-sm: 4px;
   --radius-md: 6px;
-  --radius-lg: 8px;
-  --radius-xl: 12px;
+  --radius-lg: 6px;
+  --radius-xl: 8px;
   --radius-full: 9999px;
 
-  /* ── Shadows ── */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.25);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.35);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.45);
+  /* ── Shadows (Linear minimal) ── */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.5);
 
   /* ── Spacing (extends Tailwind default) ── */
   --spacing-0_5: 2px;
@@ -79,48 +87,48 @@
 }
 
 /* ═══════════════════════════════════════════════════════
-   Clawith — Design System (Linear-inspired Dark Theme)
+   Hive — Design System (Linear-inspired Dark Theme)
    ═══════════════════════════════════════════════════════ */
 
 :root,
 [data-theme="dark"] {
   color-scheme: dark;
 
-  /* Colors — Dark Theme (Linear-style) */
-  --bg-primary: #0a0a0f;
-  --bg-secondary: #111119;
-  --bg-tertiary: #18181f;
-  --bg-elevated: #1c1c26;
-  --bg-hover: #22222e;
-  --bg-active: #2a2a3a;
+  /* Colors — Dark Theme (Linear) */
+  --bg-primary: #0a0a0a;
+  --bg-secondary: #131313;
+  --bg-tertiary: #1a1a1a;
+  --bg-elevated: #1e1e1e;
+  --bg-hover: rgba(255, 255, 255, 0.04);
+  --bg-active: rgba(255, 255, 255, 0.08);
 
-  --border-default: #26263a;
-  --border-subtle: #1e1e30;
-  --border-strong: #35354a;
+  --border-default: rgba(255, 255, 255, 0.08);
+  --border-subtle: rgba(255, 255, 255, 0.05);
+  --border-strong: rgba(255, 255, 255, 0.12);
 
-  --text-primary: #e1e1e8;
-  --text-secondary: #8b8b9e;
-  --text-tertiary: #5c5c70;
-  --text-inverse: #0a0a0f;
+  --text-primary: #ededef;
+  --text-secondary: #8a8a8e;
+  --text-tertiary: #5c5c5f;
+  --text-inverse: #0a0a0a;
 
-  --accent-primary: #e1e1e8;
-  --accent-hover: #ffffff;
-  --accent-subtle: rgba(225, 225, 232, 0.08);
-  --accent-text: #c0c0cc;
+  --accent-primary: #5e6ad2;
+  --accent-hover: #7c85e0;
+  --accent-subtle: rgba(94, 106, 210, 0.12);
+  --accent-text: #8b93e6;
 
-  --success: #22c55e;
-  --success-subtle: rgba(34, 197, 94, 0.12);
-  --warning: #f59e0b;
-  --warning-subtle: rgba(245, 158, 11, 0.12);
-  --error: #ef4444;
-  --error-subtle: rgba(239, 68, 68, 0.12);
-  --info: #3b82f6;
+  --success: #4ade80;
+  --success-subtle: rgba(74, 222, 128, 0.10);
+  --warning: #fbbf24;
+  --warning-subtle: rgba(251, 191, 36, 0.10);
+  --error: #f87171;
+  --error-subtle: rgba(248, 113, 113, 0.10);
+  --info: #5e6ad2;
 
   /* Status colors */
-  --status-running: #22c55e;
-  --status-idle: #8b8b9e;
-  --status-stopped: #5c5c70;
-  --status-error: #ef4444;
+  --status-running: #4ade80;
+  --status-idle: #8a8a8e;
+  --status-stopped: #5c5c5f;
+  --status-error: #f87171;
 
   /* Spacing */
   --space-1: 4px;
@@ -134,8 +142,8 @@
   --space-12: 48px;
 
   /* Typography */
-  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'Geist Mono', 'JetBrains Mono', 'Fira Code', monospace;
 
   --text-xs: 11px;
   --text-sm: 13px;
@@ -145,17 +153,17 @@
   --text-2xl: 24px;
   --text-3xl: 32px;
 
-  /* Border Radius */
+  /* Border Radius — Linear tight */
   --radius-sm: 4px;
   --radius-md: 6px;
-  --radius-lg: 8px;
-  --radius-xl: 12px;
+  --radius-lg: 6px;
+  --radius-xl: 8px;
   --radius-full: 9999px;
 
-  /* Shadows */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.25);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.35);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.45);
+  /* Shadows — Linear minimal */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.5);
 
   /* Transitions */
   --transition-fast: 120ms ease;
@@ -239,37 +247,37 @@
   color-scheme: light;
 
   --bg-primary: #ffffff;
-  --bg-secondary: #f9f9fb;
-  --bg-tertiary: #f2f2f5;
+  --bg-secondary: #f8f8f8;
+  --bg-tertiary: #f1f1f1;
   --bg-elevated: #ffffff;
-  --bg-hover: #f0f0f3;
-  --bg-active: #e8e8ed;
+  --bg-hover: rgba(0, 0, 0, 0.03);
+  --bg-active: rgba(0, 0, 0, 0.06);
 
-  --border-default: #e0e0e6;
-  --border-subtle: #eaeaef;
-  --border-strong: #d0d0d8;
+  --border-default: rgba(0, 0, 0, 0.08);
+  --border-subtle: rgba(0, 0, 0, 0.05);
+  --border-strong: rgba(0, 0, 0, 0.12);
 
-  --text-primary: #1a1a22;
-  --text-secondary: #6b6b80;
-  --text-tertiary: #9898a8;
+  --text-primary: #1a1a1a;
+  --text-secondary: #6b6b6b;
+  --text-tertiary: #9a9a9a;
   --text-inverse: #ffffff;
 
-  --accent-primary: #3a3a42;
-  --accent-hover: #28282e;
-  --accent-subtle: rgba(58, 58, 66, 0.08);
-  --accent-text: #3a3a42;
+  --accent-primary: #5e6ad2;
+  --accent-hover: #4850b8;
+  --accent-subtle: rgba(94, 106, 210, 0.08);
+  --accent-text: #5e6ad2;
 
   --success: #16a34a;
-  --success-subtle: rgba(22, 163, 74, 0.08);
+  --success-subtle: rgba(22, 163, 74, 0.06);
   --warning: #d97706;
-  --warning-subtle: rgba(217, 119, 6, 0.08);
+  --warning-subtle: rgba(217, 119, 6, 0.06);
   --error: #dc2626;
-  --error-subtle: rgba(220, 38, 38, 0.08);
-  --info: #2563eb;
+  --error-subtle: rgba(220, 38, 38, 0.06);
+  --info: #5e6ad2;
 
   --status-running: #16a34a;
-  --status-idle: #9898a8;
-  --status-stopped: #d0d0d8;
+  --status-idle: #9a9a9a;
+  --status-stopped: #d0d0d0;
   --status-error: #dc2626;
 
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);

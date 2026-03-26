@@ -65,7 +65,7 @@ export default function UserManagement() {
             const data = await userApi.list(tenantId || undefined);
             setUsers(data);
         } catch (e) {
-            console.error('Failed to load users', e);
+            if (import.meta.env.DEV) console.error('Failed to load users', e);
         }
         setLoading(false);
     };
@@ -83,7 +83,7 @@ export default function UserManagement() {
             walk(data);
             setDepartments(flattened);
         } catch (e) {
-            console.error('Failed to load departments', e);
+            if (import.meta.env.DEV) console.error('Failed to load departments', e);
         }
     };
 

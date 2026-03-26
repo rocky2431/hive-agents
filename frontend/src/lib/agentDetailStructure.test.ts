@@ -25,7 +25,7 @@ const read = (filePath: string) => fs.readFileSync(filePath, 'utf8');
 test('AgentDetail uses capabilities tab instead of legacy tools tab', () => {
     const source = readAgentDetailModule();
 
-    assert.match(source, /const TABS = \['chat', 'overview', 'skills', 'activity', 'settings'\]/);
+    assert.match(source, /const TABS = \['chat', 'overview', 'capabilities', 'skills', 'automation', 'connections', 'activity', 'settings'\]/);
     assert.match(source, /import \{ parseAsStringLiteral, useQueryState \} from 'nuqs';/);
     assert.match(source, /const \[activeTab, setActiveTab\] = useQueryState\(\s*'tab',\s*parseAsStringLiteral\(TABS\)\.withDefault\('chat'\),/s);
     assert.doesNotMatch(source, /const TABS = \['status', 'aware', 'mind', 'capabilities'/);
@@ -36,7 +36,6 @@ test('AgentDetail uses capabilities tab instead of legacy tools tab', () => {
     assert.doesNotMatch(source, /activeTab === 'status'/);
     assert.doesNotMatch(source, /activeTab === 'aware'/);
     assert.doesNotMatch(source, /activeTab === 'mind'/);
-    assert.doesNotMatch(source, /activeTab === 'capabilities'/);
 });
 
 test('AgentDetail removes legacy autonomy policy panel', () => {

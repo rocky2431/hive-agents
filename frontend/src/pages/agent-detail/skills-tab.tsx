@@ -251,7 +251,7 @@ export function SkillsTab({ agentId, canManage }: SkillsTabProps) {
                         </div>
                         <button
                             className="btn btn-secondary text-xs whitespace-nowrap"
-                            onClick={() => window.location.href = '/enterprise?tab=mcp'}
+                            onClick={() => window.location.href = '/workspace?tab=mcp'}
                         >
                             {t('agent.mcp.goToSettings', '\u524D\u5F80\u516C\u53F8\u8BBE\u7F6E \u2192')}
                         </button>

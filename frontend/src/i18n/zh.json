@@ -1,6 +1,6 @@
 {
   "app": {
-    "name": "Clawith",
+    "name": "Hive",
     "tagline": "企业数字员工平台"
   },
   "nav": {
@@ -45,7 +45,7 @@
     "accountDisabled": "你的账号已被停用。",
     "serverStarting": "服务正在启动或遇到问题，请稍后重试。",
     "serverUnreachable": "无法连接服务器，请检查服务是否正在运行。",
-    "loginWithSSO": "Login with SSO",
+    "loginWithSSO": "使用 SSO 登录",
     "invitationRequiredHint": "注册本身仍然开放，但当前加入工作区需要管理员提供的邀请码。"
   },
   "roles": {
@@ -58,7 +58,7 @@
     "heroBadge": "开源 · 多 Agent 协作平台",
     "heroSubtitle": "OpenClaw 团队版",
     "heroDesc1": "OpenClaw 赋能个体。",
-    "heroDesc2": "Clawith 将其扩展至前沿组织。",
+    "heroDesc2": "Hive 将其扩展至前沿组织。",
     "featureCrewTitle": "多 Agent 协作",
     "featureCrewDesc": "Agent 自主协同工作",
     "featureMemoryTitle": "持久记忆",
@@ -185,6 +185,8 @@
       "aware": "自我意识",
       "mind": "心智",
       "capabilities": "能力",
+      "automation": "自动化",
+      "connections": "连接",
       "relationships": "关系",
       "workspace": "工作区",
       "activityLog": "工作日志"
@@ -717,12 +719,19 @@
   "chat": {
     "placeholder": "输入消息...",
     "send": "发送",
+    "sessions": "会话",
+    "fullscreen": "全屏",
     "deleteSession": "删除会话",
     "deleteConfirm": "确定删除这个会话及其所有消息？此操作无法撤销。",
     "analyzeImage": "请分析这张图片",
     "imageLabel": "[图片]",
     "fileLabel": "[文件:",
-    "userQuestion": "用户问题:"
+    "userQuestion": "用户问题:",
+    "event": {
+      "permissionGate": "权限门控",
+      "packActivated": "能力包已激活",
+      "contextCompacted": "上下文已压缩"
+    }
   },
   "messages": {
     "title": "消息中心",
@@ -929,7 +938,7 @@
       "notConfigured": "SSO 未配置",
       "configured": "SSO 已配置",
       "loginWithSSO": "SSO 登录",
-      "testConnection": "Test Connection"
+      "testConnection": "测试连接"
     },
     "capabilities": {
       "title": "操作权限",
@@ -1340,7 +1349,7 @@
   },
   "openclaw": {
     "nativeTitle": "平台托管",
-    "nativeDesc": "在 Clawith 平台运行的完整 Agent",
+    "nativeDesc": "在 Hive 平台运行的完整 Agent",
     "openclawTitle": "接入 OpenClaw",
     "openclawDesc": "连接你已有的 OpenClaw Agent",
     "created": "OpenClaw Agent 已创建",
@@ -1559,7 +1568,7 @@
       "list_triggers": "列出所有活跃触发器，包括名称、类型、配置、原因、触发次数和状态。",
       "send_channel_file": "通过当前通信渠道（飞书、Slack、Discord 或 Web）向用户发送文件。",
       "send_feishu_message": "通过飞书向人类同事发送消息。仅可向关系列表中的人发送。",
-      "send_web_message": "在 Clawith Web 平台上主动向用户发送消息。消息会出现在聊天记录中，用户在线时实时推送。",
+      "send_web_message": "在 Hive Web 平台上主动向用户发送消息。消息会出现在聊天记录中，用户在线时实时推送。",
       "send_message_to_agent": "向数字员工同事发送消息并接收回复。适用于提问、委托任务或协作。",
       "web_search": "通过 DuckDuckGo 搜索互联网。在部分网络环境下可能不可用，可使用 Bing Search 作为替代。",
       "jina_search": "使用 Jina AI（s.jina.ai）搜索互联网。返回高质量的完整内容结果。需要 Jina AI API key 以获得更高调用限额。",
