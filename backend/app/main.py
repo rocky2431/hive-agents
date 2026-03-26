@@ -319,6 +319,7 @@ from app.api.oidc import router as oidc_router
 from app.api.capabilities import router as capabilities_router
 from app.api.onboarding import router as onboarding_router
 from app.api.packs import router as packs_router
+from app.api.llm_proxy import router as llm_proxy_router
 
 # All API routers — mounted under both /api (backward compat) and /api/v1
 _api_routers = [
@@ -331,6 +332,7 @@ _api_routers = [
     gateway_router, config_history_router, feature_flags_router, admin_router,
     chat_sessions_router, plaza_router, triggers_router, memory_router,
     oidc_router, capabilities_router, onboarding_router, packs_router,
+    llm_proxy_router,
 ]
 
 for _r in _api_routers:
