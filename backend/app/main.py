@@ -118,6 +118,7 @@ async def lifespan(app: FastAPI):
         import app.models.capability_policy  # noqa
         import app.models.refresh_token  # noqa
         import app.models.guard_policy  # noqa
+        import app.models.tenant_channel_config  # noqa
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
             # Add 'atlassian' to channel_type_enum if it doesn't exist yet (idempotent)
@@ -328,6 +329,7 @@ from app.api.desktop_agents import router as desktop_agents_router
 from app.api.guard_policies import router as guard_policies_router
 from app.api.desktop_audit import router as desktop_audit_router
 from app.api.role_templates import router as role_templates_router
+from app.api.tenant_channels import router as tenant_channels_router
 
 # All API routers — mounted under both /api (backward compat) and /api/v1
 _api_routers = [
@@ -347,6 +349,7 @@ _api_routers = [
     guard_policies_router,
     desktop_audit_router,
     role_templates_router,
+    tenant_channels_router,
 ]
 
 for _r in _api_routers:

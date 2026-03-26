@@ -383,8 +383,13 @@ async def feishu_card_callback(request: Request, db: AsyncSession = Depends(get_
         return {"toast": {"type": "error", "content": "Processing failed, please try again"}}
 
 
-async def process_feishu_event(agent_id: uuid.UUID, body: dict, db: AsyncSession):
-    """Core logic to process feishu events from both webhook and WS client."""
+async def process_feishu_event(agent_id: uuid.UUID, body: dict, db: AsyncSession, *, tenant_channel_config=None):
+    """Core logic to process feishu events from both webhook and WS client.
+
+    Args:
+        tenant_channel_config: If provided, use tenant-level credentials instead of
+            per-agent ChannelConfig (Phase 6 enterprise webhook path).
+    """
     logger.info(
         f"[Feishu] Event processing for {agent_id}: event_type={body.get('header', {}).get('event_type', 'N/A')}"
     )
@@ -395,14 +400,17 @@ async def process_feishu_event(agent_id: uuid.UUID, body: dict, db: AsyncSession
     if event_id in _processed_events:
         return {"code": 0, "msg": "already processed"}
 
-    # Get channel config — filter by feishu since an agent can have multiple channels
-    result = await db.execute(
-        select(ChannelConfig).where(
-            ChannelConfig.agent_id == agent_id,
-            ChannelConfig.channel_type == "feishu",
+    # Get channel config — use tenant-level config if provided (Phase 6), else per-agent
+    if tenant_channel_config:
+        config = tenant_channel_config
+    else:
+        result = await db.execute(
+            select(ChannelConfig).where(
+                ChannelConfig.agent_id == agent_id,
+                ChannelConfig.channel_type == "feishu",
+            )
         )
-    )
-    config = result.scalar_one_or_none()
+        config = result.scalar_one_or_none()
     if not config:
         return {"code": 1, "msg": "Channel not found"}
 
