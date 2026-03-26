@@ -52,23 +52,23 @@
 
   /* ── Typography ── */
   --font-sans: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-mono: 'Geist Mono', 'JetBrains Mono', 'Fira Code', monospace;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
 
   /* NOTE: Font sizes deliberately NOT in @theme to avoid overriding
      Tailwind's built-in text-sm/text-xs line-height pairing.
      Legacy CSS vars (--text-xs etc.) remain in :root for existing inline styles. */
 
-  /* ── Border Radius (Linear tight) ── */
+  /* ── Border Radius ── */
   --radius-sm: 4px;
   --radius-md: 6px;
-  --radius-lg: 6px;
-  --radius-xl: 8px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
   --radius-full: 9999px;
 
-  /* ── Shadows (Linear minimal) ── */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.5);
+  /* ── Shadows ── */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.25);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.45);
 
   /* ── Spacing (extends Tailwind default) ── */
   --spacing-0_5: 2px;
@@ -87,48 +87,48 @@
 }
 
 /* ═══════════════════════════════════════════════════════
-   Hive — Design System (Notion-inspired, Light-first)
+   Hive — Design System (Linear-inspired Dark Theme)
    ═══════════════════════════════════════════════════════ */
 
 :root,
-[data-theme="light"] {
-  color-scheme: light;
+[data-theme="dark"] {
+  color-scheme: dark;
 
-  /* Colors — Light Theme (Notion) */
-  --bg-primary: #ffffff;
-  --bg-secondary: #f7f7f5;
-  --bg-tertiary: #f0f0ee;
-  --bg-elevated: #ffffff;
-  --bg-hover: rgba(55, 53, 47, 0.04);
-  --bg-active: rgba(55, 53, 47, 0.08);
+  /* Colors — Dark Theme (Linear-style) */
+  --bg-primary: #0a0a0f;
+  --bg-secondary: #111119;
+  --bg-tertiary: #18181f;
+  --bg-elevated: #1c1c26;
+  --bg-hover: #22222e;
+  --bg-active: #2a2a3a;
 
-  --border-default: rgba(55, 53, 47, 0.12);
-  --border-subtle: rgba(55, 53, 47, 0.08);
-  --border-strong: rgba(55, 53, 47, 0.18);
+  --border-default: #26263a;
+  --border-subtle: #1e1e30;
+  --border-strong: #35354a;
 
-  --text-primary: #37352f;
-  --text-secondary: #6b6b6b;
-  --text-tertiary: #9b9a97;
-  --text-inverse: #ffffff;
+  --text-primary: #e1e1e8;
+  --text-secondary: #8b8b9e;
+  --text-tertiary: #5c5c70;
+  --text-inverse: #0a0a0f;
 
-  --accent-primary: #2eaadc;
-  --accent-hover: #258fb5;
-  --accent-subtle: rgba(46, 170, 220, 0.08);
-  --accent-text: #2eaadc;
+  --accent-primary: #e1e1e8;
+  --accent-hover: #ffffff;
+  --accent-subtle: rgba(225, 225, 232, 0.08);
+  --accent-text: #c0c0cc;
 
-  --success: #0f7b6c;
-  --success-subtle: rgba(15, 123, 108, 0.08);
-  --warning: #cb7a0a;
-  --warning-subtle: rgba(203, 122, 10, 0.08);
-  --error: #e03e3e;
-  --error-subtle: rgba(224, 62, 62, 0.08);
-  --info: #2eaadc;
+  --success: #22c55e;
+  --success-subtle: rgba(34, 197, 94, 0.12);
+  --warning: #f59e0b;
+  --warning-subtle: rgba(245, 158, 11, 0.12);
+  --error: #ef4444;
+  --error-subtle: rgba(239, 68, 68, 0.12);
+  --info: #3b82f6;
 
   /* Status colors */
-  --status-running: #0f7b6c;
-  --status-idle: #9b9a97;
-  --status-stopped: #c4c4c0;
-  --status-error: #e03e3e;
+  --status-running: #22c55e;
+  --status-idle: #8b8b9e;
+  --status-stopped: #5c5c70;
+  --status-error: #ef4444;
 
   /* Spacing */
   --space-1: 4px;
@@ -141,29 +141,29 @@
   --space-10: 40px;
   --space-12: 48px;
 
-  /* Typography — Notion uses system font stack */
+  /* Typography */
   --font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-mono: 'Geist Mono', 'JetBrains Mono', 'Fira Code', monospace;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
 
-  --text-xs: 12px;
-  --text-sm: 14px;
-  --text-base: 15px;
+  --text-xs: 11px;
+  --text-sm: 13px;
+  --text-base: 14px;
   --text-lg: 16px;
   --text-xl: 18px;
   --text-2xl: 24px;
   --text-3xl: 32px;
 
-  /* Border Radius — Notion rounded */
+  /* Border Radius */
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
   --radius-xl: 12px;
   --radius-full: 9999px;
 
-  /* Shadows — Notion soft */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04), 0 1px 4px rgba(0, 0, 0, 0.04);
-  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.06), 0 0 1px rgba(0, 0, 0, 0.08);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.08), 0 0 1px rgba(0, 0, 0, 0.08);
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.25);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.45);
 
   /* Transitions */
   --transition-fast: 120ms ease;
@@ -171,7 +171,7 @@
   --transition-slow: 300ms ease;
 
   /* Layout */
-  --sidebar-width-expanded: 248px;
+  --sidebar-width-expanded: 240px;
   --sidebar-width-collapsed: 68px;
   --sidebar-width: var(--sidebar-width-expanded);
   --header-height: 52px;
@@ -180,48 +180,6 @@
   --notification-bar-bg: var(--accent-primary);
   --notification-bar-text: #ffffff;
   --notification-bar-close-hover: rgba(255, 255, 255, 0.2);
-}
-
-[data-theme="dark"] {
-  color-scheme: dark;
-
-  --bg-primary: #191919;
-  --bg-secondary: #202020;
-  --bg-tertiary: #2a2a2a;
-  --bg-elevated: #252525;
-  --bg-hover: rgba(255, 255, 255, 0.06);
-  --bg-active: rgba(255, 255, 255, 0.10);
-
-  --border-default: rgba(255, 255, 255, 0.10);
-  --border-subtle: rgba(255, 255, 255, 0.06);
-  --border-strong: rgba(255, 255, 255, 0.16);
-
-  --text-primary: #ffffffcf;
-  --text-secondary: #ffffff80;
-  --text-tertiary: #ffffff48;
-  --text-inverse: #191919;
-
-  --accent-primary: #529cca;
-  --accent-hover: #6bade0;
-  --accent-subtle: rgba(82, 156, 202, 0.15);
-  --accent-text: #6bade0;
-
-  --success: #4ade80;
-  --success-subtle: rgba(74, 222, 128, 0.12);
-  --warning: #fbbf24;
-  --warning-subtle: rgba(251, 191, 36, 0.12);
-  --error: #f87171;
-  --error-subtle: rgba(248, 113, 113, 0.12);
-  --info: #529cca;
-
-  --status-running: #4ade80;
-  --status-idle: #ffffff48;
-  --status-stopped: #ffffff30;
-  --status-error: #f87171;
-
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.5);
-  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.6);
 }
 
 /* ─── Notification Bar ──────────────────────────────── */
@@ -285,7 +243,70 @@
   min-height: calc(100vh - 32px);
 }
 
-/* Light-mode is now default (:root). No duplicate block needed. */
+[data-theme="light"] {
+  color-scheme: light;
+
+  --bg-primary: #ffffff;
+  --bg-secondary: #f9f9fb;
+  --bg-tertiary: #f2f2f5;
+  --bg-elevated: #ffffff;
+  --bg-hover: #f0f0f3;
+  --bg-active: #e8e8ed;
+
+  --border-default: #e0e0e6;
+  --border-subtle: #eaeaef;
+  --border-strong: #d0d0d8;
+
+  --text-primary: #1a1a22;
+  --text-secondary: #6b6b80;
+  --text-tertiary: #9898a8;
+  --text-inverse: #ffffff;
+
+  --accent-primary: #3a3a42;
+  --accent-hover: #28282e;
+  --accent-subtle: rgba(58, 58, 66, 0.08);
+  --accent-text: #3a3a42;
+
+  --success: #16a34a;
+  --success-subtle: rgba(22, 163, 74, 0.08);
+  --warning: #d97706;
+  --warning-subtle: rgba(217, 119, 6, 0.08);
+  --error: #dc2626;
+  --error-subtle: rgba(220, 38, 38, 0.08);
+  --info: #2563eb;
+
+  --status-running: #16a34a;
+  --status-idle: #9898a8;
+  --status-stopped: #d0d0d8;
+  --status-error: #dc2626;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
+
+  /* Light mode: notification bar always white text */
+  --notification-bar-text: #ffffff;
+  --notification-bar-close-hover: rgba(255, 255, 255, 0.2);
+}
+
+/* Light-mode overrides: primary button uses dark bg → white text */
+[data-theme="light"] .btn-primary {
+  color: #ffffff;
+}
+
+/* Light-mode secondary button — keep neutral gray style */
+[data-theme="light"] .btn-secondary {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  color: var(--text-secondary);
+}
+
+[data-theme="light"] .btn-secondary:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+  box-shadow: none;
+}
 
 /* ─── Reset ─────────────────────────────────────────── */
 
@@ -600,7 +621,7 @@ h1, h2, h3 {
   margin-left: var(--sidebar-width);
   flex: 1;
   min-height: 100vh;
-  padding: 40px 56px;
+  padding: var(--space-8);
   width: calc(100vw - var(--sidebar-width));
   max-width: calc(100vw - var(--sidebar-width));
   overflow-x: clip;
@@ -734,11 +755,10 @@ h1, h2, h3 {
 
 /* Card */
 .card {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-xl);
-  padding: var(--space-6);
-  box-shadow: var(--shadow-sm);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
   transition: all var(--transition-default);
 }
 
@@ -965,13 +985,12 @@ h1, h2, h3 {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: var(--space-8);
+  margin-bottom: var(--space-6);
 }
 
 .page-title {
   font-size: var(--text-2xl);
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  font-weight: 600;
 }
 
 .page-subtitle {

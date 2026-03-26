@@ -13,96 +13,90 @@ import { AgentAvatar } from '@/components/domain/agent-avatar';
 import { AgentStatusBadge } from '@/components/domain/agent-status-badge';
 import { TokenUsageBar } from '@/components/domain/token-usage-bar';
 import { EmptyState } from '@/components/domain/empty-state';
-import { motion } from 'framer-motion';
-import {
-    Plus,
-    Bot,
-    ListTodo,
-    Zap,
-    Clock,
-    MessageSquare,
-    ArrowRight,
-} from 'lucide-react';
 
-const MotionCard = motion.create('div');
+/* ── Stats Bar ── */
 
-/* ── Bento Stat Card ── */
+function StatsBar({ agents, allTasks }: { agents: Agent[]; allTasks: Task[] }) {
+    const { t } = useTranslation();
+    const activeAgents = agents.filter(a => a.status === 'running' || a.status === 'idle').length;
+    const pendingTasks = allTasks.filter(tk => tk.status === 'pending' || tk.status === 'doing').length;
+    const completedToday = allTasks.filter(tk => {
+        if (tk.status !== 'done' || !tk.completed_at) return false;
+        return new Date(tk.completed_at).toDateString() === new Date().toDateString();
+    }).length;
+    const totalTokensToday = agents.reduce((sum, a) => sum + (a.tokens_used_today || 0), 0);
+    const recentlyActive = agents.filter(a => a.last_active_at && Date.now() - new Date(a.last_active_at).getTime() < 3600000).length;
 
-function BentoStat({ label, value, sub, icon, className = '', index = 0 }: {
-    label: string;
-    value: string | number;
-    sub: string;
-    icon: React.ReactNode;
-    className?: string;
-    index?: number;
-}) {
+    const stats = [
+        { label: t('dashboard.stats.agents'), value: agents.length, sub: t('dashboard.stats.online', { count: activeAgents }) },
+        { label: t('dashboard.stats.activeTasks'), value: pendingTasks, sub: t('dashboard.stats.completedToday', { count: completedToday }) },
+        { label: t('dashboard.stats.todayTokens'), value: formatTokens(totalTokensToday), sub: t('dashboard.stats.allAgentsTotal') },
+        { label: t('dashboard.stats.recentlyActive'), value: recentlyActive, sub: t('dashboard.stats.lastHour') },
+    ];
+
     return (
-        <MotionCard
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3, delay: index * 0.05 }}
-            className={`flex flex-col justify-between rounded-xl border border-edge-default bg-surface-elevated p-5 shadow-sm ${className}`}
-        >
-            <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-content-tertiary uppercase tracking-wider">{label}</span>
-                <span className="text-content-tertiary">{icon}</span>
-            </div>
-            <div className="mt-3">
-                <span className="text-3xl font-semibold tracking-tighter text-content-primary tabular-nums">{value}</span>
-                <div className="mt-1 text-[12px] text-content-tertiary">{sub}</div>
-            </div>
-        </MotionCard>
+        <div className="mb-6 grid grid-cols-4 gap-px overflow-hidden rounded-lg border border-edge-subtle bg-edge-subtle">
+            {stats.map((s, i) => (
+                <div key={i} className="flex flex-col gap-0.5 bg-surface-secondary px-5 py-4">
+                    <span className="text-xs text-content-tertiary">{s.label}</span>
+                    <span className="text-2xl font-semibold tracking-tight text-content-primary tabular-nums">{s.value}</span>
+                    <span className="text-[11px] text-content-tertiary">{s.sub}</span>
+                </div>
+            ))}
+        </div>
     );
 }
 
-/* ── Agent Card ── */
+/* ── Agent Row ── */
 
-function AgentCard({ agent, tasks, latestActivity }: {
-    agent: Agent;
-    tasks: Task[];
-    latestActivity?: { summary: string; created_at: string };
-}) {
+function AgentRow({ agent, tasks, recentActivity }: { agent: Agent; tasks: Task[]; recentActivity: any[] }) {
     const { t } = useTranslation();
     const navigate = useNavigate();
     const pendingTasks = tasks.filter(tk => tk.status === 'pending' || tk.status === 'doing');
+    const latestActivity = recentActivity[0];
 
     return (
         <button
             onClick={() => navigate(`/agents/${agent.id}`)}
-            className="group flex flex-col gap-3 rounded-xl border border-edge-default bg-surface-elevated p-5 text-left shadow-sm transition-all hover:shadow-md hover:border-edge-strong active:scale-[0.98]"
+            className="grid w-full cursor-pointer grid-cols-[220px_1fr_150px_100px] items-center gap-4 rounded-md px-4 py-3 text-left transition-colors hover:bg-surface-hover"
         >
-            <div className="flex items-center gap-3">
+            <div className="flex min-w-0 items-center gap-2.5">
                 <AgentAvatar name={agent.name} avatarUrl={agent.avatar_url} status={agent.status} size="md" showStatusDot />
-                <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-content-primary truncate">{agent.name}</span>
+                <div className="min-w-0">
+                    <div className="flex items-center gap-2 text-sm font-medium text-content-primary">
+                        {agent.name}
                         <AgentStatusBadge status={agent.status} isExpired={agent.is_expired} />
                     </div>
                     <div className="truncate text-xs text-content-tertiary">{agent.role_description || '-'}</div>
                 </div>
             </div>
 
+            <div className="min-w-0">
+                {latestActivity ? (
+                    <div className="truncate text-xs text-content-secondary">
+                        <span className="mr-1.5 text-content-tertiary">{formatRelative(latestActivity.created_at)}</span>
+                        {latestActivity.summary}
+                    </div>
+                ) : (
+                    <span className="text-xs text-content-tertiary">{t('dashboard.noActivity')}</span>
+                )}
+                {pendingTasks.length > 0 && (
+                    <div className="mt-1 flex flex-wrap gap-1">
+                        {pendingTasks.slice(0, 3).map(tk => (
+                            <span key={tk.id} className="inline-flex max-w-[140px] items-center gap-1 truncate rounded bg-surface-tertiary px-1.5 py-px text-[11px] text-content-secondary">
+                                {tk.title}
+                            </span>
+                        ))}
+                        {pendingTasks.length > 3 && <span className="text-[11px] text-content-tertiary px-1">+{pendingTasks.length - 3}</span>}
+                    </div>
+                )}
+            </div>
+
             <TokenUsageBar used={agent.tokens_used_today} max={agent.max_tokens_per_day ?? undefined} label="" variant="compact" />
 
-            {latestActivity ? (
-                <div className="truncate text-[12px] text-content-secondary">
-                    <span className="text-content-tertiary">{formatRelative(latestActivity.created_at)}</span>
-                    {' '}{latestActivity.summary}
-                </div>
-            ) : (
-                <div className="text-[12px] text-content-tertiary">{t('dashboard.noActivity')}</div>
-            )}
-
-            {pendingTasks.length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                    {pendingTasks.slice(0, 2).map(tk => (
-                        <span key={tk.id} className="inline-flex max-w-[120px] truncate rounded bg-surface-tertiary px-1.5 py-px text-[11px] text-content-secondary">
-                            {tk.title}
-                        </span>
-                    ))}
-                    {pendingTasks.length > 2 && <span className="text-[11px] text-content-tertiary px-1">+{pendingTasks.length - 2}</span>}
-                </div>
-            )}
+            <div className="text-right text-xs text-content-tertiary tabular-nums">
+                {formatRelative(agent.last_active_at)}
+            </div>
         </button>
     );
 }
@@ -164,7 +158,7 @@ export default function Dashboard() {
                 const tasks: Task[] = [];
                 taskResults.forEach(r => { if (r.status === 'fulfilled') tasks.push(...r.value); });
                 setAllTasks(tasks);
-            } catch (err) { if (import.meta.env.DEV) console.warn('[Dashboard] fetch error:', err); }
+            } catch {}
 
             try {
                 const actResults = await Promise.allSettled(agents.map(a => activityApi.list(a.id, 5)));
@@ -179,7 +173,7 @@ export default function Dashboard() {
                 activities.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
                 setAllActivities(activities.slice(0, 20));
                 setAgentActivities(perAgent);
-            } catch (err) { if (import.meta.env.DEV) console.warn('[Dashboard] fetch error:', err); }
+            } catch {}
         };
         fetchData();
         const interval = setInterval(fetchData, 30000);
@@ -192,140 +186,81 @@ export default function Dashboard() {
         tasksByAgent.get(tk.agent_id)!.push(tk);
     });
 
-    // Computed stats
-    const activeAgents = agents.filter(a => a.status === 'running' || a.status === 'idle').length;
-    const pendingTasks = allTasks.filter(tk => tk.status === 'pending' || tk.status === 'doing').length;
-    const completedToday = allTasks.filter(tk => {
-        if (tk.status !== 'done' || !tk.completed_at) return false;
-        return new Date(tk.completed_at).toDateString() === new Date().toDateString();
-    }).length;
-    const totalTokensToday = agents.reduce((sum, a) => sum + (a.tokens_used_today || 0), 0);
-    const recentlyActive = agents.filter(a => a.last_active_at && Date.now() - new Date(a.last_active_at).getTime() < 3600000).length;
-
-    // Greeting
     const hour = new Date().getHours();
+    const greetingIcon = hour < 6 ? '\uD83C\uDF19' : hour < 12 ? '\u2600\uFE0F' : hour < 18 ? '\uD83C\uDF24\uFE0F' : '\uD83C\uDF19';
     const greetingText = hour < 6 ? t('dashboard.greeting.lateNight') : hour < 12 ? t('dashboard.greeting.morning') : hour < 18 ? t('dashboard.greeting.afternoon') : t('dashboard.greeting.evening');
 
-    // Sort agents: active first, then by last active time
-    const sortedAgents = [...agents].sort((a, b) => {
-        const aActive = a.status === 'running' || a.status === 'idle' ? 1 : 0;
-        const bActive = b.status === 'running' || b.status === 'idle' ? 1 : 0;
-        if (aActive !== bActive) return bActive - aActive;
-        const aTime = a.last_active_at ? new Date(a.last_active_at).getTime() : 0;
-        const bTime = b.last_active_at ? new Date(b.last_active_at).getTime() : 0;
-        return bTime - aTime;
-    });
-
     return (
-        <div className="max-w-[1100px]">
-            {/* Header + Quick Actions */}
-            <div className="mb-8 flex items-center justify-between">
+        <div>
+            {/* Header */}
+            <div className="mb-7 flex items-center justify-between">
                 <div>
-                    <h1 className="text-xl font-semibold tracking-tighter">{greetingText}</h1>
+                    <h1 className="text-xl font-semibold tracking-tight"><span aria-hidden="true">{greetingIcon} </span>{greetingText}</h1>
                     <p className="text-sm text-content-tertiary">{t('dashboard.totalAgents', { count: agents.length })}</p>
                 </div>
-                <div className="flex items-center gap-2">
-                    <Button variant="ghost" size="sm" onClick={() => navigate('/plaza')} className="gap-1.5 text-xs">
-                        <MessageSquare size={14} />
-                        {t('nav.plaza', 'Plaza')}
-                    </Button>
-                    <Button onClick={() => navigate('/agents/new')} className="gap-1.5">
-                        <Plus size={14} />
-                        {t('nav.newAgent')}
-                    </Button>
-                </div>
+                <Button onClick={() => navigate('/agents/new')}>
+                    + {t('nav.newAgent')}
+                </Button>
             </div>
 
             {isLoading ? (
                 <div className="flex flex-col gap-4">
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                        {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-[120px] rounded-xl" />)}
+                    <div className="grid grid-cols-4 gap-3">
+                        {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-20 rounded-lg" />)}
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                        {[1, 2, 3].map(i => <Skeleton key={i} className="h-[160px] rounded-xl" />)}
-                    </div>
+                    <Skeleton className="h-64 rounded-lg" />
                 </div>
             ) : agents.length === 0 ? (
                 <EmptyState
+                    icon="🤖"
                     title={t('dashboard.noAgents')}
-                    action={{ label: t('nav.newAgent'), onClick: () => navigate('/agents/new') }}
+                    action={{ label: '+ ' + t('nav.newAgent'), onClick: () => navigate('/agents/new') }}
                 />
             ) : (
                 <>
-                    {/* Stats Grid */}
-                    <div className="mb-10 grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <BentoStat
-                            label={t('dashboard.stats.agents')}
-                            value={agents.length}
-                            sub={t('dashboard.stats.online', { count: activeAgents })}
-                            icon={<Bot size={16} />}
-                            index={0}
-                        />
-                        <BentoStat
-                            label={t('dashboard.stats.activeTasks')}
-                            value={pendingTasks}
-                            sub={t('dashboard.stats.completedToday', { count: completedToday })}
-                            icon={<ListTodo size={16} />}
-                            index={1}
-                        />
-                        <BentoStat
-                            label={t('dashboard.stats.todayTokens')}
-                            value={formatTokens(totalTokensToday)}
-                            sub={t('dashboard.stats.allAgentsTotal')}
-                            icon={<Zap size={16} />}
-                            index={2}
-                        />
-                        <BentoStat
-                            label={t('dashboard.stats.recentlyActive')}
-                            value={recentlyActive}
-                            sub={t('dashboard.stats.lastHour')}
-                            icon={<Clock size={16} />}
-                            index={3}
-                        />
-                    </div>
+                    <StatsBar agents={agents} allTasks={allTasks} />
 
-                    {/* Agent Cards + Activity Feed */}
-                    <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-10">
-                        {/* Agent Cards */}
-                        <div>
-                            <div className="flex items-center justify-between mb-3">
-                                <h2 className="text-sm font-medium text-content-secondary">{t('nav.myAgents')}</h2>
-                                <Button variant="ghost" size="sm" className="gap-1 text-xs text-content-tertiary" onClick={() => navigate('/plaza')}>
-                                    {t('dashboard.viewAll', 'View all')}
-                                    <ArrowRight size={12} />
-                                </Button>
-                            </div>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                {sortedAgents.map((agent, i) => (
-                                    <MotionCard
+                    {/* Agent List */}
+                    <Card className="mb-8 overflow-hidden">
+                        <div className="grid grid-cols-[220px_1fr_150px_100px] border-b border-edge-subtle px-4 py-2.5 text-[11px] font-medium uppercase tracking-wide text-content-tertiary">
+                            <span>{t('dashboard.table.agent')}</span>
+                            <span>{t('dashboard.table.latestActivity')}</span>
+                            <span>{t('dashboard.table.token')}</span>
+                            <span className="text-right">{t('dashboard.table.active')}</span>
+                        </div>
+                        <div className="max-h-[350px] overflow-y-auto">
+                            {agents
+                                .sort((a, b) => {
+                                    const aActive = a.status === 'running' || a.status === 'idle' ? 1 : 0;
+                                    const bActive = b.status === 'running' || b.status === 'idle' ? 1 : 0;
+                                    if (aActive !== bActive) return bActive - aActive;
+                                    const aTime = a.last_active_at ? new Date(a.last_active_at).getTime() : 0;
+                                    const bTime = b.last_active_at ? new Date(b.last_active_at).getTime() : 0;
+                                    return bTime - aTime;
+                                })
+                                .map(agent => (
+                                    <AgentRow
                                         key={agent.id}
-                                        initial={{ opacity: 0, y: 16 }}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        transition={{ duration: 0.3, delay: 0.15 + i * 0.04 }}
-                                    >
-                                        <AgentCard
-                                            agent={agent}
-                                            tasks={tasksByAgent.get(agent.id) || []}
-                                            latestActivity={agentActivities[agent.id]?.[0]}
-                                        />
-                                    </MotionCard>
+                                        agent={agent}
+                                        tasks={tasksByAgent.get(agent.id) || []}
+                                        recentActivity={agentActivities[agent.id] || []}
+                                    />
                                 ))}
-                            </div>
                         </div>
+                    </Card>
 
-                        {/* Activity Feed */}
-                        <div>
-                            <div className="flex items-center justify-between mb-3">
-                                <h2 className="text-sm font-medium text-content-secondary">{t('dashboard.globalActivity')}</h2>
-                                <span className="text-[11px] text-content-tertiary">{t('dashboard.recentCount', { count: 20 })}</span>
-                            </div>
-                            <Card className="overflow-hidden">
-                                <div className="max-h-[600px] overflow-y-auto p-1">
-                                    <ActivityFeed activities={allActivities} agents={agents} />
-                                </div>
-                            </Card>
+                    {/* Activity Feed */}
+                    <Card className="overflow-hidden">
+                        <div className="flex items-center justify-between border-b border-edge-subtle px-4 py-3">
+                            <h3 className="flex items-center gap-1.5 text-sm font-medium text-content-secondary">
+                                {t('dashboard.globalActivity')}
+                            </h3>
+                            <span className="text-[11px] text-content-tertiary">{t('dashboard.recentCount', { count: 20 })}</span>
                         </div>
-                    </div>
+                        <div className="max-h-80 overflow-y-auto p-1">
+                            <ActivityFeed activities={allActivities} agents={agents} />
+                        </div>
+                    </Card>
                 </>
             )}
         </div>
