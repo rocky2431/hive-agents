@@ -41,7 +41,7 @@ function BentoStat({ label, value, sub, icon, className = '', index = 0 }: {
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3, delay: index * 0.05 }}
-            className={`flex flex-col justify-between rounded-xl border border-edge-subtle bg-surface-secondary p-5 ${className}`}
+            className={`flex flex-col justify-between rounded-xl border border-edge-default bg-surface-elevated p-5 shadow-sm ${className}`}
         >
             <div className="flex items-center justify-between">
                 <span className="text-xs font-medium text-content-tertiary uppercase tracking-wider">{label}</span>
@@ -69,7 +69,7 @@ function AgentCard({ agent, tasks, latestActivity }: {
     return (
         <button
             onClick={() => navigate(`/agents/${agent.id}`)}
-            className="group flex flex-col gap-3 rounded-xl border border-edge-subtle bg-surface-secondary p-4 text-left transition-all hover:bg-surface-hover hover:border-edge-default active:scale-[0.98]"
+            className="group flex flex-col gap-3 rounded-xl border border-edge-default bg-surface-elevated p-5 text-left shadow-sm transition-all hover:shadow-md hover:border-edge-strong active:scale-[0.98]"
         >
             <div className="flex items-center gap-3">
                 <AgentAvatar name={agent.name} avatarUrl={agent.avatar_url} status={agent.status} size="md" showStatusDot />
@@ -217,9 +217,9 @@ export default function Dashboard() {
     });
 
     return (
-        <div className="max-w-[1200px]">
+        <div className="max-w-[1100px]">
             {/* Header + Quick Actions */}
-            <div className="mb-6 flex items-center justify-between">
+            <div className="mb-8 flex items-center justify-between">
                 <div>
                     <h1 className="text-xl font-semibold tracking-tighter">{greetingText}</h1>
                     <p className="text-sm text-content-tertiary">{t('dashboard.totalAgents', { count: agents.length })}</p>
@@ -252,8 +252,8 @@ export default function Dashboard() {
                 />
             ) : (
                 <>
-                    {/* Bento Stats Grid */}
-                    <div className="mb-6 grid grid-cols-2 md:grid-cols-4 gap-3">
+                    {/* Stats Grid */}
+                    <div className="mb-10 grid grid-cols-2 md:grid-cols-4 gap-4">
                         <BentoStat
                             label={t('dashboard.stats.agents')}
                             value={agents.length}
@@ -284,8 +284,8 @@ export default function Dashboard() {
                         />
                     </div>
 
-                    {/* Agent Cards + Activity Feed — Two-column layout */}
-                    <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6">
+                    {/* Agent Cards + Activity Feed */}
+                    <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-10">
                         {/* Agent Cards */}
                         <div>
                             <div className="flex items-center justify-between mb-3">
@@ -295,7 +295,7 @@ export default function Dashboard() {
                                     <ArrowRight size={12} />
                                 </Button>
                             </div>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 {sortedAgents.map((agent, i) => (
                                     <MotionCard
                                         key={agent.id}

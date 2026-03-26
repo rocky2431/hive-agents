@@ -52,7 +52,7 @@ test('i18n exposes the new chat-first tab labels', () => {
 
     assert.equal(zh.agent.tabs.chat, '对话');
     assert.equal(zh.agent.tabs.overview, '概览');
-    assert.equal(zh.agent.tabs.skills, '能力');
+    assert.equal(zh.agent.tabs.skills, '技能');
     assert.equal(zh.agent.tabs.activity, '动态');
     assert.equal(en.agent.tabs.chat, 'Chat');
     assert.equal(en.agent.tabs.overview, 'Overview');
