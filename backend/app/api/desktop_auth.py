@@ -4,7 +4,8 @@ Handles Feishu OAuth for Desktop clients, JWT refresh via refresh tokens,
 and deep-link redirects back to the Desktop app.
 
 Security: OAuth state parameter carries a CSRF nonce (not device_id directly).
-The nonce→device_id mapping is stored in an in-process cache with short TTL.
+The nonce→device_id mapping is stored in Redis (production) or in-process
+TTLCache (fallback when Redis is unavailable).
 """
 
 import secrets
@@ -37,8 +38,40 @@ router = APIRouter(tags=["desktop-auth"])
 
 FEISHU_AUTHORIZE_URL = "https://open.feishu.cn/open-apis/authen/v1/authorize"
 
-# CSRF state store: nonce → device_id.  10-minute TTL, max 10k pending flows.
-_oauth_state_cache: TTLCache[str, str] = TTLCache(maxsize=10_000, ttl=600)
+_OAUTH_STATE_TTL = 600  # 10 minutes
+_OAUTH_STATE_PREFIX = "oauth_state:"
+
+# In-memory fallback for when Redis is unavailable (dev/single-instance)
+_oauth_state_fallback: TTLCache[str, str] = TTLCache(maxsize=10_000, ttl=_OAUTH_STATE_TTL)
+
+
+async def _store_oauth_state(nonce: str, device_id: str) -> None:
+    """Store nonce→device_id in Redis; fall back to in-memory cache."""
+    try:
+        from app.core.events import get_redis
+        r = await get_redis()
+        await r.set(f"{_OAUTH_STATE_PREFIX}{nonce}", device_id, ex=_OAUTH_STATE_TTL)
+    except Exception:
+        logger.debug("[desktop-auth] Redis unavailable for OAuth state, using in-memory fallback")
+        _oauth_state_fallback[nonce] = device_id
+
+
+async def _consume_oauth_state(nonce: str) -> str | None:
+    """Atomically get-and-delete nonce from Redis; fall back to in-memory cache.
+
+    Returns the device_id or None if the nonce is invalid/expired.
+    """
+    try:
+        from app.core.events import get_redis
+        r = await get_redis()
+        # GETDEL is atomic: returns the value and deletes the key in one round-trip
+        device_id = await r.getdel(f"{_OAUTH_STATE_PREFIX}{nonce}")
+        if device_id is not None:
+            return device_id
+    except Exception:
+        logger.debug("[desktop-auth] Redis unavailable for OAuth state, checking in-memory fallback")
+
+    return _oauth_state_fallback.pop(nonce, None)
 
 
 # ─── Schemas ────────────────────────────────────────────
@@ -70,9 +103,9 @@ async def feishu_authorize_for_desktop(
     if not settings.FEISHU_APP_ID:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Feishu OAuth not configured")
 
-    # Generate CSRF nonce; store mapping server-side (P0 fix: #2/#3)
+    # Generate CSRF nonce; store mapping server-side via Redis (P0 fix: #2/#3)
     nonce = secrets.token_urlsafe(32)
-    _oauth_state_cache[nonce] = device_id
+    await _store_oauth_state(nonce, device_id)
 
     callback_url = str(request.base_url).rstrip("/") + "/api/auth/feishu/callback-desktop"
     params = {
@@ -95,8 +128,8 @@ async def feishu_callback_desktop(
     Validates the CSRF nonce, exchanges the code for user info, issues
     JWT + refresh token, and redirects to Desktop via deep link.
     """
-    # Validate CSRF nonce (P0 fix: #2/#3)
-    device_id = _oauth_state_cache.pop(state, None)
+    # Validate CSRF nonce via Redis (P0 fix: #2/#3)
+    device_id = await _consume_oauth_state(state)
     if device_id is None:
         logger.warning(f"[desktop-auth] Invalid or expired OAuth state nonce")
         error_url = f"{settings.DESKTOP_DEEP_LINK_SCHEME}://auth/error?reason=invalid_state"
@@ -149,7 +182,7 @@ async def exchange_refresh_token(
     The old refresh token remains valid until it expires or is explicitly revoked.
     Desktop should call this before the access token expires.
     """
-    token_row = await verify_refresh_token(db, body.refresh_token)
+    token_row = await verify_refresh_token(db, body.refresh_token, device_id=body.device_id)
 
     user = await db.get(User, token_row.user_id)
     if not user or not user.is_active:

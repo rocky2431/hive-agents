@@ -167,10 +167,11 @@ async def create_refresh_token(
     return raw_token
 
 
-async def verify_refresh_token(db: AsyncSession, raw_token: str) -> "RefreshToken":
+async def verify_refresh_token(db: AsyncSession, raw_token: str, device_id: str | None = None) -> "RefreshToken":
     """Verify a raw refresh token and return the DB row.
 
-    Raises HTTP 401 if the token is invalid, expired, or revoked.
+    Raises HTTP 401 if the token is invalid, expired, revoked, or
+    bound to a different device.
     """
     from app.models.refresh_token import RefreshToken
 
@@ -186,6 +187,8 @@ async def verify_refresh_token(db: AsyncSession, raw_token: str) -> "RefreshToke
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
     if row.expires_at < datetime.now(timezone.utc):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token expired")
+    if device_id is not None and row.device_id != device_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Device mismatch")
     return row
 
 

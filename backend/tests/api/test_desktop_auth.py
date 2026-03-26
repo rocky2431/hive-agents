@@ -15,7 +15,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import app.api.desktop_auth as desktop_auth_mod
-from app.api.desktop_auth import router, _oauth_state_cache
+from app.api.desktop_auth import router, _oauth_state_fallback
 from app.core.security import get_current_user
 from app.database import get_db
 
@@ -100,22 +100,30 @@ def test_authorize_redirects_to_feishu():
     assert "state=dev123" not in location
 
 
-def test_authorize_stores_nonce_in_cache():
-    """authorize must store a nonce→device_id mapping server-side."""
-    _oauth_state_cache.clear()
+def test_authorize_stores_nonce_in_fallback():
+    """authorize must store a nonce→device_id mapping (falls back to memory when Redis unavailable)."""
+    _oauth_state_fallback.clear()
     app, _ = _build_app()
-    with patch.object(desktop_auth_mod, "settings", SimpleNamespace(
-        FEISHU_APP_ID="cli_test_app_id",
-        FEISHU_APP_SECRET="secret",
-        DESKTOP_DEEP_LINK_SCHEME="copaw",
-    )):
+
+    # Force fallback path by making Redis raise
+    async def _no_redis():
+        raise ConnectionError("no redis in test")
+
+    with (
+        patch.object(desktop_auth_mod, "settings", SimpleNamespace(
+            FEISHU_APP_ID="cli_test_app_id",
+            FEISHU_APP_SECRET="secret",
+            DESKTOP_DEEP_LINK_SCHEME="copaw",
+        )),
+        patch("app.core.events.get_redis", new=_no_redis),
+    ):
         client = TestClient(app, raise_server_exceptions=False)
         client.get("/auth/feishu/authorize?device_id=mydev", follow_redirects=False)
 
-    assert len(_oauth_state_cache) == 1
-    stored_device_id = list(_oauth_state_cache.values())[0]
+    assert len(_oauth_state_fallback) == 1
+    stored_device_id = list(_oauth_state_fallback.values())[0]
     assert stored_device_id == "mydev"
-    _oauth_state_cache.clear()
+    _oauth_state_fallback.clear()
 
 
 def test_authorize_returns_503_when_feishu_not_configured():
@@ -149,7 +157,7 @@ def test_callback_desktop_redirects_to_deep_link():
 
     # Pre-populate CSRF nonce → device_id mapping
     test_nonce = "test_csrf_nonce_abc123"
-    _oauth_state_cache[test_nonce] = "dev1"
+    _oauth_state_fallback[test_nonce] = "dev1"
 
     fake_feishu_user = {
         "open_id": "ou_test123", "union_id": "on_test456", "user_id": "u_test789",
@@ -172,12 +180,12 @@ def test_callback_desktop_redirects_to_deep_link():
     assert "raw_refresh_token_here" in location
     assert str(_USER_ID) in location
     # Nonce must be consumed (one-time use)
-    assert test_nonce not in _oauth_state_cache
+    assert test_nonce not in _oauth_state_fallback
 
 
 def test_callback_desktop_rejects_invalid_state():
     """Callback with unknown/expired CSRF nonce must redirect to error deep link."""
-    _oauth_state_cache.clear()
+    _oauth_state_fallback.clear()
     app, _ = _build_app()
 
     with patch.object(desktop_auth_mod, "settings", SimpleNamespace(DESKTOP_DEEP_LINK_SCHEME="copaw")):
@@ -191,7 +199,7 @@ def test_callback_desktop_rejects_invalid_state():
 def test_callback_desktop_handles_feishu_error_without_leaking():
     """Feishu error must redirect to generic error, not leak exception details."""
     test_nonce = "nonce_for_error_test"
-    _oauth_state_cache[test_nonce] = "dev1"
+    _oauth_state_fallback[test_nonce] = "dev1"
     app, _ = _build_app()
 
     with (
@@ -247,6 +255,24 @@ def test_exchange_rejects_invalid_refresh_token():
         })
 
     assert resp.status_code == 401
+
+
+def test_exchange_rejects_wrong_device_id():
+    """Exchange with a different device_id than the token was issued for must return 401."""
+    from fastapi import HTTPException
+    app, _ = _build_app()
+
+    async def _reject_device(*a, **kw):
+        raise HTTPException(status_code=401, detail="Device mismatch")
+
+    with patch.object(desktop_auth_mod, "verify_refresh_token", new=_reject_device):
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.post("/auth/desktop/exchange", json={
+            "refresh_token": "valid_token_wrong_device", "device_id": "attacker_device",
+        })
+
+    assert resp.status_code == 401
+    assert "Device mismatch" in resp.json()["detail"]
 
 
 def test_exchange_rejects_inactive_user():
