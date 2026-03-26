@@ -19,9 +19,10 @@ import { scheduleApi } from '../api/domains/schedules';
 import { skillApi } from '../api/domains/skills';
 import { taskApi } from '../api/domains/tasks';
 import { triggerApi } from '../api/domains/triggers';
+import { chatApi } from '../api/domains/chat';
+import { relationshipsApi } from '../api/domains/relationships';
 import { uploadFileWithProgress } from '../api/core/upload-progress';
 import { toolsApi } from '../api/domains/tools';
-import { get, post, patch as patchReq, del } from '../api/core';
 import { useAuthStore } from '../stores';
 
 const TABS = ['status', 'aware', 'mind', 'tools', 'skills', 'relationships', 'workspace', 'chat', 'activityLog', 'approvals', 'settings'] as const;
@@ -201,7 +202,7 @@ function ToolsManager({ agentId, canManage = false }: { agentId: string; canMana
                                                 if (!confirm(t('agent.tools.confirmDelete', `Remove "${tool.display_name}" from this agent?`))) return;
                                                 setDeletingToolId(tool.id);
                                                 try {
-                                                    await del(`/tools/agent-tool/${tool.agent_tool_id}`);
+                                                    await toolsApi.removeAgentTool(tool.agent_tool_id);
                                                     await loadTools();
                                                 } catch (e) { alert('Delete failed: ' + e); }
                                                 setDeletingToolId(null);
@@ -524,12 +525,6 @@ function CopyMessageButton({ text }: { text: string }) {
         </button>
     );
 }
-
-import { request } from '../api/core';
-function fetchAuth<T>(url: string, options?: RequestInit): Promise<T> {
-    return request<T>(options?.method || 'GET', url, options?.body ? JSON.parse(options.body as string) : undefined);
-}
-
 function RelationshipEditor({ agentId, readOnly = false }: { agentId: string; readOnly?: boolean }) {
     const { t } = useTranslation();
     const qc = useQueryClient();
@@ -553,22 +548,22 @@ function RelationshipEditor({ agentId, readOnly = false }: { agentId: string; re
 
     const { data: relationships = [], refetch } = useQuery({
         queryKey: ['relationships', agentId],
-        queryFn: () => fetchAuth<any[]>(`/agents/${agentId}/relationships/`),
+        queryFn: () => relationshipsApi.listHuman(agentId),
     });
     const { data: agentRelationships = [], refetch: refetchAgentRels } = useQuery({
         queryKey: ['agent-relationships', agentId],
-        queryFn: () => fetchAuth<any[]>(`/agents/${agentId}/relationships/agents`),
+        queryFn: () => relationshipsApi.listAgents(agentId),
     });
     const { data: allAgents = [] } = useQuery({
         queryKey: ['agents-for-rel'],
-        queryFn: () => fetchAuth<any[]>(`/agents/`),
+        queryFn: () => agentApi.list(),
     });
     const availableAgents = allAgents.filter((a: any) => a.id !== agentId);
 
     useEffect(() => {
         if (!search || search.length < 1) { setSearchResults([]); return; }
         const t = setTimeout(() => {
-            fetchAuth<any[]>(`/enterprise/org/members?search=${encodeURIComponent(search)}`).then(setSearchResults);
+            enterpriseApi.getOrgMembers({ search }).then(setSearchResults);
         }, 300);
         return () => clearTimeout(t);
     }, [search]);
@@ -577,12 +572,12 @@ function RelationshipEditor({ agentId, readOnly = false }: { agentId: string; re
         if (!adding) return;
         const existing = relationships.map((r: any) => ({ member_id: r.member_id, relation: r.relation, description: r.description }));
         existing.push({ member_id: adding.id, relation, description });
-        await fetchAuth(`/agents/${agentId}/relationships/`, { method: 'PUT', body: JSON.stringify({ relationships: existing }) });
+        await relationshipsApi.saveHuman(agentId, existing);
         setAdding(null); setSearch(''); setRelation('collaborator'); setDescription('');
         refetch();
     };
     const removeRelationship = async (relId: string) => {
-        await fetchAuth(`/agents/${agentId}/relationships/${relId}`, { method: 'DELETE' });
+        await relationshipsApi.removeHuman(agentId, relId);
         refetch();
     };
     const startEditRelationship = (r: any) => {
@@ -596,7 +591,7 @@ function RelationshipEditor({ agentId, readOnly = false }: { agentId: string; re
             relation: r.id === targetId ? editRelation : r.relation,
             description: r.id === targetId ? editDescription : r.description,
         }));
-        await fetchAuth(`/agents/${agentId}/relationships/`, { method: 'PUT', body: JSON.stringify({ relationships: updated }) });
+        await relationshipsApi.saveHuman(agentId, updated);
         setEditingId(null);
         refetch();
     };
@@ -604,12 +599,12 @@ function RelationshipEditor({ agentId, readOnly = false }: { agentId: string; re
         if (!selectedAgentId) return;
         const existing = agentRelationships.map((r: any) => ({ target_agent_id: r.target_agent_id, relation: r.relation, description: r.description }));
         existing.push({ target_agent_id: selectedAgentId, relation: agentRelation, description: agentDescription });
-        await fetchAuth(`/agents/${agentId}/relationships/agents`, { method: 'PUT', body: JSON.stringify({ relationships: existing }) });
+        await relationshipsApi.saveAgents(agentId, existing);
         setAddingAgent(false); setSelectedAgentId(''); setAgentRelation('collaborator'); setAgentDescription('');
         refetchAgentRels();
     };
     const removeAgentRelationship = async (relId: string) => {
-        await fetchAuth(`/agents/${agentId}/relationships/agents/${relId}`, { method: 'DELETE' });
+        await relationshipsApi.removeAgent(agentId, relId);
         refetchAgentRels();
     };
     const startEditAgentRelationship = (r: any) => {
@@ -623,7 +618,7 @@ function RelationshipEditor({ agentId, readOnly = false }: { agentId: string; re
             relation: r.id === targetId ? editAgentRelation : r.relation,
             description: r.id === targetId ? editAgentDescription : r.description,
         }));
-        await fetchAuth(`/agents/${agentId}/relationships/agents`, { method: 'PUT', body: JSON.stringify({ relationships: updated }) });
+        await relationshipsApi.saveAgents(agentId, updated);
         setEditingAgentId(null);
         refetchAgentRels();
     };
@@ -818,7 +813,7 @@ function AgentDetailInner() {
     const { data: reflectionSessions = [] } = useQuery({
         queryKey: ['reflection-sessions', id],
         queryFn: async () => {
-            const all = await get<any[]>(`/agents/${id}/sessions?scope=all`).catch(() => [] as any[]);
+            const all = await chatApi.listSessions(id!, 'all').catch(() => [] as any[]);
             return all.filter((s: any) => s.source_channel === 'trigger');
         },
         enabled: !!id && activeTab === 'aware',
@@ -948,7 +943,7 @@ function AgentDetailInner() {
         if (!agentId) return [];
         if (!silent && currentAgentIdRef.current === agentId) setSessionsLoading(true);
         try {
-            const data = await get<any[]>(`/agents/${agentId}/sessions?scope=mine`);
+            const data = await chatApi.listSessions(agentId, 'mine');
             if (currentAgentIdRef.current === agentId) setSessions(data);
             if (!silent && currentAgentIdRef.current === agentId) setSessionsLoading(false);
             return data;
@@ -961,7 +956,7 @@ function AgentDetailInner() {
         if (!id) return;
         setAllSessionsLoading(true);
         try {
-            const all = await get<any[]>(`/agents/${id}/sessions?scope=all`);
+            const all = await chatApi.listSessions(id, 'all');
             if (currentAgentIdRef.current === id) {
                 setAllSessions(all.filter((s: any) => s.source_channel !== 'trigger'));
             }
@@ -989,13 +984,7 @@ function AgentDetailInner() {
         sessionMsgAbortRef.current = controller;
         const loadSeq = ++sessionLoadSeqRef.current;
         try {
-            const tkn = localStorage.getItem('token');
-            const res = await fetch(`/api/agents/${targetAgentId}/sessions/${sess.id}/messages`, {
-                headers: { Authorization: `Bearer ${tkn}` },
-                signal: controller.signal,
-            });
-            if (!res.ok) return;
-            const msgs = await res.json();
+            const msgs = await chatApi.getSessionMessages(targetAgentId, String(sess.id), { signal: controller.signal });
             if (controller.signal.aborted || loadSeq !== sessionLoadSeqRef.current) return;
             if (currentAgentIdRef.current !== targetAgentId) return;
             if (activeSessionIdRef.current !== sess.id) return;
@@ -1022,7 +1011,7 @@ function AgentDetailInner() {
     const createNewSession = async () => {
         if (!id) return;
         try {
-            const newSess = await post<any>(`/agents/${id}/sessions`, {});
+            const newSess = await chatApi.createSession(id);
             setSessions(prev => [newSess, ...prev]);
             setIsStreaming(false);
             setIsWaiting(false);
@@ -1036,7 +1025,7 @@ function AgentDetailInner() {
     const deleteSession = async (sessionId: string) => {
         if (!confirm(t('chat.deleteConfirm', 'Delete this session and all its messages? This cannot be undone.'))) return;
         try {
-            await del(`/agents/${id}/sessions/${sessionId}`);
+            await chatApi.deleteSession(id!, sessionId);
             if (id) closeSessionSocket(buildSessionRuntimeKey(id, sessionId), true);
             // If deleted the active session, clear it
             if (activeSession?.id === sessionId) {
@@ -1077,7 +1066,7 @@ function AgentDetailInner() {
         setExpirySaving(true);
         try {
             const body = permanent ? { expires_at: null } : { expires_at: expiryValue ? new Date(expiryValue).toISOString() : null };
-            await patchReq(`/agents/${id}`, body);
+            await agentApi.update(id!, body as any);
             queryClient.invalidateQueries({ queryKey: ['agent', id] });
             setShowExpiryModal(false);
         } catch (e) { alert('Failed: ' + e); }
@@ -1745,7 +1734,7 @@ function AgentDetailInner() {
 
     const { data: permData } = useQuery({
         queryKey: ['agent-permissions', id],
-        queryFn: () => fetchAuth<any>(`/agents/${id}/permissions`),
+        queryFn: () => agentApi.getPermissions(id!),
         enabled: !!id && activeTab === 'settings',
     });
 
@@ -2639,14 +2628,8 @@ function AgentDetailInner() {
                                                                 setExpandedReflection(session.id);
                                                                 if (!reflectionMessages[session.id]) {
                                                                     try {
-                                                                        const tkn = localStorage.getItem('token');
-                                                                        const res = await fetch(`/api/agents/${id}/sessions/${session.id}/messages`, {
-                                                                            headers: { Authorization: `Bearer ${tkn}` },
-                                                                        });
-                                                                        if (res.ok) {
-                                                                            const data = await res.json();
-                                                                            setReflectionMessages(prev => ({ ...prev, [session.id]: data }));
-                                                                        }
+                                                                        const data = await chatApi.getSessionMessages(String(id), String(session.id));
+                                                                        setReflectionMessages(prev => ({ ...prev, [session.id]: data }));
                                                                     } catch { /* ignore */ }
                                                                 }
                                                             }}
@@ -3693,7 +3676,7 @@ function AgentDetailInner() {
                             const isChinese = i18n.language?.startsWith('zh');
                             const { data: approvals = [], refetch: refetchApprovals } = useQuery({
                                 queryKey: ['agent-approvals', id],
-                                queryFn: () => fetchAuth<any[]>(`/agents/${id}/approvals`),
+                                queryFn: () => agentApi.getApprovals(id!),
                                 enabled: !!id,
                                 refetchInterval: 15000,
                             });
@@ -4170,10 +4153,10 @@ function AgentDetailInner() {
 
                                     const handleScopeChange = async (newScope: string) => {
                                         try {
-                                            await fetchAuth(`/agents/${id}/permissions`, {
-                                                method: 'PUT',
-                                                headers: { 'Content-Type': 'application/json' },
-                                                body: JSON.stringify({ scope_type: newScope, scope_ids: [], access_level: permData?.access_level || 'use' }),
+                                            await agentApi.updatePermissions(id!, {
+                                                scope_type: newScope,
+                                                scope_ids: [],
+                                                access_level: permData?.access_level || 'use',
                                             });
                                             queryClient.invalidateQueries({ queryKey: ['agent-permissions', id] });
                                             queryClient.invalidateQueries({ queryKey: ['agent', id] });
@@ -4184,10 +4167,10 @@ function AgentDetailInner() {
 
                                     const handleAccessLevelChange = async (newLevel: string) => {
                                         try {
-                                            await fetchAuth(`/agents/${id}/permissions`, {
-                                                method: 'PUT',
-                                                headers: { 'Content-Type': 'application/json' },
-                                                body: JSON.stringify({ scope_type: permData?.scope_type || 'company', scope_ids: permData?.scope_ids || [], access_level: newLevel }),
+                                            await agentApi.updatePermissions(id!, {
+                                                scope_type: permData?.scope_type || 'company',
+                                                scope_ids: permData?.scope_ids || [],
+                                                access_level: newLevel,
                                             });
                                             queryClient.invalidateQueries({ queryKey: ['agent-permissions', id] });
                                             queryClient.invalidateQueries({ queryKey: ['agent', id] });
@@ -4199,6 +4182,7 @@ function AgentDetailInner() {
                                     const isOwner = permData?.is_owner ?? false;
                                     const currentScope = permData?.scope_type || 'company';
                                     const currentAccessLevel = permData?.access_level || 'use';
+                                    const scopeNames = permData?.scope_names || [];
 
                                     return (
                                         <div className="card" style={{ marginBottom: '12px' }}>
@@ -4285,10 +4269,10 @@ function AgentDetailInner() {
                                                 </div>
                                             )}
 
-                                            {currentScope !== 'company' && permData?.scope_names?.length > 0 && (
+                                            {currentScope !== 'company' && scopeNames.length > 0 && (
                                                 <div style={{ marginTop: '12px', fontSize: '12px', color: 'var(--text-secondary)' }}>
                                                     <span style={{ fontWeight: 500 }}>{t('agent.settings.perm.currentAccess', 'Current access')}:</span>{' '}
-                                                    {permData.scope_names.map((s: any) => s.name).join(', ')}
+                                                    {scopeNames.map((s: any) => s.name).join(', ')}
                                                 </div>
                                             )}
 

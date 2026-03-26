@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { enterpriseApi } from '../api/domains/enterprise';
-import { get, post, del } from '../api/core';
 
 export default function InvitationCodes() {
     const { t } = useTranslation();
@@ -23,7 +22,7 @@ export default function InvitationCodes() {
             page_size: String(pageSize),
         });
         if (currentSearch) params.set('search', currentSearch);
-        const data = await get<any>(`/enterprise/invitation-codes?${params}`);
+        const data = await enterpriseApi.listInvitationCodes(params.toString());
         setCodes(data.items || []);
         setTotal(data.total || 0);
     }, [page, search]);
@@ -39,7 +38,7 @@ export default function InvitationCodes() {
 
     const createBatch = async () => {
         setCreating(true);
-        await post('/enterprise/invitation-codes', { count: batchCount, max_uses: maxUses });
+        await enterpriseApi.createInvitationCode({ count: batchCount, max_uses: maxUses });
         setPage(1);
         setSearch('');
         await loadCodes(1, '');
@@ -49,17 +48,13 @@ export default function InvitationCodes() {
     };
 
     const deactivate = async (id: string) => {
-        await del(`/enterprise/invitation-codes/${id}`);
+        await enterpriseApi.deleteInvitationCode(id);
         await loadCodes();
     };
 
     const exportCsv = () => {
-        const token = localStorage.getItem('token');
         const a = document.createElement('a');
-        fetch('/api/enterprise/invitation-codes/export', {
-            headers: token ? { Authorization: `Bearer ${token}` } : {},
-        })
-            .then(r => r.blob())
+        enterpriseApi.exportInvitationCodesCsv()
             .then(blob => {
                 a.href = URL.createObjectURL(blob);
                 a.download = 'invitation_codes.csv';
@@ -216,4 +211,3 @@ export default function InvitationCodes() {
         </div>
     );
 }
-

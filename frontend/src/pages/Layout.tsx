@@ -7,7 +7,6 @@ import { agentApi } from '../api/domains/agents';
 import { authApi } from '../api/domains/auth';
 import { notificationsApi } from '../api/domains/notifications';
 import { systemApi } from '../api/domains/system';
-import { get } from '../api/core';
 import {
     IconHome,
     IconPlus,
@@ -43,11 +42,6 @@ const SidebarIcons = {
     collapse: <IconChevronsLeft size={16} stroke={1.5} />,
     expand: <IconChevronsRight size={16} stroke={1.5} />,
     bell: <IconBell size={16} stroke={1.5} />,
-};
-
-/** Thin wrapper — uses the new adapter core but preserves the fallback-to-empty-array behavior for queries */
-const fetchJson = async <T,>(url: string): Promise<T> => {
-    try { return await get<T>(url); } catch { return [] as T; }
 };
 
 /* Compute display badge status for an agent */
@@ -173,15 +167,18 @@ export default function Layout() {
     const { data: unreadCount = 0 } = useQuery({
         queryKey: ['notifications-unread'],
         queryFn: async () => {
-            const res = await fetchJson<{ unread_count: number }>('/notifications/unread-count');
-            return (res as any)?.unread_count || 0;
+            const res = await notificationsApi.getUnreadCount().catch(() => ({ unread_count: 0 }));
+            return res.unread_count || 0;
         },
         refetchInterval: 30000,
         enabled: !!user,
     });
     const { data: notifications = [], refetch: refetchNotifications } = useQuery({
         queryKey: ['notifications', notifCategory],
-        queryFn: () => fetchJson<any[]>(`/notifications?limit=50${notifCategory !== 'all' ? `&category=${notifCategory}` : ''}`),
+        queryFn: () => notificationsApi.list({
+            limit: 50,
+            ...(notifCategory !== 'all' ? { category: notifCategory } : {}),
+        }).catch(() => []),
         enabled: !!user && showNotifications,
     });
     const markAllRead = async () => {

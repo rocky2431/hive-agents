@@ -4,11 +4,6 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { agentApi } from '../api/domains/agents';
 
-import { request } from '../api/core';
-function fetchAuth<T>(url: string, options?: RequestInit): Promise<T> {
-    return request<T>(options?.method || 'GET', url, options?.body ? JSON.parse(options.body as string) : undefined);
-}
-
 interface OpenClawSettingsProps {
     agent: any;
     agentId: string;
@@ -35,7 +30,7 @@ export default function OpenClawSettings({ agent, agentId }: OpenClawSettingsPro
     const handleRegenerate = async (autoCopy = false) => {
         setRegenerating(true);
         try {
-            const result = await fetchAuth<{ api_key: string }>(`/agents/${agentId}/api-key`, { method: 'POST' });
+            const result = await agentApi.generateApiKey(agentId);
             setApiKey(result.api_key);
             setShowConfirm(false);
             // Refresh agent data so has_api_key updates
@@ -73,16 +68,16 @@ export default function OpenClawSettings({ agent, agentId }: OpenClawSettingsPro
     // ─── Permissions state ──────────────────────────────
     const { data: permData } = useQuery({
         queryKey: ['agent-permissions', agentId],
-        queryFn: () => fetchAuth<any>(`/agents/${agentId}/permissions`),
+        queryFn: () => agentApi.getPermissions(agentId),
         enabled: !!agentId,
     });
 
     const handleScopeChange = async (newScope: string) => {
         try {
-            await fetchAuth(`/agents/${agentId}/permissions`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ scope_type: newScope, scope_ids: [], access_level: permData?.access_level || 'use' }),
+            await agentApi.updatePermissions(agentId, {
+                scope_type: newScope,
+                scope_ids: [],
+                access_level: permData?.access_level || 'use',
             });
             queryClient.invalidateQueries({ queryKey: ['agent-permissions', agentId] });
             queryClient.invalidateQueries({ queryKey: ['agent', agentId] });
@@ -93,10 +88,10 @@ export default function OpenClawSettings({ agent, agentId }: OpenClawSettingsPro
 
     const handleAccessLevelChange = async (newLevel: string) => {
         try {
-            await fetchAuth(`/agents/${agentId}/permissions`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ scope_type: permData?.scope_type || 'company', scope_ids: permData?.scope_ids || [], access_level: newLevel }),
+            await agentApi.updatePermissions(agentId, {
+                scope_type: permData?.scope_type || 'company',
+                scope_ids: permData?.scope_ids || [],
+                access_level: newLevel,
             });
             queryClient.invalidateQueries({ queryKey: ['agent-permissions', agentId] });
             queryClient.invalidateQueries({ queryKey: ['agent', agentId] });
@@ -108,6 +103,7 @@ export default function OpenClawSettings({ agent, agentId }: OpenClawSettingsPro
     const isOwner = permData?.is_owner ?? false;
     const currentScope = permData?.scope_type || 'company';
     const currentAccessLevel = permData?.access_level || 'use';
+    const scopeNames = permData?.scope_names || [];
 
     return (
         <div>
@@ -317,10 +313,10 @@ export default function OpenClawSettings({ agent, agentId }: OpenClawSettingsPro
                     </div>
                 )}
 
-                {currentScope !== 'company' && permData?.scope_names?.length > 0 && (
+                {currentScope !== 'company' && scopeNames.length > 0 && (
                     <div style={{ marginTop: '12px', fontSize: '12px', color: 'var(--text-secondary)' }}>
                         <span style={{ fontWeight: 500 }}>{t('agent.settings.perm.currentAccess', 'Current access')}:</span>{' '}
-                        {permData.scope_names.map((s: any) => s.name).join(', ')}
+                        {scopeNames.map((s: any) => s.name).join(', ')}
                     </div>
                 )}
 

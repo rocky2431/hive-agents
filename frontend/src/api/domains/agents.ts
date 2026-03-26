@@ -32,7 +32,10 @@ export interface AgentUpdateParams {
 export interface AgentPermissions {
   scope_type: string;
   scope_id?: string;
+  scope_ids?: string[];
+  scope_names?: Array<{ id: string; name: string }>;
   access_level: string;
+  is_owner?: boolean;
 }
 
 export interface AgentMetrics {
@@ -54,8 +57,9 @@ export const agentApi = {
   start: (id: string) => post<Agent>(`/agents/${id}/start`),
   stop: (id: string) => post<Agent>(`/agents/${id}/stop`),
   getMetrics: (id: string) => get<AgentMetrics>(`/agents/${id}/metrics`),
-  getPermissions: (id: string) => get<AgentPermissions[]>(`/agents/${id}/permissions`),
-  updatePermissions: (id: string, data: AgentPermissions[]) => put<void>(`/agents/${id}/permissions`, data),
+  getPermissions: (id: string) => get<AgentPermissions>(`/agents/${id}/permissions`),
+  updatePermissions: (id: string, data: { scope_type: string; scope_ids?: string[]; access_level: string }) =>
+    put<void>(`/agents/${id}/permissions`, data),
   getApprovals: (id: string) => get<unknown[]>(`/agents/${id}/approvals`),
   resolveApproval: (agentId: string, approvalId: string, data: { action: string }) =>
     post<unknown>(`/agents/${agentId}/approvals/${approvalId}/resolve`, data),

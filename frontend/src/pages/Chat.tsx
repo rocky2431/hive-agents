@@ -6,7 +6,6 @@ import MarkdownRenderer from '../components/MarkdownRenderer';
 import { agentApi } from '../api/domains/agents';
 import { enterpriseApi } from '../api/domains/enterprise';
 import { chatApi } from '../api/domains/chat';
-import { upload } from '../api/core';
 import { useAuthStore } from '../stores';
 
 /* ── Inline SVG Icons ── */
@@ -245,11 +244,7 @@ export default function Chat() {
 
         setUploading(true);
         try {
-            const formData = new FormData();
-            formData.append('file', file);
-            if (id) formData.append('agent_id', id);
-
-            const data = await upload<any>('/chat/upload', file, id ? { agent_id: id } : undefined);
+            const data = await chatApi.uploadFile(file, id);
             setAttachedFile({ name: data.filename, text: data.extracted_text, path: data.workspace_path, imageUrl: data.image_data_url || undefined });
         } catch (err) {
             alert(t('agent.upload.failed') + ': ' + (err as Error).message);

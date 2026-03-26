@@ -2,7 +2,7 @@
  * Enterprise domain adapter — LLM, org, audit, settings, invitations.
  */
 
-import { get, post, put, patch, del } from '../core';
+import { get, getBlob, post, put, patch, del } from '../core';
 
 export interface LLMModel {
   id: string;
@@ -44,6 +44,27 @@ export interface SystemSetting {
   value: Record<string, unknown>;
 }
 
+export interface PaginatedResponse<T> {
+  items: T[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface InvitationCodeBatchResult {
+  created: number;
+  codes: string[];
+}
+
+export interface OrgMember {
+  id: string;
+  name: string;
+  email?: string;
+  title?: string;
+  department_path?: string;
+  avatar_url?: string;
+}
+
 export const enterpriseApi = {
   /** LLM models */
   listLLMModels: () => get<LLMModel[]>('/enterprise/llm-models'),
@@ -71,10 +92,11 @@ export const enterpriseApi = {
 
   /** Invitation codes */
   listInvitationCodes: (params?: string) =>
-    get<InvitationCode[]>(`/enterprise/invitation-codes${params ? `?${params}` : ''}`),
+    get<PaginatedResponse<InvitationCode>>(`/enterprise/invitation-codes${params ? `?${params}` : ''}`),
   createInvitationCode: (data: { max_uses?: number; count?: number }) =>
-    post<InvitationCode>('/enterprise/invitation-codes', data),
+    post<InvitationCodeBatchResult>('/enterprise/invitation-codes', data),
   deleteInvitationCode: (id: string) => del(`/enterprise/invitation-codes/${id}`),
+  exportInvitationCodesCsv: () => getBlob('/enterprise/invitation-codes/export'),
 
   /** System settings */
   getSetting: (key: string) => get<SystemSetting>(`/enterprise/system-settings/${key}`),
@@ -97,7 +119,15 @@ export const enterpriseApi = {
 
   /** Org */
   getDepartments: () => get<unknown[]>('/enterprise/org/departments'),
-  getOrgMembers: () => get<unknown[]>('/enterprise/org/members'),
+  getOrgMembers: (params?: { search?: string; departmentId?: string; tenantId?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.search) qs.set('search', params.search);
+    if (params?.departmentId) qs.set('department_id', params.departmentId);
+    if (params?.tenantId) qs.set('tenant_id', params.tenantId);
+    const query = qs.toString();
+    const suffix = query ? `?${query}` : '';
+    return get<OrgMember[]>(`/enterprise/org/members${suffix}`);
+  },
   syncOrg: () => post<void>('/enterprise/org/sync'),
 
   /** Approvals */
@@ -105,4 +135,3 @@ export const enterpriseApi = {
   resolveApproval: (id: string, data: { action: string }) =>
     post<unknown>(`/enterprise/approvals/${id}/resolve`, data),
 };
-

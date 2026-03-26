@@ -8,6 +8,9 @@
 import { ApiError } from './errors';
 
 const API_BASE = '/api';
+export interface RequestOptions {
+  signal?: AbortSignal;
+}
 
 function getToken(): string | null {
   return localStorage.getItem('token');
@@ -50,6 +53,7 @@ export async function request<T>(
   method: string,
   path: string,
   body?: unknown,
+  options?: RequestOptions,
 ): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -60,6 +64,7 @@ export async function request<T>(
     method,
     headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
+    signal: options?.signal,
   });
 
   if (!res.ok) {
@@ -73,11 +78,30 @@ export async function request<T>(
 }
 
 /** Convenience shortcuts */
-export const get = <T>(path: string) => request<T>('GET', path);
-export const post = <T>(path: string, body?: unknown) => request<T>('POST', path, body);
-export const put = <T>(path: string, body?: unknown) => request<T>('PUT', path, body);
-export const patch = <T>(path: string, body?: unknown) => request<T>('PATCH', path, body);
-export const del = <T = void>(path: string) => request<T>('DELETE', path);
+export const get = <T>(path: string, options?: RequestOptions) => request<T>('GET', path, undefined, options);
+export const post = <T>(path: string, body?: unknown, options?: RequestOptions) => request<T>('POST', path, body, options);
+export const put = <T>(path: string, body?: unknown, options?: RequestOptions) => request<T>('PUT', path, body, options);
+export const patch = <T>(path: string, body?: unknown, options?: RequestOptions) => request<T>('PATCH', path, body, options);
+export const del = <T = void>(path: string, options?: RequestOptions) => request<T>('DELETE', path, undefined, options);
+
+/**
+ * Blob download helper for CSV/file exports that still need auth + unified errors.
+ */
+export async function getBlob(path: string, options?: RequestOptions): Promise<Blob> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'GET',
+    headers: authHeaders(),
+    signal: options?.signal,
+  });
+
+  if (!res.ok) {
+    if (res.status === 401) handleUnauthorized(path);
+    const detail = await parseErrorDetail(res);
+    throw new ApiError(res.status, detail);
+  }
+
+  return res.blob();
+}
 
 /**
  * Multipart file upload — the one case where we skip JSON content-type.

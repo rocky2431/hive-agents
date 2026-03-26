@@ -11,17 +11,34 @@ export interface Notification {
   id: string;
   type: string;
   title?: string;
-  content: string;
+  body?: string;
+  content?: string;
   is_read: boolean;
   created_at: string;
 }
 
 export interface UnreadCount {
-  count: number;
+  unread_count: number;
+}
+
+export interface NotificationListParams {
+  limit?: number;
+  offset?: number;
+  unreadOnly?: boolean;
+  category?: string;
 }
 
 export const notificationsApi = {
-  list: () => get<Notification[]>('/notifications'),
+  list: (params?: NotificationListParams) => {
+    const qs = new URLSearchParams();
+    if (params?.limit !== undefined) qs.set('limit', String(params.limit));
+    if (params?.offset !== undefined) qs.set('offset', String(params.offset));
+    if (params?.unreadOnly) qs.set('unread_only', 'true');
+    if (params?.category) qs.set('category', params.category);
+    const query = qs.toString();
+    const suffix = query ? `?${query}` : '';
+    return get<Notification[]>(`/notifications${suffix}`);
+  },
   getUnreadCount: () => get<UnreadCount>('/notifications/unread-count'),
   markRead: (id: string) => post<void>(`/notifications/${id}/read`),
   markAllRead: () => post<void>('/notifications/read-all'),

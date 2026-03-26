@@ -4,7 +4,7 @@
  * Wraps the /api/tools/* endpoints used by AgentDetail.
  */
 
-import { get, put, post } from '../core';
+import { get, put, post, del } from '../core';
 
 export interface AgentTool {
   id: string;
@@ -55,6 +55,7 @@ export const toolsApi = {
 
   /** Single tool detail */
   getDetail: (toolId: string) => get<ToolDetail>(`/tools/agent-tool/${toolId}`),
+  removeAgentTool: (toolId: string) => del(`/tools/agent-tool/${toolId}`),
 
   /** Test email */
   testEmail: (data: Record<string, unknown>) => post<{ success: boolean }>('/tools/test-email', data),

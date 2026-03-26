@@ -14,3 +14,4 @@ export { skillApi } from './skills';
 export { channelApi } from './channels';
 export { scheduleApi } from './schedules';
 export { triggerApi } from './triggers';
+export { relationshipsApi } from './relationships';

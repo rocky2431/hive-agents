@@ -5,11 +5,7 @@ import { useAuthStore } from '../stores';
 import { saveAccentColor, getSavedAccentColor } from '../utils/theme';
 import { IconFilter } from '@tabler/icons-react';
 import PlatformDashboard from './PlatformDashboard';
-
-import { request } from '../api/core';
-async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
-    return request<T>(options?.method || 'GET', url, options?.body ? JSON.parse(options.body as string) : undefined);
-}
+import { enterpriseApi } from '../api/domains/enterprise';
 
 
 // Format large token numbers with K/M/B suffixes
@@ -116,19 +112,16 @@ function PlatformTab() {
         // Load platform toggles
         adminApi.getPlatformSettings().then(setSettings).catch(() => { });
         // Load notification bar
-        const token = localStorage.getItem('token');
-        fetch('/api/enterprise/system-settings/notification_bar', {
-            headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        }).then(r => r.json()).then(d => {
+        enterpriseApi.getSetting('notification_bar').then(d => {
             if (d?.value) {
                 setNbEnabled(!!d.value.enabled);
-                setNbText(d.value.text || '');
+                setNbText(typeof d.value.text === 'string' ? d.value.text : '');
             }
         }).catch(() => { });
         // Load Public URL
-        fetchJson<any>('/enterprise/system-settings/platform')
+        enterpriseApi.getSetting('platform')
             .then(d => {
-                if (d.value?.public_base_url) setPublicBaseUrl(d.value.public_base_url);
+                if (typeof d.value?.public_base_url === 'string') setPublicBaseUrl(d.value.public_base_url);
             }).catch(() => { });
     }, []);
 
@@ -147,12 +140,7 @@ function PlatformTab() {
     const saveNotificationBar = async () => {
         setNbSaving(true);
         try {
-            const token = localStorage.getItem('token');
-            await fetch('/api/enterprise/system-settings/notification_bar', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-                body: JSON.stringify({ value: { enabled: nbEnabled, text: nbText } }),
-            });
+            await enterpriseApi.updateSetting('notification_bar', { enabled: nbEnabled, text: nbText });
             setNbSaved(true);
             setTimeout(() => setNbSaved(false), 2000);
         } catch { }
@@ -162,10 +150,7 @@ function PlatformTab() {
     const savePublicUrl = async () => {
         setUrlSaving(true);
         try {
-            await fetchJson('/enterprise/system-settings/platform', {
-                method: 'PUT',
-                body: JSON.stringify({ value: { public_base_url: publicBaseUrl } }),
-            });
+            await enterpriseApi.updateSetting('platform', { public_base_url: publicBaseUrl });
             setUrlSaved(true);
             setTimeout(() => setUrlSaved(false), 2000);
         } catch (e) {
