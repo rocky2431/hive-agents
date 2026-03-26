@@ -55,8 +55,8 @@ Hive is an open-source platform that turns AI agents into **digital employees**.
 ### One-Command Setup
 
 ```bash
-git clone https://github.com/dataelement/Clawith.git
-cd Clawith
+git clone https://github.com/dataelement/hive-agents.git
+cd hive-agents
 bash setup.sh         # Production (~1 min)
 bash setup.sh --dev   # Development: also installs pytest, ruff (~3 min)
 ```
@@ -79,8 +79,8 @@ bash restart.sh
 ### Docker
 
 ```bash
-git clone https://github.com/dataelement/Clawith.git
-cd Clawith && cp .env.example .env
+git clone https://github.com/dataelement/hive-agents.git
+cd hive-agents && cp .env.example .env
 docker compose up -d
 # http://localhost:3008
 ```
@@ -209,7 +209,7 @@ npm test          # Structure validation tests
 
 ## Contributing
 
-We welcome contributions of all kinds. Check out our [Contributing Guide](CONTRIBUTING.md) to get started. Look for [`good first issue`](https://github.com/dataelement/Clawith/labels/good%20first%20issue) if you're new.
+We welcome contributions of all kinds. Check out our [Contributing Guide](CONTRIBUTING.md) to get started. Look for [`good first issue`](https://github.com/dataelement/hive-agents/labels/good%20first%20issue) if you're new.
 
 ## Security
 

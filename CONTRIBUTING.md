@@ -25,7 +25,7 @@ Thanks for your interest in contributing! Whether it's a bug fix, new feature, t
 | 📖 Documentation | README, guides, code comments |
 | 🧪 Tests | Unit tests, integration tests |
 
-**New to the project?** Look for issues labeled [`good first issue`](https://github.com/dataelement/Hive/labels/good%20first%20issue).
+**New to the project?** Look for issues labeled [`good first issue`](https://github.com/dataelement/hive-agents/labels/good%20first%20issue).
 
 ## Bug Reports
 
@@ -93,4 +93,4 @@ Para garantizar que todos los contribuidores puedan participar de manera efectiv
 
 ## Getting Help
 
-Stuck? Open a [Discussion](https://github.com/dataelement/Hive/discussions) or ask in the related issue. We're happy to help! 🙌
+Stuck? Open a [Discussion](https://github.com/dataelement/hive-agents/discussions) or ask in the related issue. We're happy to help! 🙌

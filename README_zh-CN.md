@@ -92,8 +92,8 @@ Agent 可以在运行时**发现并安装新工具**（[Smithery](https://smithe
 ### 一键安装
 
 ```bash
-git clone https://github.com/dataelement/Hive.git
-cd Hive
+git clone https://github.com/dataelement/hive-agents.git
+cd hive-agents
 bash setup.sh         # 生产/测试：只装运行依赖（约 1 分钟）
 bash setup.sh --dev   # 开发环境：额外装 pytest 等测试工具（约 3 分钟）
 ```
@@ -116,8 +116,8 @@ bash restart.sh
 ### Docker 部署
 
 ```bash
-git clone https://github.com/dataelement/Hive.git
-cd Hive && cp .env.example .env
+git clone https://github.com/dataelement/hive-agents.git
+cd hive-agents && cp .env.example .env
 docker compose up -d
 # → http://localhost:3000
 ```
@@ -165,17 +165,17 @@ docker compose up -d --build
 
 | 方案 | 命令 |
 |---|---|
-| **浅克隆**（仅下载最新提交） | `git clone --depth 1 https://github.com/dataelement/Hive.git` |
-| **下载 Release 压缩包**（无需 git） | 前往 [Releases](https://github.com/dataelement/Hive/releases) 下载 `.tar.gz` |
+| **浅克隆**（仅下载最新提交） | `git clone --depth 1 https://github.com/dataelement/hive-agents.git` |
+| **下载 Release 压缩包**（无需 git） | 前往 [Releases](https://github.com/dataelement/hive-agents/releases) 下载 `.tar.gz` |
 | **使用代理**（如果已有） | `git config --global http.proxy socks5://127.0.0.1:1080` |
 
 **🇨🇳 国内用户加速方案：** 使用 GitHub 代理加速站（实时代理，无版本延迟）：
 
 ```bash
 # 以下任选其一，将 github.com 替换为加速站域名即可
-git clone https://ghfast.top/https://github.com/dataelement/Hive.git
-git clone https://ghproxy.com/https://github.com/dataelement/Hive.git
-git clone https://gitclone.com/github.com/dataelement/Hive.git
+git clone https://ghfast.top/https://github.com/dataelement/hive-agents.git
+git clone https://ghproxy.com/https://github.com/dataelement/hive-agents.git
+git clone https://gitclone.com/github.com/dataelement/hive-agents.git
 ```
 
 > **备选加速站：** [ghfast.top](https://ghfast.top) · [ghproxy.com](https://ghproxy.com) · [gitclone.com](https://gitclone.com) · [kkgithub.com](https://kkgithub.com)。这些是第三方代理站点，建议收藏多个备选以防下线。仅用于只读操作（clone / download），请勿在代理站登录 GitHub 账号。
@@ -207,7 +207,7 @@ git clone https://gitclone.com/github.com/dataelement/Hive.git
 
 ## 🤝 参与贡献
 
-欢迎各种形式的贡献！无论是修复 Bug、添加功能、改进文档还是翻译——请查看我们的[贡献指南](CONTRIBUTING.md)开始参与。新手可以关注 [`good first issue`](https://github.com/dataelement/Hive/labels/good%20first%20issue) 标签。
+欢迎各种形式的贡献！无论是修复 Bug、添加功能、改进文档还是翻译——请查看我们的[贡献指南](CONTRIBUTING.md)开始参与。新手可以关注 [`good first issue`](https://github.com/dataelement/hive-agents/labels/good%20first%20issue) 标签。
 
 ## 🔒 安全清单
 
@@ -225,7 +225,7 @@ git clone https://gitclone.com/github.com/dataelement/Hive.git
 
 ## ⭐ Star History
 
-[![Star History Chart](https://api.star-history.com/image?repos=dataelement/Hive&type=date&legend=top-left&v=2)](https://www.star-history.com/?repos=dataelement%2FHive&type=date&legend=top-left)
+[![Star History Chart](https://api.star-history.com/image?repos=dataelement/hive-agents&type=date&legend=top-left&v=2)](https://www.star-history.com/?repos=dataelement%2FHive&type=date&legend=top-left)
 
 ## 📄 许可证
 

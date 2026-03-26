@@ -80,8 +80,8 @@ Cada agente tiene `soul.md` (personalidad), `memory.md` (memoria a largo plazo),
 ### Instalación
 
 ```bash
-git clone https://github.com/dataelement/Hive.git
-cd Hive
+git clone https://github.com/dataelement/hive-agents.git
+cd hive-agents
 bash setup.sh             # Producción: solo dependencias de ejecución (~1 min)
 # bash setup.sh --dev     # Desarrollo: incluye pytest y herramientas de prueba (~3 min)
 bash restart.sh   # Inicia los servicios
@@ -98,13 +98,13 @@ Si `git clone` es lento o se agota el tiempo:
 
 | Solución | Comando |
 |---|---|
-| **Clonación superficial** (solo último commit) | `git clone --depth 1 https://github.com/dataelement/Hive.git` |
-| **Descargar archivo Release** (sin git) | Ir a [Releases](https://github.com/dataelement/Hive/releases), descargar `.tar.gz` |
+| **Clonación superficial** (solo último commit) | `git clone --depth 1 https://github.com/dataelement/hive-agents.git` |
+| **Descargar archivo Release** (sin git) | Ir a [Releases](https://github.com/dataelement/hive-agents/releases), descargar `.tar.gz` |
 | **Configurar proxy git** | `git config --global http.proxy socks5://127.0.0.1:1080` |
 
 ## 🤝 Contribuir
 
-¡Damos la bienvenida a contribuciones de todo tipo! Ya sea corregir errores, añadir funciones, mejorar documentación o traducir — consulta nuestra [Guía de Contribución](CONTRIBUTING.md) para empezar. Busca [`good first issue`](https://github.com/dataelement/Hive/labels/good%20first%20issue) si eres nuevo.
+¡Damos la bienvenida a contribuciones de todo tipo! Ya sea corregir errores, añadir funciones, mejorar documentación o traducir — consulta nuestra [Guía de Contribución](CONTRIBUTING.md) para empezar. Busca [`good first issue`](https://github.com/dataelement/hive-agents/labels/good%20first%20issue) si eres nuevo.
 
 ## 🔒 Lista de Seguridad
 
@@ -122,7 +122,7 @@ También puedes escanear el código QR a continuación para unirte a nuestra com
 
 ## ⭐ Star History
 
-[![Star History Chart](https://api.star-history.com/image?repos=dataelement/Hive&type=date&legend=top-left&v=2)](https://www.star-history.com/?repos=dataelement%2FHive&type=date&legend=top-left)
+[![Star History Chart](https://api.star-history.com/image?repos=dataelement/hive-agents&type=date&legend=top-left&v=2)](https://www.star-history.com/?repos=dataelement%2FHive&type=date&legend=top-left)
 
 ## 📄 Licencia
 
