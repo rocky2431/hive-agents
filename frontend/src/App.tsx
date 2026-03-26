@@ -1,7 +1,17 @@
+/**
+ * App root — route tree grouped by surface (public / app / workspace / admin).
+ *
+ * Single Layout shell shared across all authenticated surfaces.
+ * Role guards enforce access per surface.
+ */
+
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from './stores';
 import { useEffect, useState } from 'react';
-import { authApi } from './services/api';
+import { authApi } from './api/domains/auth';
+import { get } from './api/core';
+import { ProtectedRoute, WorkspaceGuard, AdminGuard } from './guards';
+
 import Login from './pages/Login';
 import CompanySetup from './pages/CompanySetup';
 import Layout from './pages/Layout';
@@ -15,28 +25,17 @@ import EnterpriseSettings from './pages/EnterpriseSettings';
 import InvitationCodes from './pages/InvitationCodes';
 import AdminCompanies from './pages/AdminCompanies';
 
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
-    const token = useAuthStore((s) => s.token);
-    const user = useAuthStore((s) => s.user);
-    if (!token) return <Navigate to="/login" replace />;
-    // Force company setup for users without a tenant
-    if (user && !user.tenant_id) return <Navigate to="/setup-company" replace />;
-    return <>{children}</>;
-}
-
-/* ─── Notification Bar ─── */
+/* ─── Notification Bar (public, no auth required) ─── */
 function NotificationBar() {
     const [config, setConfig] = useState<{ enabled: boolean; text: string } | null>(null);
     const [dismissed, setDismissed] = useState(false);
 
     useEffect(() => {
-        fetch('/api/enterprise/system-settings/notification_bar/public')
-            .then(r => r.ok ? r.json() : null)
-            .then(d => { if (d) setConfig(d); })
-            .catch(() => { });
+        get<{ enabled: boolean; text: string }>('/enterprise/system-settings/notification_bar/public')
+            .then(d => setConfig(d))
+            .catch(() => {});
     }, []);
 
-    // Check sessionStorage for dismissal (keyed by text so new messages re-show)
     useEffect(() => {
         if (config?.text) {
             const key = `notification_bar_dismissed_${btoa(encodeURIComponent(config.text))}`;
@@ -44,14 +43,10 @@ function NotificationBar() {
         }
     }, [config?.text]);
 
-    // Manage body class: add when visible, remove when hidden or dismissed
     const isVisible = !!config?.enabled && !!config?.text && !dismissed;
     useEffect(() => {
-        if (isVisible) {
-            document.body.classList.add('has-notification-bar');
-        } else {
-            document.body.classList.remove('has-notification-bar');
-        }
+        if (isVisible) document.body.classList.add('has-notification-bar');
+        else document.body.classList.remove('has-notification-bar');
         return () => { document.body.classList.remove('has-notification-bar'); };
     }, [isVisible]);
 
@@ -76,12 +71,11 @@ export default function App() {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        // Initialize theme on app mount (ensures login page gets correct theme)
         const savedTheme = localStorage.getItem('theme') || 'dark';
         document.documentElement.setAttribute('data-theme', savedTheme);
 
         if (token && !user) {
-            authApi.me()
+            authApi.getMe()
                 .then((u) => setAuth(u, token))
                 .catch(() => useAuthStore.getState().logout())
                 .finally(() => setLoading(false));
@@ -89,7 +83,6 @@ export default function App() {
             setLoading(false);
         }
     }, []);
-
 
     if (loading) {
         return (
@@ -103,9 +96,14 @@ export default function App() {
         <>
             <NotificationBar />
             <Routes>
+                {/* ─── Public surface ─── */}
                 <Route path="/login" element={<Login />} />
                 <Route path="/setup-company" element={<CompanySetup />} />
+
+                {/* ─── Authenticated surfaces (shared Layout shell) ─── */}
                 <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+
+                    {/* App surface — all authenticated users */}
                     <Route index element={<Navigate to="/plaza" replace />} />
                     <Route path="dashboard" element={<Dashboard />} />
                     <Route path="plaza" element={<Plaza />} />
@@ -113,9 +111,13 @@ export default function App() {
                     <Route path="agents/:id" element={<AgentDetail />} />
                     <Route path="agents/:id/chat" element={<Chat />} />
                     <Route path="messages" element={<Messages />} />
-                    <Route path="enterprise" element={<EnterpriseSettings />} />
-                    <Route path="invitations" element={<InvitationCodes />} />
-                    <Route path="admin/platform-settings" element={<AdminCompanies />} />
+
+                    {/* Workspace surface — org_admin + platform_admin */}
+                    <Route path="enterprise" element={<WorkspaceGuard><EnterpriseSettings /></WorkspaceGuard>} />
+                    <Route path="invitations" element={<WorkspaceGuard><InvitationCodes /></WorkspaceGuard>} />
+
+                    {/* Admin surface — platform_admin only */}
+                    <Route path="admin/platform-settings" element={<AdminGuard><AdminCompanies /></AdminGuard>} />
                 </Route>
             </Routes>
         </>
