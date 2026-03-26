@@ -90,6 +90,17 @@ class Agent(Base):
     # Timezone (IANA format, e.g. "Asia/Shanghai"). None = inherit from tenant.
     timezone: Mapped[str | None] = mapped_column(String(50), default=None, nullable=True)
 
+    # Desktop integration: Main/Sub agent model (ARCHITECTURE.md §6.1)
+    agent_kind: Mapped[str] = mapped_column(String(10), default="main", nullable=False, server_default="main")
+    parent_agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agents.id"), nullable=True,
+    )
+    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=True,
+    )
+    channel_perms: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default="false")
+    config_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False, server_default="1")
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -125,7 +136,7 @@ class AgentPermission(Base):
 
 
 class AgentTemplate(Base):
-    """Digital employee template for quick creation."""
+    """Digital employee template for quick creation / Role Template (ARCHITECTURE.md §6.2)."""
 
     __tablename__ = "agent_templates"
 
@@ -139,6 +150,12 @@ class AgentTemplate(Base):
     is_builtin: Mapped[bool] = mapped_column(default=False)
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    # Role Template extensions (ARCHITECTURE.md §6.2)
+    tenant_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.id"))
+    department_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("departments.id"))
+    model_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("llm_models.id"))
+    config_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False, server_default="1")
 
 
 # Import for relationship resolution

@@ -45,3 +45,6 @@ class Tenant(Base):
     min_poll_interval_floor: Mapped[int] = mapped_column(Integer, default=5)
     max_webhook_rate_ceiling: Mapped[int] = mapped_column(Integer, default=5)
 
+    # Desktop sync: global version counter bumped on any Desktop-visible resource change (ARCHITECTURE.md §6.6)
+    sync_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False, server_default="1")
+

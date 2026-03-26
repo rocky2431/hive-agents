@@ -1,7 +1,12 @@
 """Security utilities: JWT, password hashing, and authentication dependencies."""
 
+from __future__ import annotations
+
+import hashlib
+import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import TYPE_CHECKING
 
 import bcrypt
 from fastapi import Depends, HTTPException, status
@@ -13,10 +18,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.database import get_db
 
+if TYPE_CHECKING:
+    from app.models.refresh_token import RefreshToken
+
 settings = get_settings()
 
 # Bearer token scheme
 security = HTTPBearer()
+
+# Refresh token defaults
+REFRESH_TOKEN_EXPIRE_DAYS = 30
 
 
 def hash_password(password: str) -> str:
@@ -119,4 +130,75 @@ def require_role(*allowed_roles: str):
             )
         return current_user
     return _check
+
+
+# ---------------------------------------------------------------------------
+# Refresh token helpers (Desktop Auth Bridge)
+# ---------------------------------------------------------------------------
+
+def _hash_refresh_token(raw_token: str) -> str:
+    """SHA-256 hash of the raw refresh token for DB storage."""
+    return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+
+async def create_refresh_token(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    device_id: str,
+    expires_delta: timedelta | None = None,
+) -> str:
+    """Create a refresh token, persist its hash, and return the raw token.
+
+    The raw token is returned exactly once; only its SHA-256 hash is stored.
+    """
+    from app.models.refresh_token import RefreshToken
+
+    raw_token = secrets.token_urlsafe(48)
+    token_hash = _hash_refresh_token(raw_token)
+    expires_at = datetime.now(timezone.utc) + (expires_delta or timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))
+
+    db.add(RefreshToken(
+        user_id=user_id,
+        token_hash=token_hash,
+        device_id=device_id,
+        expires_at=expires_at,
+    ))
+    await db.flush()
+    return raw_token
+
+
+async def verify_refresh_token(db: AsyncSession, raw_token: str) -> "RefreshToken":
+    """Verify a raw refresh token and return the DB row.
+
+    Raises HTTP 401 if the token is invalid, expired, or revoked.
+    """
+    from app.models.refresh_token import RefreshToken
+
+    token_hash = _hash_refresh_token(raw_token)
+    result = await db.execute(
+        select(RefreshToken).where(
+            RefreshToken.token_hash == token_hash,
+            RefreshToken.revoked.is_(False),
+        )
+    )
+    row = result.scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
+    if row.expires_at < datetime.now(timezone.utc):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token expired")
+    return row
+
+
+async def revoke_refresh_token(db: AsyncSession, raw_token: str) -> None:
+    """Revoke a refresh token (e.g. on logout)."""
+    from app.models.refresh_token import RefreshToken
+
+    token_hash = _hash_refresh_token(raw_token)
+    result = await db.execute(
+        select(RefreshToken).where(RefreshToken.token_hash == token_hash)
+    )
+    row = result.scalar_one_or_none()
+    if row:
+        row.revoked = True
+        await db.flush()
 

@@ -77,6 +77,9 @@ class Settings(BaseSettings):
     FEISHU_APP_SECRET: str = ""
     FEISHU_REDIRECT_URI: str = ""
 
+    # Desktop Auth Bridge
+    DESKTOP_DEEP_LINK_SCHEME: str = "copaw"
+
     # CORS
     CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:5173"]
 
