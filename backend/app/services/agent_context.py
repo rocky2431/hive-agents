@@ -273,7 +273,8 @@ async def build_agent_context(agent_id: uuid.UUID, agent_name: str, role_descrip
 5. **Use `write_file` to update focus.md** with your current focus items using checklist format: `- [ ] item_name: description`
 6. **Write-before-reply (WAL)**: On corrections, decisions, or critical info — write to focus.md or memory/memory.md BEFORE responding.
 7. **Self-improve on failure**: When operations fail or user corrects you, log to memory/learnings/ (load_skill Self-Improving Agent for format).
-8. **Vet before installing**: Before installing any third-party skill, load_skill Skill Vetter and complete the security review.""")
+8. **Vet before installing**: Before installing any third-party skill, load_skill Skill Vetter and complete the security review.
+9. **Messaging**: To notify a human user, use `send_web_message`. To communicate with another digital employee (agent), use `send_message_to_agent`. Never confuse the two.""")
 
 
 
