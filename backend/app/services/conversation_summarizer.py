@@ -85,25 +85,31 @@ async def summarize_conversation(
 
 
 def _extract_summary(messages: list[dict]) -> str:
-    """Extract summary without LLM — just keep user questions and assistant conclusions."""
-    parts = []
+    """Extract structured summary without LLM — keep user requests and assistant conclusions."""
+    user_asks: list[str] = []
+    assistant_answers: list[str] = []
     for msg in messages:
         role = msg.get("role", "")
         content = msg.get("content", "")
         if not isinstance(content, str) or not content.strip():
             continue
-
         if role == "user":
-            # Keep user messages but truncate
-            parts.append(f"- User: {content[:200]}")
+            user_asks.append(content[:200])
         elif role == "assistant" and "tool_calls" not in msg:
-            # Keep assistant final answers (not tool-calling intermediate steps)
-            parts.append(f"- Assistant: {content[:300]}")
+            assistant_answers.append(content[:300])
 
-    if not parts:
-        return "Previous conversation covered various topics."
+    if not user_asks and not assistant_answers:
+        return "**Current Task:** (unknown)\n**Pending:** (none captured)"
 
-    return "\n".join(parts[-15:])  # Keep at most 15 points
+    task = user_asks[-1] if user_asks else "(unknown)"
+    lines = [f"**Current Task:** {task}"]
+    if len(user_asks) > 1:
+        earlier = "; ".join(u[:80] for u in user_asks[-4:-1])
+        lines.append(f"**Key Decisions:** {earlier}")
+    if assistant_answers:
+        last_answer = assistant_answers[-1][:200]
+        lines.append(f"**Important Context:** {last_answer}")
+    return "\n".join(lines)
 
 
 async def _llm_summarize(messages: list[dict], model_config: dict) -> str | None:
@@ -132,14 +138,20 @@ async def _llm_summarize(messages: list[dict], model_config: dict) -> str | None
                 LLMMessage(
                     role="system",
                     content=(
-                        "Summarize this conversation in 3-5 bullet points. Be concise. "
-                        "Keep key facts, decisions, and action items. "
+                        "Summarize this conversation into a structured snapshot. "
+                        "Use EXACTLY this format (keep headers, fill in content, omit empty sections):\n\n"
+                        "**Current Task:** [what was being worked on]\n"
+                        "**Key Decisions:** [decisions made, preferences expressed]\n"
+                        "**Files/Resources:** [file paths, URLs, IDs mentioned]\n"
+                        "**Pending:** [incomplete items, next steps]\n"
+                        "**Important Context:** [corrections, constraints, user preferences]\n\n"
+                        "Be concise — each field 1-2 lines max. "
                         "Respond in the same language as the conversation."
                     ),
                 ),
                 LLMMessage(role="user", content=text),
             ],
-            max_tokens=300,
+            max_tokens=500,
             temperature=0.3,
         )
         return response.content
