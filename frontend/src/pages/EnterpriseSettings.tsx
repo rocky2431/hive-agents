@@ -30,6 +30,23 @@ interface LLMProviderSpec {
     default_max_tokens: number;
 }
 
+export type EnterpriseSettingsTab =
+    | 'llm'
+    | 'org'
+    | 'info'
+    | 'approvals'
+    | 'audit'
+    | 'tools'
+    | 'skills'
+    | 'quotas'
+    | 'users'
+    | 'invites';
+
+interface EnterpriseSettingsProps {
+    forcedTab?: EnterpriseSettingsTab;
+    hideTabs?: boolean;
+}
+
 const FALLBACK_LLM_PROVIDERS: LLMProviderSpec[] = [
     { provider: 'anthropic', display_name: 'Anthropic', protocol: 'anthropic', default_base_url: 'https://api.anthropic.com', supports_tool_choice: false, default_max_tokens: 8192 },
     { provider: 'openai', display_name: 'OpenAI', protocol: 'openai_compatible', default_base_url: 'https://api.openai.com/v1', supports_tool_choice: true, default_max_tokens: 16384 },
@@ -976,12 +993,12 @@ function BroadcastSection() {
 }
 
 
-export default function EnterpriseSettings() {
+export default function EnterpriseSettings({ forcedTab, hideTabs = false }: EnterpriseSettingsProps) {
     const { t } = useTranslation();
     const navigate = useNavigate();
     const setUser = useAuthStore((s) => s.setUser);
     const qc = useQueryClient();
-    const [activeTab, setActiveTab] = useState<'llm' | 'org' | 'info' | 'approvals' | 'audit' | 'tools' | 'skills' | 'quotas' | 'users' | 'invites'>('info');
+    const [activeTab, setActiveTab] = useState<EnterpriseSettingsTab>(forcedTab || 'info');
 
     // Track selected tenant as state so page refreshes on company switch
     const [selectedTenantId, setSelectedTenantId] = useState(localStorage.getItem('current_tenant_id') || '');
@@ -994,6 +1011,12 @@ export default function EnterpriseSettings() {
         window.addEventListener('storage', handler);
         return () => window.removeEventListener('storage', handler);
     }, []);
+
+    useEffect(() => {
+        if (forcedTab && forcedTab !== activeTab) {
+            setActiveTab(forcedTab);
+        }
+    }, [forcedTab, activeTab]);
 
     // Tenant quota defaults
     const [quotaForm, setQuotaForm] = useState({
@@ -1227,13 +1250,15 @@ export default function EnterpriseSettings() {
                     </div>
                 </div>
 
-                <div className="tabs">
-                    {(['info', 'llm', 'tools', 'skills', 'invites', 'quotas', 'users', 'org', 'approvals', 'audit'] as const).map(tab => (
-                        <div key={tab} className={`tab ${activeTab === tab ? 'active' : ''}`} onClick={() => setActiveTab(tab)}>
-                            {tab === 'quotas' ? t('enterprise.tabs.quotas', 'Quotas') : tab === 'users' ? t('enterprise.tabs.users', 'Users') : tab === 'invites' ? t('enterprise.tabs.invites', 'Invitations') : t(`enterprise.tabs.${tab}`)}
-                        </div>
-                    ))}
-                </div>
+                {!hideTabs && (
+                    <div className="tabs">
+                        {(['info', 'llm', 'tools', 'skills', 'invites', 'quotas', 'users', 'org', 'approvals', 'audit'] as const).map(tab => (
+                            <div key={tab} className={`tab ${activeTab === tab ? 'active' : ''}`} onClick={() => setActiveTab(tab)}>
+                                {tab === 'quotas' ? t('enterprise.tabs.quotas', 'Quotas') : tab === 'users' ? t('enterprise.tabs.users', 'Users') : tab === 'invites' ? t('enterprise.tabs.invites', 'Invitations') : t(`enterprise.tabs.${tab}`)}
+                            </div>
+                        ))}
+                    </div>
+                )}
 
                 {/* ── LLM Model Pool ── */}
                 {activeTab === 'llm' && (

@@ -3,6 +3,22 @@
 > 日期：2026-03-27
 > 目的：在“上游前端基线 + 当前后端能力”的前提下，找出真实断点，并给出前端三工作面改造顺序。
 
+## 0. 当前状态更新
+
+- `Phase 0` 已完成：
+  - 页面/组件层已无裸 `fetch`
+  - 页面/组件层已无 `api/core` 直连
+  - 前端主访问链路已全部走 domain adapter
+  - 删除公司链路已补齐前后端契约
+- `Phase 1` 已启动并落地第一步：
+  - `App.tsx` 已切成 `AppLayout / WorkspaceLayout / AdminLayout`
+  - `workspace` 已建立 `/enterprise/info|llm|tools|skills|quotas|users|org|approvals|audit|invitations`
+  - `EnterpriseSettings` 已支持被子路由按 tab 驱动
+- 当前最重要的剩余工作：
+  - 把 `EnterpriseSettings` 从“按 tab 驱动的大页”继续拆成真正的独立页面
+  - 清理旧 `Layout` 中残留的 workspace/admin 导航耦合
+  - 做 route-level lazy loading，处理大 chunk warning
+
 ## 1. 当前前端基线判断
 
 当前前端不需要再“重拉一次源码”才能开始，因为源码已经处于上游基线：
@@ -56,25 +72,25 @@
 | `frontend/src/pages/PlatformDashboard.tsx` | `/api/admin/metrics/leaderboards` | 后端不存在 | 同上 |
 | `frontend/src/pages/EnterpriseSettings.tsx` | `/api/notifications/broadcast` | 后端不存在 | 通知广播若要保留，应先补后端或删 UI |
 
-### 3.2 高风险的“页面直连接口”位置
+### 3.2 已完成的契约清理
 
-这些页面仍大量直接 `fetch()`，后续必须先收口到 adapter：
+以下工作已完成，不再是当前阶段阻塞项：
 
-- `frontend/src/pages/Layout.tsx`
-- `frontend/src/pages/AgentDetail.tsx`
-- `frontend/src/pages/EnterpriseSettings.tsx`
-- `frontend/src/pages/InvitationCodes.tsx`
-- `frontend/src/pages/AdminCompanies.tsx`
-- `frontend/src/pages/Chat.tsx`
-- `frontend/src/pages/Plaza.tsx`
-- `frontend/src/pages/UserManagement.tsx`
-- `frontend/src/components/ChannelConfig.tsx`
-- `frontend/src/pages/OpenClawSettings.tsx`
+- `Layout`
+- `AgentDetail`
+- `EnterpriseSettings`
+- `InvitationCodes`
+- `AdminCompanies`
+- `Chat`
+- `Plaza`
+- `UserManagement`
+- `ChannelConfig`
+- `OpenClawSettings`
 
 结论：
 
-- 第一阶段不能先改样式或拆页面
-- 第一阶段必须先移除这些页面里的裸 `fetch`
+- 当前阶段可以正式进入页面拆分与壳层分离
+- 不需要再把主要精力投入页面级裸请求治理
 
 ## 4. 当前前端与后端的断点类型
 
@@ -177,6 +193,8 @@ frontend/src/
 
 ### Phase 0：契约收口
 
+状态：已完成
+
 先做，不做这一步后面都会返工。
 
 输出：
@@ -199,6 +217,8 @@ frontend/src/
 
 ### Phase 1：路由壳拆分
 
+状态：进行中（已完成三套 layout 与 workspace 子路由）
+
 输出：
 
 - `PublicLayout`
@@ -212,6 +232,11 @@ frontend/src/
 - 一个 query client
 - 一个 auth store
 - 多个 surface layout
+
+当前下一步：
+
+- 把 `EnterpriseSettings` 从“forcedTab 大页”拆成真正的独立页面文件
+- 让 `Layout` 只承担 app surface，不再承担 workspace/admin 入口职责
 
 ### Phase 2：优先迁移 `app`
 

@@ -14,7 +14,6 @@ import { ProtectedRoute, WorkspaceGuard, AdminGuard } from './guards';
 
 import Login from './pages/Login';
 import CompanySetup from './pages/CompanySetup';
-import Layout from './pages/Layout';
 import Dashboard from './pages/Dashboard';
 import Plaza from './pages/Plaza';
 import AgentDetail from './pages/AgentDetail';
@@ -22,8 +21,11 @@ import AgentCreate from './pages/AgentCreate';
 import Chat from './pages/Chat';
 import Messages from './pages/Messages';
 import EnterpriseSettings from './pages/EnterpriseSettings';
-import InvitationCodes from './pages/InvitationCodes';
 import AdminCompanies from './pages/AdminCompanies';
+import AppLayout from './surfaces/app/AppLayout';
+import WorkspaceLayout from './surfaces/workspace/WorkspaceLayout';
+import AdminLayout from './surfaces/admin/AdminLayout';
+import { WORKSPACE_SECTIONS } from './surfaces/workspace/sections';
 
 /* ─── Notification Bar (public, no auth required) ─── */
 function NotificationBar() {
@@ -100,10 +102,9 @@ export default function App() {
                 <Route path="/login" element={<Login />} />
                 <Route path="/setup-company" element={<CompanySetup />} />
 
-                {/* ─── Authenticated surfaces (shared Layout shell) ─── */}
-                <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+                {/* ─── App surface ─── */}
+                <Route path="/" element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
 
-                    {/* App surface — all authenticated users */}
                     <Route index element={<Navigate to="/plaza" replace />} />
                     <Route path="dashboard" element={<Dashboard />} />
                     <Route path="plaza" element={<Plaza />} />
@@ -111,13 +112,28 @@ export default function App() {
                     <Route path="agents/:id" element={<AgentDetail />} />
                     <Route path="agents/:id/chat" element={<Chat />} />
                     <Route path="messages" element={<Messages />} />
+                </Route>
 
-                    {/* Workspace surface — org_admin + platform_admin */}
-                    <Route path="enterprise" element={<WorkspaceGuard><EnterpriseSettings /></WorkspaceGuard>} />
-                    <Route path="invitations" element={<WorkspaceGuard><InvitationCodes /></WorkspaceGuard>} />
+                {/* ─── Workspace surface ─── */}
+                <Route path="/enterprise" element={<ProtectedRoute><WorkspaceGuard><WorkspaceLayout /></WorkspaceGuard></ProtectedRoute>}>
+                    <Route index element={<Navigate to="info" replace />} />
+                    {WORKSPACE_SECTIONS.map((section) => (
+                        <Route
+                            key={section.tab}
+                            path={section.slug}
+                            element={<EnterpriseSettings forcedTab={section.tab} hideTabs />}
+                        />
+                    ))}
+                </Route>
+                <Route
+                    path="/invitations"
+                    element={<ProtectedRoute><WorkspaceGuard><Navigate to="/enterprise/invitations" replace /></WorkspaceGuard></ProtectedRoute>}
+                />
 
-                    {/* Admin surface — platform_admin only */}
-                    <Route path="admin/platform-settings" element={<AdminGuard><AdminCompanies /></AdminGuard>} />
+                {/* ─── Admin surface ─── */}
+                <Route path="/admin" element={<ProtectedRoute><AdminGuard><AdminLayout /></AdminGuard></ProtectedRoute>}>
+                    <Route index element={<Navigate to="platform-settings" replace />} />
+                    <Route path="platform-settings" element={<AdminCompanies />} />
                 </Route>
             </Routes>
         </>

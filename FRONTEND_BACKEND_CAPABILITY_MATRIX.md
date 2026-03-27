@@ -3,6 +3,21 @@
 > 日期：2026-03-27
 > 目的：以当前后端真实能力作为前端重构基线，避免继续按旧前端心智倒推接口。
 
+## 0. 当前状态更新
+
+- `Phase 0` 契约收口已完成：
+  - `frontend/src/pages` 与 `frontend/src/components` 已无裸 `fetch`
+  - 页面层已无 `api/core` 直连
+  - 删除公司链路已补齐，后端存在 `DELETE /tenants/{tenant_id}`
+- `Phase 1` 路由壳拆分已落第一步：
+  - `App.tsx` 已分为 `app / workspace / admin` 三套 authenticated layout
+  - `workspace` 已有独立的 `/enterprise/*` 子路由
+  - `EnterpriseSettings` 已支持 `forcedTab + hideTabs`，可以按子路由驱动大页中的单个 tab
+- 当前真正的下一阶段不再是“补 adapter”，而是：
+  - 继续拆 `EnterpriseSettings`
+  - 清理 app 壳里残留的跨 surface 导航耦合
+  - 做 route-level lazy loading / code splitting
+
 ## 1. 基线事实
 
 - 当前 `frontend/src` 与 `upstream/main` 没有源码差异，可直接作为“上游原版前端基线”。
@@ -25,8 +40,8 @@
 结论：
 
 - 后端能力面已经很大，足够支撑“云端单后端 + 多工作面前端”。
-- 但接口契约还没有统一规范化，当前前端不能直接把“后端能力多”理解为“前端可低成本接入”。
-- 前端重构必须先建立 adapter 层，不能继续页面直连接口。
+- 前端 adapter 层已经建立完成，当前瓶颈已从“契约不稳”转为“工作面壳层与页面结构仍偏厚”。
+- 后续工作应转向页面拆分与 surface 边界清理，而不是继续把精力耗在页面直连接口治理上。
 
 ## 3. 顶层业务域分布
 
@@ -101,11 +116,11 @@
 - `skillApi`
 - `triggerApi`
 
-问题不在“完全没有 client”，而在：
+当前状态：
 
-- `request<any>` 仍然大量存在
-- 多个页面绕过 client 直接 `fetch()`
-- 老接口与新后端能力混在一起
+- 大一统 `services/api.ts` 已退出主路径，domain adapter 已成为默认契约入口
+- 页面层直接 `fetch()` 已收口完成
+- 现阶段剩余问题不是“有没有 client”，而是“client 已经到位，但页面与 surface 结构仍然过厚”
 
 ## 6. 当前后端已具备但前端未形成稳定入口的能力
 
@@ -122,8 +137,8 @@
 
 建议处理策略：
 
-- 第一阶段只在 adapter 层建 domain stub
-- 第二阶段再决定是否进入 workspace/admin surface
+- adapter 层继续保持稳定，不再作为本阶段主要工作面
+- 下一阶段优先进入 `workspace/admin` 的页面组织与懒加载拆分
 
 ## 7. 对前端分离的直接影响
 
