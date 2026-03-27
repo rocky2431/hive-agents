@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import AgentApprovalsSection from './AgentApprovalsSection';
 import AgentActivityLogSection from './AgentActivityLogSection';
 import AgentAwareSection from './AgentAwareSection';
+import AgentChatSection from './AgentChatSection';
 import AgentMindSection from './AgentMindSection';
 import AgentSettingsSection from './AgentSettingsSection';
 import AgentSkillsSection from './AgentSkillsSection';
@@ -124,6 +125,10 @@ vi.mock('../../stores', () => {
 
 vi.mock('../../components/FileBrowser', () => ({
   default: ({ title }: { title?: string }) => <div>{title || 'File Browser Mock'}</div>,
+}));
+
+vi.mock('../../components/MarkdownRenderer', () => ({
+  default: ({ content }: { content: string }) => <div>{content}</div>,
 }));
 
 vi.mock('../../components/ChannelConfig', () => ({
@@ -384,5 +389,79 @@ describe('AgentDetail extracted sections', () => {
     expect(markup).toContain('Access Permissions');
     expect(markup).toContain('Channel Config Mock');
     expect(markup).toContain('deleteAgent');
+  });
+
+  it('renders AgentChatSection as a standalone chat module', () => {
+    const markup = renderToStaticMarkup(
+      <AgentChatSection
+        agent={{ id: 'agent-1', name: 'Release Bot' }}
+        currentUser={{ id: 'user-1' }}
+        isAdmin={false}
+        chatScope="mine"
+        onSetChatScope={vi.fn()}
+        onLoadAllSessions={vi.fn()}
+        onCreateNewSession={vi.fn()}
+        sessionsLoading={false}
+        sessions={[
+          {
+            id: 'session-1',
+            user_id: 'user-1',
+            title: 'Launch sync',
+            created_at: '2026-03-27T09:00:00Z',
+            last_message_at: '2026-03-27T09:30:00Z',
+            message_count: 3,
+          },
+        ]}
+        activeSession={{
+          id: 'session-1',
+          user_id: 'user-1',
+          title: 'Launch sync',
+          created_at: '2026-03-27T09:00:00Z',
+        }}
+        wsConnected
+        allSessions={[]}
+        allSessionsLoading={false}
+        allUserFilter=""
+        onSetAllUserFilter={vi.fn()}
+        onSelectSession={vi.fn()}
+        onDeleteSession={vi.fn()}
+        historyContainerRef={React.createRef<HTMLDivElement>()}
+        onHistoryScroll={vi.fn()}
+        historyMsgs={[]}
+        showHistoryScrollBtn={false}
+        onScrollHistoryToBottom={vi.fn()}
+        chatContainerRef={React.createRef<HTMLDivElement>()}
+        onChatScroll={vi.fn()}
+        chatMessages={[
+          { role: 'assistant', content: 'Ship it' },
+        ]}
+        isWaiting={false}
+        chatEndRef={React.createRef<HTMLDivElement>()}
+        showScrollBtn={false}
+        onScrollToBottom={vi.fn()}
+        agentExpired={false}
+        attachedFiles={[
+          { name: 'notes.md', text: '# notes' },
+        ]}
+        onRemoveAttachedFile={vi.fn()}
+        fileInputRef={React.createRef<HTMLInputElement>()}
+        onHandleChatFile={vi.fn()}
+        uploading={false}
+        uploadProgress={-1}
+        uploadAbortRef={{ current: null }}
+        chatInputRef={React.createRef<HTMLInputElement>()}
+        chatInput="Can you summarize?"
+        onSetChatInput={vi.fn()}
+        onHandlePaste={vi.fn()}
+        onSendChatMsg={vi.fn()}
+        isStreaming={false}
+        onAbortGeneration={vi.fn()}
+      />,
+    );
+
+    expect(markup).toContain('Launch sync');
+    expect(markup).toContain('Ship it');
+    expect(markup).toContain('notes.md');
+    expect(markup).toContain('send');
   });
 });

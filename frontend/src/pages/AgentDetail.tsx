@@ -1,50 +1,34 @@
 import React, { useState, useEffect, useRef, Component, ErrorInfo } from 'react';
 import { useParams, useLocation } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 
 import ConfirmModal from '../components/ConfirmModal';
 import type { FileBrowserApi } from '../components/FileBrowser';
 import FileBrowser from '../components/FileBrowser';
-import MarkdownRenderer from '../components/MarkdownRenderer';
 import PromptModal from '../components/PromptModal';
 import AgentApprovalsSection from './agent-detail/AgentApprovalsSection';
 import AgentActivityLogSection from './agent-detail/AgentActivityLogSection';
 import AgentAwareSection from './agent-detail/AgentAwareSection';
+import AgentChatSection from './agent-detail/AgentChatSection';
 import AgentMindSection from './agent-detail/AgentMindSection';
 import AgentSettingsSection from './agent-detail/AgentSettingsSection';
 import AgentSkillsSection from './agent-detail/AgentSkillsSection';
 import AgentStatusSection from './agent-detail/AgentStatusSection';
 import AgentWorkspaceSection from './agent-detail/AgentWorkspaceSection';
-import CopyMessageButton from './agent-detail/CopyMessageButton';
 import RelationshipEditor from './agent-detail/RelationshipEditor';
 import ToolsManager from './agent-detail/ToolsManager';
 import OpenClawSettings from './OpenClawSettings';
 import { agentApi } from '../api/domains/agents';
 import { activityApi } from '../api/domains/activity';
-import { channelApi } from '../api/domains/channels';
 import { enterpriseApi } from '../api/domains/enterprise';
 import { fileApi } from '../api/domains/files';
-import { scheduleApi } from '../api/domains/schedules';
-import { taskApi } from '../api/domains/tasks';
 import { triggerApi } from '../api/domains/triggers';
 import { chatApi } from '../api/domains/chat';
 import { uploadFileWithProgress } from '../api/core/upload-progress';
 import { useAuthStore } from '../stores';
 
 const TABS = ['status', 'aware', 'mind', 'tools', 'skills', 'relationships', 'workspace', 'chat', 'activityLog', 'approvals', 'settings'] as const;
-
-/** Convert rich schedule JSON to cron expression */
-function schedToCron(sched: { freq: string; interval: number; time: string; weekdays?: number[] }): string {
-    const [h, m] = (sched.time || '09:00').split(':').map(Number);
-    if (sched.freq === 'weekly') {
-        const days = (sched.weekdays || [1, 2, 3, 4, 5]).join(',');
-        return sched.interval > 1 ? `${m} ${h} * * ${days}` : `${m} ${h} * * ${days}`;
-    }
-    // daily
-    if (sched.interval === 1) return `${m} ${h} * * *`;
-    return `${m} ${h} */${sched.interval} * *`;
-}
 
 function AgentDetailInner() {
     const { t, i18n } = useTranslation();
@@ -661,63 +645,6 @@ function AgentDetailInner() {
         }, 100);
         return () => clearTimeout(timer);
     }, [historyMsgs, activeSession?.id]);
-    // Memoized component for each chat message to avoid re-renders while typing
-    const ChatMessageItem = React.useMemo(() => React.memo(({ msg, i, isLeft, t }: { msg: any, i: number, isLeft: boolean, t: any }) => {
-        const fe = msg.fileName?.split('.').pop()?.toLowerCase() ?? '';
-        const fi = fe === 'pdf' ? '📄' : (fe === 'csv' || fe === 'xlsx' || fe === 'xls') ? '📊' : (fe === 'docx' || fe === 'doc') ? '📝' : '📎';
-        const isImage = msg.imageUrl && ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'].includes(fe);
-        
-        const timestampHtml = msg.timestamp ? (() => {
-            const d = new Date(msg.timestamp);
-            const now = new Date();
-            const diffMs = now.getTime() - d.getTime();
-            const isToday = d.toDateString() === now.toDateString();
-            let timeStr = '';
-            if (isToday) timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-            else if (diffMs < 7 * 86400000) timeStr = d.toLocaleDateString([], { weekday: 'short' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-            else timeStr = d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-            return (
-                <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginTop: '4px', opacity: 0.6, display: 'flex', alignItems: 'center', justifyContent: isLeft ? 'flex-start' : 'flex-end' }}>
-                    {timeStr}
-                    {msg.content && <CopyMessageButton text={msg.content} />}
-                </div>
-            );
-        })() : null;
-
-        return (
-            <div key={i} style={{ display: 'flex', flexDirection: isLeft ? 'row' : 'row-reverse', gap: '8px', marginBottom: '8px' }}>
-                <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: isLeft ? 'var(--bg-elevated)' : 'rgba(16,185,129,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', flexShrink: 0, color: 'var(--text-secondary)', fontWeight: 600 }}>{isLeft ? (msg.sender_name ? msg.sender_name[0] : 'A') : 'U'}</div>
-                <div style={{ maxWidth: '75%', padding: '8px 12px', borderRadius: '12px', background: isLeft ? 'var(--bg-secondary)' : 'rgba(16,185,129,0.1)', fontSize: '13px', lineHeight: '1.5', wordBreak: 'break-word' }}>
-                    {isLeft && msg.sender_name && <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginBottom: '2px', fontWeight: 600 }}>🤖 {msg.sender_name}</div>}
-                    {isImage ? (
-                        <div style={{ marginBottom: '4px' }}>
-                            <img src={msg.imageUrl} alt={msg.fileName} style={{ maxWidth: '200px', maxHeight: '150px', borderRadius: '8px', border: '1px solid var(--border-subtle)' }} loading="lazy" />
-                        </div>
-                    ) : (msg.fileName && (
-                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', background: isLeft ? 'rgba(0,0,0,0.05)' : 'rgba(0,0,0,0.08)', borderRadius: '6px', padding: '4px 8px', marginBottom: msg.content ? '4px' : '0', fontSize: '11px', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)' }}>
-                            <span>{fi}</span>
-                            <span style={{ fontWeight: 500, color: 'var(--text-primary)', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{msg.fileName}</span>
-                        </div>
-                    ))}
-                    {msg.thinking && (
-                        <details style={{ marginBottom: '8px', fontSize: '12px', background: 'rgba(147, 130, 220, 0.08)', borderRadius: '6px', border: '1px solid rgba(147, 130, 220, 0.15)' }}>
-                            <summary style={{ padding: '6px 10px', cursor: 'pointer', color: 'rgba(147, 130, 220, 0.9)', fontWeight: 500, userSelect: 'none', display: 'flex', alignItems: 'center', gap: '4px' }}>💭 Thinking</summary>
-                            <div style={{ padding: '4px 10px 8px', fontSize: '12px', lineHeight: '1.6', color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: '300px', overflow: 'auto' }}>{msg.thinking}</div>
-                        </details>
-                    )}
-                    {msg.role === 'assistant' ? (
-                        (msg as any)._streaming && !msg.content ? (
-                            <div className="thinking-indicator">
-                                <div className="thinking-dots"><span /><span /><span /></div>
-                                <span style={{ color: 'var(--text-tertiary)', fontSize: '13px' }}>{t('agent.chat.thinking', 'Thinking...')}</span>
-                            </div>
-                        ) : <MarkdownRenderer content={msg.content} />
-                    ) : <div style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</div>}
-                    {timestampHtml}
-                </div>
-            </div>
-        );
-    }), [t]);
 
     const handleChatScroll = () => {
         const el = chatContainerRef.current;
@@ -894,78 +821,11 @@ function AgentDetailInner() {
     const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
     const [logFilter, setLogFilter] = useState<string>('user'); // 'user' | 'backend' | 'heartbeat' | 'schedule' | 'messages'
 
-    const { data: schedules = [] } = useQuery({
-        queryKey: ['schedules', id],
-        queryFn: () => scheduleApi.list(id!),
-        enabled: !!id && activeTab === 'tasks',
-    });
-
-    // Schedule form state
-    const [showScheduleForm, setShowScheduleForm] = useState(false);
-    const schedDefaults = { freq: 'daily', interval: 1, time: '09:00', weekdays: [1, 2, 3, 4, 5] };
-    const [schedForm, setSchedForm] = useState({ name: '', instruction: '', schedule: JSON.stringify(schedDefaults), due_date: '' });
-
-    const createScheduleMut = useMutation({
-        mutationFn: () => {
-            let sched: any;
-            try { sched = JSON.parse(schedForm.schedule); } catch { sched = schedDefaults; }
-            return scheduleApi.create(id!, { name: schedForm.name, instruction: schedForm.instruction, cron_expr: schedToCron(sched) });
-        },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['schedules', id] });
-            setShowScheduleForm(false);
-            setSchedForm({ name: '', instruction: '', schedule: JSON.stringify(schedDefaults), due_date: '' });
-        },
-        onError: (err: any) => {
-            const msg = err?.detail || err?.message || String(err);
-            alert(`Failed to create schedule: ${msg}`);
-        },
-    });
-
-    const toggleScheduleMut = useMutation({
-        mutationFn: ({ sid, enabled }: { sid: string; enabled: boolean }) =>
-            scheduleApi.update(id!, sid, { is_enabled: enabled }),
-        onSuccess: () => queryClient.invalidateQueries({ queryKey: ['schedules', id] }),
-    });
-
-    const deleteScheduleMut = useMutation({
-        mutationFn: (sid: string) => scheduleApi.delete(id!, sid),
-        onSuccess: () => queryClient.invalidateQueries({ queryKey: ['schedules', id] }),
-    });
-
-    const triggerScheduleMut = useMutation({
-        mutationFn: async (sid: string) => {
-            const res = await scheduleApi.trigger(id!, sid);
-            return res;
-        },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['schedules', id] });
-            showToast('✅ Schedule triggered — executing in background', 'success');
-        },
-        onError: (err: any) => {
-            const msg = err?.response?.data?.detail || err?.message || 'Failed to trigger schedule';
-            showToast(msg, 'error');
-        },
-    });
-
-
     const { data: metrics } = useQuery({
         queryKey: ['metrics', id],
         queryFn: () => agentApi.getMetrics(id!).catch(() => null),
         enabled: !!id && activeTab === 'status',
         retry: false,
-    });
-
-    const { data: channelConfig } = useQuery({
-        queryKey: ['channel', id],
-        queryFn: () => channelApi.get(id!),
-        enabled: !!id && activeTab === 'settings',
-    });
-
-    const { data: webhookData } = useQuery({
-        queryKey: ['webhook-url', id],
-        queryFn: () => channelApi.webhookUrl(id!),
-        enabled: !!id && activeTab === 'settings',
     });
 
     const { data: llmModels = [] } = useQuery({
@@ -983,28 +843,6 @@ function AgentDetailInner() {
         queryFn: () => agentApi.getPermissions(id!),
         enabled: !!id && activeTab === 'settings',
     });
-
-    // ─── Soul editor ─────────────────────────────────────
-    const [soulEditing, setSoulEditing] = useState(false);
-    const [soulDraft, setSoulDraft] = useState('');
-
-    const saveSoul = useMutation({
-        mutationFn: () => fileApi.write(id!, 'soul.md', soulDraft),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['file', id, 'soul.md'] });
-            setSoulEditing(false);
-        },
-    });
-
-
-    const CopyBtn = ({ url }: { url: string }) => (
-        <button title="Copy" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginLeft: '6px', padding: '1px 4px', cursor: 'pointer', borderRadius: '3px', border: '1px solid var(--border-color)', background: 'var(--bg-primary)', color: 'var(--text-secondary)', verticalAlign: 'middle', lineHeight: 1 }}
-            onClick={() => navigator.clipboard.writeText(url).then(() => { })}>
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="4" y="4" width="9" height="11" rx="1.5" /><path d="M3 11H2a1 1 0 01-1-1V2a1 1 0 011-1h8a1 1 0 011 1v1" />
-            </svg>
-        </button>
-    );
 
     // ─── File viewer ─────────────────────────────────────
     const [viewingFile, setViewingFile] = useState<string | null>(null);
@@ -1028,36 +866,7 @@ function AgentDetailInner() {
     });
 
     // ─── Task creation & detail ───────────────────────────────────
-    const [showTaskForm, setShowTaskForm] = useState(false);
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-    const [taskForm, setTaskForm] = useState({ title: '', description: '', priority: 'medium', type: 'todo' as 'todo' | 'supervision', supervision_target_name: '', remind_schedule: '', due_date: '' });
-    const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-    const { data: taskLogs = [] } = useQuery({
-        queryKey: ['task-logs', id, selectedTaskId],
-        queryFn: () => taskApi.getLogs(id!, selectedTaskId!),
-        enabled: !!id && !!selectedTaskId,
-        refetchInterval: selectedTaskId ? 3000 : false,
-    });
-
-    // Schedule execution history (selectedTaskId format: 'sched-{uuid}')
-    const expandedScheduleId = selectedTaskId?.startsWith('sched-') ? selectedTaskId.slice(6) : null;
-    const { data: scheduleHistoryData } = useQuery({
-        queryKey: ['schedule-history', id, expandedScheduleId],
-        queryFn: () => scheduleApi.history(id!, expandedScheduleId!),
-        enabled: !!id && !!expandedScheduleId,
-    });
-    const createTask = useMutation({
-        mutationFn: (data: any) => {
-            const cleaned = { ...data };
-            if (!cleaned.due_date) delete cleaned.due_date;
-            return taskApi.create(id!, cleaned);
-        },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['tasks', id] });
-            setShowTaskForm(false);
-            setTaskForm({ title: '', description: '', priority: 'medium', type: 'todo', supervision_target_name: '', remind_schedule: '', due_date: '' });
-        },
-    });
 
     if (isLoading || !agent) {
         return <div style={{ padding: '40px', color: 'var(--text-tertiary)' }}>{t('common.loading')}</div>;
@@ -1294,393 +1103,62 @@ function AgentDetailInner() {
 
                 {
                     activeTab === 'chat' && (
-                        <div style={{ display: 'flex', gap: '0', flex: 1, minHeight: 0, height: 'calc(100vh - 206px)' }}>
-                            {/* ── Left: session sidebar ── */}
-                            <div style={{ width: '220px', flexShrink: 0, borderRight: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                                {/* Tab row */}
-                                <div style={{ display: 'flex', alignItems: 'center', padding: '10px 12px 0', gap: '4px', borderBottom: '1px solid var(--border-subtle)' }}>
-                                    <button onClick={() => setChatScope('mine')}
-                                        style={{ flex: 1, padding: '5px 0', background: 'none', border: 'none', cursor: 'pointer', fontSize: '12px', fontWeight: chatScope === 'mine' ? 600 : 400, color: chatScope === 'mine' ? 'var(--text-primary)' : 'var(--text-tertiary)', borderBottom: chatScope === 'mine' ? '2px solid var(--accent-primary)' : '2px solid transparent', paddingBottom: '8px' }}>
-                                        {t('agent.chat.mySessions')}
-                                    </button>
-                                    {isAdmin && (
-                                        <button onClick={() => { setChatScope('all'); fetchAllSessions(); }}
-                                            style={{ flex: 1, padding: '5px 0', background: 'none', border: 'none', cursor: 'pointer', fontSize: '12px', fontWeight: chatScope === 'all' ? 600 : 400, color: chatScope === 'all' ? 'var(--text-primary)' : 'var(--text-tertiary)', borderBottom: chatScope === 'all' ? '2px solid var(--accent-primary)' : '2px solid transparent', paddingBottom: '8px' }}>
-                                            {t('agent.chat.allUsers')}
-                                        </button>
-                                    )}
-                                </div>
-
-                                {/* Actions row */}
-                                {chatScope === 'mine' && (
-                                    <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border-subtle)' }}>
-                                        <button onClick={createNewSession}
-                                            style={{ width: '100%', padding: '5px 8px', background: 'none', border: '1px solid var(--border-subtle)', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', color: 'var(--text-secondary)', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '6px' }}
-                                            onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-secondary)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
-                                            onMouseLeave={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--text-secondary)'; }}>
-                                            + {t('agent.chat.newSession')}
-                                        </button>
-                                    </div>
-                                )}
-
-                                {/* Session list */}
-                                <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0' }}>
-                                    {chatScope === 'mine' ? (
-                                        sessionsLoading ? (
-                                            <div style={{ padding: '20px 12px', fontSize: '12px', color: 'var(--text-tertiary)' }}>{t('common.loading')}</div>
-                                        ) : sessions.length === 0 ? (
-                                            <div style={{ padding: '20px 12px', fontSize: '12px', color: 'var(--text-tertiary)' }}>{t('agent.chat.noSessionsYet')}<br />{t('agent.chat.clickToStart')}</div>
-                                        ) : sessions.map((s: any) => {
-                                            const isActive = activeSession?.id === s.id;
-                                            const isOwn = s.user_id === String(currentUser?.id);
-                                            const channelLabel: Record<string, string> = {
-                                                feishu: t('common.channels.feishu'),
-                                                discord: t('common.channels.discord'),
-                                                slack: t('common.channels.slack'),
-                                                dingtalk: t('common.channels.dingtalk'),
-                                                wecom: t('common.channels.wecom'),
-                                            };
-                                            const chLabel = channelLabel[s.source_channel];
-                                            return (
-                                                <div key={s.id} onClick={() => selectSession(s)}
-                                                    className="session-item"
-                                                    style={{ padding: '8px 12px', cursor: 'pointer', borderLeft: isActive ? '2px solid var(--accent-primary)' : '2px solid transparent', background: isActive ? 'var(--bg-secondary)' : 'transparent', marginBottom: '1px', position: 'relative' }}
-                                                    onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = 'var(--bg-secondary)'; const btn = e.currentTarget.querySelector('.del-btn') as HTMLElement; if (btn) btn.style.opacity = '0.5'; }}
-                                                    onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent'; const btn = e.currentTarget.querySelector('.del-btn') as HTMLElement; if (btn) btn.style.opacity = '0'; }}>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '2px' }}>
-                                                        <div style={{ fontSize: '12px', fontWeight: isActive ? 600 : 400, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{s.title}</div>
-                                                        {chLabel && <span style={{ fontSize: '9px', padding: '1px 4px', borderRadius: '3px', background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)', flexShrink: 0 }}>{chLabel}</span>}
-                                                    </div>
-                                                    <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                        {isOwn && isActive && wsConnected && <span className="status-dot running" style={{ width: '5px', height: '5px', flexShrink: 0 }} />}
-                                                        {s.last_message_at
-                                                            ? new Date(s.last_message_at).toLocaleString(i18n.language === 'zh' ? 'zh-CN' : 'en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-                                                            : new Date(s.created_at).toLocaleString(i18n.language === 'zh' ? 'zh-CN' : 'en-US', { month: 'short', day: 'numeric' })}
-                                                        {s.message_count > 0 && <span style={{ marginLeft: 'auto' }}>{s.message_count}</span>}
-                                                    </div>
-                                                    <button className="del-btn" onClick={(e) => { e.stopPropagation(); deleteSession(s.id); }}
-                                                        style={{ position: 'absolute', top: '4px', right: '4px', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', opacity: 0, fontSize: '14px', color: 'var(--text-tertiary)', lineHeight: 1, transition: 'opacity 0.15s' }}
-                                                        onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = 'var(--status-error)'; }}
-                                                        onMouseLeave={e => { e.currentTarget.style.opacity = '0.5'; e.currentTarget.style.color = 'var(--text-tertiary)'; }}
-                                                        title={t('chat.deleteSession', 'Delete session')}>×</button>
-                                                </div>
-                                            );
-                                        })
-                                    ) : (
-                                        /* All Users tab — user filter dropdown + flat list */
-                                        <>
-                                            {/* User filter dropdown */}
-                                            <div style={{ padding: '8px 10px', borderBottom: '1px solid var(--border-subtle)' }}>
-                                                <select
-                                                    value={allUserFilter}
-                                                    onChange={e => setAllUserFilter(e.target.value)}
-                                                    style={{ width: '100%', padding: '4px 6px', fontSize: '11px', background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)', borderRadius: '5px', color: 'var(--text-primary)', cursor: 'pointer' }}
-                                                >
-                                                    <option value="">All Users</option>
-                                                    {Array.from(new Set(allSessions.map((s: any) => s.username || s.user_id))).filter(Boolean).map((u: any) => (
-                                                        <option key={u} value={u}>{u}</option>
-                                                    ))}
-                                                </select>
-                                            </div>
-                                            {/* Loading skeleton */}
-                                            {allSessionsLoading ? (
-                                                <div style={{ padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                                    {[...Array(6)].map((_, i) => (
-                                                        <div key={i} style={{ padding: '6px 0', animation: 'pulse 1.5s ease-in-out infinite', animationDelay: `${i * 0.1}s` }}>
-                                                            <div style={{ height: '12px', width: `${70 + (i % 3) * 10}%`, background: 'var(--bg-tertiary)', borderRadius: '4px', marginBottom: '6px' }} />
-                                                            <div style={{ height: '10px', width: `${40 + (i % 4) * 8}%`, background: 'var(--bg-tertiary)', borderRadius: '3px', opacity: 0.6 }} />
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            ) : allSessions.length === 0 ? (
-                                                <div style={{ padding: '20px 12px', fontSize: '12px', color: 'var(--text-tertiary)', textAlign: 'center' }}>{t('agent.chat.noSessionsYet')}</div>
-                                            ) : null}
-                                            {/* Filtered session list */}
-                                            {!allSessionsLoading && allSessions
-                                                .filter((s: any) => !allUserFilter || (s.username || s.user_id) === allUserFilter)
-                                                .map((s: any) => {
-                                                    const isActive = activeSession?.id === s.id;
-                                                    return (
-                                                        <div key={s.id} onClick={() => selectSession(s)}
-                                                            className="session-item"
-                                                            style={{ padding: '6px 12px', cursor: 'pointer', borderLeft: isActive ? '2px solid var(--accent-primary)' : '2px solid transparent', background: isActive ? 'var(--bg-secondary)' : 'transparent', position: 'relative' }}
-                                                            onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = 'var(--bg-secondary)'; const btn = e.currentTarget.querySelector('.del-btn') as HTMLElement; if (btn) btn.style.opacity = '0.5'; }}
-                                                            onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent'; const btn = e.currentTarget.querySelector('.del-btn') as HTMLElement; if (btn) btn.style.opacity = '0'; }}>
-                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '1px' }}>
-                                                                <div style={{ fontSize: '12px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-primary)', flex: 1 }}>{s.title}</div>
-                                                                {({
-                                                                    feishu: t('common.channels.feishu'),
-                                                                    discord: t('common.channels.discord'),
-                                                                    slack: t('common.channels.slack'),
-                                                                    dingtalk: t('common.channels.dingtalk'),
-                                                                    wecom: t('common.channels.wecom'),
-                                                                } as Record<string, string>)[s.source_channel] && (
-                                                                        <span style={{ fontSize: '9px', padding: '1px 4px', borderRadius: '3px', background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)', flexShrink: 0 }}>
-                                                                            {({
-                                                                                feishu: t('common.channels.feishu'),
-                                                                                discord: t('common.channels.discord'),
-                                                                                slack: t('common.channels.slack'),
-                                                                                dingtalk: t('common.channels.dingtalk'),
-                                                                                wecom: t('common.channels.wecom'),
-                                                                            } as Record<string, string>)[s.source_channel]}
-                                                                        </span>
-                                                                    )}
-                                                            </div>
-                                                            <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', display: 'flex', gap: '4px' }}>
-                                                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{s.username || ''}</span>
-                                                                <span style={{ flexShrink: 0 }}>{s.last_message_at ? new Date(s.last_message_at).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}{s.message_count > 0 ? ` · ${s.message_count}` : ''}</span>
-                                                            </div>
-                                                            <button className="del-btn" onClick={(e) => { e.stopPropagation(); deleteSession(s.id); }}
-                                                                style={{ position: 'absolute', top: '4px', right: '4px', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', opacity: 0, fontSize: '14px', color: 'var(--text-tertiary)', lineHeight: 1, transition: 'opacity 0.15s' }}
-                                                                onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = 'var(--status-error)'; }}
-                                                                onMouseLeave={e => { e.currentTarget.style.opacity = '0.5'; e.currentTarget.style.color = 'var(--text-tertiary)'; }}
-                                                                title={t('chat.deleteSession', 'Delete session')}>×</button>
-                                                        </div>
-                                                    );
-                                                })}
-                                        </>
-                                    )}
-                                </div>
-                            </div>
-
-                            {/* ── Right: chat/message area ── */}
-                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative', minWidth: 0, overflow: 'hidden' }}>
-                                {!activeSession ? (
-                                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-tertiary)', fontSize: '13px', flexDirection: 'column', gap: '8px' }}>
-                                        <div>{t('agent.chat.noSessionSelected')}</div>
-                                        <button className="btn btn-secondary" onClick={createNewSession} style={{ fontSize: '12px' }}>{t('agent.chat.startNewSession')}</button>
-                                    </div>
-                                ) : (activeSession.user_id && currentUser && activeSession.user_id !== String(currentUser.id)) || activeSession.source_channel === 'agent' || activeSession.participant_type === 'agent' ? (
-                                    /* ── Read-only history view (other user's session or agent-to-agent) ── */
-                                    <>
-                                        <div ref={historyContainerRef} onScroll={handleHistoryScroll} style={{ flex: 1, overflowY: 'auto', padding: '12px 16px' }}>
-                                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '12px', padding: '4px 8px', background: 'var(--bg-secondary)', borderRadius: '4px', display: 'inline-block' }}>
-                                                {activeSession.source_channel === 'agent' ? `🤖 Agent Conversation · ${activeSession.username || 'Agents'}` : `Read-only · ${activeSession.username || 'User'}`}
-                                            </div>
-                                            {(() => {
-                                                // For A2A sessions, determine which participant is "this agent" (left side)
-                                                // Use agent.name matching against sender_name from messages
-                                                const isA2A = activeSession.source_channel === 'agent' || activeSession.participant_type === 'agent';
-                                                const thisAgentName = (agent as any)?.name;
-                                                // Find this agent's participant_id from loaded messages
-                                                const thisAgentPid = isA2A && thisAgentName
-                                                    ? historyMsgs.find((m: any) => m.sender_name === thisAgentName)?.participant_id
-                                                    : null;
-                                                return historyMsgs.map((m: any, i: number) => {
-                                                // Determine if this message is from "this agent" (left) or peer (right)
-                                                // Actually, "this agent" should be on the RIGHT (like 'me'), and peer on the LEFT
-                                                const isLeft = isA2A && thisAgentPid
-                                                    ? m.participant_id !== thisAgentPid
-                                                    : m.role === 'assistant';
-                                            if (m.role === 'tool_call') {
-                                                    const tName = m.toolName || (() => { try { return JSON.parse(m.content || '{}').name; } catch { return 'tool'; } })();
-                                                    const tArgs = m.toolArgs || (() => { try { return JSON.parse(m.content || '{}').args; } catch { return {}; } })();
-                                                    const tResult = m.toolResult ?? (() => { try { return JSON.parse(m.content || '{}').result; } catch { return ''; } })();
-                                                    return (
-                                                        <div key={i} style={{ display: 'flex', gap: '8px', marginBottom: '6px', paddingLeft: '36px', minWidth: 0 }}>
-                                                            <details style={{ flex: 1, minWidth: 0, borderRadius: '8px', background: 'var(--accent-subtle)', border: '1px solid var(--accent-subtle)', fontSize: '12px', overflow: 'hidden' }}>
-                                                                <summary style={{ padding: '6px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', userSelect: 'none', listStyle: 'none', overflow: 'hidden' }}>
-                                                                    <span style={{ fontSize: '13px' }}>⚡</span>
-                                                                    <span style={{ fontWeight: 600, color: 'var(--accent-text)' }}>{tName}</span>
-                                                                    {tArgs && typeof tArgs === 'object' && Object.keys(tArgs).length > 0 && <span style={{ color: 'var(--text-tertiary)', fontSize: '11px', fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{`(${Object.entries(tArgs).map(([k, v]) => `${k}: ${typeof v === 'string' ? v.slice(0, 30) : JSON.stringify(v)}`).join(', ')})`}</span>}
-                                                                </summary>
-                                                                {tResult && <div style={{ padding: '4px 10px 8px' }}><div style={{ color: 'var(--text-secondary)', fontSize: '11px', fontFamily: 'var(--font-mono)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: '240px', overflow: 'auto', background: 'rgba(0,0,0,0.15)', borderRadius: '4px', padding: '4px 6px' }}>{tResult}</div></div>}
-                                                            </details>
-                                                        </div>
-                                                    );
-                                                }
-
-                                                {/* Assistant message with no content: show inline thinking or skip */}
-                                                if (m.role === 'assistant' && !m.content?.trim()) {
-                                                    if (m.thinking) {
-                                                        return (
-                                                            <div key={i} style={{ paddingLeft: '36px', marginBottom: '6px' }}>
-                                                                <details style={{
-                                                                    fontSize: '12px',
-                                                                    background: 'rgba(147, 130, 220, 0.08)', borderRadius: '6px',
-                                                                    border: '1px solid rgba(147, 130, 220, 0.15)',
-                                                                }}>
-                                                                    <summary style={{
-                                                                        padding: '6px 10px', cursor: 'pointer',
-                                                                        color: 'rgba(147, 130, 220, 0.9)', fontWeight: 500,
-                                                                        userSelect: 'none', display: 'flex', alignItems: 'center', gap: '4px',
-                                                                    }}>Thinking</summary>
-                                                                    <div style={{
-                                                                        padding: '4px 10px 8px',
-                                                                        fontSize: '12px', lineHeight: '1.6',
-                                                                        color: 'var(--text-secondary)',
-                                                                        whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                                                                        maxHeight: '300px', overflow: 'auto',
-                                                                    }}>{m.thinking}</div>
-                                                                </details>
-                                                            </div>
-                                                        );
-                                                    }
-                                                    return null;
-                                                }
-                                                return (
-                                                    <ChatMessageItem key={i} msg={m} i={i} isLeft={isLeft} t={t} />
-                                                );
-                                            });
-                                            })()}
-                                        </div>
-                                        {showHistoryScrollBtn && (
-                                            <button onClick={scrollHistoryToBottom} style={{ position: 'absolute', bottom: '20px', right: '20px', width: '32px', height: '32px', borderRadius: '50%', background: 'var(--bg-elevated)', border: '1px solid var(--border-default)', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.3)', zIndex: 10 }} title="Scroll to bottom">↓</button>
-                                        )}
-                                    </>
-                                ) : (
-                                    /* ── Live WebSocket chat (own session) ── */
-                                    <>
-                                        <div ref={chatContainerRef} onScroll={handleChatScroll} style={{ flex: 1, overflowY: 'auto', padding: '12px 16px' }}>
-                                            {chatMessages.length === 0 && (
-                                                <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-tertiary)' }}>
-                                                    <div style={{ fontSize: '13px', marginBottom: '4px' }}>{activeSession?.title || t('agent.chat.startChat')}</div>
-                                                    <div style={{ fontSize: '12px' }}>{t('agent.chat.startConversation', { name: agent.name })}</div>
-                                                    <div style={{ fontSize: '11px', marginTop: '4px', opacity: 0.7 }}>{t('agent.chat.fileSupport')}</div>
-                                                </div>
-                                            )}
-                                            {chatMessages.map((msg, i) => {
-                                                if (msg.role === 'tool_call') {
-                                                    return (
-                                                        <div key={i} style={{ display: 'flex', gap: '8px', marginBottom: '6px', paddingLeft: '36px', minWidth: 0 }}>
-                                                            <details style={{ flex: 1, minWidth: 0, borderRadius: '8px', background: 'var(--accent-subtle)', border: '1px solid var(--accent-subtle)', fontSize: '12px', overflow: 'hidden' }}>
-                                                                <summary style={{ padding: '6px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', userSelect: 'none', listStyle: 'none', overflow: 'hidden' }}>
-                                                                    <span style={{ fontSize: '13px' }}>{msg.toolStatus === 'running' ? '⏳' : '⚡'}</span>
-                                                                    <span style={{ fontWeight: 600, color: 'var(--accent-text)' }}>{msg.toolName}</span>
-                                                                    {msg.toolArgs && Object.keys(msg.toolArgs).length > 0 && <span style={{ color: 'var(--text-tertiary)', fontSize: '11px', fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{`(${Object.entries(msg.toolArgs).map(([k, v]) => `${k}: ${typeof v === 'string' ? v.slice(0, 30) : JSON.stringify(v)}`).join(', ')})`}</span>}
-                                                                    {msg.toolStatus === 'running' && <span style={{ color: 'var(--text-tertiary)', fontSize: '11px', marginLeft: 'auto' }}>{t('common.loading')}</span>}
-                                                                </summary>
-                                                                {msg.toolResult && <div style={{ padding: '4px 10px 8px' }}><div style={{ color: 'var(--text-secondary)', fontSize: '11px', fontFamily: 'var(--font-mono)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: '240px', overflow: 'auto', background: 'rgba(0,0,0,0.15)', borderRadius: '4px', padding: '4px 6px' }}>{msg.toolResult}</div></div>}
-                                                            </details>
-                                                        </div>
-                                                    );
-                                                }
-                                                {/* Assistant message with no text content: show inline thinking or skip */}
-                                                if (msg.role === 'assistant' && !msg.content?.trim()) {
-                                                    if (msg.thinking) {
-                                                        return (
-                                                            <div key={i} style={{ paddingLeft: '36px', marginBottom: '6px' }}>
-                                                                <details style={{
-                                                                    fontSize: '12px',
-                                                                    background: 'rgba(147, 130, 220, 0.08)', borderRadius: '6px',
-                                                                    border: '1px solid rgba(147, 130, 220, 0.15)',
-                                                                }}>
-                                                                    <summary style={{
-                                                                        padding: '6px 10px', cursor: 'pointer',
-                                                                        color: 'rgba(147, 130, 220, 0.9)', fontWeight: 500,
-                                                                        userSelect: 'none', display: 'flex', alignItems: 'center', gap: '4px',
-                                                                    }}>Thinking</summary>
-                                                                    <div style={{
-                                                                        padding: '4px 10px 8px',
-                                                                        fontSize: '12px', lineHeight: '1.6',
-                                                                        color: 'var(--text-secondary)',
-                                                                        whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                                                                        maxHeight: '300px', overflow: 'auto',
-                                                                    }}>{msg.thinking}</div>
-                                                                </details>
-                                                            </div>
-                                                        );
-                                                    }
-                                                    return null;
-                                                }
-                                                return (
-                                                    <ChatMessageItem key={i} msg={msg} i={i} isLeft={msg.role === 'assistant'} t={t} />
-                                                );
-                                            })}
-                                            {isWaiting && (
-                                                <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', animation: 'fadeIn .2s ease' }}>
-                                                    <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'var(--bg-elevated)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', flexShrink: 0, color: 'var(--text-secondary)', fontWeight: 600 }}>A</div>
-                                                    <div style={{ padding: '8px 12px', borderRadius: '12px', background: 'var(--bg-secondary)', fontSize: '13px' }}>
-                                                        <div className="thinking-indicator">
-                                                            <div className="thinking-dots">
-                                                                <span /><span /><span />
-                                                            </div>
-                                                            <span style={{ color: 'var(--text-tertiary)', fontSize: '13px' }}>{t('agent.chat.thinking', 'Thinking...')}</span>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            )}
-                                            <div ref={chatEndRef} />
-                                        </div>
-                                        {showScrollBtn && (
-                                            <button onClick={scrollToBottom} style={{ position: 'absolute', bottom: '70px', right: '20px', width: '32px', height: '32px', borderRadius: '50%', background: 'var(--bg-elevated)', border: '1px solid var(--border-default)', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.3)', zIndex: 10 }} title="Scroll to bottom">↓</button>
-                                        )}
-                                        {agentExpired ? (
-                                            <div style={{ padding: '7px 16px', borderTop: '1px solid rgba(245,158,11,0.3)', background: 'rgba(245,158,11,0.08)', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'rgb(180,100,0)' }}>
-                                                <span>u23f8</span>
-                                                <span>This Agent has <strong>expired</strong> and is off duty. Contact your admin to extend its service.</span>
-                                            </div>
-                                        ) : !wsConnected && (!activeSession?.user_id || !currentUser || activeSession.user_id === String(currentUser?.id)) ? (
-                                            <div style={{ padding: '3px 16px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: 'var(--text-tertiary)' }}>
-                                                <span style={{ display: 'inline-block', width: '5px', height: '5px', borderRadius: '50%', background: 'var(--accent-primary)', opacity: 0.8, animation: 'pulse 1.2s ease-in-out infinite' }} />
-                                                Connecting...
-                                            </div>
-                                        ) : null}
-                                        {attachedFiles.length > 0 && (
-                                            <div style={{ padding: '6px 16px', background: 'var(--bg-elevated)', borderTop: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                                                {attachedFiles.map((file, idx) => (
-                                                    <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', background: 'var(--bg-secondary)', padding: '4px 6px', borderRadius: '4px', border: '1px solid var(--border-subtle)', maxWidth: '200px' }}>
-                                                        {file.imageUrl ? (
-                                                            <img src={file.imageUrl} alt={file.name} style={{ width: '20px', height: '20px', borderRadius: '4px', objectFit: 'cover' }} />
-                                                        ) : (
-                                                            <span>📎</span>
-                                                        )}
-                                                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</span>
-                                                        <button onClick={() => setAttachedFiles(prev => prev.filter((_, i) => i !== idx))} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: '14px', padding: '0 2px' }} title="Remove file">✕</button>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                        <div style={{ display: 'flex', gap: '8px', padding: '6px 12px', borderTop: '1px solid var(--border-subtle)' }}>
-                                            <input type="file" multiple ref={fileInputRef} onChange={handleChatFile} style={{ display: 'none' }} />
-                                            <button className="btn btn-secondary" onClick={() => fileInputRef.current?.click()} disabled={!wsConnected || uploading || isWaiting || isStreaming || attachedFiles.length >= 10} style={{ padding: '6px 10px', fontSize: '14px', minWidth: 'auto', ...( (!wsConnected || uploading || isWaiting || isStreaming) ? { cursor: 'not-allowed', opacity: 0.4 } : {}) }}>{uploading ? '⏳' : '⦹'}</button>
-                                            {uploading && uploadProgress >= 0 && (
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: '0 0 140px' }}>
-                                                    {uploadProgress <= 100 ? (
-                                                        /* Upload phase: show progress bar */
-                                                        <>
-                                                            <div style={{ flex: 1, height: '4px', borderRadius: '2px', background: 'var(--bg-tertiary)', overflow: 'hidden' }}>
-                                                                <div style={{ height: '100%', borderRadius: '2px', background: 'var(--accent-primary)', width: `${uploadProgress}%`, transition: 'width 0.15s ease' }} />
-                                                            </div>
-                                                            <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{uploadProgress}%</span>
-                                                        </>
-                                                    ) : (
-                                                        /* Processing phase (progress = 101): server is parsing the file */
-                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                            <span style={{ display: 'inline-block', width: '5px', height: '5px', borderRadius: '50%', background: 'var(--accent-primary)', animation: 'pulse 1.2s ease-in-out infinite' }} />
-                                                            <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>Processing...</span>
-                                                        </div>
-                                                    )}
-                                                    <button onClick={() => { uploadAbortRef.current?.(); }} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: '12px', padding: '0 2px', lineHeight: 1 }} title="Cancel upload">✕</button>
-                                                </div>
-                                            )}
-                                            <input ref={chatInputRef} className="chat-input" value={chatInput} onChange={e => setChatInput(e.target.value)}
-                                                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && !isWaiting && !isStreaming) { e.preventDefault(); sendChatMsg(); } }}
-                                                onPaste={handlePaste}
-                                                placeholder={!wsConnected && (!activeSession?.user_id || !currentUser || activeSession.user_id === String(currentUser?.id)) ? 'Connecting...' : attachedFiles.length > 0 ? t('agent.chat.askAboutFile', { name: attachedFiles.length === 1 ? attachedFiles[0].name : `${attachedFiles.length} files` }) : t('chat.placeholder')}
-                                                disabled={!wsConnected} style={{ flex: 1 }} autoFocus />
-                                            {(isStreaming || isWaiting) ? (
-                                                <button className="btn btn-stop-generation" onClick={() => {
-                                                    if (!id || !activeSession?.id) return;
-                                                    const activeRuntimeKey = buildSessionRuntimeKey(id, String(activeSession.id));
-                                                    const activeSocket = wsMapRef.current[activeRuntimeKey];
-                                                    if (activeSocket?.readyState === WebSocket.OPEN) {
-                                                        activeSocket.send(JSON.stringify({ type: 'abort' }));
-                                                        setIsStreaming(false);
-                                                        setIsWaiting(false);
-                                                        setSessionUiState(activeRuntimeKey, { isWaiting: false, isStreaming: false });
-                                                    }
-                                                }} style={{ padding: '6px 16px' }} title={t('chat.stop', 'Stop')}>
-                                                    <span className="stop-icon" />
-                                                </button>
-                                            ) : (
-                                                <button className="btn btn-primary" onClick={sendChatMsg} disabled={!wsConnected || (!chatInput.trim() && attachedFiles.length === 0)} style={{ padding: '6px 16px' }}>{t('chat.send')}</button>
-                                            )}
-                                        </div>
-                                    </>
-                                )}
-                            </div>
-                        </div>
+                        <AgentChatSection
+                            agent={agent}
+                            currentUser={currentUser}
+                            isAdmin={isAdmin}
+                            chatScope={chatScope}
+                            onSetChatScope={setChatScope}
+                            onLoadAllSessions={fetchAllSessions}
+                            onCreateNewSession={createNewSession}
+                            sessionsLoading={sessionsLoading}
+                            sessions={sessions}
+                            activeSession={activeSession}
+                            wsConnected={wsConnected}
+                            allSessions={allSessions}
+                            allSessionsLoading={allSessionsLoading}
+                            allUserFilter={allUserFilter}
+                            onSetAllUserFilter={setAllUserFilter}
+                            onSelectSession={selectSession}
+                            onDeleteSession={deleteSession}
+                            historyContainerRef={historyContainerRef}
+                            onHistoryScroll={handleHistoryScroll}
+                            historyMsgs={historyMsgs}
+                            showHistoryScrollBtn={showHistoryScrollBtn}
+                            onScrollHistoryToBottom={scrollHistoryToBottom}
+                            chatContainerRef={chatContainerRef}
+                            onChatScroll={handleChatScroll}
+                            chatMessages={chatMessages}
+                            isWaiting={isWaiting}
+                            chatEndRef={chatEndRef}
+                            showScrollBtn={showScrollBtn}
+                            onScrollToBottom={scrollToBottom}
+                            agentExpired={agentExpired}
+                            attachedFiles={attachedFiles}
+                            onRemoveAttachedFile={(index) => setAttachedFiles((prev) => prev.filter((_, i) => i !== index))}
+                            fileInputRef={fileInputRef}
+                            onHandleChatFile={handleChatFile}
+                            uploading={uploading}
+                            uploadProgress={uploadProgress}
+                            uploadAbortRef={uploadAbortRef}
+                            chatInputRef={chatInputRef}
+                            chatInput={chatInput}
+                            onSetChatInput={setChatInput}
+                            onHandlePaste={handlePaste}
+                            onSendChatMsg={sendChatMsg}
+                            isStreaming={isStreaming}
+                            onAbortGeneration={() => {
+                                if (!id || !activeSession?.id) return;
+                                const activeRuntimeKey = buildSessionRuntimeKey(id, String(activeSession.id));
+                                const activeSocket = wsMapRef.current[activeRuntimeKey];
+                                if (activeSocket?.readyState === WebSocket.OPEN) {
+                                    activeSocket.send(JSON.stringify({ type: 'abort' }));
+                                    setIsStreaming(false);
+                                    setIsWaiting(false);
+                                    setSessionUiState(activeRuntimeKey, { isWaiting: false, isStreaming: false });
+                                }
+                            }}
+                        />
                     )
                 }
 
