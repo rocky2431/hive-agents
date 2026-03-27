@@ -284,6 +284,43 @@ Plan would be:
         "is_default": False,
         "files": [],  # populated at runtime from templates/system_skills/
     },
+    # ─── Agent behavioral & discovery skills (default, from templates/skills/) ──
+    {
+        "name": "Find Skills",
+        "description": "Discover and install skills from skills.sh and ClawHub with ranking and security vetting",
+        "category": "system",
+        "icon": "🔍",
+        "folder_name": "find-skills",
+        "is_default": True,
+        "files": [],  # populated at runtime from templates/skills/
+    },
+    {
+        "name": "Skill Vetter",
+        "description": "Security review protocol for third-party skills — red flag detection, risk classification, vetting report",
+        "category": "system",
+        "icon": "🔒",
+        "folder_name": "skill-vetter",
+        "is_default": True,
+        "files": [],  # populated at runtime from templates/skills/
+    },
+    {
+        "name": "Self-Improving Agent",
+        "description": "Log errors, corrections, and learnings to memory/learnings/ for continuous improvement",
+        "category": "system",
+        "icon": "📈",
+        "folder_name": "self-improving-agent",
+        "is_default": True,
+        "files": [],  # populated at runtime from templates/skills/
+    },
+    {
+        "name": "Proactive Agent",
+        "description": "Write-ahead logging, proactive thinking, context recovery, and relentless problem-solving protocols",
+        "category": "system",
+        "icon": "⚡",
+        "folder_name": "proactive-agent",
+        "is_default": True,
+        "files": [],  # populated at runtime from templates/skills/
+    },
 ]
 
 
@@ -315,6 +352,17 @@ async def seed_skills():
                 s["files"] = [{"path": "SKILL.md", "content": skill_md.read_text(encoding="utf-8")}]
             else:
                 logger.warning(f"[SkillSeeder] {s['folder_name']}/SKILL.md not found in templates/system_skills/")
+
+        # Agent behavioral & discovery skills — load from templates/skills/<folder>/SKILL.md
+        elif s["folder_name"] in (
+            "find-skills", "skill-vetter", "self-improving-agent", "proactive-agent",
+        ) and not s["files"]:
+            _agent_skills_dir = Path(__file__).parent.parent / "templates" / "skills"
+            skill_md = _agent_skills_dir / s["folder_name"] / "SKILL.md"
+            if skill_md.exists():
+                s["files"] = [{"path": "SKILL.md", "content": skill_md.read_text(encoding="utf-8")}]
+            else:
+                logger.warning(f"[SkillSeeder] {s['folder_name']}/SKILL.md not found in templates/skills/")
 
     async with async_session() as db:
         for skill_data in BUILTIN_SKILLS:
