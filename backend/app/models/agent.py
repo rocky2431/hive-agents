@@ -67,9 +67,6 @@ class Agent(Base):
     min_poll_interval_min: Mapped[int] = mapped_column(Integer, default=5)
     webhook_rate_limit: Mapped[int] = mapped_column(Integer, default=5)
 
-    # Expiry control
-    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    is_expired: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # Template
     template_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("agent_templates.id"))

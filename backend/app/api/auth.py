@@ -65,10 +65,6 @@ async def register(data: UserRegister, db: AsyncSession = Depends(get_db)):
         tenant_uuid = tenant.id
         role = "platform_admin"
         quota_defaults = {
-            "quota_message_limit": tenant.default_message_limit,
-            "quota_message_period": tenant.default_message_period,
-            "quota_max_agents": tenant.default_max_agents,
-            "quota_agent_ttl_hours": tenant.default_agent_ttl_hours,
             "quota_tokens_per_day": tenant.default_tokens_per_day,
             "quota_tokens_per_month": tenant.default_tokens_per_month,
         }

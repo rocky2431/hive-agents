@@ -45,24 +45,13 @@ class User(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
-    # Usage quotas (set by admin, defaults from tenant)
-    quota_message_limit: Mapped[int] = mapped_column(Integer, default=50)
-    quota_message_period: Mapped[str] = mapped_column(String(20), default="permanent")  # permanent|daily|weekly|monthly
-    quota_messages_used: Mapped[int] = mapped_column(Integer, default=0)
-    quota_period_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    quota_max_agents: Mapped[int] = mapped_column(Integer, default=2)
-    quota_agent_ttl_hours: Mapped[int] = mapped_column(Integer, default=48)
-
-    # Token & LLM call quotas (employee-level, covers all agents)
+    # Token quota (employee-level, covers all agents — the only usage limit)
     quota_tokens_per_day: Mapped[int | None] = mapped_column(Integer)
     quota_tokens_per_month: Mapped[int | None] = mapped_column(Integer)
     tokens_used_today: Mapped[int] = mapped_column(Integer, default=0)
     tokens_used_month: Mapped[int] = mapped_column(Integer, default=0)
     tokens_used_total: Mapped[int] = mapped_column(Integer, default=0)
     tokens_reset_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    quota_llm_calls_per_day: Mapped[int] = mapped_column(Integer, default=200)
-    llm_calls_today: Mapped[int] = mapped_column(Integer, default=0)
-    llm_calls_reset_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # Relationships
     department: Mapped["Department | None"] = relationship(back_populates="members", foreign_keys=[department_id])

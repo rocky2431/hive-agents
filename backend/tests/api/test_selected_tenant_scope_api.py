@@ -62,11 +62,8 @@ async def test_platform_admin_can_update_selected_tenant_quotas():
     target_tenant_id = uuid4()
     target_tenant = SimpleNamespace(
         id=target_tenant_id,
-        default_message_limit=50,
-        default_message_period="permanent",
-        default_max_agents=2,
-        default_agent_ttl_hours=48,
-        default_max_llm_calls_per_day=100,
+        default_tokens_per_day=None,
+        default_tokens_per_month=None,
         min_heartbeat_interval_minutes=120,
         default_max_triggers=20,
         min_poll_interval_floor=5,
@@ -75,15 +72,14 @@ async def test_platform_admin_can_update_selected_tenant_quotas():
     db = _FakeDB([_ScalarResult(target_tenant)])
 
     result = await enterprise_api.update_tenant_quotas(
-        data=enterprise_api.TenantQuotaUpdate(default_message_limit=80, default_max_agents=6),
+        data=enterprise_api.TenantQuotaUpdate(default_tokens_per_day=100000),
         tenant_id=str(target_tenant_id),
         current_user=SimpleNamespace(id=uuid4(), role="platform_admin", tenant_id=own_tenant_id),
         db=db,
     )
 
     assert result["message"] == "Tenant quotas updated"
-    assert target_tenant.default_message_limit == 80
-    assert target_tenant.default_max_agents == 6
+    assert target_tenant.default_tokens_per_day == 100000
     assert db.committed is True
 
 
@@ -101,30 +97,23 @@ async def test_platform_admin_can_update_other_tenant_user_quota():
         display_name="Alice",
         role="member",
         is_active=True,
-        quota_message_limit=50,
-        quota_message_period="permanent",
-        quota_messages_used=0,
-        quota_max_agents=2,
-        quota_agent_ttl_hours=48,
         quota_tokens_per_day=None,
         quota_tokens_per_month=None,
         tokens_used_today=0,
         tokens_used_month=0,
         tokens_used_total=0,
-        quota_llm_calls_per_day=200,
-        llm_calls_today=0,
     )
     db = _FakeDB([_ScalarResult(user), _ScalarResult(1)])
 
     result = await users_api.update_user_quota(
         user_id=user.id,
-        data=users_api.UserQuotaUpdate(quota_message_limit=120),
+        data=users_api.UserQuotaUpdate(quota_tokens_per_day=50000),
         current_user=SimpleNamespace(role="platform_admin", tenant_id=own_tenant_id),
         db=db,
     )
 
-    assert result.quota_message_limit == 120
-    assert user.quota_message_limit == 120
+    assert result.quota_tokens_per_day == 50000
+    assert user.quota_tokens_per_day == 50000
     assert db.committed is True
 
 

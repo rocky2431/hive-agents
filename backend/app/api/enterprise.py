@@ -574,10 +574,6 @@ from app.models.tenant import Tenant
 
 
 class TenantQuotaUpdate(BaseModel):
-    default_message_limit: int | None = None
-    default_message_period: str | None = None
-    default_max_agents: int | None = None
-    default_agent_ttl_hours: int | None = None
     default_tokens_per_day: int | None = None
     default_tokens_per_month: int | None = None
     min_heartbeat_interval_minutes: int | None = None
@@ -599,10 +595,6 @@ async def get_tenant_quotas(
     if not tenant:
         return {}
     return {
-        "default_message_limit": tenant.default_message_limit,
-        "default_message_period": tenant.default_message_period,
-        "default_max_agents": tenant.default_max_agents,
-        "default_agent_ttl_hours": tenant.default_agent_ttl_hours,
         "default_tokens_per_day": tenant.default_tokens_per_day,
         "default_tokens_per_month": tenant.default_tokens_per_month,
         "min_heartbeat_interval_minutes": tenant.min_heartbeat_interval_minutes,
@@ -626,14 +618,6 @@ async def update_tenant_quotas(
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant not found")
 
-    if data.default_message_limit is not None:
-        tenant.default_message_limit = data.default_message_limit
-    if data.default_message_period is not None:
-        tenant.default_message_period = data.default_message_period
-    if data.default_max_agents is not None:
-        tenant.default_max_agents = data.default_max_agents
-    if data.default_agent_ttl_hours is not None:
-        tenant.default_agent_ttl_hours = data.default_agent_ttl_hours
     if data.default_tokens_per_day is not None:
         tenant.default_tokens_per_day = data.default_tokens_per_day
     if data.default_tokens_per_month is not None:

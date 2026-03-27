@@ -113,24 +113,12 @@ async def create_agent(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new digital employee (any authenticated user)."""
-    # Check agent creation quota
-    from app.services.quota_guard import check_agent_creation_quota, QuotaExceeded
-    try:
-        await check_agent_creation_quota(current_user.id)
-    except QuotaExceeded as e:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=e.message)
-
-    # Calculate expiry time
-    from datetime import datetime, timedelta, timezone as tz
-    expires_at = datetime.now(tz.utc) + timedelta(hours=current_user.quota_agent_ttl_hours or 48)
-
     # Determine target tenant: normally user's tenant; admins can override via payload
     target_tenant_id = current_user.tenant_id
     if current_user.role in ("platform_admin", "org_admin"):
         target_tenant_id = resolve_tenant_scope(current_user, data.tenant_id)
 
     # Get default limits from target tenant
-    max_llm_calls = 100
     default_max_triggers = 20
     default_min_poll = 5
     default_webhook_rate = 5
@@ -156,7 +144,6 @@ async def create_agent(
         agent_class=data.agent_class,
         security_zone=data.security_zone,
         status="draft",
-        expires_at=expires_at,
         max_triggers=default_max_triggers,
         min_poll_interval_min=default_min_poll,
         webhook_rate_limit=default_webhook_rate,
@@ -373,22 +360,6 @@ async def update_agent(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only creator or admin can update agent settings")
 
     update_data = data.model_dump(exclude_unset=True)
-
-    # expires_at: admin only
-    if "expires_at" in update_data:
-        if not is_admin:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only admin can modify agent expiry time")
-        from datetime import datetime, timezone as tz
-        new_expires = update_data["expires_at"]
-        # Allow any value: extend, shorten, or null (permanent).
-        # Re-activate the agent if new expiry is in the future or cleared.
-        if new_expires is None or new_expires > datetime.now(tz.utc):
-            if agent.is_expired:
-                agent.is_expired = False
-                try:
-                    agent.status = transition(agent.status, "idle", TransitionContext(is_admin=True))
-                except InvalidTransitionError as e:
-                    raise HTTPException(status_code=400, detail=str(e))
 
     # Enforce heartbeat floor from tenant
     clamped_fields = []  # track fields adjusted by tenant floor

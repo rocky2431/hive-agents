@@ -42,18 +42,11 @@ class UserOut(BaseModel):
     feishu_open_id: str | None = None
     oidc_sub: str | None = None
     is_active: bool
-    quota_message_limit: int | None = None
-    quota_message_period: str | None = None
-    quota_messages_used: int | None = None
-    quota_max_agents: int | None = None
-    quota_agent_ttl_hours: int | None = None
     quota_tokens_per_day: int | None = None
     quota_tokens_per_month: int | None = None
     tokens_used_today: int = 0
     tokens_used_month: int = 0
     tokens_used_total: int = 0
-    quota_llm_calls_per_day: int = 200
-    llm_calls_today: int = 0
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -120,8 +113,6 @@ class AgentOut(BaseModel):
     heartbeat_active_hours: str = "09:00-18:00"
     last_heartbeat_at: datetime | None = None
     timezone: str | None = None
-    expires_at: datetime | None = None
-    is_expired: bool = False
     agent_type: str = "native"
     agent_class: AgentClass = "internal_tenant"
     security_zone: str = "standard"
@@ -149,7 +140,6 @@ class AgentUpdate(BaseModel):
     timezone: str | None = None
     agent_class: AgentClass | None = None
     security_zone: str | None = None
-    expires_at: datetime | None = None  # Admin only — extend agent expiry
 
 
 class AgentStatusOut(BaseModel):

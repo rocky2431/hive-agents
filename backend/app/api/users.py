@@ -16,13 +16,8 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 
 class UserQuotaUpdate(BaseModel):
-    quota_message_limit: int | None = None
-    quota_message_period: str | None = None
-    quota_max_agents: int | None = None
-    quota_agent_ttl_hours: int | None = None
     quota_tokens_per_day: int | None = None
     quota_tokens_per_month: int | None = None
-    quota_llm_calls_per_day: int | None = None
 
 
 class UserOut(BaseModel):
@@ -32,25 +27,18 @@ class UserOut(BaseModel):
     display_name: str
     role: str
     is_active: bool
-    # Quota fields
-    quota_message_limit: int
-    quota_message_period: str
-    quota_messages_used: int
-    quota_max_agents: int
-    quota_agent_ttl_hours: int
+    # Token quota
     quota_tokens_per_day: int | None = None
     quota_tokens_per_month: int | None = None
     tokens_used_today: int = 0
     tokens_used_month: int = 0
     tokens_used_total: int = 0
-    quota_llm_calls_per_day: int = 200
-    llm_calls_today: int = 0
     # Computed
     agents_count: int = 0
     # Source info
     feishu_open_id: str | None = None
     created_at: str | None = None
-    source: str = 'registered'  # 'registered' | 'feishu'
+    source: str = 'registered'
 
     model_config = {"from_attributes": True}
 
@@ -94,11 +82,11 @@ async def list_users(
             "display_name": u.display_name,
             "role": u.role,
             "is_active": u.is_active,
-            "quota_message_limit": u.quota_message_limit,
-            "quota_message_period": u.quota_message_period,
-            "quota_messages_used": u.quota_messages_used,
-            "quota_max_agents": u.quota_max_agents,
-            "quota_agent_ttl_hours": u.quota_agent_ttl_hours,
+            "quota_tokens_per_day": u.quota_tokens_per_day,
+            "quota_tokens_per_month": u.quota_tokens_per_month,
+            "tokens_used_today": u.tokens_used_today,
+            "tokens_used_month": u.tokens_used_month,
+            "tokens_used_total": u.tokens_used_total,
             "agents_count": agents_count,
             "feishu_open_id": getattr(u, 'feishu_open_id', None),
             "created_at": u.created_at.isoformat() if u.created_at else None,
@@ -127,49 +115,26 @@ async def update_user_quota(
     if current_user.role != "platform_admin" and user.tenant_id != current_user.tenant_id:
         raise HTTPException(status_code=403, detail="Cannot modify users outside your organization")
 
-    if data.quota_message_limit is not None:
-        user.quota_message_limit = data.quota_message_limit
-    if data.quota_message_period is not None:
-        if data.quota_message_period not in ("permanent", "daily", "weekly", "monthly"):
-            raise HTTPException(status_code=400, detail="Invalid period. Use: permanent, daily, weekly, monthly")
-        user.quota_message_period = data.quota_message_period
-    if data.quota_max_agents is not None:
-        user.quota_max_agents = data.quota_max_agents
-    if data.quota_agent_ttl_hours is not None:
-        user.quota_agent_ttl_hours = data.quota_agent_ttl_hours
     if data.quota_tokens_per_day is not None:
         user.quota_tokens_per_day = data.quota_tokens_per_day
     if data.quota_tokens_per_month is not None:
         user.quota_tokens_per_month = data.quota_tokens_per_month
-    if data.quota_llm_calls_per_day is not None:
-        user.quota_llm_calls_per_day = data.quota_llm_calls_per_day
 
     await db.commit()
     await db.refresh(user)
 
-    # Count agents
     count_result = await db.execute(
-        select(func.count()).select_from(Agent).where(
-            Agent.creator_id == user.id,
-            Agent.is_expired == False,
-        )
+        select(func.count()).select_from(Agent).where(Agent.creator_id == user.id)
     )
     agents_count = count_result.scalar() or 0
 
     return UserOut(
         id=user.id, username=user.username, email=user.email,
         display_name=user.display_name, role=user.role, is_active=user.is_active,
-        quota_message_limit=user.quota_message_limit,
-        quota_message_period=user.quota_message_period,
-        quota_messages_used=user.quota_messages_used,
-        quota_max_agents=user.quota_max_agents,
-        quota_agent_ttl_hours=user.quota_agent_ttl_hours,
         quota_tokens_per_day=user.quota_tokens_per_day,
         quota_tokens_per_month=user.quota_tokens_per_month,
         tokens_used_today=user.tokens_used_today,
         tokens_used_month=user.tokens_used_month,
         tokens_used_total=user.tokens_used_total,
-        quota_llm_calls_per_day=user.quota_llm_calls_per_day,
-        llm_calls_today=user.llm_calls_today,
         agents_count=agents_count,
     )

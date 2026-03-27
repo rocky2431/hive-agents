@@ -97,11 +97,9 @@ async def self_create_company(
     # Assign creator as org_admin
     current_user.tenant_id = tenant.id
     current_user.role = "org_admin" if current_user.role == "member" else current_user.role
-    # Inherit quota defaults from new tenant
-    current_user.quota_message_limit = tenant.default_message_limit
-    current_user.quota_message_period = tenant.default_message_period
-    current_user.quota_max_agents = tenant.default_max_agents
-    current_user.quota_agent_ttl_hours = tenant.default_agent_ttl_hours
+    # Inherit token quota defaults from new tenant
+    current_user.quota_tokens_per_day = tenant.default_tokens_per_day
+    current_user.quota_tokens_per_month = tenant.default_tokens_per_month
     await db.flush()
 
     return TenantOut.model_validate(tenant)
@@ -164,11 +162,9 @@ async def join_company(
     current_user.tenant_id = tenant.id
     if current_user.role == "member":
         current_user.role = assigned_role
-    # Inherit quota defaults from tenant
-    current_user.quota_message_limit = tenant.default_message_limit
-    current_user.quota_message_period = tenant.default_message_period
-    current_user.quota_max_agents = tenant.default_max_agents
-    current_user.quota_agent_ttl_hours = tenant.default_agent_ttl_hours
+    # Inherit token quota defaults from tenant
+    current_user.quota_tokens_per_day = tenant.default_tokens_per_day
+    current_user.quota_tokens_per_month = tenant.default_tokens_per_month
 
     # Increment invitation code usage
     code_obj.used_count += 1

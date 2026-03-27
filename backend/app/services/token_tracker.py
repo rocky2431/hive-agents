@@ -69,7 +69,6 @@ async def record_token_usage(agent_id: uuid.UUID, tokens: int, user_id: uuid.UUI
                     # Daily reset
                     if user.tokens_reset_at and now.date() > user.tokens_reset_at.date():
                         user.tokens_used_today = 0
-                        user.llm_calls_today = 0
                     # Monthly reset
                     if user.tokens_reset_at and now.month != user.tokens_reset_at.month:
                         user.tokens_used_month = 0
