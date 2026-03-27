@@ -1,215 +1,174 @@
 import { useEffect, useState } from 'react';
-
 import { useTranslation } from 'react-i18next';
-
 import { enterpriseApi } from '../../api/domains/enterprise';
 
-interface WorkspaceQuotaForm {
-  default_message_limit: number;
-  default_message_period: string;
-  default_max_agents: number;
-  default_agent_ttl_hours: number;
-  default_max_llm_calls_per_day: number;
+interface QuotaForm {
+  default_tokens_per_day: number | null;
+  default_tokens_per_month: number | null;
   min_heartbeat_interval_minutes: number;
   default_max_triggers: number;
   min_poll_interval_floor: number;
   max_webhook_rate_ceiling: number;
 }
 
-const DEFAULT_QUOTA_FORM: WorkspaceQuotaForm = {
-  default_message_limit: 50,
-  default_message_period: 'permanent',
-  default_max_agents: 2,
-  default_agent_ttl_hours: 48,
-  default_max_llm_calls_per_day: 100,
+const DEFAULT_FORM: QuotaForm = {
+  default_tokens_per_day: null,
+  default_tokens_per_month: null,
   min_heartbeat_interval_minutes: 120,
   default_max_triggers: 20,
   min_poll_interval_floor: 5,
   max_webhook_rate_ceiling: 5,
 };
 
+const formatTokens = (n: number) => {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
+  return String(n);
+};
+
 export default function WorkspaceQuotasSection() {
   const { t } = useTranslation();
-  const [quotaForm, setQuotaForm] = useState<WorkspaceQuotaForm>(DEFAULT_QUOTA_FORM);
-  const [quotaSaving, setQuotaSaving] = useState(false);
-  const [quotaSaved, setQuotaSaved] = useState(false);
+  const [form, setForm] = useState<QuotaForm>(DEFAULT_FORM);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     enterpriseApi.getTenantQuotas().then((data) => {
       if (data && Object.keys(data).length > 0) {
-        setQuotaForm((current) => ({ ...current, ...data }));
+        setForm((prev) => ({ ...prev, ...data }));
       }
     }).catch(() => {});
   }, []);
 
-    const saveQuotas = async () => {
-        setQuotaSaving(true);
-        try {
-      await enterpriseApi.updateTenantQuotas(quotaForm as unknown as Record<string, unknown>);
-      setQuotaSaved(true);
-      setTimeout(() => setQuotaSaved(false), 2000);
+  const save = async () => {
+    setSaving(true);
+    try {
+      await enterpriseApi.updateTenantQuotas(form as unknown as Record<string, unknown>);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
     } catch {
       alert('Failed to save');
     }
-    setQuotaSaving(false);
+    setSaving(false);
   };
 
   return (
     <div>
-      <h3 style={{ marginBottom: '4px' }}>{t('enterprise.quotas.defaultUserQuotas', 'Default User Quotas')}</h3>
+      <h3 style={{ marginBottom: '4px' }}>
+        {t('enterprise.quotas.title', 'Employee Token Quotas')}
+      </h3>
       <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '16px' }}>
-        {t('enterprise.quotas.defaultsApply', 'These defaults apply to new users and agents in this company.')}
+        {t('enterprise.quotas.subtitle', 'Default token limits for new employees. Admins can override per-user in User Management.')}
       </p>
+
+      {/* Token Quotas */}
+      <div className="card" style={{ padding: '16px', marginBottom: '16px' }}>
+        <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '12px' }}>
+          Token 配额
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+          <div className="form-group">
+            <label className="form-label">每日 Token 上限</label>
+            <input
+              className="form-input"
+              type="number"
+              min={0}
+              placeholder="不限制"
+              value={form.default_tokens_per_day ?? ''}
+              onChange={(e) => setForm({ ...form, default_tokens_per_day: e.target.value ? Number(e.target.value) : null })}
+            />
+            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
+              员工每天可消耗的最大 token 数{form.default_tokens_per_day ? `（约 ${formatTokens(form.default_tokens_per_day)}）` : '（不限制）'}
+            </div>
+          </div>
+          <div className="form-group">
+            <label className="form-label">每月 Token 上限</label>
+            <input
+              className="form-input"
+              type="number"
+              min={0}
+              placeholder="不限制"
+              value={form.default_tokens_per_month ?? ''}
+              onChange={(e) => setForm({ ...form, default_tokens_per_month: e.target.value ? Number(e.target.value) : null })}
+            />
+            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
+              员工每月可消耗的最大 token 数{form.default_tokens_per_month ? `（约 ${formatTokens(form.default_tokens_per_month)}）` : '（不限制）'}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* System Settings (pending discussion) */}
       <div className="card" style={{ padding: '16px' }}>
-        <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '10px' }}>
-          {t('enterprise.quotas.conversationLimits', 'Conversation Limits')}
+        <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '12px' }}>
+          系统设置
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
           <div className="form-group">
-            <label className="form-label">{t('enterprise.quotas.messageLimit', 'Message Limit')}</label>
-            <input
-              className="form-input"
-              type="number"
-              min={0}
-              value={quotaForm.default_message_limit}
-              onChange={(event) => setQuotaForm({ ...quotaForm, default_message_limit: Number(event.target.value) })}
-            />
-            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-              {t('enterprise.quotas.maxMessagesPerPeriod', 'Maximum messages allowed in the selected period')}
-            </div>
-          </div>
-          <div className="form-group">
-            <label className="form-label">{t('enterprise.quotas.messagePeriod', 'Message Period')}</label>
-            <select
-              className="form-input"
-              value={quotaForm.default_message_period}
-              onChange={(event) => setQuotaForm({ ...quotaForm, default_message_period: event.target.value })}
-            >
-              <option value="permanent">{t('enterprise.quotas.permanent', 'Permanent')}</option>
-              <option value="daily">{t('enterprise.quotas.daily', 'Daily')}</option>
-              <option value="weekly">{t('enterprise.quotas.weekly', 'Weekly')}</option>
-              <option value="monthly">{t('enterprise.quotas.monthly', 'Monthly')}</option>
-            </select>
-          </div>
-        </div>
-
-        <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '10px' }}>
-          {t('enterprise.quotas.agentLimits', 'Agent Limits')}
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', marginBottom: '20px' }}>
-          <div className="form-group">
-            <label className="form-label">{t('enterprise.quotas.maxAgents', 'Max Agents')}</label>
-            <input
-              className="form-input"
-              type="number"
-              min={0}
-              value={quotaForm.default_max_agents}
-              onChange={(event) => setQuotaForm({ ...quotaForm, default_max_agents: Number(event.target.value) })}
-            />
-            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-              {t('enterprise.quotas.agentsUserCanCreate', 'How many agents a user can create')}
-            </div>
-          </div>
-          <div className="form-group">
-            <label className="form-label">{t('enterprise.quotas.agentTTL', 'Agent TTL')}</label>
+            <label className="form-label">最小心跳间隔（分钟）</label>
             <input
               className="form-input"
               type="number"
               min={1}
-              value={quotaForm.default_agent_ttl_hours}
-              onChange={(event) => setQuotaForm({ ...quotaForm, default_agent_ttl_hours: Number(event.target.value) })}
+              value={form.min_heartbeat_interval_minutes}
+              onChange={(e) => setForm({ ...form, min_heartbeat_interval_minutes: Number(e.target.value) })}
             />
             <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-              {t('enterprise.quotas.agentAutoExpiry', 'Hours before inactive agents expire')}
+              所有数字员工的心跳间隔下限
             </div>
           </div>
           <div className="form-group">
-            <label className="form-label">{t('enterprise.quotas.dailyLLMCalls', 'Daily LLM Calls')}</label>
-            <input
-              className="form-input"
-              type="number"
-              min={0}
-              value={quotaForm.default_max_llm_calls_per_day}
-              onChange={(event) => setQuotaForm({ ...quotaForm, default_max_llm_calls_per_day: Number(event.target.value) })}
-            />
-            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-              {t('enterprise.quotas.maxLLMCallsPerDay', 'Max LLM calls per day')}
-            </div>
-          </div>
-        </div>
-
-        <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '10px' }}>
-          {t('enterprise.quotas.system', 'System')}
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
-          <div className="form-group">
-            <label className="form-label">{t('enterprise.quotas.minHeartbeatInterval', 'Min Heartbeat Interval')}</label>
-            <input
-              className="form-input"
-              type="number"
-              min={1}
-              value={quotaForm.min_heartbeat_interval_minutes}
-              onChange={(event) => setQuotaForm({ ...quotaForm, min_heartbeat_interval_minutes: Number(event.target.value) })}
-            />
-            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-              {t('enterprise.quotas.minHeartbeatDesc', 'Minimum minutes between heartbeats')}
-            </div>
-          </div>
-        </div>
-
-        <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '10px' }}>
-          {t('enterprise.quotas.triggerLimits', 'Trigger Limits')}
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', marginBottom: '20px' }}>
-          <div className="form-group">
-            <label className="form-label">{t('enterprise.quotas.defaultMaxTriggers', 'Default Max Triggers')}</label>
+            <label className="form-label">默认最大触发器数量</label>
             <input
               className="form-input"
               type="number"
               min={1}
               max={100}
-              value={quotaForm.default_max_triggers}
-              onChange={(event) => setQuotaForm({ ...quotaForm, default_max_triggers: Number(event.target.value) })}
+              value={form.default_max_triggers}
+              onChange={(e) => setForm({ ...form, default_max_triggers: Number(e.target.value) })}
             />
             <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-              {t('enterprise.quotas.defaultMaxTriggersDesc', 'Default trigger limit for new agents')}
+              新数字员工的触发器限制
             </div>
           </div>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
           <div className="form-group">
-            <label className="form-label">{t('enterprise.quotas.minPollInterval', 'Min Poll Interval (min)')}</label>
+            <label className="form-label">最小轮询间隔（分钟）</label>
             <input
               className="form-input"
               type="number"
               min={1}
               max={60}
-              value={quotaForm.min_poll_interval_floor}
-              onChange={(event) => setQuotaForm({ ...quotaForm, min_poll_interval_floor: Number(event.target.value) })}
+              value={form.min_poll_interval_floor}
+              onChange={(e) => setForm({ ...form, min_poll_interval_floor: Number(e.target.value) })}
             />
             <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-              {t('enterprise.quotas.minPollIntervalDesc', 'Company-wide floor: agents cannot poll faster than this')}
+              全公司下限
             </div>
           </div>
           <div className="form-group">
-            <label className="form-label">{t('enterprise.quotas.maxWebhookRate', 'Max Webhook Rate (/min)')}</label>
+            <label className="form-label">最大 Webhook 速率（/分钟）</label>
             <input
               className="form-input"
               type="number"
               min={1}
               max={60}
-              value={quotaForm.max_webhook_rate_ceiling}
-              onChange={(event) => setQuotaForm({ ...quotaForm, max_webhook_rate_ceiling: Number(event.target.value) })}
+              value={form.max_webhook_rate_ceiling}
+              onChange={(e) => setForm({ ...form, max_webhook_rate_ceiling: Number(e.target.value) })}
             />
             <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-              {t('enterprise.quotas.maxWebhookRateDesc', 'Company-wide ceiling: max webhook hits per minute per agent')}
+              全公司上限
             </div>
           </div>
         </div>
-        <div style={{ marginTop: '16px', display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <button className="btn btn-primary" onClick={saveQuotas} disabled={quotaSaving}>
-            {quotaSaving ? t('common.loading', 'Loading') : t('common.save', 'Save')}
-          </button>
-          {quotaSaved ? <span style={{ color: 'var(--success)', fontSize: '12px' }}>✅ Saved</span> : null}
-        </div>
+      </div>
+
+      <div style={{ marginTop: '16px', display: 'flex', gap: '8px', alignItems: 'center' }}>
+        <button className="btn btn-primary" onClick={save} disabled={saving}>
+          {saving ? '保存中...' : '保存'}
+        </button>
+        {saved && <span style={{ color: 'var(--success)', fontSize: '12px' }}>✅ 已保存</span>}
       </div>
     </div>
   );
