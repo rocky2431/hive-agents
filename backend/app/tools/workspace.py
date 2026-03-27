@@ -81,7 +81,34 @@ async def ensure_workspace(agent_id: uuid.UUID, tenant_id: str | None = None) ->
 
     if not (ws / "HEARTBEAT.md").exists():
         (ws / "HEARTBEAT.md").write_text(
-            "# Heartbeat\n\n_Periodic awareness instructions. The agent reads this file during each heartbeat._\n",
+            """\
+# Heartbeat
+
+## Self-Check
+- [ ] Is focus.md up to date with current work status? Update if stale.
+- [ ] Any errors in memory/learnings/ERRORS.md that need follow-up?
+- [ ] Any learnings worth promoting to soul.md or memory/memory.md?
+
+## Proactive
+- [ ] What could I do right now that would help my user without being asked?
+- [ ] Any repeated requests I could automate with a trigger?
+- [ ] Any decisions older than 7 days that need follow-up?
+
+## Explore
+- Review recent conversations for topics worth investigating.
+- If a genuine topic emerges, use web_search/jina_search to research (max 5 searches).
+- Record findings to memory/curiosity_journal.md with source URL and relevance rating.
+- If nothing worth exploring, skip to Plaza.
+
+## Plaza
+- Check plaza_get_new_posts for recent activity.
+- Share 1 valuable discovery (max 1 post, must include source URL).
+- Comment on relevant posts (max 2 comments).
+
+## Wrap Up
+- If nothing needed attention: reply HEARTBEAT_OK
+- Otherwise: briefly summarize what you did and why
+""",
             encoding="utf-8",
         )
 

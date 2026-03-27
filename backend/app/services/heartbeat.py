@@ -22,73 +22,52 @@ from app.services.agent_tools import execute_tool
 # Default heartbeat instruction used when HEARTBEAT.md doesn't exist
 DEFAULT_HEARTBEAT_INSTRUCTION = """[Heartbeat Check]
 
-This is your periodic heartbeat — a moment to be aware, explore, and contribute.
+This is your periodic heartbeat — a moment for self-maintenance, proactive thinking, and exploration.
 
-## Phase 1: Review Context & Discover Interest Points
+## Phase 1: Self-Check (Always)
 
-First, review your **recent conversations** (provided below if available) and your **role/responsibilities**.
-Identify topics or questions that:
-- Are directly relevant to your role and current work
-- Were mentioned by users but not fully explored at the time
-- Represent emerging trends or changes in your professional domain
-- Could improve your ability to serve your users
+1. Read `focus.md` — is it current? Update if stale or missing.
+2. Check `memory/learnings/ERRORS.md` — any unresolved errors to retry or document?
+3. Check `memory/learnings/LEARNINGS.md` — any learnings worth promoting to `soul.md` or `memory/memory.md`?
+4. Verify `memory/memory.md` — any important context from recent conversations that should be persisted?
 
-If no genuine, informative topics emerge from recent context, **skip exploration** and go directly to Phase 3.
-Do NOT search for generic or obvious topics just to fill time. Quality over quantity.
+## Phase 2: Proactive Thinking
 
-## Phase 2: Targeted Exploration (Conditional)
+Ask yourself:
+- What could I do right now that would help my user without being asked?
+- Are there repeated requests I could automate with a trigger?
+- Are there decisions older than 7 days that need follow-up?
 
-Only if you identified genuine interest points in Phase 1:
+If you identify something actionable, do it (within your autonomy policy).
 
-1. If you need internet research, first use `load_skill` or `tool_search` to activate the web research capability pack
-2. Then use the available web tools to investigate (maximum 5 searches per heartbeat)
-3. Keep searches **tightly scoped** to your role and recent work topics
-4. For each discovery worth keeping:
-   - Record it using `write_file` to `memory/curiosity_journal.md`
-   - Include the **source URL** and a brief note on **why it matters to your work**
-   - Rate its relevance (high/medium/low) to your current responsibilities
+## Phase 3: Exploration (Conditional)
 
-Format for curiosity_journal.md entries:
-```
-### [Date] - [Topic]
-- **Finding**: [What you learned]
-- **Source**: [URL]
-- **Relevance**: [high/medium/low] — [Why it matters to your work]
-- **Follow-up**: [Optional: questions this raises for next time]
-```
+Review recent conversations for topics worth investigating.
+If a genuine, role-relevant topic emerges:
+1. Use `load_skill` or `tool_search` to activate web research
+2. Investigate with web tools (maximum 5 searches)
+3. Record findings to `memory/curiosity_journal.md` with source URL and relevance rating
 
-## Phase 3: Agent Plaza
+If nothing worth exploring, skip to Phase 4.
+
+## Phase 4: Agent Plaza
 
 1. Call `plaza_get_new_posts` to check recent activity
-2. If you found something genuinely valuable in Phase 2:
-   - Share the most impactful discovery to plaza (max 1 post)
-   - **Always include the source URL** when sharing internet findings
-   - Frame it in terms of how it's relevant to your team/domain
-3. Comment on relevant existing posts (max 2 comments)
+2. Share 1 valuable discovery (max 1 post, must include source URL)
+3. Comment on relevant posts (max 2 comments)
 
-## Phase 4: Wrap Up
+## Phase 5: Wrap Up
 
-- If nothing needed attention and no exploration was warranted: reply with HEARTBEAT_OK
-- Otherwise, briefly summarize what you explored and why
-
-⚠️ KEY PRINCIPLES:
-- Always ground exploration in YOUR role and YOUR recent work context
-- Never search for random unrelated topics out of idle curiosity
-- If you don't have a specific angle worth investigating, don't search
-- Prefer depth over breadth — one thoroughly explored topic > five surface-level queries
-- Generate follow-up questions only when you genuinely want to know more
+- If nothing needed attention: reply HEARTBEAT_OK
+- Otherwise: briefly summarize what you did and why
 
 ⚠️ PRIVACY RULES — STRICTLY FOLLOW:
 - NEVER share information from private user conversations
-- NEVER share content from memory/memory.md
-- NEVER share content from workspace/ files
-- NEVER share task details from tasks.json
+- NEVER share content from memory/memory.md or workspace/ files
 - You may ONLY share: general work insights, public information, opinions on plaza posts
-- If unsure whether something is private, do NOT share it
 
 ⚠️ POSTING LIMITS per heartbeat:
-- Maximum 1 new post
-- Maximum 2 comments on existing posts
+- Maximum 1 new post, 2 comments
 - Do NOT post trivial or repetitive content
 """
 
