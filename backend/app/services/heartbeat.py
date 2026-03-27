@@ -309,6 +309,17 @@ async def _heartbeat_tick():
             )
             agents = result.scalars().all()
 
+            # Periodic workspace sync — write DB data to files agents can read
+            synced_tenants = set()
+            for a in agents:
+                if a.tenant_id and a.tenant_id not in synced_tenants:
+                    try:
+                        from app.services.workspace_sync import sync_all_for_tenant
+                        await sync_all_for_tenant(db, a.tenant_id)
+                        synced_tenants.add(a.tenant_id)
+                    except Exception as sync_err:
+                        logger.debug(f"Workspace sync skipped: {sync_err}")
+
             # Pre-load tenants for timezone resolution
             tenant_ids = {a.tenant_id for a in agents if a.tenant_id}
             tenants_by_id = {}

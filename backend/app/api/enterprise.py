@@ -349,7 +349,12 @@ async def update_enterprise_info(
     info = await enterprise_sync_service.update_enterprise_info(
         db, target_tenant_id, info_type, data.content, data.visible_roles, current_user.id
     )
-    # Sync to all running agents
+    # Sync DB data → workspace files for agents to read (non-fatal)
+    try:
+        from app.services.workspace_sync import sync_company_profile
+        await sync_company_profile(db, target_tenant_id)
+    except Exception as sync_err:
+        logger.warning(f"Workspace sync failed (non-fatal): {sync_err}")
     await enterprise_sync_service.sync_to_all_agents(db, target_tenant_id)
     return EnterpriseInfoOut.model_validate(info)
 
@@ -961,6 +966,13 @@ async def trigger_org_sync(
 
     target_tenant_id = resolve_tenant_scope(current_user, tenant_id)
     result = await org_sync_service.full_sync(target_tenant_id)
+
+    # Sync org structure to workspace files
+    from app.services.workspace_sync import sync_org_structure
+    from app.database import async_session
+    async with async_session() as db:
+        await sync_org_structure(db, target_tenant_id)
+
     return result
 
 

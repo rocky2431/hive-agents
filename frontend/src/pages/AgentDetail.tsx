@@ -1088,7 +1088,7 @@ function AgentDetailInner() {
                 {/* ── Relationships Tab ── */}
                 {
                     activeTab === 'relationships' && (
-                        <RelationshipEditor agentId={id!} readOnly={(agent as any)?.access_level === 'use'} />
+                        <RelationshipEditor agentId={id!} agent={agent} readOnly={(agent as any)?.access_level === 'use'} />
                     )
                 }
 
