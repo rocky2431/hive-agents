@@ -100,6 +100,57 @@ async def build_memory_context(
         return ""
 
 
+def compute_history_limit(
+    provider: str,
+    model_name: str,
+    max_input_tokens_override: int | None = None,
+) -> int:
+    """Compute how many history messages to load from DB based on model context window.
+
+    The goal is to load enough history to utilize the model's capacity while keeping
+    DB queries efficient. The compression layer (maybe_compress_messages) will handle
+    the actual token budget — this function just sets a reasonable upper bound.
+
+    Allocation: ~50% of context window for history, rest for system prompt + tools + generation.
+    Average message estimated at ~300 tokens (mix of short user msgs and longer assistant/tool msgs).
+    """
+    context_limit = _get_input_context_limit(provider, model_name, max_input_tokens_override)
+    history_token_budget = int(context_limit * 0.50)
+    avg_tokens_per_message = 300
+    computed = history_token_budget // avg_tokens_per_message
+    # Clamp: at least 20 (usable minimum), at most 500 (DB performance guard)
+    return max(20, min(computed, 500))
+
+
+async def compute_history_limit_for_agent(agent_id: uuid.UUID) -> int:
+    """Resolve model info from DB and compute history limit for an agent.
+
+    Convenience wrapper for channel handlers that don't have the model loaded.
+    Falls back to 128k context (213 messages) if model lookup fails.
+    """
+    try:
+        from app.models.agent import Agent
+        from app.models.llm import LLMModel
+        async with async_session() as db:
+            agent_r = await db.execute(
+                select(Agent).where(Agent.id == agent_id)
+            )
+            agent = agent_r.scalar_one_or_none()
+            if agent and agent.primary_model_id:
+                model_r = await db.execute(
+                    select(LLMModel).where(LLMModel.id == agent.primary_model_id)
+                )
+                model = model_r.scalar_one_or_none()
+                if model:
+                    return compute_history_limit(
+                        model.provider, model.model,
+                        getattr(model, "max_input_tokens", None),
+                    )
+    except Exception:
+        logger.warning("Failed to resolve model for history limit (agent=%s), using default", agent_id)
+    return compute_history_limit("openai", "")
+
+
 async def maybe_compress_messages(
     messages: list[dict],
     model_provider: str,

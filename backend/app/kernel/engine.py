@@ -432,6 +432,17 @@ class AgentKernel:
 
             async def _emit_compaction_event(data: dict[str, Any]) -> None:
                 await _emit_event({"type": "session_compact", **data})
+                # System-level WAL: auto-save compaction summary to focus.md
+                if request.agent_id and data.get("summary"):
+                    try:
+                        from app.config import get_settings as _gs
+                        from pathlib import Path as _P
+                        _focus = _P(_gs().AGENT_DATA_DIR) / str(request.agent_id) / "focus.md"
+                        _focus.parent.mkdir(parents=True, exist_ok=True)
+                        _header = "# Focus (auto-saved on context compaction)\n\n"
+                        _focus.write_text(_header + data["summary"] + "\n", encoding="utf-8")
+                    except Exception as _exc:
+                        logger.warning("[Kernel] Auto-save focus.md on compaction failed: %s", _exc)
 
             async def _emit_chunk(text: str) -> None:
                 streamed_chunks.append(text)
