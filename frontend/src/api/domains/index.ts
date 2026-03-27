@@ -15,3 +15,5 @@ export { channelApi } from './channels';
 export { scheduleApi } from './schedules';
 export { triggerApi } from './triggers';
 export { relationshipsApi } from './relationships';
+export { usersApi } from './users';
+export { plazaApi } from './plaza';

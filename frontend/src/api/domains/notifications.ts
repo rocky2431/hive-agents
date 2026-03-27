@@ -28,6 +28,16 @@ export interface NotificationListParams {
   category?: string;
 }
 
+export interface BroadcastNotificationPayload {
+  title: string;
+  body?: string;
+}
+
+export interface BroadcastNotificationResult {
+  users_notified: number;
+  agents_notified: number;
+}
+
 export const notificationsApi = {
   list: (params?: NotificationListParams) => {
     const qs = new URLSearchParams();
@@ -42,6 +52,8 @@ export const notificationsApi = {
   getUnreadCount: () => get<UnreadCount>('/notifications/unread-count'),
   markRead: (id: string) => post<void>(`/notifications/${id}/read`),
   markAllRead: () => post<void>('/notifications/read-all'),
+  broadcast: (data: BroadcastNotificationPayload) =>
+    post<BroadcastNotificationResult>('/notifications/broadcast', data),
 
   /** Agent-to-agent inbox (separate from user notifications) */
   getInbox: () => get<unknown[]>('/messages/inbox'),

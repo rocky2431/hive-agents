@@ -12,12 +12,17 @@ export interface LLMModel {
   enabled: boolean;
   supports_vision: boolean;
   tenant_id?: string;
+  base_url?: string;
+  api_key_masked?: string;
+  max_output_tokens?: number | null;
+  temperature?: number | null;
+  created_at?: string;
 }
 
 export interface EnterpriseInfo {
   id: string;
   info_type: string;
-  content: Record<string, unknown>;
+  content: Record<string, any>;
   version: number;
 }
 
@@ -26,7 +31,7 @@ export interface AuditLog {
   user_id?: string;
   agent_id?: string;
   action: string;
-  details: Record<string, unknown>;
+  details: Record<string, any>;
   created_at: string;
 }
 
@@ -41,7 +46,7 @@ export interface InvitationCode {
 
 export interface SystemSetting {
   key: string;
-  value: Record<string, unknown>;
+  value: Record<string, any>;
 }
 
 export interface PaginatedResponse<T> {
@@ -65,17 +70,41 @@ export interface OrgMember {
   avatar_url?: string;
 }
 
+export interface LLMProviderSpec {
+  provider: string;
+  display_name: string;
+  protocol: string;
+  default_base_url?: string | null;
+  supports_tool_choice: boolean;
+  default_max_tokens: number;
+}
+
+export interface LLMTestResult {
+  success: boolean;
+  latency_ms?: number;
+  error?: string;
+}
+
+export interface EnterpriseStats {
+  total_users: number;
+  running_agents: number;
+  total_agents: number;
+  pending_approvals: number;
+  [key: string]: number;
+}
+
 export const enterpriseApi = {
   /** LLM models */
-  listLLMModels: () => get<LLMModel[]>('/enterprise/llm-models'),
-  llmModels: () => get<LLMModel[]>('/enterprise/llm-models'),
+  listLLMModels: (tenantId?: string) => get<LLMModel[]>(`/enterprise/llm-models${tenantId ? `?tenant_id=${tenantId}` : ''}`),
+  llmModels: (tenantId?: string) => get<LLMModel[]>(`/enterprise/llm-models${tenantId ? `?tenant_id=${tenantId}` : ''}`),
   templates: () => get<unknown[]>('/role-templates'),
-  createLLMModel: (data: Partial<LLMModel> & { api_key?: string }) => post<LLMModel>('/enterprise/llm-models', data),
+  createLLMModel: (data: Partial<LLMModel> & { api_key?: string; tenant_id?: string }, tenantId?: string) =>
+    post<LLMModel>(`/enterprise/llm-models${tenantId ? `?tenant_id=${tenantId}` : ''}`, data),
   updateLLMModel: (id: string, data: Partial<LLMModel> & { api_key?: string }) =>
     put<LLMModel>(`/enterprise/llm-models/${id}`, data),
-  deleteLLMModel: (id: string) => del(`/enterprise/llm-models/${id}`),
-  testLLM: (data: Record<string, unknown>) => post<{ success: boolean }>('/enterprise/llm-test', data),
-  getLLMProviders: () => get<Record<string, unknown>>('/enterprise/llm-providers'),
+  deleteLLMModel: (id: string, force = false) => del(`/enterprise/llm-models/${id}${force ? '?force=true' : ''}`),
+  testLLM: (data: Record<string, unknown>) => post<LLMTestResult>('/enterprise/llm-test', data),
+  getLLMProviders: () => get<LLMProviderSpec[]>('/enterprise/llm-providers'),
 
   /** Enterprise info */
   getInfo: () => get<EnterpriseInfo[]>('/enterprise/info'),
@@ -83,10 +112,10 @@ export const enterpriseApi = {
     put<EnterpriseInfo>(`/enterprise/info/${infoType}`, data),
 
   /** Audit */
-  getAuditLogs: (params?: string) => get<AuditLog[]>(`/enterprise/audit${params ? `?${params}` : ''}`),
+  getAuditLogs: (params?: string) => get<AuditLog[]>(`/enterprise/audit-logs${params ? `?${params}` : ''}`),
 
   /** Stats & quotas */
-  getStats: () => get<Record<string, unknown>>('/enterprise/stats'),
+  getStats: (tenantId?: string) => get<EnterpriseStats>(`/enterprise/stats${tenantId ? `?tenant_id=${tenantId}` : ''}`),
   getTenantQuotas: () => get<Record<string, unknown>>('/enterprise/tenant-quotas'),
   updateTenantQuotas: (data: Record<string, unknown>) => patch<void>('/enterprise/tenant-quotas', data),
 
@@ -118,7 +147,7 @@ export const enterpriseApi = {
   updateOIDCConfig: (data: Record<string, unknown>) => put<void>('/enterprise/oidc-config', data),
 
   /** Org */
-  getDepartments: () => get<unknown[]>('/enterprise/org/departments'),
+  getDepartments: (tenantId?: string) => get<Record<string, any>[]>(`/enterprise/org/departments${tenantId ? `?tenant_id=${tenantId}` : ''}`),
   getOrgMembers: (params?: { search?: string; departmentId?: string; tenantId?: string }) => {
     const qs = new URLSearchParams();
     if (params?.search) qs.set('search', params.search);
@@ -128,10 +157,10 @@ export const enterpriseApi = {
     const suffix = query ? `?${query}` : '';
     return get<OrgMember[]>(`/enterprise/org/members${suffix}`);
   },
-  syncOrg: () => post<void>('/enterprise/org/sync'),
+  syncOrg: (tenantId?: string) => post<Record<string, unknown>>(`/enterprise/org/sync${tenantId ? `?tenant_id=${tenantId}` : ''}`),
 
   /** Approvals */
-  listApprovals: () => get<unknown[]>('/enterprise/approvals'),
+  listApprovals: (tenantId?: string) => get<unknown[]>(`/enterprise/approvals${tenantId ? `?tenant_id=${tenantId}` : ''}`),
   resolveApproval: (id: string, data: { action: string }) =>
     post<unknown>(`/enterprise/approvals/${id}/resolve`, data),
 };

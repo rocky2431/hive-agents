@@ -4,7 +4,7 @@
  * Fixes breakpoint: /api/version → mapped to /api/health
  */
 
-import { get, post } from '../core';
+import { del, get, post, put } from '../core';
 
 export interface HealthInfo {
   status: string;
@@ -16,6 +16,7 @@ export interface TenantInfo {
   name: string;
   slug: string;
   is_active: boolean;
+  timezone?: string;
 }
 
 export interface JoinResult {
@@ -23,9 +24,20 @@ export interface JoinResult {
   tenant?: TenantInfo;
 }
 
+export interface DeleteTenantResult {
+  fallback_tenant_id: string | null;
+  needs_company_setup: boolean;
+}
+
 export const systemApi = {
   /** Maps the old /api/version call to /api/health which actually exists */
   getVersion: () => get<HealthInfo>('/health'),
+
+  /** Tenant management */
+  getTenant: (tenantId: string) => get<TenantInfo & Record<string, unknown>>(`/tenants/${tenantId}`),
+  updateTenant: (tenantId: string, data: Record<string, unknown>) =>
+    put<TenantInfo & Record<string, unknown>>(`/tenants/${tenantId}`, data),
+  deleteTenant: (tenantId: string) => del<DeleteTenantResult>(`/tenants/${tenantId}`),
 
   /** Tenant self-service */
   createTenant: (data: { name: string; slug?: string }) => post<TenantInfo>('/tenants/self-create', data),

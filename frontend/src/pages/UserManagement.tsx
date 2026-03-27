@@ -3,6 +3,7 @@
  */
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import { usersApi } from '../api/domains/users';
 import { useAuthStore } from '../stores';
 
 interface UserInfo {
@@ -22,12 +23,6 @@ interface UserInfo {
     created_at?: string;
     source?: string;
 }
-
-import { request } from '../api/core';
-async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
-    return request<T>(options?.method || 'GET', url, options?.body ? JSON.parse(options.body as string) : undefined);
-}
-
 const PERIOD_OPTIONS = [
     { value: 'permanent', label: 'Permanent' },
     { value: 'daily', label: 'Daily' },
@@ -64,7 +59,7 @@ export default function UserManagement() {
         setLoading(true);
         try {
             const tenantId = localStorage.getItem('current_tenant_id') || '';
-            const data = await fetchJson<UserInfo[]>(`/users/${tenantId ? `?tenant_id=${tenantId}` : ''}`);
+            const data = await usersApi.list(tenantId) as UserInfo[];
             setUsers(data);
         } catch (e) {
             console.error('Failed to load users', e);
@@ -88,10 +83,7 @@ export default function UserManagement() {
         if (!editingUserId) return;
         setSaving(true);
         try {
-            await fetchJson(`/users/${editingUserId}/quota`, {
-                method: 'PATCH',
-                body: JSON.stringify(editForm),
-            });
+            await usersApi.updateQuota(editingUserId, editForm);
             setToast(isChinese ? '✅ 配额已更新' : '✅ Quota updated');
             setTimeout(() => setToast(''), 2000);
             setEditingUserId(null);
@@ -107,10 +99,7 @@ export default function UserManagement() {
     const handleRoleChange = async (userId: string, newRole: string) => {
         setChangingRoleUserId(userId);
         try {
-            await fetchJson(`/users/${userId}/role`, {
-                method: 'PATCH',
-                body: JSON.stringify({ role: newRole }),
-            });
+            await usersApi.updateRole(userId, newRole);
             setToast(isChinese ? 'Role updated' : 'Role updated');
             setTimeout(() => setToast(''), 2000);
             // If changed own role, update auth store

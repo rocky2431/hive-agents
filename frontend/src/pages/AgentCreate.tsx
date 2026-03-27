@@ -94,7 +94,7 @@ export default function AgentCreate() {
     // Fetch LLM models for step 1
     const { data: models = [] } = useQuery({
         queryKey: ['llm-models'],
-        queryFn: enterpriseApi.llmModels,
+        queryFn: () => enterpriseApi.llmModels(),
     });
 
     // Fetch templates

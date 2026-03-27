@@ -1,19 +1,20 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
+import { authApi } from '../api/domains/auth';
 import { enterpriseApi } from '../api/domains/enterprise';
+import { notificationsApi } from '../api/domains/notifications';
 import { skillApi } from '../api/domains/skills';
+import { systemApi } from '../api/domains/system';
+import { toolsApi } from '../api/domains/tools';
 import PromptModal from '../components/PromptModal';
 import FileBrowser from '../components/FileBrowser';
 import type { FileBrowserApi } from '../components/FileBrowser';
+import { useAuthStore } from '../stores';
 import { saveAccentColor, getSavedAccentColor, resetAccentColor, PRESET_COLORS } from '../utils/theme';
 import UserManagement from './UserManagement';
 import InvitationCodes from './InvitationCodes';
-
-import { request, get, post, put, del } from '../api/core';
-async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
-    return request<T>(options?.method || 'GET', url, options?.body ? JSON.parse(options.body as string) : undefined);
-}
 
 interface LLMModel {
     id: string; provider: string; model: string; label: string;
@@ -95,7 +96,7 @@ function OrgTab() {
 
     const { data: config } = useQuery({
         queryKey: ['system-settings', 'feishu_org_sync'],
-        queryFn: () => fetchJson<any>('/enterprise/system-settings/feishu_org_sync'),
+        queryFn: () => enterpriseApi.getSetting('feishu_org_sync'),
     });
 
     useEffect(() => {
@@ -107,24 +108,19 @@ function OrgTab() {
     const currentTenantId = localStorage.getItem('current_tenant_id') || '';
     const { data: departments = [] } = useQuery({
         queryKey: ['org-departments', currentTenantId],
-        queryFn: () => fetchJson<any[]>(`/enterprise/org/departments${currentTenantId ? `?tenant_id=${currentTenantId}` : ''}`),
+        queryFn: () => enterpriseApi.getDepartments(currentTenantId || undefined),
     });
     const { data: members = [] } = useQuery({
         queryKey: ['org-members', selectedDept, memberSearch, currentTenantId],
-        queryFn: () => {
-            const params = new URLSearchParams();
-            if (selectedDept) params.set('department_id', selectedDept);
-            if (memberSearch) params.set('search', memberSearch);
-            if (currentTenantId) params.set('tenant_id', currentTenantId);
-            return fetchJson<any[]>(`/enterprise/org/members?${params}`);
-        },
+        queryFn: () => enterpriseApi.getOrgMembers({
+            ...(selectedDept ? { departmentId: selectedDept } : {}),
+            ...(memberSearch ? { search: memberSearch } : {}),
+            ...(currentTenantId ? { tenantId: currentTenantId } : {}),
+        }),
     });
 
     const saveConfig = async () => {
-        await fetchJson('/enterprise/system-settings/feishu_org_sync', {
-            method: 'PUT',
-            body: JSON.stringify({ value: { app_id: syncForm.app_id, app_secret: syncForm.app_secret } }),
-        });
+        await enterpriseApi.updateSetting('feishu_org_sync', { app_id: syncForm.app_id, app_secret: syncForm.app_secret });
         qc.invalidateQueries({ queryKey: ['system-settings', 'feishu_org_sync'] });
     };
 
@@ -133,7 +129,7 @@ function OrgTab() {
         setSyncResult(null);
         try {
             if (syncForm.app_secret) await saveConfig();
-            const result = await fetchJson<any>('/enterprise/org/sync', { method: 'POST' });
+            const result = await enterpriseApi.syncOrg(currentTenantId || undefined);
             setSyncResult(result);
             qc.invalidateQueries({ queryKey: ['org-departments'] });
             qc.invalidateQueries({ queryKey: ['org-members'] });
@@ -804,7 +800,7 @@ function CompanyNameEditor() {
 
     useEffect(() => {
         if (!tenantId) return;
-        fetchJson<any>(`/tenants/${tenantId}`)
+        systemApi.getTenant(tenantId)
             .then(d => { if (d?.name) setName(d.name); })
             .catch(() => { });
     }, [tenantId]);
@@ -813,9 +809,7 @@ function CompanyNameEditor() {
         if (!tenantId || !name.trim()) return;
         setSaving(true);
         try {
-            await fetchJson(`/tenants/${tenantId}`, {
-                method: 'PUT', body: JSON.stringify({ name: name.trim() }),
-            });
+            await systemApi.updateTenant(tenantId, { name: name.trim() });
             qc.invalidateQueries({ queryKey: ['tenants'] });
             setSaved(true);
             setTimeout(() => setSaved(false), 2000);
@@ -875,7 +869,7 @@ function CompanyTimezoneEditor() {
 
     useEffect(() => {
         if (!tenantId) return;
-        fetchJson<any>(`/tenants/${tenantId}`)
+        systemApi.getTenant(tenantId)
             .then(d => { if (d?.timezone) setTimezone(d.timezone); })
             .catch(() => { });
     }, [tenantId]);
@@ -885,9 +879,7 @@ function CompanyTimezoneEditor() {
         setTimezone(tz);
         setSaving(true);
         try {
-            await fetchJson(`/tenants/${tenantId}`, {
-                method: 'PUT', body: JSON.stringify({ timezone: tz }),
-            });
+            await systemApi.updateTenant(tenantId, { timezone: tz });
             setSaved(true);
             setTimeout(() => setSaved(false), 2000);
         } catch (e) { }
@@ -934,7 +926,7 @@ function BroadcastSection() {
         setSending(true);
         setResult(null);
         try {
-            const data = await post<any>('/notifications/broadcast', { title: title.trim(), body: body.trim() });
+            const data = await notificationsApi.broadcast({ title: title.trim(), body: body.trim() });
             setResult({ users: data.users_notified, agents: data.agents_notified });
             setTitle('');
             setBody('');
@@ -986,6 +978,8 @@ function BroadcastSection() {
 
 export default function EnterpriseSettings() {
     const { t } = useTranslation();
+    const navigate = useNavigate();
+    const setUser = useAuthStore((s) => s.setUser);
     const qc = useQueryClient();
     const [activeTab, setActiveTab] = useState<'llm' | 'org' | 'info' | 'approvals' | 'audit' | 'tools' | 'skills' | 'quotas' | 'users' | 'invites'>('info');
 
@@ -1012,7 +1006,7 @@ export default function EnterpriseSettings() {
     const [quotaSaved, setQuotaSaved] = useState(false);
     useEffect(() => {
         if (activeTab === 'quotas') {
-            fetchJson<any>('/enterprise/tenant-quotas').then(d => {
+            enterpriseApi.getTenantQuotas().then(d => {
                 if (d && Object.keys(d).length) setQuotaForm(f => ({ ...f, ...d }));
             }).catch(() => { });
         }
@@ -1020,7 +1014,7 @@ export default function EnterpriseSettings() {
     const saveQuotas = async () => {
         setQuotaSaving(true);
         try {
-            await fetchJson('/enterprise/tenant-quotas', { method: 'PATCH', body: JSON.stringify(quotaForm) });
+            await enterpriseApi.updateTenantQuotas(quotaForm);
             setQuotaSaved(true); setTimeout(() => setQuotaSaved(false), 2000);
         } catch (e) { alert('Failed to save'); }
         setQuotaSaving(false);
@@ -1037,7 +1031,7 @@ export default function EnterpriseSettings() {
         setCompanyIntro('');
         if (!selectedTenantId) return;
         const tenantKey = `company_intro_${selectedTenantId}`;
-        fetchJson<any>(`/enterprise/system-settings/${tenantKey}`)
+        enterpriseApi.getSetting(tenantKey)
             .then(d => {
                 if (d?.value?.content) {
                     setCompanyIntro(d.value.content);
@@ -1050,9 +1044,7 @@ export default function EnterpriseSettings() {
     const saveCompanyIntro = async () => {
         setCompanyIntroSaving(true);
         try {
-            await fetchJson(`/enterprise/system-settings/${companyIntroKey}`, {
-                method: 'PUT', body: JSON.stringify({ value: { content: companyIntro } }),
-            });
+            await enterpriseApi.updateSetting(companyIntroKey, { content: companyIntro });
             setCompanyIntroSaved(true);
             setTimeout(() => setCompanyIntroSaved(false), 2000);
         } catch (e) { }
@@ -1107,13 +1099,13 @@ export default function EnterpriseSettings() {
     const [agentInstalledTools, setAgentInstalledTools] = useState<any[]>([]);
     const loadAllTools = async () => {
         const tid = selectedTenantId;
-        const data = await fetchJson<any[]>(`/tools${tid ? `?tenant_id=${tid}` : ''}`);
+        const data = await toolsApi.listCatalog(tid || undefined);
         setAllTools(data);
     };
     const loadAgentInstalledTools = async () => {
         try {
             const tid = selectedTenantId;
-            const data = await fetchJson<any[]>(`/tools/agent-installed${tid ? `?tenant_id=${tid}` : ''}`);
+            const data = await toolsApi.listAgentInstalled(tid || undefined);
             setAgentInstalledTools(data);
         } catch { }
     };
@@ -1126,13 +1118,13 @@ export default function EnterpriseSettings() {
     const [jinaKeyMasked, setJinaKeyMasked] = useState('');  // stored key from DB
     useEffect(() => {
         if (activeTab !== 'tools') return;
-        get<any>('/enterprise/system-settings/jina_api_key')
+        enterpriseApi.getSetting('jina_api_key')
             .then(d => { if (d.value?.api_key) setJinaKeyMasked(d.value.api_key.slice(0, 8) + '••••••••'); })
             .catch(() => { });
     }, [activeTab]);
     const saveJinaKey = async () => {
         setJinaKeySaving(true);
-        await put('/enterprise/system-settings/jina_api_key', { value: { api_key: jinaKey } });
+        await enterpriseApi.updateSetting('jina_api_key', { api_key: jinaKey });
         setJinaKeyMasked(jinaKey.slice(0, 8) + '••••••••');
         setJinaKey('');
         setJinaKeySaving(false);
@@ -1140,7 +1132,7 @@ export default function EnterpriseSettings() {
         setTimeout(() => setJinaKeySaved(false), 2000);
     };
     const clearJinaKey = async () => {
-        await put('/enterprise/system-settings/jina_api_key', { value: {} });
+        await enterpriseApi.updateSetting('jina_api_key', {});
         setJinaKeyMasked('');
         setJinaKey('');
     };
@@ -1149,13 +1141,13 @@ export default function EnterpriseSettings() {
     // ─── Stats (scoped to selected tenant)
     const { data: stats } = useQuery({
         queryKey: ['enterprise-stats', selectedTenantId],
-        queryFn: () => fetchJson<any>(`/enterprise/stats${selectedTenantId ? `?tenant_id=${selectedTenantId}` : ''}`),
+        queryFn: () => enterpriseApi.getStats(selectedTenantId || undefined),
     });
 
     // ─── LLM Models
     const { data: models = [] } = useQuery({
         queryKey: ['llm-models', selectedTenantId],
-        queryFn: () => fetchJson<LLMModel[]>(`/enterprise/llm-models${selectedTenantId ? `?tenant_id=${selectedTenantId}` : ''}`),
+        queryFn: () => enterpriseApi.llmModels(selectedTenantId || undefined),
         enabled: activeTab === 'llm',
     });
     const [showAddModel, setShowAddModel] = useState(false);
@@ -1163,28 +1155,28 @@ export default function EnterpriseSettings() {
     const [modelForm, setModelForm] = useState({ provider: 'anthropic', model: '', api_key: '', base_url: '', label: '', supports_vision: false, max_output_tokens: '' as string, temperature: '' as string });
     const { data: providerSpecs = [] } = useQuery({
         queryKey: ['llm-provider-specs'],
-        queryFn: () => fetchJson<LLMProviderSpec[]>('/enterprise/llm-providers'),
+        queryFn: () => enterpriseApi.getLLMProviders() as Promise<LLMProviderSpec[]>,
         enabled: activeTab === 'llm',
     });
     const providerOptions = providerSpecs.length > 0 ? providerSpecs : FALLBACK_LLM_PROVIDERS;
     const addModel = useMutation({
-        mutationFn: (data: any) => fetchJson(`/enterprise/llm-models${selectedTenantId ? `?tenant_id=${selectedTenantId}` : ''}`, { method: 'POST', body: JSON.stringify(data) }),
+        mutationFn: (data: any) => enterpriseApi.createLLMModel(data, selectedTenantId || undefined),
         onSuccess: () => { qc.invalidateQueries({ queryKey: ['llm-models', selectedTenantId] }); setShowAddModel(false); setEditingModelId(null); },
     });
     const updateModel = useMutation({
-        mutationFn: ({ id, data }: { id: string; data: any }) => fetchJson(`/enterprise/llm-models/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+        mutationFn: ({ id, data }: { id: string; data: any }) => enterpriseApi.updateLLMModel(id, data),
         onSuccess: () => { qc.invalidateQueries({ queryKey: ['llm-models', selectedTenantId] }); setShowAddModel(false); setEditingModelId(null); },
     });
     const deleteModel = useMutation({
         mutationFn: async ({ id, force = false }: { id: string; force?: boolean }) => {
             try {
-                await del(`/enterprise/llm-models/${id}${force ? '?force=true' : ''}`);
+                await enterpriseApi.deleteLLMModel(id, force);
             } catch (err: any) {
                 if (err?.status === 409) {
                     const agents = err?.detail?.agents || [];
                     const msg = `This model is used by ${agents.length} agent(s):\n\n${agents.join(', ')}\n\nDelete anyway?`;
                     if (confirm(msg)) {
-                        await del(`/enterprise/llm-models/${id}?force=true`);
+                        await enterpriseApi.deleteLLMModel(id, true);
                     }
                     return;
                 }
@@ -1197,12 +1189,12 @@ export default function EnterpriseSettings() {
     // ─── Approvals
     const { data: approvals = [] } = useQuery({
         queryKey: ['approvals', selectedTenantId],
-        queryFn: () => fetchJson<any[]>(`/enterprise/approvals${selectedTenantId ? `?tenant_id=${selectedTenantId}` : ''}`),
+        queryFn: () => enterpriseApi.listApprovals(selectedTenantId || undefined),
         enabled: activeTab === 'approvals',
     });
     const resolveApproval = useMutation({
         mutationFn: ({ id, action }: { id: string; action: string }) =>
-            fetchJson(`/enterprise/approvals/${id}/resolve`, { method: 'POST', body: JSON.stringify({ action }) }),
+            enterpriseApi.resolveApproval(id, { action }),
         onSuccess: () => qc.invalidateQueries({ queryKey: ['approvals', selectedTenantId] }),
     });
 
@@ -1210,7 +1202,7 @@ export default function EnterpriseSettings() {
     const BG_ACTIONS = ['supervision_tick', 'supervision_fire', 'supervision_error', 'schedule_tick', 'schedule_fire', 'schedule_error', 'heartbeat_tick', 'heartbeat_fire', 'heartbeat_error', 'server_startup'];
     const { data: auditLogs = [] } = useQuery({
         queryKey: ['audit-logs', selectedTenantId],
-        queryFn: () => fetchJson<any[]>(`/enterprise/audit-logs?limit=200${selectedTenantId ? `&tenant_id=${selectedTenantId}` : ''}`),
+        queryFn: () => enterpriseApi.getAuditLogs(`limit=200${selectedTenantId ? `&tenant_id=${selectedTenantId}` : ''}`),
         enabled: activeTab === 'audit',
     });
     const filteredAuditLogs = auditLogs.filter((log: any) => {
@@ -1336,7 +1328,7 @@ export default function EnterpriseSettings() {
                                         try {
                                             const testData: any = { provider: modelForm.provider, model: modelForm.model, base_url: modelForm.base_url || undefined };
                                             if (modelForm.api_key) testData.api_key = modelForm.api_key;
-                                            const result = await post<any>('/enterprise/llm-test', testData);
+                                            const result = await enterpriseApi.testLLM(testData);
                                             if (result.success) {
                                                 if (btn) { btn.textContent = t('enterprise.llm.testSuccess', { latency: result.latency_ms }); btn.style.color = 'var(--success)'; }
                                                 setTimeout(() => { if (btn) { btn.textContent = origText; btn.style.color = ''; } }, 3000);
@@ -1431,11 +1423,10 @@ export default function EnterpriseSettings() {
                                                     const origText = btn?.textContent || '';
                                                     if (btn) btn.textContent = t('enterprise.llm.testing');
                                                     try {
-                                                        const token = localStorage.getItem('token');
                                                         const testData: any = { provider: modelForm.provider, model: modelForm.model, base_url: modelForm.base_url || undefined };
                                                         if (modelForm.api_key) testData.api_key = modelForm.api_key;
                                                         testData.model_id = editingModelId;
-                                                        const result = await post<any>('/enterprise/llm-test', testData);
+                                                        const result = await enterpriseApi.testLLM(testData);
                                                         if (result.success) {
                                                             if (btn) { btn.textContent = t('enterprise.llm.testSuccess', { latency: result.latency_ms }); btn.style.color = 'var(--success)'; }
                                                             setTimeout(() => { if (btn) { btn.textContent = origText; btn.style.color = ''; } }, 3000);
@@ -1475,7 +1466,7 @@ export default function EnterpriseSettings() {
                                                 <button
                                                     onClick={async () => {
                                                         try {
-                                                            await put(`/enterprise/llm-models/${m.id}`, { enabled: !m.enabled });
+                                                            await enterpriseApi.updateLLMModel(m.id, { enabled: !m.enabled });
                                                             qc.invalidateQueries({ queryKey: ['llm-models', selectedTenantId] });
                                                         } catch (e) { console.error(e); }
                                                     }}
@@ -1661,16 +1652,26 @@ export default function EnterpriseSettings() {
                             <button
                                 className="btn"
                                 onClick={async () => {
-                                    const name = document.querySelector<HTMLInputElement>('.company-name-input')?.value || selectedTenantId;
                                     if (!confirm(t('enterprise.deleteCompanyConfirm', 'Are you sure you want to delete this company and ALL its data? This cannot be undone.'))) return;
                                     try {
-                                        const res = await fetchJson<any>(`/tenants/${selectedTenantId}`, { method: 'DELETE' });
-                                        // Switch to fallback tenant
-                                        const fallbackId = res.fallback_tenant_id;
-                                        localStorage.setItem('current_tenant_id', fallbackId);
-                                        setSelectedTenantId(fallbackId);
-                                        window.dispatchEvent(new StorageEvent('storage', { key: 'current_tenant_id', newValue: fallbackId }));
+                                        const res = await systemApi.deleteTenant(selectedTenantId);
+                                        const me = await authApi.getMe().catch(() => null);
+                                        if (me) setUser(me);
+
                                         qc.invalidateQueries({ queryKey: ['tenants'] });
+
+                                        if (res.fallback_tenant_id) {
+                                            localStorage.setItem('current_tenant_id', res.fallback_tenant_id);
+                                            setSelectedTenantId(res.fallback_tenant_id);
+                                            window.dispatchEvent(new StorageEvent('storage', { key: 'current_tenant_id', newValue: res.fallback_tenant_id }));
+                                            navigate('/enterprise', { replace: true });
+                                            return;
+                                        }
+
+                                        localStorage.removeItem('current_tenant_id');
+                                        setSelectedTenantId('');
+                                        window.dispatchEvent(new StorageEvent('storage', { key: 'current_tenant_id', newValue: null }));
+                                        navigate(res.needs_company_setup ? '/setup-company' : '/', { replace: true });
                                     } catch (e: any) {
                                         alert(e.message || 'Delete failed');
                                     }
@@ -1831,7 +1832,7 @@ export default function EnterpriseSettings() {
                                                 <button className="btn btn-ghost" style={{ color: 'var(--error)', fontSize: '12px' }} onClick={async () => {
                                                     if (!confirm(t('enterprise.tools.removeFromAgent', { name: row.tool_display_name }))) return;
                                                     try {
-                                                        await fetchJson(`/tools/agent-tool/${row.agent_tool_id}`, { method: 'DELETE' });
+                                                        await toolsApi.removeAgentTool(row.agent_tool_id);
                                                     } catch {
                                                         // Already deleted (e.g. removed via Global Tools) — just refresh
                                                     }
@@ -1892,7 +1893,7 @@ export default function EnterpriseSettings() {
                                             <button className="btn btn-secondary" disabled={mcpTesting || !mcpForm.server_url} onClick={async () => {
                                                 setMcpTesting(true); setMcpTestResult(null);
                                                 try {
-                                                    const r = await fetchJson<any>('/tools/test-mcp', { method: 'POST', body: JSON.stringify({ server_url: mcpForm.server_url }) });
+                                                    const r = await toolsApi.testMcp({ server_url: mcpForm.server_url });
                                                     setMcpTestResult(r);
                                                 } catch (e: any) { setMcpTestResult({ ok: false, error: e.message }); }
                                                 setMcpTesting(false);
@@ -1912,20 +1913,18 @@ export default function EnterpriseSettings() {
                                                                 </div>
                                                                 <button className="btn btn-secondary" style={{ padding: '4px 10px', fontSize: '11px' }} onClick={async () => {
                                                                     try {
-                                                                        await fetchJson('/tools', {
-                                                                            method: 'POST', body: JSON.stringify({
-                                                                                name: `mcp_${tool.name}`,
-                                                                                display_name: tool.name,
-                                                                                description: tool.description || '',
-                                                                                type: 'mcp',
-                                                                                category: 'custom',
-                                                                                icon: '·',
-                                                                                mcp_server_url: mcpForm.server_url,
-                                                                                mcp_server_name: mcpForm.server_name || mcpForm.server_url,
-                                                                                mcp_tool_name: tool.name,
-                                                                                parameters_schema: tool.inputSchema || {},
-                                                                                is_default: false,
-                                                                            })
+                                                                        await toolsApi.createTool({
+                                                                            name: `mcp_${tool.name}`,
+                                                                            display_name: tool.name,
+                                                                            description: tool.description || '',
+                                                                            type: 'mcp',
+                                                                            category: 'custom',
+                                                                            icon: '·',
+                                                                            mcp_server_url: mcpForm.server_url,
+                                                                            mcp_server_name: mcpForm.server_name || mcpForm.server_url,
+                                                                            mcp_tool_name: tool.name,
+                                                                            parameters_schema: tool.inputSchema || {},
+                                                                            is_default: false,
                                                                         });
                                                                         loadAllTools();
                                                                     } catch (e: any) {
@@ -1941,20 +1940,18 @@ export default function EnterpriseSettings() {
                                                                 const errors: string[] = [];
                                                                 for (const tool of tools) {
                                                                     try {
-                                                                        await fetchJson('/tools', {
-                                                                            method: 'POST', body: JSON.stringify({
-                                                                                name: `mcp_${tool.name}`,
-                                                                                display_name: tool.name,
-                                                                                description: tool.description || '',
-                                                                                type: 'mcp',
-                                                                                category: 'custom',
-                                                                                icon: '·',
-                                                                                mcp_server_url: mcpForm.server_url,
-                                                                                mcp_server_name: mcpForm.server_name || mcpForm.server_url,
-                                                                                mcp_tool_name: tool.name,
-                                                                                parameters_schema: tool.inputSchema || {},
-                                                                                is_default: false,
-                                                                            })
+                                                                        await toolsApi.createTool({
+                                                                            name: `mcp_${tool.name}`,
+                                                                            display_name: tool.name,
+                                                                            description: tool.description || '',
+                                                                            type: 'mcp',
+                                                                            category: 'custom',
+                                                                            icon: '·',
+                                                                            mcp_server_url: mcpForm.server_url,
+                                                                            mcp_server_name: mcpForm.server_name || mcpForm.server_url,
+                                                                            mcp_tool_name: tool.name,
+                                                                            parameters_schema: tool.inputSchema || {},
+                                                                            is_default: false,
                                                                         });
                                                                         successCount++;
                                                                     } catch (e: any) {
@@ -2059,7 +2056,7 @@ export default function EnterpriseSettings() {
                                                                                         // Pre-load jina api_key from system_settings
                                                                                         if (tool.name === 'jina_search' || tool.name === 'jina_read') {
                                                                                             try {
-                                                                                                const d = await get<any>('/enterprise/system-settings/jina_api_key');
+                                                                                                const d = await enterpriseApi.getSetting('jina_api_key');
                                                                                                 if (d.value?.api_key) cfg.api_key = d.value.api_key;
                                                                                             } catch { }
                                                                                         }
@@ -2072,7 +2069,7 @@ export default function EnterpriseSettings() {
                                                                             {tool.type !== 'builtin' && (
                                                                                 <button className="btn btn-danger" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={async () => {
                                                                                     if (!confirm(`${t('common.delete')} ${tool.display_name}?`)) return;
-                                                                                    await fetchJson(`/tools/${tool.id}`, { method: 'DELETE' });
+                                                                                    await toolsApi.deleteGlobalTool(tool.id);
                                                                                     loadAllTools();
                                                                                     loadAgentInstalledTools();
                                                                                 }}>{t('common.delete')}</button>
@@ -2081,7 +2078,7 @@ export default function EnterpriseSettings() {
                                                                             {/* Enable toggle */}
                                                                             <label style={{ position: 'relative', display: 'inline-block', width: '40px', height: '22px', cursor: 'pointer', flexShrink: 0 }}>
                                                                                 <input type="checkbox" checked={tool.enabled} onChange={async (e) => {
-                                                                                    await fetchJson(`/tools/${tool.id}`, { method: 'PUT', body: JSON.stringify({ enabled: e.target.checked }) });
+                                                                                    await toolsApi.updateGlobalTool(tool.id, { enabled: e.target.checked });
                                                                                     loadAllTools();
                                                                                 }} style={{ opacity: 0, width: 0, height: 0 }} />
                                                                                 <span style={{ position: 'absolute', inset: 0, background: tool.enabled ? '#22c55e' : 'var(--bg-tertiary)', borderRadius: '11px', transition: 'background 0.2s' }}>
@@ -2130,10 +2127,10 @@ export default function EnterpriseSettings() {
                                                                                         if (tool.name === 'jina_search' || tool.name === 'jina_read') {
                                                                                             // Save api_key to system_settings (shared by both jina tools)
                                                                                             if (editingConfig.api_key) {
-                                                                                                await put('/enterprise/system-settings/jina_api_key', { value: { api_key: editingConfig.api_key } });
+                                                                                                await enterpriseApi.updateSetting('jina_api_key', { api_key: editingConfig.api_key });
                                                                                             }
                                                                                         } else {
-                                                                                            await fetchJson(`/tools/${tool.id}`, { method: 'PUT', body: JSON.stringify({ config: editingConfig }) });
+                                                                                            await toolsApi.updateGlobalTool(tool.id, { config: editingConfig });
                                                                                         }
                                                                                         setEditingToolId(null);
                                                                                         loadAllTools();
@@ -2185,7 +2182,7 @@ export default function EnterpriseSettings() {
                                                     // Save config to all tools in this category that have config_schema
                                                     const catTools = allTools.filter((tl: any) => (tl.category || 'general') === configCategory && tl.config_schema?.fields?.length > 0);
                                                     for (const tl of catTools) {
-                                                        await fetchJson(`/tools/${tl.id}`, { method: 'PUT', body: JSON.stringify({ config: editingConfig }) });
+                                                        await toolsApi.updateGlobalTool(tl.id, { config: editingConfig });
                                                     }
                                                     setConfigCategory(null);
                                                     loadAllTools();

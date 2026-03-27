@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import get_current_user, require_role
 from app.database import get_db
+from app.models.agent import Agent
 from app.models.tenant import Tenant
 from app.models.user import User
 
@@ -44,6 +45,11 @@ class TenantUpdate(BaseModel):
     im_provider: str | None = None
     timezone: str | None = None
     is_active: bool | None = None
+
+
+class TenantDeleteOut(BaseModel):
+    fallback_tenant_id: uuid.UUID | None = None
+    needs_company_setup: bool = False
 
 
 # ─── Helpers ────────────────────────────────────────────
@@ -254,6 +260,72 @@ async def update_tenant(
         setattr(tenant, field, value)
     await db.flush()
     return TenantOut.model_validate(tenant)
+
+
+@router.delete("/{tenant_id}", response_model=TenantDeleteOut)
+async def delete_tenant(
+    tenant_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Deactivate a tenant and detach its users.
+
+    This is intentionally a soft-delete flow. The codebase still has many
+    tenant-linked records without uniform cascade rules, so hard deletion would
+    be unsafe. Instead we:
+    - mark the tenant inactive,
+    - pause running agents in that tenant,
+    - detach users from the tenant and departments,
+    - optionally move platform admins to another active tenant for continuity.
+    """
+    if current_user.role not in ("platform_admin", "org_admin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    if current_user.role == "org_admin" and str(current_user.tenant_id) != str(tenant_id):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    result = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
+    tenant = result.scalar_one_or_none()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    fallback_tenant_id: uuid.UUID | None = None
+    if current_user.role == "platform_admin":
+        fallback_result = await db.execute(
+            select(Tenant).where(
+                Tenant.id != tenant_id,
+                Tenant.is_active == True,
+            ).order_by(Tenant.created_at.asc())
+        )
+        fallback_tenant = fallback_result.scalar_one_or_none()
+        fallback_tenant_id = fallback_tenant.id if fallback_tenant else None
+
+    running_agents = await db.execute(
+        select(Agent).where(
+            Agent.tenant_id == tenant_id,
+            Agent.status == "running",
+        )
+    )
+    for agent in running_agents.scalars().all():
+        agent.status = "paused"
+
+    tenant_users = await db.execute(select(User).where(User.tenant_id == tenant_id))
+    for user in tenant_users.scalars().all():
+        user.department_id = None
+        if user.role == "platform_admin" and fallback_tenant_id is not None:
+            user.tenant_id = fallback_tenant_id
+            continue
+
+        user.tenant_id = None
+        if user.role != "platform_admin":
+            user.role = "member"
+
+    tenant.is_active = False
+    await db.flush()
+
+    return TenantDeleteOut(
+        fallback_tenant_id=fallback_tenant_id,
+        needs_company_setup=fallback_tenant_id is None,
+    )
 
 
 @router.put("/{tenant_id}/assign-user/{user_id}")

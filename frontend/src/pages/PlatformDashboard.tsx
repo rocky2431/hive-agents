@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { get } from '../api/core';
+import { adminApi } from '../api/domains/admin';
 
 function formatTokens(n: number | null | undefined): string {
     if (n == null) return '-';
@@ -27,7 +27,7 @@ export default function PlatformDashboard() {
             const end = new Date();
             const start = new Date();
             start.setDate(start.getDate() - days);
-            const data = await get<any[]>(`/admin/metrics/timeseries?start_date=${start.toISOString()}&end_date=${end.toISOString()}`);
+            const data = await adminApi.getMetricsTimeseries({ startDate: start.toISOString(), endDate: end.toISOString() }) as any[];
             setTimeSeriesData(data);
         } catch {
             // Endpoint may not exist yet — graceful degrade
@@ -38,7 +38,7 @@ export default function PlatformDashboard() {
     const fetchLeaderboards = async () => {
         setLoadingLeaders(true);
         try {
-            const data = await get<any>('/admin/metrics/leaderboards');
+            const data = await adminApi.getMetricsLeaderboards() as any;
             setTopCompanies(data.top_companies || []);
             setTopAgents(data.top_agents || []);
         } catch {

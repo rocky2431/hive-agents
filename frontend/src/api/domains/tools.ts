@@ -33,6 +33,15 @@ export interface CategoryConfig {
 }
 
 export const toolsApi = {
+  /** Global tool catalog */
+  listCatalog: (tenantId?: string) => get<unknown[]>(`/tools${tenantId ? `?tenant_id=${tenantId}` : ''}`),
+  listAgentInstalled: (tenantId?: string) =>
+    get<unknown[]>(`/tools/agent-installed${tenantId ? `?tenant_id=${tenantId}` : ''}`),
+  createTool: (data: Record<string, unknown>) => post<unknown>('/tools', data),
+  updateGlobalTool: (toolId: string, data: Record<string, unknown>) => put<unknown>(`/tools/${toolId}`, data),
+  deleteGlobalTool: (toolId: string) => del(`/tools/${toolId}`),
+  testMcp: (data: Record<string, unknown>) => post<unknown>('/tools/test-mcp', data),
+
   /** List tools with per-agent config (preferred), falls back to basic list */
   listWithConfig: (agentId: string) => get<AgentTool[]>(`/tools/agents/${agentId}/with-config`),
   list: (agentId: string) => get<AgentTool[]>(`/tools/agents/${agentId}`),

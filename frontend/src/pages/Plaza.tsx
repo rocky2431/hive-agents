@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../stores';
 import { agentApi } from '../api/domains/agents';
+import { plazaApi } from '../api/domains/plaza';
 import ConfirmModal from '../components/ConfirmModal';
 
 /* ────── Inline SVG Icons (monochrome, matching Dashboard) ────── */
@@ -78,13 +79,6 @@ const Icons = {
 };
 
 /* ────── Helpers ────── */
-
-import { get, post, del as delReq } from '../api/core';
-/** Strip /api prefix if present (Plaza used full URLs historically) */
-const stripApi = (url: string) => url.replace(/^\/api/, '');
-const fetchJson = async <T,>(url: string): Promise<T> => get<T>(stripApi(url));
-const postJson = async (url: string, body: any) => post(stripApi(url), body);
-
 // Auto-detect URLs, #hashtags, and @mentions in text
 const linkifyContent = (text: string) => {
     const parts = text.split(/(https?:\/\/[^\s<>"'()\uff0c\u3002\uff01\uff1f\u3001\uff1b\uff1a]+|#[\w\u4e00-\u9fff]+|@\S+)/g);
@@ -481,13 +475,13 @@ export default function Plaza() {
 
     const { data: posts = [], isLoading } = useQuery<Post[]>({
         queryKey: ['plaza-posts', tenantId],
-        queryFn: () => fetchJson(`/api/plaza/posts?limit=50${tenantId ? `&tenant_id=${tenantId}` : ''}`),
+        queryFn: () => plazaApi.listPosts({ limit: 50, tenantId }) as Promise<Post[]>,
         refetchInterval: 15000,
     });
 
     const { data: stats } = useQuery<PlazaStats>({
         queryKey: ['plaza-stats', tenantId],
-        queryFn: () => fetchJson(`/api/plaza/stats${tenantId ? `?tenant_id=${tenantId}` : ''}`),
+        queryFn: () => plazaApi.getStats(tenantId) as Promise<PlazaStats>,
         refetchInterval: 30000,
     });
 
@@ -499,7 +493,7 @@ export default function Plaza() {
 
     const { data: users = [] } = useQuery<any[]>({
         queryKey: ['users-for-plaza', tenantId],
-        queryFn: () => fetchJson(`/api/org/users${tenantId ? `?tenant_id=${tenantId}` : ''}`),
+        queryFn: () => plazaApi.listUsers(tenantId) as Promise<any[]>,
         refetchInterval: 60000,
     });
 
@@ -510,16 +504,13 @@ export default function Plaza() {
 
     const { data: postDetails } = useQuery<Post>({
         queryKey: ['plaza-post-detail', expandedPost],
-        queryFn: () => fetchJson(`/api/plaza/posts/${expandedPost}`),
+        queryFn: () => plazaApi.getPost(expandedPost!) as Promise<Post>,
         enabled: !!expandedPost,
     });
 
     const createPost = useMutation({
-        mutationFn: (content: string) => postJson('/api/plaza/posts', {
+        mutationFn: (content: string) => plazaApi.createPost({
             content,
-            author_id: user?.id,
-            author_type: 'human',
-            author_name: user?.display_name || 'Anonymous',
             tenant_id: tenantId || undefined,
         }),
         onSuccess: () => {
@@ -531,11 +522,8 @@ export default function Plaza() {
 
     const addComment = useMutation({
         mutationFn: ({ postId, content }: { postId: string; content: string }) =>
-            postJson(`/api/plaza/posts/${postId}/comments`, {
+            plazaApi.createComment(postId, {
                 content,
-                author_id: user?.id,
-                author_type: 'human',
-                author_name: user?.display_name || 'Anonymous',
             }),
         onSuccess: (_, vars) => {
             setNewComment('');
@@ -545,13 +533,12 @@ export default function Plaza() {
     });
 
     const likePost = useMutation({
-        mutationFn: (postId: string) =>
-            postJson(`/api/plaza/posts/${postId}/like?author_id=${user?.id}&author_type=human`, {}),
+        mutationFn: (postId: string) => plazaApi.toggleLike(postId),
         onSuccess: () => queryClient.invalidateQueries({ queryKey: ['plaza-posts'] }),
     });
 
     const deletePost = useMutation({
-        mutationFn: (postId: string) => delReq(`/plaza/posts/${postId}`),
+        mutationFn: (postId: string) => plazaApi.removePost(postId),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['plaza-posts'] });
             queryClient.invalidateQueries({ queryKey: ['plaza-stats'] });
