@@ -15,10 +15,12 @@ import { useAuthStore } from '../stores';
 import { saveAccentColor, getSavedAccentColor, resetAccentColor, PRESET_COLORS } from '../utils/theme';
 import UserManagement from './UserManagement';
 import InvitationCodes from './InvitationCodes';
+import WorkspaceInfoSection from './workspace/WorkspaceInfoSection';
+import WorkspaceLlmSection from './workspace/WorkspaceLlmSection';
 
 interface LLMModel {
     id: string; provider: string; model: string; label: string;
-    base_url?: string; api_key_masked?: string; max_tokens_per_day?: number; enabled: boolean; supports_vision?: boolean; max_output_tokens?: number; temperature?: number; created_at: string;
+    base_url?: string; api_key_masked?: string; max_tokens_per_day?: number; enabled: boolean; supports_vision?: boolean; max_output_tokens?: number | null; temperature?: number | null; created_at?: string;
 }
 
 interface LLMProviderSpec {
@@ -1234,6 +1236,153 @@ export default function EnterpriseSettings({ forcedTab, hideTabs = false }: Ente
         return true;
     });
 
+    const handleModelFormChange = (patch: Partial<typeof modelForm>) => {
+        setModelForm((current) => ({ ...current, ...patch }));
+    };
+
+    const handleStartCreateModel = () => {
+        setEditingModelId(null);
+        const defaultSpec = providerOptions[0];
+        setModelForm({
+            provider: defaultSpec?.provider || 'anthropic',
+            model: '',
+            api_key: '',
+            base_url: defaultSpec?.default_base_url || '',
+            label: '',
+            supports_vision: false,
+            max_output_tokens: defaultSpec ? String(defaultSpec.default_max_tokens) : '4096',
+            temperature: '',
+        });
+        setShowAddModel(true);
+    };
+
+    const handleCancelModelForm = () => {
+        setShowAddModel(false);
+        setEditingModelId(null);
+    };
+
+    const runModelTest = async (testData: Record<string, unknown>) => {
+        const activeButton = document.activeElement as HTMLButtonElement | null;
+        const originalText = activeButton?.textContent || '';
+        if (activeButton) activeButton.textContent = t('enterprise.llm.testing');
+        try {
+            const result = await enterpriseApi.testLLM(testData);
+            if (result.success) {
+                if (activeButton) {
+                    activeButton.textContent = t('enterprise.llm.testSuccess', { latency: result.latency_ms });
+                    activeButton.style.color = 'var(--success)';
+                }
+                setTimeout(() => {
+                    if (activeButton) {
+                        activeButton.textContent = originalText;
+                        activeButton.style.color = '';
+                    }
+                }, 3000);
+                return;
+            }
+            alert(t('enterprise.llm.testFailed', { error: result.error || 'Unknown error', latency: result.latency_ms }));
+            if (activeButton) activeButton.textContent = originalText;
+        } catch (e: any) {
+            alert(t('enterprise.llm.testError', { message: e.message }));
+            if (activeButton) activeButton.textContent = originalText;
+        }
+    };
+
+    const handleTestDraftModel = async () => {
+        const testData: Record<string, unknown> = {
+            provider: modelForm.provider,
+            model: modelForm.model,
+            base_url: modelForm.base_url || undefined,
+        };
+        if (modelForm.api_key) testData.api_key = modelForm.api_key;
+        await runModelTest(testData);
+    };
+
+    const handleCreateModel = () => {
+        addModel.mutate({
+            ...modelForm,
+            max_output_tokens: modelForm.max_output_tokens ? Number(modelForm.max_output_tokens) : null,
+            temperature: modelForm.temperature !== '' ? Number(modelForm.temperature) : null,
+        });
+    };
+
+    const handleTestExistingModel = async () => {
+        const testData: Record<string, unknown> = {
+            provider: modelForm.provider,
+            model: modelForm.model,
+            base_url: modelForm.base_url || undefined,
+            model_id: editingModelId || undefined,
+        };
+        if (modelForm.api_key) testData.api_key = modelForm.api_key;
+        await runModelTest(testData);
+    };
+
+    const handleUpdateModel = () => {
+        if (!editingModelId) return;
+        updateModel.mutate({
+            id: editingModelId,
+            data: {
+                ...modelForm,
+                max_output_tokens: modelForm.max_output_tokens ? Number(modelForm.max_output_tokens) : null,
+                temperature: modelForm.temperature !== '' ? Number(modelForm.temperature) : null,
+            },
+        });
+    };
+
+    const handleToggleModel = async (modelId: string, enabled: boolean) => {
+        try {
+            await enterpriseApi.updateLLMModel(modelId, { enabled });
+            qc.invalidateQueries({ queryKey: ['llm-models', selectedTenantId] });
+        } catch (e) {
+            console.error(e);
+        }
+    };
+
+    const handleEditModel = (model: LLMModel) => {
+        setEditingModelId(model.id);
+        setModelForm({
+            provider: model.provider,
+            model: model.model,
+            label: model.label,
+            base_url: model.base_url || '',
+            api_key: model.api_key_masked || '',
+            supports_vision: model.supports_vision || false,
+            max_output_tokens: model.max_output_tokens ? String(model.max_output_tokens) : '',
+            temperature: model.temperature !== null && model.temperature !== undefined ? String(model.temperature) : '',
+        });
+        setShowAddModel(true);
+    };
+
+    const handleDeleteModel = (modelId: string) => {
+        deleteModel.mutate({ id: modelId });
+    };
+
+    const handleDeleteCompany = async () => {
+        if (!confirm(t('enterprise.deleteCompanyConfirm', 'Are you sure you want to delete this company and ALL its data? This cannot be undone.'))) return;
+        try {
+            const res = await systemApi.deleteTenant(selectedTenantId);
+            const me = await authApi.getMe().catch(() => null);
+            if (me) setUser(me);
+
+            qc.invalidateQueries({ queryKey: ['tenants'] });
+
+            if (res.fallback_tenant_id) {
+                localStorage.setItem('current_tenant_id', res.fallback_tenant_id);
+                setSelectedTenantId(res.fallback_tenant_id);
+                window.dispatchEvent(new StorageEvent('storage', { key: 'current_tenant_id', newValue: res.fallback_tenant_id }));
+                navigate('/enterprise', { replace: true });
+                return;
+            }
+
+            localStorage.removeItem('current_tenant_id');
+            setSelectedTenantId('');
+            window.dispatchEvent(new StorageEvent('storage', { key: 'current_tenant_id', newValue: null }));
+            navigate(res.needs_company_setup ? '/setup-company' : '/', { replace: true });
+        } catch (e: any) {
+            alert(e.message || 'Delete failed');
+        }
+    };
+
     return (
         <>
             <div>
@@ -1262,267 +1411,23 @@ export default function EnterpriseSettings({ forcedTab, hideTabs = false }: Ente
 
                 {/* ── LLM Model Pool ── */}
                 {activeTab === 'llm' && (
-                    <div>
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '16px' }}>
-                            <button className="btn btn-primary" onClick={() => {
-                                setEditingModelId(null);
-                                const defaultSpec = providerOptions[0];
-                                setModelForm({
-                                    provider: defaultSpec?.provider || 'anthropic',
-                                    model: '', api_key: '',
-                                    base_url: defaultSpec?.default_base_url || '',
-                                    label: '', supports_vision: false,
-                                    max_output_tokens: defaultSpec ? String(defaultSpec.default_max_tokens) : '4096',
-                                    temperature: '',
-                                });
-                                setShowAddModel(true);
-                            }}>+ {t('enterprise.llm.addModel')}</button>
-                        </div>
-
-                        {/* Add Model form — only shown at top when adding new */}
-                        {showAddModel && !editingModelId && (
-                            <div className="card" style={{ marginBottom: '16px' }}>
-                                <h3 style={{ marginBottom: '16px' }}>{t('enterprise.llm.addModel')}</h3>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                                    <div className="form-group">
-                                        <label className="form-label">{t('enterprise.llm.provider')}</label>
-                                        <select className="form-input" value={modelForm.provider} onChange={e => {
-                                            const newProvider = e.target.value;
-                                            const spec = providerOptions.find(p => p.provider === newProvider);
-                                            const updates: any = { provider: newProvider };
-                                            if (spec?.default_base_url) {
-                                                updates.base_url = spec.default_base_url;
-                                            } else {
-                                                updates.base_url = '';
-                                            }
-                                            if (spec) {
-                                                updates.max_output_tokens = String(spec.default_max_tokens);
-                                            }
-                                            setModelForm(f => ({ ...f, ...updates }));
-                                        }}>
-                                            {providerOptions.map((p) => (
-                                                <option key={p.provider} value={p.provider}>{p.display_name}</option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                    <div className="form-group">
-                                        <label className="form-label">{t('enterprise.llm.model')}</label>
-                                        <input 
-                                            className="form-input" 
-                                            placeholder={t('enterprise.llm.modelPlaceholder', 'e.g. claude-sonnet-4-20250514')}
-                                            value={modelForm.model} 
-                                            onChange={e => setModelForm({ ...modelForm, model: e.target.value })} 
-                                        />
-                                    </div>
-                                    <div className="form-group">
-                                        <label className="form-label">{t('enterprise.llm.label')}</label>
-                                        <input className="form-input" placeholder={t('enterprise.llm.labelPlaceholder')} value={modelForm.label} onChange={e => setModelForm({ ...modelForm, label: e.target.value })} />
-                                    </div>
-                                    <div className="form-group">
-                                        <label className="form-label">{t('enterprise.llm.baseUrl')}</label>
-                                        <input className="form-input" placeholder={t('enterprise.llm.baseUrlPlaceholder')} value={modelForm.base_url} onChange={e => setModelForm({ ...modelForm, base_url: e.target.value })} />
-                                    </div>
-                                    <div className="form-group" style={{ gridColumn: 'span 2' }}>
-                                        <label className="form-label">{t('enterprise.llm.apiKey')}</label>
-                                        <input className="form-input" type="password" placeholder={t('enterprise.llm.apiKeyPlaceholder')} value={modelForm.api_key} onChange={e => setModelForm({ ...modelForm, api_key: e.target.value })} />
-                                    </div>
-                                    <div className="form-group" style={{ gridColumn: 'span 2' }}>
-                                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px' }}>
-                                            <input type="checkbox" checked={modelForm.supports_vision} onChange={e => setModelForm({ ...modelForm, supports_vision: e.target.checked })} />
-                                            {t('enterprise.llm.supportsVision')}
-                                            <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontWeight: 400 }}>{t('enterprise.llm.supportsVisionDesc')}</span>
-                                        </label>
-                                    </div>
-                                    <div className="form-group">
-                                        <label className="form-label">{t('enterprise.llm.maxOutputTokens', 'Max Output Tokens')}</label>
-                                        <input className="form-input" type="number" placeholder={t('enterprise.llm.maxOutputTokensPlaceholder', 'e.g. 4096')} value={modelForm.max_output_tokens} onChange={e => setModelForm({ ...modelForm, max_output_tokens: e.target.value })} />
-                                        <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>{t('enterprise.llm.maxOutputTokensDesc', 'Limits generation length')}</div>
-                                    </div>
-                                    <div className="form-group">
-                                        <label className="form-label">{t('enterprise.llm.temperature', 'Temperature')}</label>
-                                        <input className="form-input" type="number" step="0.1" min="0" max="2" placeholder={t('enterprise.llm.temperaturePlaceholder', 'e.g. 0.7 or 1.0 (Leave empty for default)')} value={modelForm.temperature} onChange={e => setModelForm({ ...modelForm, temperature: e.target.value })} />
-                                        <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>{t('enterprise.llm.temperatureDesc', 'Leave empty to use the provider default. o1/o3 reasoning models usually require 1.0')}</div>
-                                    </div>
-                                </div>
-                                <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', alignItems: 'center' }}>
-                                    <button className="btn btn-secondary" onClick={() => { setShowAddModel(false); setEditingModelId(null); }}>{t('common.cancel')}</button>
-                                    <button className="btn btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '6px' }} disabled={!modelForm.model || !modelForm.api_key} onClick={async () => {
-                                        const btn = document.activeElement as HTMLButtonElement;
-                                        const origText = btn?.textContent || '';
-                                        if (btn) btn.textContent = t('enterprise.llm.testing');
-                                        try {
-                                            const testData: any = { provider: modelForm.provider, model: modelForm.model, base_url: modelForm.base_url || undefined };
-                                            if (modelForm.api_key) testData.api_key = modelForm.api_key;
-                                            const result = await enterpriseApi.testLLM(testData);
-                                            if (result.success) {
-                                                if (btn) { btn.textContent = t('enterprise.llm.testSuccess', { latency: result.latency_ms }); btn.style.color = 'var(--success)'; }
-                                                setTimeout(() => { if (btn) { btn.textContent = origText; btn.style.color = ''; } }, 3000);
-                                            } else {
-                                                alert(t('enterprise.llm.testFailed', { error: result.error || 'Unknown error', latency: result.latency_ms }));
-                                                if (btn) btn.textContent = origText;
-                                            }
-                                        } catch (e: any) {
-                                            alert(t('enterprise.llm.testError', { message: e.message }));
-                                            if (btn) btn.textContent = origText;
-                                        }
-                                    }}>{t('enterprise.llm.test')}</button>
-                                    <button className="btn btn-primary" onClick={() => {
-                                        const data = { 
-                                            ...modelForm, 
-                                            max_output_tokens: modelForm.max_output_tokens ? Number(modelForm.max_output_tokens) : null,
-                                            temperature: modelForm.temperature !== '' ? Number(modelForm.temperature) : null
-                                        };
-                                        addModel.mutate(data);
-                                    }} disabled={!modelForm.model || !modelForm.api_key}>
-                                        {t('common.save')}
-                                    </button>
-                                </div>
-                            </div>
-                        )}
-
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            {models.map((m) => (
-                                <div key={m.id}>
-                                    {editingModelId === m.id ? (
-                                        /* Inline edit form */
-                                        <div className="card" style={{ border: '1px solid var(--accent-primary)' }}>
-                                            <h3 style={{ marginBottom: '16px' }}>Edit Model</h3>
-                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                                                <div className="form-group">
-                                                    <label className="form-label">{t('enterprise.llm.provider')}</label>
-                                                    <select className="form-input" value={modelForm.provider} onChange={e => {
-                                                        const newProvider = e.target.value;
-                                                        setModelForm(f => ({ ...f, provider: newProvider }));
-                                                    }}>
-                                                        {providerOptions.map((p) => (
-                                                            <option key={p.provider} value={p.provider}>{p.display_name}</option>
-                                                        ))}
-                                                        {!providerOptions.some((p) => p.provider === modelForm.provider) && (
-                                                            <option value={modelForm.provider}>{modelForm.provider}</option>
-                                                        )}
-                                                    </select>
-                                                </div>
-                                                <div className="form-group">
-                                                    <label className="form-label">{t('enterprise.llm.model')}</label>
-                                                    <input 
-                                                        className="form-input" 
-                                                        placeholder={t('enterprise.llm.modelPlaceholder', 'e.g. claude-sonnet-4-20250514')}
-                                                        value={modelForm.model} 
-                                                        onChange={e => setModelForm({ ...modelForm, model: e.target.value })} 
-                                                    />
-                                                </div>
-                                                <div className="form-group">
-                                                    <label className="form-label">{t('enterprise.llm.label')}</label>
-                                                    <input className="form-input" placeholder={t('enterprise.llm.labelPlaceholder')} value={modelForm.label} onChange={e => setModelForm({ ...modelForm, label: e.target.value })} />
-                                                </div>
-                                                <div className="form-group">
-                                                    <label className="form-label">{t('enterprise.llm.baseUrl')}</label>
-                                                    <input className="form-input" placeholder={t('enterprise.llm.baseUrlPlaceholder')} value={modelForm.base_url} onChange={e => setModelForm({ ...modelForm, base_url: e.target.value })} />
-                                                </div>
-                                                <div className="form-group" style={{ gridColumn: 'span 2' }}>
-                                                    <label className="form-label">{t('enterprise.llm.apiKey')}</label>
-                                                    <input className="form-input" type="password" placeholder="•••••••• (Leave blank to keep unchanged)" value={modelForm.api_key} onChange={e => setModelForm({ ...modelForm, api_key: e.target.value })} />
-                                                </div>
-                                                <div className="form-group" style={{ gridColumn: 'span 2' }}>
-                                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px' }}>
-                                                        <input type="checkbox" checked={modelForm.supports_vision} onChange={e => setModelForm({ ...modelForm, supports_vision: e.target.checked })} />
-                                                        {t('enterprise.llm.supportsVision')}
-                                                        <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontWeight: 400 }}>{t('enterprise.llm.supportsVisionDesc')}</span>
-                                                    </label>
-                                                </div>
-                                                <div className="form-group">
-                                                    <label className="form-label">{t('enterprise.llm.maxOutputTokens', 'Max Output Tokens')}</label>
-                                                    <input className="form-input" type="number" placeholder={t('enterprise.llm.maxOutputTokensPlaceholder', 'e.g. 4096')} value={modelForm.max_output_tokens} onChange={e => setModelForm({ ...modelForm, max_output_tokens: e.target.value })} />
-                                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>{t('enterprise.llm.maxOutputTokensDesc', 'Limits generation length')}</div>
-                                                </div>
-                                                <div className="form-group">
-                                                    <label className="form-label">{t('enterprise.llm.temperature', 'Temperature')}</label>
-                                                    <input className="form-input" type="number" step="0.1" min="0" max="2" placeholder={t('enterprise.llm.temperaturePlaceholder', 'e.g. 0.7 or 1.0 (Leave empty for default)')} value={modelForm.temperature} onChange={e => setModelForm({ ...modelForm, temperature: e.target.value })} />
-                                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>{t('enterprise.llm.temperatureDesc', 'Leave empty to use the provider default. o1/o3 reasoning models usually require 1.0')}</div>
-                                                </div>
-                                            </div>
-                                            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', alignItems: 'center' }}>
-                                                <button className="btn btn-secondary" onClick={() => { setShowAddModel(false); setEditingModelId(null); }}>{t('common.cancel')}</button>
-                                                <button className="btn btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '6px' }} disabled={!modelForm.model} onClick={async () => {
-                                                    const btn = document.activeElement as HTMLButtonElement;
-                                                    const origText = btn?.textContent || '';
-                                                    if (btn) btn.textContent = t('enterprise.llm.testing');
-                                                    try {
-                                                        const testData: any = { provider: modelForm.provider, model: modelForm.model, base_url: modelForm.base_url || undefined };
-                                                        if (modelForm.api_key) testData.api_key = modelForm.api_key;
-                                                        testData.model_id = editingModelId;
-                                                        const result = await enterpriseApi.testLLM(testData);
-                                                        if (result.success) {
-                                                            if (btn) { btn.textContent = t('enterprise.llm.testSuccess', { latency: result.latency_ms }); btn.style.color = 'var(--success)'; }
-                                                            setTimeout(() => { if (btn) { btn.textContent = origText; btn.style.color = ''; } }, 3000);
-                                                        } else {
-                                                            alert(t('enterprise.llm.testFailed', { error: result.error || 'Unknown error', latency: result.latency_ms }));
-                                                            if (btn) btn.textContent = origText;
-                                                        }
-                                                    } catch (e: any) {
-                                                        alert(t('enterprise.llm.testError', { message: e.message }));
-                                                        if (btn) btn.textContent = origText;
-                                                    }
-                                                }}>{t('enterprise.llm.test')}</button>
-                                                <button className="btn btn-primary" onClick={() => {
-                                                    const data = { 
-                                                        ...modelForm, 
-                                                        max_output_tokens: modelForm.max_output_tokens ? Number(modelForm.max_output_tokens) : null,
-                                                        temperature: modelForm.temperature !== '' ? Number(modelForm.temperature) : null
-                                                    };
-                                                    updateModel.mutate({ id: editingModelId!, data });
-                                                }} disabled={!modelForm.model}>
-                                                    {t('common.save')}
-                                                </button>
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        /* Normal model row */
-                                        <div className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                            <div>
-                                                <div style={{ fontWeight: 500 }}>{m.label}</div>
-                                                <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
-                                                    {m.provider}/{m.model}
-                                                    {m.base_url && <span> · {m.base_url}</span>}
-                                                </div>
-                                            </div>
-                                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                                {/* Toggle switch for enabled/disabled */}
-                                                <button
-                                                    onClick={async () => {
-                                                        try {
-                                                            await enterpriseApi.updateLLMModel(m.id, { enabled: !m.enabled });
-                                                            qc.invalidateQueries({ queryKey: ['llm-models', selectedTenantId] });
-                                                        } catch (e) { console.error(e); }
-                                                    }}
-                                                    title={m.enabled ? t('enterprise.llm.clickToDisable', 'Click to disable') : t('enterprise.llm.clickToEnable', 'Click to enable')}
-                                                    style={{
-                                                        position: 'relative', width: '36px', height: '20px', borderRadius: '10px', border: 'none', cursor: 'pointer', transition: 'background 0.2s',
-                                                        background: m.enabled ? 'var(--success, #00b478)' : 'var(--bg-tertiary, #444)',
-                                                        padding: 0, flexShrink: 0,
-                                                    }}
-                                                >
-                                                    <span style={{
-                                                        position: 'absolute', left: m.enabled ? '18px' : '2px', top: '2px',
-                                                        width: '16px', height: '16px', borderRadius: '50%', background: '#fff',
-                                                        transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-                                                    }} />
-                                                </button>
-                                                {m.supports_vision && <span className="badge" style={{ background: 'rgba(99,102,241,0.15)', color: 'rgb(99,102,241)', fontSize: '10px' }}>Vision</span>}
-                                                <button className="btn btn-ghost" onClick={() => {
-                                                    setEditingModelId(m.id);
-                                                    setModelForm({ provider: m.provider, model: m.model, label: m.label, base_url: m.base_url || '', api_key: m.api_key_masked || '', supports_vision: m.supports_vision || false, max_output_tokens: m.max_output_tokens ? String(m.max_output_tokens) : '', temperature: m.temperature !== null && m.temperature !== undefined ? String(m.temperature) : '' });
-                                                    setShowAddModel(true);
-                                                }} style={{ fontSize: '12px' }}>✏️ {t('enterprise.tools.edit')}</button>
-                                                <button className="btn btn-ghost" onClick={() => deleteModel.mutate({ id: m.id })} style={{ color: 'var(--error)' }}>{t('common.delete')}</button>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            ))}
-                            {models.length === 0 && <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-tertiary)' }}>{t('common.noData')}</div>}
-                        </div>
-                    </div>
+                    <WorkspaceLlmSection
+                        models={models}
+                        providerOptions={providerOptions}
+                        showAddModel={showAddModel}
+                        editingModelId={editingModelId}
+                        modelForm={modelForm}
+                        onStartCreateModel={handleStartCreateModel}
+                        onCancelModelForm={handleCancelModelForm}
+                        onModelFormChange={handleModelFormChange}
+                        onTestDraftModel={handleTestDraftModel}
+                        onCreateModel={handleCreateModel}
+                        onTestExistingModel={handleTestExistingModel}
+                        onUpdateModel={handleUpdateModel}
+                        onToggleModel={handleToggleModel}
+                        onEditModel={handleEditModel}
+                        onDeleteModel={handleDeleteModel}
+                    />
                 )}
 
                 {/* ── Org Structure ── */}
@@ -1614,103 +1519,20 @@ export default function EnterpriseSettings({ forcedTab, hideTabs = false }: Ente
 
                 {/* ── Company Management ── */}
                 {activeTab === 'info' && (
-                    <div>
-
-                        {/* ── 0. Company Name ── */}
-                        <h3 style={{ marginBottom: '8px' }}>{t('enterprise.companyName.title', 'Company Name')}</h3>
-                        <CompanyNameEditor key={`name-${selectedTenantId}`} />
-
-                        {/* ── 0.5. Company Timezone ── */}
-                        <CompanyTimezoneEditor key={`tz-${selectedTenantId}`} />
-
-                        {/* ── 1. Company Intro ── */}
-                        <h3 style={{ marginBottom: '8px' }}>{t('enterprise.companyIntro.title', 'Company Intro')}</h3>
-                        <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
-                            {t('enterprise.companyIntro.description', 'Describe your company\'s mission, products, and culture. This information is included in every agent conversation as context.')}
-                        </p>
-                        <div className="card" style={{ padding: '16px', marginBottom: '24px' }}>
-                            <textarea
-                                className="form-input"
-                                value={companyIntro}
-                                onChange={e => setCompanyIntro(e.target.value)}
-                                placeholder={`# Company Name\nClawith\n\n# About\nOpenClaw\uD83E\uDD9E For Teams\nOpen Source \u00B7 Multi-OpenClaw Collaboration\n\nOpenClaw empowers individuals.\nClawith scales it to frontier organizations.`}
-                                style={{
-                                    minHeight: '200px', resize: 'vertical',
-                                    fontFamily: 'var(--font-mono)', fontSize: '13px',
-                                    lineHeight: '1.6', whiteSpace: 'pre-wrap',
-                                }}
-                            />
-                            <div style={{ marginTop: '12px', display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                <button className="btn btn-primary" onClick={saveCompanyIntro} disabled={companyIntroSaving}>
-                                    {companyIntroSaving ? t('common.loading') : t('common.save', 'Save')}
-                                </button>
-                                {companyIntroSaved && <span style={{ color: 'var(--success)', fontSize: '12px' }}>✅ {t('enterprise.config.saved', 'Saved')}</span>}
-                                <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginLeft: 'auto' }}>
-                                    💡 {t('enterprise.companyIntro.hint', 'This content appears in every agent\'s system prompt')}
-                                </span>
-                            </div>
-                        </div>
-
-                        {/* ── 2. Company Knowledge Base ── */}
-                        <h3 style={{ marginBottom: '8px' }}>{t('enterprise.kb.title')}</h3>
-                        <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
-                            {t('enterprise.kb.description', 'Shared files accessible to all agents via enterprise_info/ directory.')}
-                        </p>
-                        <div className="card" style={{ marginBottom: '24px', padding: '16px' }}>
-                            <EnterpriseKBBrowser onRefresh={() => setInfoRefresh((v: number) => v + 1)} refreshKey={infoRefresh} />
-                        </div>
-
-
-
-                        {/* ── Theme Color ── */}
-                        <ThemeColorPicker />
-
-                        {/* ── Broadcast ── */}
-                        <BroadcastSection />
-
-                        {/* ── Danger Zone: Delete Company ── */}
-                        <div style={{ marginTop: '32px', padding: '16px', border: '1px solid var(--status-error, #e53e3e)', borderRadius: '8px' }}>
-                            <h3 style={{ marginBottom: '4px', color: 'var(--status-error, #e53e3e)' }}>{t('enterprise.dangerZone', 'Danger Zone')}</h3>
-                            <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
-                                {t('enterprise.deleteCompanyDesc', 'Permanently delete this company and all its data including agents, models, tools, and skills. This action cannot be undone.')}
-                            </p>
-                            <button
-                                className="btn"
-                                onClick={async () => {
-                                    if (!confirm(t('enterprise.deleteCompanyConfirm', 'Are you sure you want to delete this company and ALL its data? This cannot be undone.'))) return;
-                                    try {
-                                        const res = await systemApi.deleteTenant(selectedTenantId);
-                                        const me = await authApi.getMe().catch(() => null);
-                                        if (me) setUser(me);
-
-                                        qc.invalidateQueries({ queryKey: ['tenants'] });
-
-                                        if (res.fallback_tenant_id) {
-                                            localStorage.setItem('current_tenant_id', res.fallback_tenant_id);
-                                            setSelectedTenantId(res.fallback_tenant_id);
-                                            window.dispatchEvent(new StorageEvent('storage', { key: 'current_tenant_id', newValue: res.fallback_tenant_id }));
-                                            navigate('/enterprise', { replace: true });
-                                            return;
-                                        }
-
-                                        localStorage.removeItem('current_tenant_id');
-                                        setSelectedTenantId('');
-                                        window.dispatchEvent(new StorageEvent('storage', { key: 'current_tenant_id', newValue: null }));
-                                        navigate(res.needs_company_setup ? '/setup-company' : '/', { replace: true });
-                                    } catch (e: any) {
-                                        alert(e.message || 'Delete failed');
-                                    }
-                                }}
-                                style={{
-                                    background: 'transparent', color: 'var(--status-error, #e53e3e)',
-                                    border: '1px solid var(--status-error, #e53e3e)', borderRadius: '6px',
-                                    padding: '6px 16px', fontSize: '13px', cursor: 'pointer',
-                                }}
-                            >
-                                {t('enterprise.deleteCompany', 'Delete This Company')}
-                            </button>
-                        </div>
-                    </div>
+                    <WorkspaceInfoSection
+                        selectedTenantId={selectedTenantId}
+                        companyNameEditor={<CompanyNameEditor key={`name-${selectedTenantId}`} />}
+                        companyTimezoneEditor={<CompanyTimezoneEditor key={`tz-${selectedTenantId}`} />}
+                        companyIntro={companyIntro}
+                        onCompanyIntroChange={setCompanyIntro}
+                        onSaveCompanyIntro={saveCompanyIntro}
+                        companyIntroSaving={companyIntroSaving}
+                        companyIntroSaved={companyIntroSaved}
+                        kbBrowser={<EnterpriseKBBrowser onRefresh={() => setInfoRefresh((v: number) => v + 1)} refreshKey={infoRefresh} />}
+                        themeColorPicker={<ThemeColorPicker />}
+                        broadcastSection={<BroadcastSection />}
+                        onDeleteCompany={handleDeleteCompany}
+                    />
                 )}
 
                 {/* ── Quotas Tab ── */}
