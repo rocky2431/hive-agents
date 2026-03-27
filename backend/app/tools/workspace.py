@@ -30,6 +30,7 @@ async def ensure_workspace(agent_id: uuid.UUID, tenant_id: str | None = None) ->
     (ws / "workspace").mkdir(exist_ok=True)
     (ws / "workspace" / "knowledge_base").mkdir(exist_ok=True)
     (ws / "memory").mkdir(exist_ok=True)
+    (ws / "memory" / "learnings").mkdir(exist_ok=True)
 
     if tenant_id:
         enterprise_dir = WORKSPACE_ROOT / f"enterprise_info_{tenant_id}"
@@ -55,31 +56,47 @@ async def ensure_workspace(agent_id: uuid.UUID, tenant_id: str | None = None) ->
         )
 
     if not (ws / "soul.md").exists():
+        role_desc = "_Describe your role and responsibilities._"
         try:
             async with async_session() as db:
                 result = await db.execute(select(Agent).where(Agent.id == agent_id))
                 agent = result.scalar_one_or_none()
                 if agent and agent.role_description:
-                    (ws / "soul.md").write_text(
-                        f"# Personality\n\n{agent.role_description}\n",
-                        encoding="utf-8",
-                    )
-                else:
-                    (ws / "soul.md").write_text(
-                        "# Personality\n\n_Describe your role and responsibilities._\n",
-                        encoding="utf-8",
-                    )
-        except Exception:
-            (ws / "soul.md").write_text(
-                "# Personality\n\n_Describe your role and responsibilities._\n",
-                encoding="utf-8",
-            )
+                    role_desc = agent.role_description
+        except Exception as exc:
+            logger.warning("[Workspace] Failed to load role_description for soul.md: %s", exc)
+        soul_content = f"""# Personality
+
+{role_desc}
+
+# Behavioral Protocols
+
+- **Write-before-reply (WAL)**: When you receive corrections, decisions, or critical info, write to focus.md (current task) or memory/memory.md (long-term knowledge) BEFORE responding.
+- **Think proactively**: Don't wait for instructions. Ask yourself "what would help my user?" and surface suggestions.
+- **Be relentless**: When something fails, try a different approach. Exhaust 5+ methods before asking for help. "Can't" means all options are exhausted.
+- **Self-improve**: When an operation fails or the user corrects you, log it to memory/learnings/ (load_skill Self-Improving Agent for the full format).
+- **Vet before installing**: Before installing any third-party skill, load_skill Skill Vetter and run the security review. Never skip it.
+"""
+        (ws / "soul.md").write_text(soul_content.strip() + "\n", encoding="utf-8")
 
     if not (ws / "HEARTBEAT.md").exists():
         (ws / "HEARTBEAT.md").write_text(
             "# Heartbeat\n\n_Periodic awareness instructions. The agent reads this file during each heartbeat._\n",
             encoding="utf-8",
         )
+
+    # Pre-install system skills from templates
+    templates_dir = Path(__file__).resolve().parent.parent / "templates" / "skills"
+    if templates_dir.is_dir():
+        for skill_tmpl in templates_dir.iterdir():
+            if skill_tmpl.is_dir() and not (ws / "skills" / skill_tmpl.name / "SKILL.md").exists():
+                dest = ws / "skills" / skill_tmpl.name
+                dest.mkdir(parents=True, exist_ok=True)
+                for f in skill_tmpl.rglob("*"):
+                    if f.is_file():
+                        rel = f.relative_to(skill_tmpl)
+                        (dest / rel).parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(str(f), str(dest / rel))
 
     await _sync_tasks_to_file(agent_id, ws)
     return ws

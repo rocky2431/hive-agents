@@ -175,7 +175,7 @@ async def jina_read(arguments: dict) -> str:
 @tool(ToolMeta(
     name="discover_resources",
     description=(
-        "Search public MCP registries (Smithery) for tools and capabilities that can "
+        "Search public MCP registries (Smithery + ModelScope) for tools and capabilities that can "
         "extend your abilities. Use this when you encounter a task you cannot handle "
         "with your current tools."
     ),
@@ -201,6 +201,10 @@ async def jina_read(arguments: dict) -> str:
     governance="safe",
     pack="mcp_admin_pack",
     adapter="args_only",
+    config={"modelscope_api_token": ""},
+    config_schema={"fields": [
+        {"key": "modelscope_api_token", "label": "ModelScope API Token", "type": "password", "default": "", "placeholder": "从 modelscope.cn 获取"},
+    ]},
 ))
 async def discover_resources(arguments: dict) -> str:
     from app.services.agent_tool_domains.web_mcp import _discover_resources

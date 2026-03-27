@@ -102,26 +102,26 @@ async def _maybe_await(value: Any) -> Any:
 
 async def _resolve_runtime_config(agent_id: uuid.UUID | None) -> RuntimeConfig:
     if not agent_id:
-        return RuntimeConfig(tenant_id=None, max_tool_rounds=50)
+        return RuntimeConfig(tenant_id=None, max_tool_rounds=200)
 
     try:
         async with async_session() as db:
             result = await db.execute(select(Agent).where(Agent.id == agent_id))
             agent = result.scalar_one_or_none()
             if not agent:
-                return RuntimeConfig(tenant_id=None, max_tool_rounds=50)
+                return RuntimeConfig(tenant_id=None, max_tool_rounds=200)
 
             # Token quota enforcement is now at User level (quota_guard.check_user_llm_quota)
             quota_message = None
 
             return RuntimeConfig(
                 tenant_id=agent.tenant_id,
-                max_tool_rounds=agent.max_tool_rounds or 50,
+                max_tool_rounds=agent.max_tool_rounds or 200,
                 quota_message=quota_message,
             )
     except Exception as exc:
         logger.warning("Failed to resolve runtime config for agent %s: %s", agent_id, exc)
-        return RuntimeConfig(tenant_id=None, max_tool_rounds=50)
+        return RuntimeConfig(tenant_id=None, max_tool_rounds=200)
 
 
 async def _resolve_current_user_name(user_id: uuid.UUID | None) -> str | None:

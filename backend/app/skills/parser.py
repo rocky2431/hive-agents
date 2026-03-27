@@ -33,6 +33,7 @@ class SkillParser:
         description = ""
         declared_tools: list[str] = []
         declared_packs: list[str] = []
+        is_system = False
         body = stripped
 
         match = self.FRONTMATTER_PATTERN.match(stripped)
@@ -76,6 +77,9 @@ class SkillParser:
                                 continue
                             i -= 1
                             break
+                elif line.lower().startswith("is_system:"):
+                    value = line[10:].strip().strip('"').strip("'").lower()
+                    is_system = value in ("true", "yes", "1")
                 elif line.lower().startswith("packs:"):
                     inline_value = line[6:].strip()
                     if inline_value:
@@ -115,6 +119,7 @@ class SkillParser:
                 description=description,
                 declared_tools=tuple(declared_tools),
                 declared_packs=tuple(declared_packs),
+                is_system=is_system,
             ),
             body=body,
             file_path=path,

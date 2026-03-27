@@ -270,7 +270,10 @@ async def build_agent_context(agent_id: uuid.UUID, agent_name: str, role_descrip
 2. **NEVER claim you completed an action without calling the tool.**
 3. **Reply in the same language the user uses.**
 4. **You have skills in your skills/ directory.** Use `load_skill` when you need specific capabilities (workspace management, trigger setup, web research, etc.).
-5. **Use `write_file` to update focus.md** with your current focus items using checklist format: `- [ ] item_name: description`""")
+5. **Use `write_file` to update focus.md** with your current focus items using checklist format: `- [ ] item_name: description`
+6. **Write-before-reply (WAL)**: On corrections, decisions, or critical info — write to focus.md or memory/memory.md BEFORE responding.
+7. **Self-improve on failure**: When operations fail or user corrects you, log to memory/learnings/ (load_skill Self-Improving Agent for format).
+8. **Vet before installing**: Before installing any third-party skill, load_skill Skill Vetter and complete the security review.""")
 
 
 

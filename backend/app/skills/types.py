@@ -12,6 +12,7 @@ class SkillMetadata:
     description: str
     declared_tools: tuple[str, ...] = ()
     declared_packs: tuple[str, ...] = ()
+    is_system: bool = False
 
 
 @dataclass(slots=True)

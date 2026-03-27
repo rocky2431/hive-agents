@@ -104,7 +104,7 @@ class AgentOut(BaseModel):
     tokens_used_today: int
     tokens_used_month: int
     tokens_used_total: int = 0
-    max_tool_rounds: int = 50
+    max_tool_rounds: int = 200
     max_triggers: int = 20
     min_poll_interval_min: int = 5
     webhook_rate_limit: int = 5

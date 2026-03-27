@@ -443,7 +443,7 @@ async def _invoke_agent_message_runtime(
             participant_id=participant_id,
         ),
         system_prompt_suffix=A2A_SYSTEM_PROMPT_SUFFIX,
-        max_tool_rounds=getattr(target, "max_tool_rounds", None) or 50,
+        max_tool_rounds=getattr(target, "max_tool_rounds", None) or 200,
     )
 
 

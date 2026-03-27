@@ -264,7 +264,7 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
                     ),
                     tool_executor=_build_heartbeat_tool_executor(agent_id, agent.creator_id),
                     core_tools_only=True,
-                    max_tool_rounds=20,
+                    max_tool_rounds=50,
                 )
             )
             reply = result.content

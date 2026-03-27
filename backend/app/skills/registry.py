@@ -55,11 +55,9 @@ class SkillRegistry:
         lines.extend(
             [
                 "",
-                "⚠️ SKILL USAGE RULES:",
-                "1. When a user request matches a skill, FIRST call `load_skill` with the Skill name above to load the full instructions.",
-                "2. Follow the loaded instructions to complete the task.",
-                "3. Do NOT guess what the skill contains — always read it first.",
-                "4. Folder-based skills may contain auxiliary files (scripts/, references/, examples/). Use `glob_search` or `read_file` on the skill folder when you need to inspect them.",
+                "When a user request matches a skill, FIRST call `load_skill` with the Skill name above to load the full instructions.",
+                "Do NOT guess what the skill contains — always read it first.",
+                "Folder-based skills may contain auxiliary files (scripts/, references/, examples/). Use `read_file` on the skill folder when needed.",
             ]
         )
         return "\n".join(lines)
