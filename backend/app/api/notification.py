@@ -1,17 +1,26 @@
-"""Notification API — list, count, and mark-read for the current user."""
+"""Notification API — list, count, mark-read, and tenant broadcast."""
 
 import uuid
 
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
 from sqlalchemy import select, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.security import get_current_admin
 from app.core.security import get_current_user
 from app.database import get_db
+from app.models.agent import Agent
 from app.models.notification import Notification
 from app.models.user import User
+from app.services.notification_service import send_notification
 
 router = APIRouter(tags=["notifications"])
+
+
+class BroadcastNotificationIn(BaseModel):
+    title: str
+    body: str = ""
 
 
 @router.get("/notifications")
@@ -88,3 +97,39 @@ async def mark_all_read(
     )
     await db.commit()
     return {"ok": True}
+
+
+@router.post("/notifications/broadcast")
+async def broadcast_notifications(
+    data: BroadcastNotificationIn,
+    current_user: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Send an in-app broadcast notification to all active users in the current tenant."""
+    if not current_user.tenant_id:
+        return {"users_notified": 0, "agents_notified": 0}
+
+    users_result = await db.execute(
+        select(User).where(
+            User.tenant_id == current_user.tenant_id,
+            User.is_active == True,  # noqa: E712
+        )
+    )
+    users = users_result.scalars().all()
+    for user in users:
+        await send_notification(
+            db=db,
+            user_id=user.id,
+            type="broadcast",
+            title=data.title,
+            body=data.body or "",
+        )
+
+    agent_count_result = await db.execute(
+        select(func.count(Agent.id)).where(Agent.tenant_id == current_user.tenant_id)
+    )
+    await db.commit()
+    return {
+        "users_notified": len(users),
+        "agents_notified": agent_count_result.scalar_one_or_none() or 0,
+    }

@@ -5,19 +5,19 @@
 
 ## 0. 当前状态更新
 
-- `Phase 0` 已完成：
+- 当前阶段主线已完成：
   - 页面/组件层已无裸 `fetch`
   - 页面/组件层已无 `api/core` 直连
   - 前端主访问链路已全部走 domain adapter
-  - 删除公司链路已补齐前后端契约
-- `Phase 1` 已启动并落地第一步：
+  - `services/api.ts` 已退出代码路径
   - `App.tsx` 已切成 `AppLayout / WorkspaceLayout / AdminLayout`
   - `workspace` 已建立 `/enterprise/info|llm|tools|skills|quotas|users|org|approvals|audit|invitations`
-  - `EnterpriseSettings` 已支持被子路由按 tab 驱动
-- 当前最重要的剩余工作：
-  - 把 `EnterpriseSettings` 从“按 tab 驱动的大页”继续拆成真正的独立页面
-  - 清理旧 `Layout` 中残留的 workspace/admin 导航耦合
-  - 做 route-level lazy loading，处理大 chunk warning
+  - `EnterpriseSettings`、`AgentDetail`、`AdminCompanies`、`Layout` 已完成 section/module 级拆分
+  - route-level lazy loading 已完成，主包 chunk warning 已消失
+  - 删除公司链路、通知广播、`tools` 兼容接口已补齐前后端契约
+- 当前结论：
+  - 这份文档对应的“前端契约收口 + 三工作面壳层拆分 + 大页减重”阶段已经收口
+  - 后续若继续推进，应视为性能优化或产品深化，不再属于本阶段阻塞项
 
 ## 1. 当前前端基线判断
 
@@ -51,26 +51,24 @@
 
 当前问题：
 
-- 所有页面仍挂在同一个 `Layout`
-- app/workspace/admin 三种心智共用一个壳
-- 侧边栏、通知、个人设置、平台入口仍然耦合
+- 主路由已按 surface 分离，已不再是单一 authenticated 壳
+- `Layout` 已收缩为 app surface 壳层，workspace/admin 已有独立 layout
+- app 壳中仍保留 workspace/admin 快捷入口，这是当前产品导航选择，不再视为当前阶段阻塞项
 
 ## 3. 页面级真实断点
 
 以下断点来自真实代码扫描，不是推测。
 
-### 3.1 已失效或不匹配的接口
+### 3.1 已修复的关键断点
 
 | 文件 | 断点 | 现状 | 处理建议 |
 |---|---|---|---|
-| `frontend/src/pages/AgentDetail.tsx` | `/api/tools/agents/*` | 后端旧 `tools.py` 已移除 | 第一阶段直接下线 `ToolsManager` 的旧调用，改接新的 tool governance/packs 设计，未完成前不要继续扩散 |
-| `frontend/src/services/api.ts` | `/agents/templates` | 后端不存在 | 明确业务含义后改接 `role-templates` 或直接删掉模板入口 |
-| `frontend/src/services/api.ts` | `PUT /messages/{id}/read` | 后端当前实际是 `POST /notifications/{id}/read` | 将消息中心统一收敛到 notifications 域，不再新增 `messages` 已读逻辑 |
-| `frontend/src/services/api.ts` | `PUT /messages/read-all` | 后端当前实际是 `POST /notifications/read-all` | 同上 |
-| `frontend/src/pages/Layout.tsx` | `/api/version` | 后端不存在 | 要么补 `GET /api/version`，要么删掉版本角标组件 |
+| `frontend/src/pages/AgentDetail.tsx` | `/tools/agents/*` | 后端已恢复兼容 `tools` router | 当前 UI 已可继续使用，不再是运行时断点 |
+| `frontend/src/pages/EnterpriseSettings.tsx` | `/notifications/broadcast` | 后端已补 `POST /notifications/broadcast` | 当前广播 UI 与后端已对齐 |
+| `frontend/src/pages/Layout.tsx` | `/api/version` | 通过 `systemApi.getVersion -> /api/health` 映射修复 | 不再需要单独 `/api/version` |
+| `frontend/src/messages/notifications` | 已读语义分裂 | 已统一到 `notifications` 域 adapter | 不再新增旧 `messages` 已读逻辑 |
 | `frontend/src/pages/PlatformDashboard.tsx` | `/api/admin/metrics/timeseries` | 后端不存在 | 该页面先归档，不纳入第一阶段 |
 | `frontend/src/pages/PlatformDashboard.tsx` | `/api/admin/metrics/leaderboards` | 后端不存在 | 同上 |
-| `frontend/src/pages/EnterpriseSettings.tsx` | `/api/notifications/broadcast` | 后端不存在 | 通知广播若要保留，应先补后端或删 UI |
 
 ### 3.2 已完成的契约清理
 
@@ -108,9 +106,9 @@
 
 ### 4.3 架构断点
 
-- 单一 `Layout` 承载三种工作面
-- 公共状态和页面状态耦合
-- `services/api.ts` 仍是“大一统文件”，难以支撑三工作面分域演进
+- 超大页面虽然已明显减重，但 `EnterpriseSettings` 仍是 route wrapper + section 组合，不是完全独立页面簇
+- app 壳仍承载通知、账号、快捷跳转等共享状态
+- 当前剩余更多是优化空间，而不是阻塞性结构错误
 
 ## 5. 三工作面目标结构
 
@@ -217,7 +215,7 @@ frontend/src/
 
 ### Phase 1：路由壳拆分
 
-状态：进行中（已完成三套 layout 与 workspace 子路由）
+状态：已完成
 
 输出：
 
@@ -233,12 +231,9 @@ frontend/src/
 - 一个 auth store
 - 多个 surface layout
 
-当前下一步：
-
-- 把 `EnterpriseSettings` 从“forcedTab 大页”拆成真正的独立页面文件
-- 让 `Layout` 只承担 app surface，不再承担 workspace/admin 入口职责
-
 ### Phase 2：优先迁移 `app`
+
+状态：已完成当前范围
 
 顺序：
 
@@ -256,7 +251,7 @@ frontend/src/
 
 ### Phase 3：迁移 `workspace`
 
-做法：
+状态：已完成当前范围
 
 - 拆掉超大 `EnterpriseSettings`
 - 按域拆成独立页面或子路由
@@ -270,6 +265,8 @@ frontend/src/
 
 ### Phase 4：迁移 `admin`
 
+状态：已完成当前范围
+
 只保留平台必需：
 
 - Companies
@@ -279,6 +276,8 @@ frontend/src/
 像 `PlatformDashboard` 这种缺后端支撑且未挂路由的页面，先不恢复。
 
 ### Phase 5：清理与归档
+
+状态：已完成
 
 - 删除死页面
 - 删除旧 `services/api.ts` 大文件
@@ -293,13 +292,14 @@ frontend/src/
 - 不要先把 Desktop、LLM proxy、全部治理能力都做成页面
 - 不要继续在旧 `AgentDetail` 上叠功能
 
-## 8. 第一阶段应该马上做的事
+## 8. 当前阶段已完成的事
 
-1. 建 `api/domains` adapter 层
-2. 补一份前端接口兼容清单
-3. 先把 `AgentDetail` 里失效的 `/api/tools/*` 调用隔离出去
-4. 把 `messages` 与 `notifications` 语义统一
-5. 拆 `App.tsx` 为多 surface route tree
+1. 建立 `api/core + api/domains` adapter 层
+2. 清理页面层裸请求与 `api/core` 直连
+3. 拆分 `App.tsx` 为多 surface route tree
+4. 拆分 `EnterpriseSettings / AgentDetail / AdminCompanies / Layout`
+5. 完成 route-level lazy loading 与 chunk 缩减
+6. 补齐删除公司、通知广播、`tools` 兼容接口
 
 ## 9. 建议的验证命令
 
@@ -307,18 +307,14 @@ frontend/src/
 cd /Users/rocky243/vc-saas/Clawith/frontend && npm run build
 cd /Users/rocky243/vc-saas/Clawith/backend && pytest -q
 cd /Users/rocky243/vc-saas/Clawith && rg -n "fetch\\(" frontend/src/pages frontend/src/components
-cd /Users/rocky243/vc-saas/Clawith && rg -n "/api/tools|/agents/templates|/api/version|notifications/broadcast" frontend/src
+cd /Users/rocky243/vc-saas/Clawith/backend && pytest tests/api/test_notification_broadcast_api.py tests/api/test_tools_api_surface.py -q
 ```
 
-## 10. 下一步实现入口
+## 10. 未来优化入口
 
-按当前基线，最合理的第一批代码改动不是页面重写，而是：
+如果继续做下一轮，建议按“优化项”而不是“主线阻塞项”来排：
 
-1. 新建 `frontend/src/api/core/request.ts`
-2. 新建 `frontend/src/api/domains/auth.ts`
-3. 新建 `frontend/src/api/domains/agents.ts`
-4. 新建 `frontend/src/api/domains/notifications.ts`
-5. 新建 `frontend/src/api/domains/enterprise.ts`
-6. 为这些 domain client 先补最小 smoke tests
-
-等这一层稳定后，再拆 `app/workspace/admin` 三工作面。
+1. 把 `EnterpriseSettings` 从 route wrapper 进一步拆成真正独立页面
+2. 重新评估 app 壳是否继续保留 workspace/admin 快捷入口
+3. 对 `AdminCompanies` 再做更细粒度的懒加载拆分
+4. 决定是否恢复 `PlatformDashboard`，前提是先补真实后端 metrics

@@ -5,18 +5,18 @@
 
 ## 0. 当前状态更新
 
-- `Phase 0` 契约收口已完成：
+- 当前阶段主线已完成：
   - `frontend/src/pages` 与 `frontend/src/components` 已无裸 `fetch`
   - 页面层已无 `api/core` 直连
   - 删除公司链路已补齐，后端存在 `DELETE /tenants/{tenant_id}`
-- `Phase 1` 路由壳拆分已落第一步：
   - `App.tsx` 已分为 `app / workspace / admin` 三套 authenticated layout
   - `workspace` 已有独立的 `/enterprise/*` 子路由
-  - `EnterpriseSettings` 已支持 `forcedTab + hideTabs`，可以按子路由驱动大页中的单个 tab
-- 当前真正的下一阶段不再是“补 adapter”，而是：
-  - 继续拆 `EnterpriseSettings`
-  - 清理 app 壳里残留的跨 surface 导航耦合
-  - 做 route-level lazy loading / code splitting
+  - `EnterpriseSettings / AgentDetail / AdminCompanies / Layout` 已完成模块化拆分
+  - route-level lazy loading 已落地
+  - `POST /notifications/broadcast` 与 `tools` 兼容 router 已补回，前端运行时缺口已闭合
+- 当前结论：
+  - 本文档对应的“以后端能力为基线重建前端契约和三工作面”的阶段已经收口
+  - 后续工作主要是产品深化和性能优化，不再是主线阻塞
 
 ## 1. 基线事实
 
@@ -40,8 +40,8 @@
 结论：
 
 - 后端能力面已经很大，足够支撑“云端单后端 + 多工作面前端”。
-- 前端 adapter 层已经建立完成，当前瓶颈已从“契约不稳”转为“工作面壳层与页面结构仍偏厚”。
-- 后续工作应转向页面拆分与 surface 边界清理，而不是继续把精力耗在页面直连接口治理上。
+- 前端 adapter 层已经建立完成，当前运行时契约缺口已被补齐。
+- 后续工作若继续推进，应转向产品层面的页面独立化、导航策略和更细的性能优化。
 
 ## 3. 顶层业务域分布
 
@@ -100,27 +100,16 @@
 
 ## 5. 前端当前实际消费的后端域
 
-当前 `frontend/src/services/api.ts` 已有 13 组 client：
+当前前端已切到 `frontend/src/api/core + frontend/src/api/domains/*`：
 
-- `authApi`
-- `tenantApi`
-- `adminApi`
-- `agentApi`
-- `taskApi`
-- `fileApi`
-- `channelApi`
-- `enterpriseApi`
-- `activityApi`
-- `messageApi`
-- `scheduleApi`
-- `skillApi`
-- `triggerApi`
+- core：`request / errors / upload-progress`
+- domain adapters：`auth / admin / agents / activity / channels / chat / enterprise / files / messages / notifications / plaza / relationships / schedules / skills / system / tasks / tools / triggers / users`
 
 当前状态：
 
-- 大一统 `services/api.ts` 已退出主路径，domain adapter 已成为默认契约入口
+- 大一统 `services/api.ts` 已删除
 - 页面层直接 `fetch()` 已收口完成
-- 现阶段剩余问题不是“有没有 client”，而是“client 已经到位，但页面与 surface 结构仍然过厚”
+- 当前重点已不再是“有没有 adapter”，而是“是否还要继续把现有 section 进一步拆成真正的独立页面”
 
 ## 6. 当前后端已具备但前端未形成稳定入口的能力
 
@@ -138,7 +127,7 @@
 建议处理策略：
 
 - adapter 层继续保持稳定，不再作为本阶段主要工作面
-- 下一阶段优先进入 `workspace/admin` 的页面组织与懒加载拆分
+- 这些能力保留为未来产品扩展入口，不纳入当前阶段收尾定义
 
 ## 7. 对前端分离的直接影响
 

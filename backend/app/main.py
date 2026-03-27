@@ -330,6 +330,7 @@ from app.api.guard_policies import router as guard_policies_router
 from app.api.desktop_audit import router as desktop_audit_router
 from app.api.role_templates import router as role_templates_router
 from app.api.tenant_channels import router as tenant_channels_router
+from app.api.tools import router as tools_router
 
 # All API routers — mounted under both /api (backward compat) and /api/v1
 _api_routers = [
@@ -350,6 +351,7 @@ _api_routers = [
     desktop_audit_router,
     role_templates_router,
     tenant_channels_router,
+    tools_router,
 ]
 
 for _r in _api_routers:
