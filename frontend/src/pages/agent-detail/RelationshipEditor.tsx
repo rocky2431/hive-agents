@@ -1,8 +1,10 @@
-import React from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 
 import { agentApi } from '../../api/domains/agents';
+import { put } from '../../api/core';
+import { usersApi } from '../../api/domains/users';
 
 type RelationshipEditorProps = {
   agentId: string;
@@ -10,52 +12,144 @@ type RelationshipEditorProps = {
   readOnly?: boolean;
 };
 
-export default function RelationshipEditor({ agentId, agent, readOnly = false }: RelationshipEditorProps) {
-  const { t, i18n } = useTranslation();
+export default function RelationshipEditor({ agentId, agent }: RelationshipEditorProps) {
+  const { i18n } = useTranslation();
   const isChinese = i18n.language?.startsWith('zh');
+  const qc = useQueryClient();
 
-  // Get all agents in the same tenant to show peer list
   const tenantId = localStorage.getItem('current_tenant_id') || '';
   const { data: allAgents = [] } = useQuery({
     queryKey: ['agents', tenantId],
     queryFn: () => agentApi.list(tenantId),
   });
 
+  const { data: users = [] } = useQuery({
+    queryKey: ['users', tenantId],
+    queryFn: () => usersApi.list(tenantId) as Promise<any[]>,
+    enabled: !!tenantId,
+  });
+
   const peerAgents = allAgents.filter((a: any) => a.id !== agentId);
+
+  const [binding, setBinding] = useState(false);
+  const [showPicker, setShowPicker] = useState(false);
+
+  const ownerUser = agent?.owner_user_id
+    ? users.find((u: any) => u.id === agent.owner_user_id)
+    : null;
+
+  const handleBind = async (userId: string) => {
+    setBinding(true);
+    try {
+      await put(`/agents/${agentId}/owner`, { owner_user_id: userId });
+      qc.invalidateQueries({ queryKey: ['agent', agentId] });
+      setShowPicker(false);
+    } catch (e: any) {
+      alert(e.message || 'Failed');
+    }
+    setBinding(false);
+  };
+
+  const handleUnbind = async () => {
+    if (!confirm(isChinese ? '确定解绑该员工？' : 'Unbind this employee?')) return;
+    setBinding(true);
+    try {
+      await put(`/agents/${agentId}/owner`, { owner_user_id: null });
+      qc.invalidateQueries({ queryKey: ['agent', agentId] });
+    } catch (e: any) {
+      alert(e.message || 'Failed');
+    }
+    setBinding(false);
+  };
 
   return (
     <div>
-      {/* Owner Info */}
+      {/* Owner Info + Bind */}
       <div className="card" style={{ marginBottom: '16px' }}>
         <h4 style={{ marginBottom: '8px' }}>{isChinese ? '所属员工' : 'Owner'}</h4>
-        {agent?.owner_user_id ? (
+        {agent?.owner_user_id && ownerUser ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '8px 0' }}>
             <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 600, fontSize: '14px' }}>
-              U
+              {ownerUser.display_name?.charAt(0) || ownerUser.username?.charAt(0) || 'U'}
             </div>
-            <div>
+            <div style={{ flex: 1 }}>
               <div style={{ fontSize: '13px', fontWeight: 500 }}>
-                {agent.creator_username || isChinese ? '已绑定员工' : 'Bound to employee'}
+                {ownerUser.display_name || ownerUser.username}
               </div>
               <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
-                {isChinese ? '该数字员工的 Token 消耗计入此员工的配额' : 'Token usage counted towards this employee\'s quota'}
+                {ownerUser.email} &middot; {isChinese ? 'Token 消耗计入此员工配额' : 'Token usage counted towards this employee'}
               </div>
             </div>
+            <button className="btn btn-ghost" style={{ fontSize: '12px', color: 'var(--error)' }} onClick={handleUnbind} disabled={binding}>
+              {isChinese ? '解绑' : 'Unbind'}
+            </button>
+          </div>
+        ) : agent?.owner_user_id ? (
+          <div style={{ fontSize: '12px', color: 'var(--text-secondary)', padding: '8px 0' }}>
+            {isChinese ? '已绑定员工' : 'Bound to employee'} (ID: {agent.owner_user_id})
+            <button className="btn btn-ghost" style={{ fontSize: '12px', color: 'var(--error)', marginLeft: '8px' }} onClick={handleUnbind} disabled={binding}>
+              {isChinese ? '解绑' : 'Unbind'}
+            </button>
           </div>
         ) : (
-          <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', padding: '8px 0' }}>
-            {isChinese ? '未绑定员工。Token 消耗计入创建者。' : 'No owner bound. Token usage counted towards creator.'}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '8px 0' }}>
+            <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', flex: 1 }}>
+              {isChinese ? '未绑定员工。Token 消耗计入创建者。' : 'No owner bound. Token usage counted towards creator.'}
+            </div>
+            <button className="btn btn-primary" style={{ fontSize: '12px', padding: '4px 12px' }} onClick={() => setShowPicker(true)} disabled={binding}>
+              {isChinese ? '绑定员工' : 'Bind Employee'}
+            </button>
+          </div>
+        )}
+
+        {/* User picker */}
+        {showPicker && (
+          <div style={{ marginTop: '12px', padding: '12px', borderRadius: '8px', background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)' }}>
+            <div style={{ fontSize: '12px', fontWeight: 500, marginBottom: '8px' }}>
+              {isChinese ? '选择员工' : 'Select Employee'}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '200px', overflow: 'auto' }}>
+              {users.map((u: any) => (
+                <button
+                  key={u.id}
+                  onClick={() => handleBind(u.id)}
+                  disabled={binding}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 8px',
+                    borderRadius: '4px', border: 'none', background: 'transparent', cursor: 'pointer',
+                    textAlign: 'left', width: '100%', fontSize: '12px',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-tertiary)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                >
+                  <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '10px', fontWeight: 600 }}>
+                    {u.display_name?.charAt(0) || u.username?.charAt(0)}
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 500 }}>{u.display_name || u.username}</div>
+                    <div style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>{u.email}</div>
+                  </div>
+                </button>
+              ))}
+              {users.length === 0 && (
+                <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', padding: '8px' }}>
+                  {isChinese ? '暂无员工' : 'No employees'}
+                </div>
+              )}
+            </div>
+            <button className="btn btn-ghost" style={{ fontSize: '11px', marginTop: '8px' }} onClick={() => setShowPicker(false)}>
+              {isChinese ? '取消' : 'Cancel'}
+            </button>
           </div>
         )}
       </div>
 
-      {/* Peer Agents (read-only, auto-synced) */}
+      {/* Peer Agents */}
       <div className="card">
         <h4 style={{ marginBottom: '4px' }}>{isChinese ? '同事（同公司数字员工）' : 'Peers (same company)'}</h4>
         <p style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
-          {isChinese ? '关系信息会自动同步到工作区文件 relationships.md，数字员工可在对话中读取。' : 'Relationship data auto-syncs to relationships.md in the workspace.'}
+          {isChinese ? '关系信息会自动同步到工作区文件，数字员工可在对话中读取。' : 'Relationship data auto-syncs to workspace files.'}
         </p>
-
         {peerAgents.length > 0 ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {peerAgents.map((peer: any) => (
@@ -64,12 +158,8 @@ export default function RelationshipEditor({ agentId, agent, readOnly = false }:
                   {peer.name?.charAt(0) || 'A'}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: '13px', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {peer.name}
-                  </div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {peer.role_description || (isChinese ? '无描述' : 'No description')}
-                  </div>
+                  <div style={{ fontSize: '13px', fontWeight: 500 }}>{peer.name}</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{peer.role_description || (isChinese ? '无描述' : 'No description')}</div>
                 </div>
                 <div style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', background: 'var(--accent-muted)', color: 'var(--accent)' }}>
                   {isChinese ? '同事' : 'Peer'}

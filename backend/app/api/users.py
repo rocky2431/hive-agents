@@ -66,11 +66,9 @@ async def list_users(
 
     out = []
     for u in users:
-        # Count non-expired agents
         count_result = await db.execute(
             select(func.count()).select_from(Agent).where(
                 Agent.creator_id == u.id,
-                Agent.is_expired == False,
             )
         )
         agents_count = count_result.scalar() or 0
