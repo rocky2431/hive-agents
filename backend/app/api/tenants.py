@@ -348,7 +348,7 @@ async def assign_user_to_tenant(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    if role not in ("org_admin", "agent_admin", "member"):
+    if role not in ("org_admin", "member"):
         raise HTTPException(status_code=400, detail="Invalid role")
 
     user.tenant_id = tenant_id

@@ -6,7 +6,7 @@ export interface User {
     email: string;
     display_name: string;
     avatar_url?: string;
-    role: 'platform_admin' | 'org_admin' | 'agent_admin' | 'member';
+    role: 'platform_admin' | 'org_admin' | 'member';
     tenant_id?: string;
     department_id?: string;
     title?: string;

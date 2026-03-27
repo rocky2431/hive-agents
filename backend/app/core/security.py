@@ -112,7 +112,7 @@ async def get_current_admin(current_user=Depends(get_current_user)):
 
 
 # Role hierarchy: higher index = more privileges
-ROLE_HIERARCHY = ["member", "agent_admin", "org_admin", "platform_admin"]
+ROLE_HIERARCHY = ["member", "org_admin", "platform_admin"]
 
 
 def require_role(*allowed_roles: str):

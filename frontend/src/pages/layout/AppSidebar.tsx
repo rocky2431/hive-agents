@@ -49,7 +49,6 @@ const getAgentBadgeStatus = (agent: any): string | null => {
 const getRoleLabel = (role: string | undefined, t: any) => {
   if (role === 'platform_admin') return t('roles.platformAdmin');
   if (role === 'org_admin') return t('roles.orgAdmin');
-  if (role === 'agent_admin') return t('roles.agentAdmin');
   return t('roles.member');
 };
 

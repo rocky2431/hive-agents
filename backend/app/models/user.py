@@ -22,7 +22,7 @@ class User(Base):
     display_name: Mapped[str] = mapped_column(String(100), nullable=False)
     avatar_url: Mapped[str | None] = mapped_column(String(500))
     role: Mapped[str] = mapped_column(
-        Enum("platform_admin", "org_admin", "agent_admin", "member", name="user_role_enum"),
+        Enum("platform_admin", "org_admin", "member", name="user_role_enum"),
         default="member",
         nullable=False,
     )

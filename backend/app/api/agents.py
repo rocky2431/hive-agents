@@ -67,8 +67,7 @@ async def list_agents(
             await db.commit()
         return [AgentOut.model_validate(a) for a in agents]
 
-    # agent_admin sees their own created agents + permitted
-    # member sees only permitted
+    # All users see their own created agents + permitted
     # All scoped to user's tenant
     user_tenant = current_user.tenant_id
 
