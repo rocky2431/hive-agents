@@ -179,7 +179,6 @@ describe('AgentDetail extracted sections', () => {
           last_active_at: '2026-03-27T09:00:00Z',
           effective_timezone: 'Asia/Shanghai',
           primary_model_id: 'model-1',
-          context_window_size: 50,
         }}
         llmModels={[{ id: 'model-1', label: 'GPT-5.4', model: 'gpt-5.4', provider: 'openai' }]}
         metrics={{
@@ -326,8 +325,6 @@ describe('AgentDetail extracted sections', () => {
           agent_type: 'native',
           primary_model_id: 'model-1',
           fallback_model_id: '',
-          context_window_size: 80,
-          max_tool_rounds: 40,
           // max_tokens_per_day: 10000,
           // max_tokens_per_month: 200000,
           max_triggers: 10,
@@ -357,8 +354,6 @@ describe('AgentDetail extracted sections', () => {
         settingsForm={{
           primary_model_id: 'model-1',
           fallback_model_id: '',
-          context_window_size: 80,
-          max_tool_rounds: 40,
           // max_tokens_per_day: 10000,
           // max_tokens_per_month: 200000,
           max_triggers: 10,

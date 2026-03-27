@@ -161,10 +161,6 @@ export default function AgentStatusSection({
                 <span style={{ color: 'var(--text-tertiary)' }}>{t('agent.modelConfig.provider')}</span>
                 <span style={{ textTransform: 'capitalize' }}>{modelProvider}</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
-                <span style={{ color: 'var(--text-tertiary)' }}>{t('agent.modelConfig.contextRounds')}</span>
-                <span>{agent.context_window_size || 100}</span>
-              </div>
             </div>
           </div>
         ) : (

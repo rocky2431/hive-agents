@@ -9,8 +9,6 @@ import { agentApi } from '../../api/domains/agents';
 type AgentSettingsForm = {
   primary_model_id: string;
   fallback_model_id: string;
-  context_window_size: number;
-  max_tool_rounds: number;
   max_triggers: number;
   min_poll_interval_min: number;
   webhook_rate_limit: number;
@@ -75,8 +73,6 @@ export default function AgentSettingsSection({
   const hasChanges =
     settingsForm.primary_model_id !== (agent?.primary_model_id || '') ||
     settingsForm.fallback_model_id !== (agent?.fallback_model_id || '') ||
-    settingsForm.context_window_size !== (agent?.context_window_size ?? 100) ||
-    settingsForm.max_tool_rounds !== ((agent as any)?.max_tool_rounds ?? 50) ||
     settingsForm.max_triggers !== ((agent as any)?.max_triggers ?? 20) ||
     settingsForm.min_poll_interval_min !== ((agent as any)?.min_poll_interval_min ?? 5) ||
     settingsForm.webhook_rate_limit !== ((agent as any)?.webhook_rate_limit ?? 5);
@@ -88,8 +84,6 @@ export default function AgentSettingsSection({
       const result: any = await agentApi.update(agentId, {
         primary_model_id: settingsForm.primary_model_id || null,
         fallback_model_id: settingsForm.fallback_model_id || null,
-        context_window_size: settingsForm.context_window_size,
-        max_tool_rounds: settingsForm.max_tool_rounds,
         max_triggers: settingsForm.max_triggers,
         min_poll_interval_min: settingsForm.min_poll_interval_min,
         webhook_rate_limit: settingsForm.webhook_rate_limit,
@@ -238,6 +232,19 @@ export default function AgentSettingsSection({
                 {t('agent.settings.modelDisabledWarning', 'This model has been disabled by admin. The agent will automatically use the fallback model.')}
               </div>
             )}
+            {!settingsForm.primary_model_id && settingsForm.fallback_model_id && (() => {
+              const fb = llmModels.find((m: any) => m.id === settingsForm.fallback_model_id);
+              return fb ? (
+                <div style={{ fontSize: '11px', color: 'var(--accent)', marginTop: '4px' }}>
+                  {isChinese ? `当前使用备选模型: ${fb.label}` : `Using fallback model: ${fb.label}`}
+                </div>
+              ) : null;
+            })()}
+            {!settingsForm.primary_model_id && !settingsForm.fallback_model_id && llmModels.length > 0 && (
+              <div style={{ fontSize: '11px', color: 'var(--warning)', marginTop: '4px' }}>
+                {isChinese ? '未选择模型，Agent 将无法对话' : 'No model selected. Agent cannot chat.'}
+              </div>
+            )}
             <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>{t('agent.settings.primaryModel')}</div>
           </div>
           <div>
@@ -264,47 +271,6 @@ export default function AgentSettingsSection({
         </div>
       </div>
 
-      <div className="card" style={{ marginBottom: '12px' }}>
-        <h4 style={{ marginBottom: '12px' }}>{t('agent.settings.conversationContext')}</h4>
-        <div>
-          <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, marginBottom: '6px' }}>{t('agent.settings.maxRounds')}</label>
-          <input
-            className="input"
-            type="number"
-            min={10}
-            max={500}
-            value={settingsForm.context_window_size}
-            onChange={(e) =>
-              onSettingsFormChange((f) => ({ ...f, context_window_size: Math.max(10, Math.min(500, parseInt(e.target.value, 10) || 100)) }))
-            }
-            style={{ width: '120px' }}
-          />
-          <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>{t('agent.settings.roundsDesc')}</div>
-        </div>
-      </div>
-
-      <div className="card" style={{ marginBottom: '12px' }}>
-        <h4 style={{ marginBottom: '12px' }}>🔧 {t('agent.settings.maxToolRounds', 'Max Tool Call Rounds')}</h4>
-        <div>
-          <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, marginBottom: '6px' }}>
-            {t('agent.settings.maxToolRoundsLabel', 'Maximum rounds per message')}
-          </label>
-          <input
-            className="input"
-            type="number"
-            min={5}
-            max={200}
-            value={settingsForm.max_tool_rounds}
-            onChange={(e) =>
-              onSettingsFormChange((f) => ({ ...f, max_tool_rounds: Math.max(5, Math.min(200, parseInt(e.target.value, 10) || 50)) }))
-            }
-            style={{ width: '120px' }}
-          />
-          <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-            {t('agent.settings.maxToolRoundsDesc', 'How many tool-calling rounds the agent can perform per message (search, write, etc). Default: 50')}
-          </div>
-        </div>
-      </div>
 
       <div className="card" style={{ marginBottom: '12px' }}>
         <h4 style={{ marginBottom: '12px' }}>Token 用量统计</h4>
@@ -428,6 +394,9 @@ export default function AgentSettingsSection({
             { key: 'read_files', label: t('agent.settings.autonomy.readFiles'), desc: t('agent.settings.autonomy.readFilesDesc') },
             { key: 'write_workspace_files', label: t('agent.settings.autonomy.writeFiles'), desc: t('agent.settings.autonomy.writeFilesDesc') },
             { key: 'delete_files', label: t('agent.settings.autonomy.deleteFiles'), desc: t('agent.settings.autonomy.deleteFilesDesc') },
+            { key: 'execute_code', label: isChinese ? '执行代码' : 'Execute Code', desc: isChinese ? '在沙箱中运行 Python/Bash/Node 代码' : 'Run Python/Bash/Node code in sandbox' },
+            { key: 'send_email', label: isChinese ? '发送邮件' : 'Send Email', desc: isChinese ? '向外部收件人发送或回复邮件' : 'Send or reply to emails to external recipients' },
+            { key: 'import_mcp_server', label: isChinese ? '安装 MCP 工具' : 'Install MCP Tools', desc: isChinese ? '从注册表安装第三方工具扩展' : 'Install third-party tool extensions from registries' },
             { key: 'send_feishu_message', label: t('agent.settings.autonomy.sendFeishu'), desc: t('agent.settings.autonomy.sendFeishuDesc') },
             { key: 'web_search', label: t('agent.settings.autonomy.webSearch'), desc: t('agent.settings.autonomy.webSearchDesc') },
             { key: 'manage_tasks', label: t('agent.settings.autonomy.manageTasks'), desc: t('agent.settings.autonomy.manageTasksDesc') },

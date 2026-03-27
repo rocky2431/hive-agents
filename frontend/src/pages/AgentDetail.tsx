@@ -317,8 +317,6 @@ function AgentDetailInner() {
     const [settingsForm, setSettingsForm] = useState({
         primary_model_id: '',
         fallback_model_id: '',
-        context_window_size: 100,
-        max_tool_rounds: 50,
         max_triggers: 20,
         min_poll_interval_min: 5,
         webhook_rate_limit: 5,
@@ -334,8 +332,6 @@ function AgentDetailInner() {
             setSettingsForm({
                 primary_model_id: agent.primary_model_id || '',
                 fallback_model_id: agent.fallback_model_id || '',
-                context_window_size: agent.context_window_size ?? 100,
-                max_tool_rounds: (agent as any).max_tool_rounds ?? 50,
                 max_triggers: (agent as any).max_triggers ?? 20,
                 min_poll_interval_min: (agent as any).min_poll_interval_min ?? 5,
                 webhook_rate_limit: (agent as any).webhook_rate_limit ?? 5,
