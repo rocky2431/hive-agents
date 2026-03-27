@@ -318,15 +318,6 @@ async def _heartbeat_tick():
 
             triggered = 0
             for agent in agents:
-                # Skip expired agents
-                if agent.is_expired:
-                    continue
-                if agent.expires_at and now >= agent.expires_at:
-                    agent.is_expired = True
-                    agent.heartbeat_enabled = False
-                    agent.status = "stopped"
-                    continue
-
                 # Resolve timezone
                 tenant = tenants_by_id.get(agent.tenant_id)
                 tz_name = get_agent_timezone_sync(agent, tenant)

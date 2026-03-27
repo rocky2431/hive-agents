@@ -83,10 +83,5 @@ def is_agent_creator(user: User, agent: Agent) -> bool:
 
 
 def is_agent_expired(agent: Agent) -> bool:
-    """Return True if the agent is manually marked expired or its expires_at is in the past."""
-    if getattr(agent, 'is_expired', False):
-        return True
-    expires_at = getattr(agent, 'expires_at', None)
-    if expires_at and datetime.now(timezone.utc) > expires_at:
-        return True
+    """Agent expiry has been removed — always returns False."""
     return False
