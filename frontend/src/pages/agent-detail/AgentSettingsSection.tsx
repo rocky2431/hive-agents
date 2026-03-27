@@ -11,8 +11,6 @@ type AgentSettingsForm = {
   fallback_model_id: string;
   context_window_size: number;
   max_tool_rounds: number;
-  max_tokens_per_day: string | number;
-  max_tokens_per_month: string | number;
   max_triggers: number;
   min_poll_interval_min: number;
   webhook_rate_limit: number;
@@ -79,8 +77,6 @@ export default function AgentSettingsSection({
     settingsForm.fallback_model_id !== (agent?.fallback_model_id || '') ||
     settingsForm.context_window_size !== (agent?.context_window_size ?? 100) ||
     settingsForm.max_tool_rounds !== ((agent as any)?.max_tool_rounds ?? 50) ||
-    String(settingsForm.max_tokens_per_day) !== String(agent?.max_tokens_per_day || '') ||
-    String(settingsForm.max_tokens_per_month) !== String(agent?.max_tokens_per_month || '') ||
     settingsForm.max_triggers !== ((agent as any)?.max_triggers ?? 20) ||
     settingsForm.min_poll_interval_min !== ((agent as any)?.min_poll_interval_min ?? 5) ||
     settingsForm.webhook_rate_limit !== ((agent as any)?.webhook_rate_limit ?? 5);
@@ -94,8 +90,6 @@ export default function AgentSettingsSection({
         fallback_model_id: settingsForm.fallback_model_id || null,
         context_window_size: settingsForm.context_window_size,
         max_tool_rounds: settingsForm.max_tool_rounds,
-        max_tokens_per_day: settingsForm.max_tokens_per_day ? Number(settingsForm.max_tokens_per_day) : null,
-        max_tokens_per_month: settingsForm.max_tokens_per_month ? Number(settingsForm.max_tokens_per_month) : null,
         max_triggers: settingsForm.max_triggers,
         min_poll_interval_min: settingsForm.min_poll_interval_min,
         webhook_rate_limit: settingsForm.webhook_rate_limit,
@@ -313,34 +307,23 @@ export default function AgentSettingsSection({
       </div>
 
       <div className="card" style={{ marginBottom: '12px' }}>
-        <h4 style={{ marginBottom: '12px' }}>{t('agent.settings.tokenLimits')}</h4>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+        <h4 style={{ marginBottom: '12px' }}>Token 用量统计</h4>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
           <div>
-            <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, marginBottom: '6px' }}>{t('agent.settings.dailyLimit')}</label>
-            <input
-              className="input"
-              type="number"
-              value={settingsForm.max_tokens_per_day}
-              onChange={(e) => onSettingsFormChange((f) => ({ ...f, max_tokens_per_day: e.target.value }))}
-              placeholder={t('agent.settings.noLimit')}
-            />
-            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-              {t('agent.settings.today')}: {formatTokens(agent?.tokens_used_today || 0)}
-            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>今日</div>
+            <div style={{ fontSize: '18px', fontWeight: 600 }}>{formatTokens(agent?.tokens_used_today || 0)}</div>
           </div>
           <div>
-            <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, marginBottom: '6px' }}>{t('agent.settings.monthlyLimit')}</label>
-            <input
-              className="input"
-              type="number"
-              value={settingsForm.max_tokens_per_month}
-              onChange={(e) => onSettingsFormChange((f) => ({ ...f, max_tokens_per_month: e.target.value }))}
-              placeholder={t('agent.settings.noLimit')}
-            />
-            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-              {t('agent.settings.month')}: {formatTokens(agent?.tokens_used_month || 0)}
-            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>本月</div>
+            <div style={{ fontSize: '18px', fontWeight: 600 }}>{formatTokens(agent?.tokens_used_month || 0)}</div>
           </div>
+          <div>
+            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>累计</div>
+            <div style={{ fontSize: '18px', fontWeight: 600 }}>{formatTokens(agent?.tokens_used_total || 0)}</div>
+          </div>
+        </div>
+        <div style={{ fontSize: '11px', color: 'var(--text-quaternary)', marginTop: '8px' }}>
+          Token 配额在"公司设置 → 配额"中按员工统一管理
         </div>
       </div>
 
