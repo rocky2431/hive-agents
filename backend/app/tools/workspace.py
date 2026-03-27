@@ -75,6 +75,12 @@ async def ensure_workspace(agent_id: uuid.UUID, tenant_id: str | None = None) ->
                 encoding="utf-8",
             )
 
+    if not (ws / "HEARTBEAT.md").exists():
+        (ws / "HEARTBEAT.md").write_text(
+            "# Heartbeat\n\n_Periodic awareness instructions. The agent reads this file during each heartbeat._\n",
+            encoding="utf-8",
+        )
+
     await _sync_tasks_to_file(agent_id, ws)
     return ws
 

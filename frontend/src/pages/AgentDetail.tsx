@@ -86,30 +86,7 @@ function AgentDetailInner() {
     const [showAllTriggers, setShowAllTriggers] = useState(false);
     const [reflectionPage, setReflectionPage] = useState(0);
 
-    const { data: soulContent } = useQuery({
-        queryKey: ['file', id, 'soul.md'],
-        queryFn: () => fileApi.read(id!, 'soul.md'),
-        enabled: !!id && activeTab === 'mind',
-    });
-
-    const { data: memoryFiles = [] } = useQuery({
-        queryKey: ['files', id, 'memory'],
-        queryFn: () => fileApi.list(id!, 'memory'),
-        enabled: !!id && activeTab === 'mind',
-    });
-    const [expandedMemory, setExpandedMemory] = useState<string | null>(null);
-    const { data: memoryFileContent } = useQuery({
-        queryKey: ['file', id, expandedMemory],
-        queryFn: () => fileApi.read(id!, expandedMemory!),
-        enabled: !!id && !!expandedMemory,
-    });
-
-    const [workspacePath, setWorkspacePath] = useState('workspace');
-    const { data: workspaceFiles = [] } = useQuery({
-        queryKey: ['files', id, workspacePath],
-        queryFn: () => fileApi.list(id!, workspacePath),
-        enabled: !!id && activeTab === 'workspace',
-    });
+    const workspacePath = 'workspace';
 
     const { data: activityLogs = [] } = useQuery({
         queryKey: ['activity', id],

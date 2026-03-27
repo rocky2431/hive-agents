@@ -151,6 +151,10 @@ CORE_TOOL_NAMES = {
 _ALWAYS_INCLUDE_CORE = set(CORE_TOOL_NAMES)
 # Feishu tools are ONLY included when the agent has a configured Feishu channel,
 # to avoid exposing unnecessary tools to non-Feishu agents (reduces hallucination risk).
+_HR_TOOL_NAMES = {
+    "create_digital_employee",
+}
+
 _FEISHU_TOOL_NAMES = {
     "send_feishu_message",
     "feishu_user_search",
@@ -166,6 +170,7 @@ _FEISHU_TOOL_NAMES = {
 }
 _always_core_tools: list[dict] | None = None
 _feishu_tools: list[dict] | None = None
+_hr_tools: list[dict] | None = None
 
 
 def _get_always_core_tools() -> list[dict]:
@@ -182,6 +187,14 @@ def _get_feishu_tools() -> list[dict]:
         all_tools = get_combined_openai_tools()
         _feishu_tools = [t for t in all_tools if t["function"]["name"] in _FEISHU_TOOL_NAMES]
     return _feishu_tools
+
+
+def _get_hr_tools() -> list[dict]:
+    global _hr_tools
+    if _hr_tools is None:
+        all_tools = get_combined_openai_tools()
+        _hr_tools = [t for t in all_tools if t["function"]["name"] in _HR_TOOL_NAMES]
+    return _hr_tools
 
 
 async def _agent_has_feishu(agent_id: uuid.UUID) -> bool:
@@ -222,7 +235,6 @@ async def get_agent_tools_for_llm(
     Feishu tools are only included when the agent has a configured Feishu channel.
     """
     has_feishu = await _agent_has_feishu(agent_id)
-    _always_tools = _get_always_core_tools() + (_get_feishu_tools() if has_feishu else [])
     requested_set = set(requested_names or [])
     if requested_set:
         requested_set |= CORE_TOOL_NAMES
@@ -233,6 +245,12 @@ async def get_agent_tools_for_llm(
         async with async_session() as db:
             agent_result = await db.execute(select(Agent).where(Agent.id == agent_id))
             agent = agent_result.scalar_one_or_none()
+            is_system_agent = agent is not None and getattr(agent, "agent_class", None) == "internal_system"
+            _always_tools = (
+                _get_always_core_tools()
+                + (_get_feishu_tools() if has_feishu else [])
+                + (_get_hr_tools() if is_system_agent else [])
+            )
             pack_policies = await get_tenant_pack_policies(db, getattr(agent, "tenant_id", None))
 
             # Get all globally enabled tools

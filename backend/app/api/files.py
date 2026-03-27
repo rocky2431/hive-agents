@@ -97,6 +97,10 @@ async def read_file(
     target = _safe_path(agent_id, path)
 
     if not target.exists() or not target.is_file():
+        # Known agent files return empty content instead of 404
+        _known_files = {"soul.md", "HEARTBEAT.md", "focus.md"}
+        if path in _known_files:
+            return FileContent(path=path, content="")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
 
     async with aiofiles.open(target, "r", encoding="utf-8") as f:
