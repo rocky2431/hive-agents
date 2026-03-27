@@ -26,6 +26,7 @@ from app.services.pack_policy_service import get_tenant_pack_policies, is_pack_e
 from app.tools import (
     ToolExecutionRegistry,
     ToolGovernanceResolver,
+    ToolRegistry,
     ToolRuntimeService,
     run_tool_governance,
 )
