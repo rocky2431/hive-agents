@@ -111,50 +111,76 @@ async def get_agent_expiry_reply(agent_name: str) -> str:
     return f"I'm sorry, but I ({agent_name}) am currently unavailable. My service period has ended. Please contact the platform administrator for assistance."
 
 
-# ── Agent LLM call quota ───────────────────────────────────────────
+# ── User LLM & token quota ─────────────────────────────────────────
 
-async def check_agent_llm_quota(agent_id: uuid.UUID) -> None:
-    """Check if agent has remaining daily LLM calls."""
-    from app.models.agent import Agent
+async def check_user_llm_quota(user_id: uuid.UUID) -> None:
+    """Check if user has remaining daily LLM calls and token budget."""
+    from app.models.user import User
 
     async with async_session() as db:
-        result = await db.execute(select(Agent).where(Agent.id == agent_id))
-        agent = result.scalar_one_or_none()
-        if not agent:
+        result = await db.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+        if not user:
+            return
+
+        # Admin users are exempt
+        if user.role in ("platform_admin", "org_admin"):
             return
 
         now = datetime.now(timezone.utc)
 
         # Daily reset
-        if agent.llm_calls_reset_at and now.date() > agent.llm_calls_reset_at.date():
-            agent.llm_calls_today = 0
-            agent.llm_calls_reset_at = now
+        if user.tokens_reset_at and now.date() > user.tokens_reset_at.date():
+            user.tokens_used_today = 0
+            user.llm_calls_today = 0
             await db.commit()
 
-        if agent.llm_calls_today >= agent.max_llm_calls_per_day:
+        # Monthly reset
+        if user.tokens_reset_at and now.month != user.tokens_reset_at.month:
+            user.tokens_used_month = 0
+            await db.commit()
+
+        # Check LLM call limit
+        if user.llm_calls_today >= user.quota_llm_calls_per_day:
             raise QuotaExceeded(
-                f"Agent '{agent.name}' has reached daily LLM call limit "
-                f"({agent.llm_calls_today}/{agent.max_llm_calls_per_day}).",
-                quota_type="agent_llm",
+                f"Daily LLM call limit reached ({user.llm_calls_today}/{user.quota_llm_calls_per_day}).",
+                quota_type="user_llm_calls",
+            )
+
+        # Check daily token limit
+        if user.quota_tokens_per_day and user.tokens_used_today >= user.quota_tokens_per_day:
+            raise QuotaExceeded(
+                f"Daily token limit reached ({user.tokens_used_today:,}/{user.quota_tokens_per_day:,}).",
+                quota_type="user_tokens_daily",
+            )
+
+        # Check monthly token limit
+        if user.quota_tokens_per_month and user.tokens_used_month >= user.quota_tokens_per_month:
+            raise QuotaExceeded(
+                f"Monthly token limit reached ({user.tokens_used_month:,}/{user.quota_tokens_per_month:,}).",
+                quota_type="user_tokens_monthly",
             )
 
 
-async def increment_agent_llm_usage(agent_id: uuid.UUID) -> None:
-    """Increment agent's daily LLM call counter."""
-    from app.models.agent import Agent
+async def increment_user_llm_usage(user_id: uuid.UUID) -> None:
+    """Increment user's daily LLM call counter."""
+    from app.models.user import User
 
     async with async_session() as db:
-        result = await db.execute(select(Agent).where(Agent.id == agent_id))
-        agent = result.scalar_one_or_none()
-        if not agent:
+        result = await db.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+        if not user:
+            return
+
+        if user.role in ("platform_admin", "org_admin"):
             return
 
         now = datetime.now(timezone.utc)
-        if not agent.llm_calls_reset_at or now.date() > agent.llm_calls_reset_at.date():
-            agent.llm_calls_today = 1
-            agent.llm_calls_reset_at = now
+        if not user.llm_calls_reset_at or now.date() > user.llm_calls_reset_at.date():
+            user.llm_calls_today = 1
+            user.llm_calls_reset_at = now
         else:
-            agent.llm_calls_today += 1
+            user.llm_calls_today += 1
         await db.commit()
 
 

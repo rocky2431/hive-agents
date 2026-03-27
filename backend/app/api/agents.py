@@ -139,7 +139,6 @@ async def create_agent(
         tenant_result = await db.execute(select(Tenant).where(Tenant.id == target_tenant_id))
         tenant = tenant_result.scalar_one_or_none()
         if tenant:
-            max_llm_calls = tenant.default_max_llm_calls_per_day or 100
             default_max_triggers = tenant.default_max_triggers or 20
             default_min_poll = tenant.min_poll_interval_floor or 5
             default_webhook_rate = tenant.max_webhook_rate_ceiling or 5
@@ -154,13 +153,10 @@ async def create_agent(
         agent_type="native",
         primary_model_id=data.primary_model_id,
         fallback_model_id=data.fallback_model_id,
-        max_tokens_per_day=data.max_tokens_per_day,
-        max_tokens_per_month=data.max_tokens_per_month,
         agent_class=data.agent_class,
         security_zone=data.security_zone,
         status="draft",
         expires_at=expires_at,
-        max_llm_calls_per_day=max_llm_calls,
         max_triggers=default_max_triggers,
         min_poll_interval_min=default_min_poll,
         webhook_rate_limit=default_webhook_rate,

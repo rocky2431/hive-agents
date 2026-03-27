@@ -578,7 +578,8 @@ class TenantQuotaUpdate(BaseModel):
     default_message_period: str | None = None
     default_max_agents: int | None = None
     default_agent_ttl_hours: int | None = None
-    default_max_llm_calls_per_day: int | None = None
+    default_tokens_per_day: int | None = None
+    default_tokens_per_month: int | None = None
     min_heartbeat_interval_minutes: int | None = None
     default_max_triggers: int | None = None
     min_poll_interval_floor: int | None = None
@@ -602,7 +603,8 @@ async def get_tenant_quotas(
         "default_message_period": tenant.default_message_period,
         "default_max_agents": tenant.default_max_agents,
         "default_agent_ttl_hours": tenant.default_agent_ttl_hours,
-        "default_max_llm_calls_per_day": tenant.default_max_llm_calls_per_day,
+        "default_tokens_per_day": tenant.default_tokens_per_day,
+        "default_tokens_per_month": tenant.default_tokens_per_month,
         "min_heartbeat_interval_minutes": tenant.min_heartbeat_interval_minutes,
         "default_max_triggers": tenant.default_max_triggers,
         "min_poll_interval_floor": tenant.min_poll_interval_floor,
@@ -632,8 +634,10 @@ async def update_tenant_quotas(
         tenant.default_max_agents = data.default_max_agents
     if data.default_agent_ttl_hours is not None:
         tenant.default_agent_ttl_hours = data.default_agent_ttl_hours
-    if data.default_max_llm_calls_per_day is not None:
-        tenant.default_max_llm_calls_per_day = data.default_max_llm_calls_per_day
+    if data.default_tokens_per_day is not None:
+        tenant.default_tokens_per_day = data.default_tokens_per_day
+    if data.default_tokens_per_month is not None:
+        tenant.default_tokens_per_month = data.default_tokens_per_month
 
     # Handle heartbeat floor — enforce on existing agents
     adjusted_count = 0

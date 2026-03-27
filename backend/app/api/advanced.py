@@ -221,8 +221,7 @@ async def get_agent_metrics(
         "tokens": {
             "used_today": agent.tokens_used_today,
             "used_month": agent.tokens_used_month,
-            "limit_day": agent.max_tokens_per_day,
-            "limit_month": agent.max_tokens_per_month,
+            "used_total": agent.tokens_used_total,
         },
         "tasks": {
             "total": _total_tasks,

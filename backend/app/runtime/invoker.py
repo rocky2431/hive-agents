@@ -111,19 +111,8 @@ async def _resolve_runtime_config(agent_id: uuid.UUID | None) -> RuntimeConfig:
             if not agent:
                 return RuntimeConfig(tenant_id=None, max_tool_rounds=50)
 
+            # Token quota enforcement is now at User level (quota_guard.check_user_llm_quota)
             quota_message = None
-            if agent.max_tokens_per_day and agent.tokens_used_today >= agent.max_tokens_per_day:
-                quota_message = (
-                    f"⚠️ Daily token usage has reached the limit "
-                    f"({agent.tokens_used_today:,}/{agent.max_tokens_per_day:,}). "
-                    "Please try again tomorrow or ask admin to increase the limit."
-                )
-            elif agent.max_tokens_per_month and agent.tokens_used_month >= agent.max_tokens_per_month:
-                quota_message = (
-                    f"⚠️ Monthly token usage has reached the limit "
-                    f"({agent.tokens_used_month:,}/{agent.max_tokens_per_month:,}). "
-                    "Please ask admin to increase the limit."
-                )
 
             return RuntimeConfig(
                 tenant_id=agent.tenant_id,

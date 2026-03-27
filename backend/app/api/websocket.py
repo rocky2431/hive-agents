@@ -370,11 +370,12 @@ async def websocket_chat(
             try:
                 from app.services.quota_guard import (
                     check_conversation_quota, increment_conversation_usage,
-                    check_agent_expired, check_agent_llm_quota, increment_agent_llm_usage,
+                    check_agent_expired, check_user_llm_quota, increment_user_llm_usage,
                     QuotaExceeded, AgentExpired,
                 )
                 await check_conversation_quota(user_id)
                 await check_agent_expired(agent_id)
+                await check_user_llm_quota(user_id)
             except QuotaExceeded as qe:
                 await websocket.send_json({"type": "done", "role": "assistant", "content": f"⚠️ {qe.message}"})
                 continue
@@ -589,7 +590,7 @@ async def websocket_chat(
                     # Increment quota usage
                     try:
                         await increment_conversation_usage(user_id)
-                        await increment_agent_llm_usage(agent_id)
+                        await increment_user_llm_usage(user_id)
                     except Exception as e:
                         logger.debug("Suppressed: %s", e)
                     from app.services.activity_logger import log_activity

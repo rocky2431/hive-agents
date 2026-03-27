@@ -47,6 +47,13 @@ class UserOut(BaseModel):
     quota_messages_used: int | None = None
     quota_max_agents: int | None = None
     quota_agent_ttl_hours: int | None = None
+    quota_tokens_per_day: int | None = None
+    quota_tokens_per_month: int | None = None
+    tokens_used_today: int = 0
+    tokens_used_month: int = 0
+    tokens_used_total: int = 0
+    quota_llm_calls_per_day: int = 200
+    llm_calls_today: int = 0
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -82,9 +89,6 @@ class AgentCreate(BaseModel):
     permission_access_level: str = "use"  # use | manage
     # Target tenant (admin-only override; otherwise ignored)
     tenant_id: uuid.UUID | None = None
-    # Token limits
-    max_tokens_per_day: int | None = None
-    max_tokens_per_month: int | None = None
     # Classification
     agent_class: AgentClass = "internal_tenant"
     security_zone: str = "standard"  # public | standard | restricted
@@ -107,8 +111,6 @@ class AgentOut(BaseModel):
     tokens_used_today: int
     tokens_used_month: int
     tokens_used_total: int = 0
-    max_tokens_per_day: int | None = None
-    max_tokens_per_month: int | None = None
     max_tool_rounds: int = 50
     max_triggers: int = 20
     min_poll_interval_min: int = 5
@@ -120,8 +122,6 @@ class AgentOut(BaseModel):
     timezone: str | None = None
     expires_at: datetime | None = None
     is_expired: bool = False
-    llm_calls_today: int = 0
-    max_llm_calls_per_day: int = 100
     agent_type: str = "native"
     agent_class: AgentClass = "internal_tenant"
     security_zone: str = "standard"
@@ -139,8 +139,6 @@ class AgentUpdate(BaseModel):
     avatar_url: str | None = None
     primary_model_id: uuid.UUID | None = None
     fallback_model_id: uuid.UUID | None = None
-    max_tokens_per_day: int | None = None
-    max_tokens_per_month: int | None = None
     max_tool_rounds: int | None = None
     max_triggers: int | None = None
     min_poll_interval_min: int | None = None

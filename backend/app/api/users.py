@@ -20,6 +20,9 @@ class UserQuotaUpdate(BaseModel):
     quota_message_period: str | None = None
     quota_max_agents: int | None = None
     quota_agent_ttl_hours: int | None = None
+    quota_tokens_per_day: int | None = None
+    quota_tokens_per_month: int | None = None
+    quota_llm_calls_per_day: int | None = None
 
 
 class UserOut(BaseModel):
@@ -35,6 +38,13 @@ class UserOut(BaseModel):
     quota_messages_used: int
     quota_max_agents: int
     quota_agent_ttl_hours: int
+    quota_tokens_per_day: int | None = None
+    quota_tokens_per_month: int | None = None
+    tokens_used_today: int = 0
+    tokens_used_month: int = 0
+    tokens_used_total: int = 0
+    quota_llm_calls_per_day: int = 200
+    llm_calls_today: int = 0
     # Computed
     agents_count: int = 0
     # Source info
@@ -127,6 +137,12 @@ async def update_user_quota(
         user.quota_max_agents = data.quota_max_agents
     if data.quota_agent_ttl_hours is not None:
         user.quota_agent_ttl_hours = data.quota_agent_ttl_hours
+    if data.quota_tokens_per_day is not None:
+        user.quota_tokens_per_day = data.quota_tokens_per_day
+    if data.quota_tokens_per_month is not None:
+        user.quota_tokens_per_month = data.quota_tokens_per_month
+    if data.quota_llm_calls_per_day is not None:
+        user.quota_llm_calls_per_day = data.quota_llm_calls_per_day
 
     await db.commit()
     await db.refresh(user)
@@ -148,5 +164,12 @@ async def update_user_quota(
         quota_messages_used=user.quota_messages_used,
         quota_max_agents=user.quota_max_agents,
         quota_agent_ttl_hours=user.quota_agent_ttl_hours,
+        quota_tokens_per_day=user.quota_tokens_per_day,
+        quota_tokens_per_month=user.quota_tokens_per_month,
+        tokens_used_today=user.tokens_used_today,
+        tokens_used_month=user.tokens_used_month,
+        tokens_used_total=user.tokens_used_total,
+        quota_llm_calls_per_day=user.quota_llm_calls_per_day,
+        llm_calls_today=user.llm_calls_today,
         agents_count=agents_count,
     )

@@ -106,6 +106,13 @@ async def test_platform_admin_can_update_other_tenant_user_quota():
         quota_messages_used=0,
         quota_max_agents=2,
         quota_agent_ttl_hours=48,
+        quota_tokens_per_day=None,
+        quota_tokens_per_month=None,
+        tokens_used_today=0,
+        tokens_used_month=0,
+        tokens_used_total=0,
+        quota_llm_calls_per_day=200,
+        llm_calls_today=0,
     )
     db = _FakeDB([_ScalarResult(user), _ScalarResult(1)])
 

@@ -1,10 +1,10 @@
-"""Reusable token usage tracking for all LLM call paths.
+"""Token usage tracking — records consumption against both Agent (stats) and User (enforcement).
 
-Provides a single function to record token consumption against an Agent,
-used by web chat, heartbeat, triggers, and A2A communication.
+All LLM call paths (web chat, heartbeat, triggers, A2A) go through this module.
 """
 
 import uuid
+from datetime import datetime, timezone
 
 from loguru import logger
 
@@ -19,26 +19,21 @@ def extract_usage_tokens(usage: dict | None) -> int | None:
 
     Supports both OpenAI format (prompt_tokens + completion_tokens)
     and Anthropic format (input_tokens + output_tokens).
-    Returns None if usage data is not available.
     """
     if not usage:
         return None
-
-    # OpenAI: {"prompt_tokens": N, "completion_tokens": N, "total_tokens": N}
     if "total_tokens" in usage:
         return usage["total_tokens"]
-
-    # Anthropic: {"input_tokens": N, "output_tokens": N}
     if "input_tokens" in usage or "output_tokens" in usage:
         return (usage.get("input_tokens", 0) or 0) + (usage.get("output_tokens", 0) or 0)
-
     return None
 
 
-async def record_token_usage(agent_id: uuid.UUID, tokens: int) -> None:
-    """Record token consumption for an agent.
+async def record_token_usage(agent_id: uuid.UUID, tokens: int, user_id: uuid.UUID | None = None) -> None:
+    """Record token consumption for an agent and its owner user.
 
-    Safely updates tokens_used_today, tokens_used_month, and tokens_used_total.
+    Updates Agent stats (tokens_used_today/month/total) and
+    User enforcement counters (tokens_used_today/month/total).
     Uses an independent DB session to avoid interfering with the caller's transaction.
     """
     if tokens <= 0:
@@ -47,16 +42,44 @@ async def record_token_usage(agent_id: uuid.UUID, tokens: int) -> None:
     try:
         from app.database import async_session
         from app.models.agent import Agent
+        from app.models.user import User
         from sqlalchemy import select
 
         async with async_session() as db:
+            # Agent stats (tracking only)
             result = await db.execute(select(Agent).where(Agent.id == agent_id))
             agent = result.scalar_one_or_none()
             if agent:
                 agent.tokens_used_today = (agent.tokens_used_today or 0) + tokens
                 agent.tokens_used_month = (agent.tokens_used_month or 0) + tokens
                 agent.tokens_used_total = (agent.tokens_used_total or 0) + tokens
-                await db.commit()
-                logger.debug(f"Recorded {tokens:,} tokens for agent {agent.name}")
+
+                # Resolve user_id from agent if not provided
+                if not user_id and agent.owner_user_id:
+                    user_id = agent.owner_user_id
+                elif not user_id:
+                    user_id = agent.creator_id
+
+            # User enforcement counters
+            if user_id:
+                user_result = await db.execute(select(User).where(User.id == user_id))
+                user = user_result.scalar_one_or_none()
+                if user:
+                    now = datetime.now(timezone.utc)
+                    # Daily reset
+                    if user.tokens_reset_at and now.date() > user.tokens_reset_at.date():
+                        user.tokens_used_today = 0
+                        user.llm_calls_today = 0
+                    # Monthly reset
+                    if user.tokens_reset_at and now.month != user.tokens_reset_at.month:
+                        user.tokens_used_month = 0
+
+                    user.tokens_used_today = (user.tokens_used_today or 0) + tokens
+                    user.tokens_used_month = (user.tokens_used_month or 0) + tokens
+                    user.tokens_used_total = (user.tokens_used_total or 0) + tokens
+                    user.tokens_reset_at = now
+
+            await db.commit()
+            logger.debug(f"Recorded {tokens:,} tokens for agent {agent_id}" + (f" / user {user_id}" if user_id else ""))
     except Exception as e:
-        logger.warning(f"Failed to record token usage for agent {agent_id}: {e}")
+        logger.warning(f"Failed to record token usage: {e}")

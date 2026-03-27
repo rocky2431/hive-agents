@@ -53,6 +53,17 @@ class User(Base):
     quota_max_agents: Mapped[int] = mapped_column(Integer, default=2)
     quota_agent_ttl_hours: Mapped[int] = mapped_column(Integer, default=48)
 
+    # Token & LLM call quotas (employee-level, covers all agents)
+    quota_tokens_per_day: Mapped[int | None] = mapped_column(Integer)
+    quota_tokens_per_month: Mapped[int | None] = mapped_column(Integer)
+    tokens_used_today: Mapped[int] = mapped_column(Integer, default=0)
+    tokens_used_month: Mapped[int] = mapped_column(Integer, default=0)
+    tokens_used_total: Mapped[int] = mapped_column(Integer, default=0)
+    tokens_reset_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    quota_llm_calls_per_day: Mapped[int] = mapped_column(Integer, default=200)
+    llm_calls_today: Mapped[int] = mapped_column(Integer, default=0)
+    llm_calls_reset_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
     # Relationships
     department: Mapped["Department | None"] = relationship(back_populates="members", foreign_keys=[department_id])
     created_agents: Mapped[list["Agent"]] = relationship(back_populates="creator", foreign_keys="Agent.creator_id")
