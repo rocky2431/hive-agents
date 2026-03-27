@@ -4,14 +4,31 @@ import { describe, expect, it, vi } from 'vitest';
 
 import AgentApprovalsSection from './AgentApprovalsSection';
 import AgentActivityLogSection from './AgentActivityLogSection';
+import AgentAwareSection from './AgentAwareSection';
+import AgentMindSection from './AgentMindSection';
+import AgentSettingsSection from './AgentSettingsSection';
+import AgentSkillsSection from './AgentSkillsSection';
 import AgentStatusSection from './AgentStatusSection';
+import AgentWorkspaceSection from './AgentWorkspaceSection';
 import CopyMessageButton from './CopyMessageButton';
 import RelationshipEditor from './RelationshipEditor';
 import ToolsManager from './ToolsManager';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, fallback?: string) => fallback ?? key.split('.').pop() ?? key,
+    t: (key: string, fallbackOrOptions?: string | Record<string, unknown>, options?: Record<string, unknown>) => {
+      if (typeof fallbackOrOptions === 'string') {
+        return fallbackOrOptions.replace(/\{\{\s*(\w+)\s*\}\}/g, (_, name) => String(options?.[name] ?? ''));
+      }
+      const values = (fallbackOrOptions as Record<string, unknown> | undefined) ?? options ?? {};
+      if ('count' in values) {
+        return `${key.split('.').pop() ?? key}:${String(values.count)}`;
+      }
+      if ('name' in values) {
+        return `${key.split('.').pop() ?? key}:${String(values.name)}`;
+      }
+      return key.split('.').pop() ?? key;
+    },
     i18n: {
       language: 'en',
     },
@@ -104,6 +121,18 @@ vi.mock('../../stores', () => {
   });
   return { useAuthStore };
 });
+
+vi.mock('../../components/FileBrowser', () => ({
+  default: ({ title }: { title?: string }) => <div>{title || 'File Browser Mock'}</div>,
+}));
+
+vi.mock('../../components/ChannelConfig', () => ({
+  default: () => <div>Channel Config Mock</div>,
+}));
+
+vi.mock('react-router-dom', () => ({
+  useNavigate: () => vi.fn(),
+}));
 
 describe('AgentDetail extracted sections', () => {
   it('renders ToolsManager as a standalone module with loading placeholder', () => {
@@ -200,5 +229,160 @@ describe('AgentDetail extracted sections', () => {
     expect(markup).toContain('deploy_run');
     expect(markup).toContain('publish_post');
     expect(markup).toContain('prod');
+  });
+
+  it('renders AgentSkillsSection as a standalone skills module', () => {
+    const markup = renderToStaticMarkup(<AgentSkillsSection agentId="agent-1" />);
+
+    expect(markup).toContain('Import from URL');
+    expect(markup).toContain('Browse ClawHub');
+    expect(markup).toContain('skillFiles');
+  });
+
+  it('renders AgentWorkspaceSection as a standalone workspace module', () => {
+    const markup = renderToStaticMarkup(<AgentWorkspaceSection agentId="agent-1" />);
+
+    expect(markup).toContain('File Browser Mock');
+  });
+
+  it('renders AgentAwareSection as a standalone aware module', () => {
+    const markup = renderToStaticMarkup(
+      <AgentAwareSection
+        agentId="agent-1"
+        focusContent={'- [ ] release: monitor deploy health\n- [x] archive: wrap up old incidents'}
+        awareTriggers={[
+          {
+            id: 'trigger-1',
+            name: 'release-check',
+            type: 'cron',
+            config: { expr: '0 9 * * *' },
+            focus_ref: 'release',
+            fire_count: 3,
+            is_enabled: true,
+            reason: 'Daily release check',
+          },
+        ]}
+        activityLogs={[
+          {
+            id: 'log-1',
+            action_type: 'trigger_fired',
+            created_at: '2026-03-27T09:00:00Z',
+            summary: 'release-check trigger fired successfully',
+          },
+        ]}
+        reflectionSessions={[
+          {
+            id: 'session-1',
+            title: 'Morning release reflection',
+            created_at: '2026-03-27T09:00:00Z',
+            message_count: 1,
+          },
+        ]}
+        reflectionMessages={{
+          'session-1': [{ role: 'assistant', content: 'All systems green.' }],
+        }}
+        expandedFocus="release"
+        expandedReflection="session-1"
+        showAllFocus={false}
+        showCompletedFocus={true}
+        showAllTriggers={false}
+        reflectionPage={0}
+        onSetExpandedFocus={() => {}}
+        onSetExpandedReflection={() => {}}
+        onSetReflectionMessages={() => {}}
+        onSetShowAllFocus={() => {}}
+        onSetShowCompletedFocus={() => {}}
+        onSetShowAllTriggers={() => {}}
+        onSetReflectionPage={() => {}}
+        onRefetchTriggers={async () => {}}
+        onLoadReflectionMessages={async () => {}}
+      />,
+    );
+
+    expect(markup).toContain('monitor deploy health');
+    expect(markup).toContain('Every day at 09:00');
+    expect(markup).toContain('All systems green.');
+    expect(markup).toContain('archive');
+  });
+
+  it('renders AgentMindSection as a standalone mind module', () => {
+    const markup = renderToStaticMarkup(<AgentMindSection agentId="agent-1" canEdit />);
+
+    expect(markup).toContain('Core identity, personality, and behavior boundaries.');
+    expect(markup).toContain('Persistent memory accumulated through conversations and experiences.');
+    expect(markup).toContain('Instructions for periodic awareness checks.');
+    expect(markup).toContain('File Browser Mock');
+  });
+
+  it('renders AgentSettingsSection as a standalone settings module', () => {
+    const markup = renderToStaticMarkup(
+      <AgentSettingsSection
+        agentId="agent-1"
+        agent={{
+          id: 'agent-1',
+          agent_type: 'native',
+          primary_model_id: 'model-1',
+          fallback_model_id: '',
+          context_window_size: 80,
+          max_tool_rounds: 40,
+          max_tokens_per_day: 10000,
+          max_tokens_per_month: 200000,
+          max_triggers: 10,
+          min_poll_interval_min: 5,
+          webhook_rate_limit: 5,
+          tokens_used_today: 1234,
+          tokens_used_month: 5678,
+          welcome_message: 'Hello there',
+          autonomy_policy: { read_files: 'L1' },
+          timezone: 'Asia/Shanghai',
+          heartbeat_enabled: true,
+          heartbeat_interval_minutes: 120,
+          heartbeat_active_hours: '09:00-18:00',
+          last_heartbeat_at: '2026-03-27T09:00:00Z',
+        }}
+        llmModels={[
+          { id: 'model-1', label: 'GPT-5.4', provider: 'openai', model: 'gpt-5.4', enabled: true },
+        ]}
+        permData={{
+          is_owner: true,
+          scope_type: 'company',
+          scope_ids: [],
+          access_level: 'manage',
+          scope_names: [],
+        }}
+        canManage
+        settingsForm={{
+          primary_model_id: 'model-1',
+          fallback_model_id: '',
+          context_window_size: 80,
+          max_tool_rounds: 40,
+          max_tokens_per_day: 10000,
+          max_tokens_per_month: 200000,
+          max_triggers: 10,
+          min_poll_interval_min: 5,
+          webhook_rate_limit: 5,
+        }}
+        onSettingsFormChange={vi.fn()}
+        settingsSaving={false}
+        settingsSaved={false}
+        settingsError=""
+        onSetSettingsSaving={vi.fn()}
+        onSetSettingsSaved={vi.fn()}
+        onSetSettingsError={vi.fn()}
+        onResetSettingsInit={vi.fn()}
+        wmDraft="Hello there"
+        wmSaved={false}
+        onSetWmDraft={vi.fn()}
+        onSetWmSaved={vi.fn()}
+        showDeleteConfirm={false}
+        onSetShowDeleteConfirm={vi.fn()}
+      />,
+    );
+
+    expect(markup).toContain('modelConfig');
+    expect(markup).toContain('Welcome Message');
+    expect(markup).toContain('Access Permissions');
+    expect(markup).toContain('Channel Config Mock');
+    expect(markup).toContain('deleteAgent');
   });
 });
