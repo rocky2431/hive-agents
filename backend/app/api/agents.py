@@ -159,6 +159,28 @@ async def get_or_create_hr_agent(
             if default_model:
                 hr_agent.primary_model_id = default_model.id
                 await db.commit()
+
+        # Auto-repair workspace if soul.md is missing (e.g. after volume re-mount)
+        from app.services.agent_manager import agent_manager
+        agent_dir = agent_manager._agent_dir(hr_agent.id)
+        if not (agent_dir / "soul.md").exists():
+            await agent_manager.initialize_agent_files(db, hr_agent)
+            import shutil
+            from pathlib import Path
+            hr_template_dir = Path(__file__).resolve().parent.parent.parent / "hr_agent_template"
+            if hr_template_dir.exists():
+                hr_soul = hr_template_dir / "soul.md"
+                if hr_soul.exists():
+                    (agent_dir / "soul.md").write_text(hr_soul.read_text(encoding="utf-8"), encoding="utf-8")
+                hr_skills = hr_template_dir / "skills"
+                if hr_skills.exists():
+                    for skill_file in hr_skills.rglob("*"):
+                        if skill_file.is_file():
+                            rel = skill_file.relative_to(hr_skills)
+                            dest = agent_dir / "skills" / rel
+                            dest.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.copy2(str(skill_file), str(dest))
+
         return {"id": str(hr_agent.id), "name": hr_agent.name, "status": hr_agent.status}
 
     # Lazy-create the HR agent (race-safe: unique constraint on name+tenant+agent_class
