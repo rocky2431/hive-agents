@@ -2,7 +2,7 @@
  * Enterprise domain adapter — LLM, org, audit, settings, invitations.
  */
 
-import { get, getBlob, post, put, patch, del } from '../core';
+import { get, getBlob, post, put, patch, del, upload } from '../core';
 
 export interface LLMModel {
   id: string;
@@ -138,10 +138,8 @@ export const enterpriseApi = {
   kbRead: (path: string) => get<any>(`/enterprise/knowledge-base/content?path=${encodeURIComponent(path)}`),
   kbWrite: (path: string, content: string) => put<any>('/enterprise/knowledge-base/content', { path, content }),
   kbDelete: (path: string) => del(`/enterprise/knowledge-base/content?path=${encodeURIComponent(path)}`),
-  kbUpload: (file: File, path?: string) => {
-    const { upload } = require('../core');
-    return upload('/enterprise/knowledge-base/upload', file, path ? { path } : undefined);
-  },
+  kbUpload: (file: File, path?: string) =>
+    upload('/enterprise/knowledge-base/upload', file, path ? { path } : undefined),
 
   /** OIDC */
   getOIDCConfig: () => get<Record<string, unknown>>('/enterprise/oidc-config'),

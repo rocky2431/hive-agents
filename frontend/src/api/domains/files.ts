@@ -3,6 +3,7 @@
  */
 
 import { get, post, put, del, upload } from '../core';
+import { uploadFileWithProgress } from '../core/upload-progress';
 
 export interface FileInfo {
   name: string;
@@ -37,8 +38,7 @@ export const fileApi = {
   },
   upload: (agentId: string, file: File, path?: string, onProgress?: (pct: number) => void) => {
     if (onProgress) {
-      const { uploadFileWithProgress: ufp } = require('../core/upload-progress');
-      return ufp(`/agents/${agentId}/files/upload${path ? `?path=${encodeURIComponent(path)}` : ''}`, file, onProgress).promise;
+      return uploadFileWithProgress(`/agents/${agentId}/files/upload${path ? `?path=${encodeURIComponent(path)}` : ''}`, file, onProgress).promise;
     }
     return upload<any>(`/agents/${agentId}/files/upload`, file, path ? { path } : undefined);
   },
