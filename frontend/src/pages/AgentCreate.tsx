@@ -87,13 +87,16 @@ export default function AgentCreate() {
                 } else if (role === 'tool_call') {
                     try {
                         const tc = JSON.parse(m.content || '{}');
-                        restored.push({
-                            role: 'assistant',
-                            content: '',
-                            toolName: tc.name || 'unknown',
-                            toolStatus: 'done',
-                            toolResult: (tc.result || '').slice(0, 500),
-                        });
+                        if (tc.name) {
+                            restored.push({
+                                role: 'assistant',
+                                content: '',
+                                toolName: tc.name,
+                                toolStatus: 'done',
+                                toolResult: (tc.result || '').slice(0, 500),
+                            });
+                        }
+                        // Skip tool calls without a name (legacy data)
                     } catch { /* skip malformed */ }
                 }
             }
