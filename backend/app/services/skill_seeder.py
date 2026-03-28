@@ -321,6 +321,43 @@ Plan would be:
         "is_default": True,
         "files": [],  # populated at runtime from templates/skills/
     },
+    # ─── Document processing skills (default, from templates/skills/) ──
+    {
+        "name": "PDF Generator",
+        "description": "Create, fill, and reformat professional PDF documents with design system",
+        "category": "productivity",
+        "icon": "📄",
+        "folder_name": "pdf-generator",
+        "is_default": True,
+        "files": [],
+    },
+    {
+        "name": "DOCX Generator",
+        "description": "Create and edit professional Word documents using OpenXML standards",
+        "category": "productivity",
+        "icon": "📝",
+        "folder_name": "docx-generator",
+        "is_default": True,
+        "files": [],
+    },
+    {
+        "name": "XLSX Processor",
+        "description": "Create, read, analyze, edit Excel spreadsheets with formulas and formatting",
+        "category": "productivity",
+        "icon": "📊",
+        "folder_name": "xlsx-processor",
+        "is_default": True,
+        "files": [],
+    },
+    {
+        "name": "PPTX Generator",
+        "description": "Generate, edit, and read PowerPoint presentations with PptxGenJS",
+        "category": "productivity",
+        "icon": "📽️",
+        "folder_name": "pptx-generator",
+        "is_default": True,
+        "files": [],
+    },
 ]
 
 
@@ -356,6 +393,7 @@ async def seed_skills():
         # Agent behavioral & discovery skills — load from templates/skills/<folder>/SKILL.md
         elif s["folder_name"] in (
             "find-skills", "skill-vetter", "self-improving-agent", "proactive-agent",
+            "pdf-generator", "docx-generator", "xlsx-processor", "pptx-generator",
         ) and not s["files"]:
             _agent_skills_dir = Path(__file__).parent.parent / "templates" / "skills"
             skill_md = _agent_skills_dir / s["folder_name"] / "SKILL.md"
