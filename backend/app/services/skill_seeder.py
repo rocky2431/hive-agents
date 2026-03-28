@@ -378,29 +378,47 @@ async def seed_skills():
             else:
                 logger.warning("[SkillSeeder] MCP_INSTALLER.md not found in agent_template/skills/")
 
-        # System operational guides + channel integration skills — load from templates/system_skills/<folder>/SKILL.md
+        # System operational guides + channel integration skills — load ALL files from templates/system_skills/<folder>/
         elif s["folder_name"] in (
             "workspace-guide", "trigger-guide", "web-research-guide",
             "feishu-integration", "dingtalk-integration", "atlassian-rovo",
         ) and not s["files"]:
             _sys_skills_dir = Path(__file__).parent.parent / "templates" / "system_skills"
-            skill_md = _sys_skills_dir / s["folder_name"] / "SKILL.md"
-            if skill_md.exists():
-                s["files"] = [{"path": "SKILL.md", "content": skill_md.read_text(encoding="utf-8")}]
+            skill_dir = _sys_skills_dir / s["folder_name"]
+            if skill_dir.exists():
+                files = []
+                for f in skill_dir.rglob("*"):
+                    if f.is_file():
+                        rel = str(f.relative_to(skill_dir))
+                        try:
+                            files.append({"path": rel, "content": f.read_text(encoding="utf-8")})
+                        except UnicodeDecodeError:
+                            logger.warning(f"[SkillSeeder] Skipping binary file: {rel}")
+                s["files"] = files
             else:
-                logger.warning(f"[SkillSeeder] {s['folder_name']}/SKILL.md not found in templates/system_skills/")
+                logger.warning(f"[SkillSeeder] {s['folder_name']}/ not found in templates/system_skills/")
 
-        # Agent behavioral & discovery skills — load from templates/skills/<folder>/SKILL.md
+        # Agent behavioral & discovery skills — load ALL files from templates/skills/<folder>/
         elif s["folder_name"] in (
             "find-skills", "skill-vetter", "self-improving-agent", "proactive-agent",
             "pdf-generator", "docx-generator", "xlsx-processor", "pptx-generator",
         ) and not s["files"]:
             _agent_skills_dir = Path(__file__).parent.parent / "templates" / "skills"
-            skill_md = _agent_skills_dir / s["folder_name"] / "SKILL.md"
-            if skill_md.exists():
-                s["files"] = [{"path": "SKILL.md", "content": skill_md.read_text(encoding="utf-8")}]
+            skill_dir = _agent_skills_dir / s["folder_name"]
+            if skill_dir.exists():
+                files = []
+                for f in skill_dir.rglob("*"):
+                    if f.is_file():
+                        rel = str(f.relative_to(skill_dir))
+                        try:
+                            files.append({"path": rel, "content": f.read_text(encoding="utf-8")})
+                        except UnicodeDecodeError:
+                            logger.warning(f"[SkillSeeder] Skipping binary file: {rel}")
+                s["files"] = files
+                if not files:
+                    logger.warning(f"[SkillSeeder] {s['folder_name']}/ is empty in templates/skills/")
             else:
-                logger.warning(f"[SkillSeeder] {s['folder_name']}/SKILL.md not found in templates/skills/")
+                logger.warning(f"[SkillSeeder] {s['folder_name']}/ not found in templates/skills/")
 
     async with async_session() as db:
         for skill_data in BUILTIN_SKILLS:
