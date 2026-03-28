@@ -61,7 +61,7 @@ async def _execute_code(ws: Path, arguments: dict) -> str:
     """Execute code in a sandboxed subprocess within the agent's workspace."""
     language = arguments.get("language", "python")
     code = arguments.get("code", "")
-    timeout = min(arguments.get("timeout", 30), 60)  # Max 60 seconds
+    timeout = min(int(arguments.get("timeout", 30)), 60)  # Max 60 seconds
 
     if not code.strip():
         return "❌ No code provided"
