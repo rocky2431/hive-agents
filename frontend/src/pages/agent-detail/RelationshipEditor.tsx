@@ -14,8 +14,7 @@ type RelationshipEditorProps = {
 };
 
 export default function RelationshipEditor({ agentId, agent }: RelationshipEditorProps) {
-  const { i18n } = useTranslation();
-  const isChinese = i18n.language?.startsWith('zh');
+  const { t } = useTranslation();
   const qc = useQueryClient();
 
   const tenantId = localStorage.getItem('current_tenant_id') || '';
@@ -58,7 +57,7 @@ export default function RelationshipEditor({ agentId, agent }: RelationshipEdito
   };
 
   const handleUnbind = async () => {
-    if (!confirm(isChinese ? '确定解绑该员工？' : 'Unbind this employee?')) return;
+    if (!confirm(t('agent.relationships.confirmUnbind'))) return;
     setBinding(true);
     try {
       await put(`/agents/${agentId}/owner`, { owner_user_id: null });
@@ -73,7 +72,7 @@ export default function RelationshipEditor({ agentId, agent }: RelationshipEdito
     <div>
       {/* Owner Info + Bind */}
       <div className="card" style={{ marginBottom: '16px' }}>
-        <h4 style={{ marginBottom: '8px' }}>{isChinese ? '所属员工' : 'Owner'}</h4>
+        <h4 style={{ marginBottom: '8px' }}>{t('agent.relationships.owner')}</h4>
         {agent?.owner_user_id && ownerUser ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '8px 0' }}>
             <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 600, fontSize: '14px' }}>
@@ -84,27 +83,27 @@ export default function RelationshipEditor({ agentId, agent }: RelationshipEdito
                 {ownerUser.display_name || ownerUser.username}
               </div>
               <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
-                {ownerUser.email} &middot; {isChinese ? 'Token 消耗计入此员工配额' : 'Token usage counted towards this employee'}
+                {ownerUser.email} &middot; {t('agent.relationships.tokenCountOwner')}
               </div>
             </div>
             <button className="btn btn-ghost" style={{ fontSize: '12px', color: 'var(--error)' }} onClick={handleUnbind} disabled={binding}>
-              {isChinese ? '解绑' : 'Unbind'}
+              {t('agent.relationships.unbind')}
             </button>
           </div>
         ) : agent?.owner_user_id ? (
           <div style={{ fontSize: '12px', color: 'var(--text-secondary)', padding: '8px 0' }}>
-            {isChinese ? '已绑定员工' : 'Bound to employee'} (ID: {agent.owner_user_id})
+            {t('agent.relationships.boundTo')} (ID: {agent.owner_user_id})
             <button className="btn btn-ghost" style={{ fontSize: '12px', color: 'var(--error)', marginLeft: '8px' }} onClick={handleUnbind} disabled={binding}>
-              {isChinese ? '解绑' : 'Unbind'}
+              {t('agent.relationships.unbind')}
             </button>
           </div>
         ) : (
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '8px 0' }}>
             <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', flex: 1 }}>
-              {isChinese ? '未绑定员工。Token 消耗计入创建者。' : 'No owner bound. Token usage counted towards creator.'}
+              {t('agent.relationships.noOwner')}
             </div>
             <button className="btn btn-primary" style={{ fontSize: '12px', padding: '4px 12px' }} onClick={() => setShowPicker(true)} disabled={binding}>
-              {isChinese ? '绑定员工' : 'Bind Employee'}
+              {t('agent.relationships.bindEmployee')}
             </button>
           </div>
         )}
@@ -113,7 +112,7 @@ export default function RelationshipEditor({ agentId, agent }: RelationshipEdito
         {showPicker && (
           <div style={{ marginTop: '12px', padding: '12px', borderRadius: '8px', background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)' }}>
             <div style={{ fontSize: '12px', fontWeight: 500, marginBottom: '8px' }}>
-              {isChinese ? '选择员工' : 'Select Employee'}
+              {t('agent.relationships.selectEmployee')}
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '200px', overflow: 'auto' }}>
               {users.map((u: any) => (
@@ -140,12 +139,12 @@ export default function RelationshipEditor({ agentId, agent }: RelationshipEdito
               ))}
               {users.length === 0 && (
                 <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', padding: '8px' }}>
-                  {isChinese ? '暂无员工' : 'No employees'}
+                  {t('agent.relationships.noEmployees')}
                 </div>
               )}
             </div>
             <button className="btn btn-ghost" style={{ fontSize: '11px', marginTop: '8px' }} onClick={() => setShowPicker(false)}>
-              {isChinese ? '取消' : 'Cancel'}
+              {t('agent.relationships.cancel')}
             </button>
           </div>
         )}
@@ -153,9 +152,9 @@ export default function RelationshipEditor({ agentId, agent }: RelationshipEdito
 
       {/* Peer Agents */}
       <div className="card">
-        <h4 style={{ marginBottom: '4px' }}>{isChinese ? '同事（同公司数字员工）' : 'Peers (same company)'}</h4>
+        <h4 style={{ marginBottom: '4px' }}>{t('agent.relationships.peers')}</h4>
         <p style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
-          {isChinese ? '关系信息会自动同步到工作区文件，数字员工可在对话中读取。' : 'Relationship data auto-syncs to workspace files.'}
+          {t('agent.relationships.peersDesc')}
         </p>
         {peerAgents.length > 0 ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -166,17 +165,17 @@ export default function RelationshipEditor({ agentId, agent }: RelationshipEdito
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: '13px', fontWeight: 500 }}>{peer.name}</div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{peer.role_description || (isChinese ? '无描述' : 'No description')}</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{peer.role_description || t('agent.relationships.noDescription')}</div>
                 </div>
                 <div style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', background: 'var(--accent-muted)', color: 'var(--accent)' }}>
-                  {isChinese ? '同事' : 'Peer'}
+                  {t('agent.relationships.peerBadge')}
                 </div>
               </div>
             ))}
           </div>
         ) : (
           <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', padding: '8px 0' }}>
-            {isChinese ? '该公司暂无其他数字员工。' : 'No other agents in this company.'}
+            {t('agent.relationships.noPeers')}
           </div>
         )}
       </div>

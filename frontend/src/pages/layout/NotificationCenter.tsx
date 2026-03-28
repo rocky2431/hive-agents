@@ -1,6 +1,8 @@
+import { useTranslation } from 'react-i18next';
+
 interface NotificationCenterProps {
   isOpen: boolean;
-  isChinese: boolean;
+  isChinese?: boolean;
   unreadCount: number;
   notifications: any[];
   notifCategory: string;
@@ -12,16 +14,10 @@ interface NotificationCenterProps {
   onCloseDetail: () => void;
 }
 
-const notificationTabs = [
-  { key: 'all', zh: '全部', en: 'All' },
-  { key: 'tool', zh: '工具执行', en: 'Tool' },
-  { key: 'approval', zh: '审批', en: 'Approval' },
-  { key: 'social', zh: '社交', en: 'Social' },
-];
+const NOTIFICATION_TAB_KEYS = ['all', 'tool', 'approval', 'social'] as const;
 
 export default function NotificationCenter({
   isOpen,
-  isChinese,
   unreadCount,
   notifications,
   notifCategory,
@@ -32,6 +28,7 @@ export default function NotificationCenter({
   selectedNotification,
   onCloseDetail,
 }: NotificationCenterProps) {
+  const { t } = useTranslation();
   return (
     <>
       {isOpen && (
@@ -59,10 +56,10 @@ export default function NotificationCenter({
           >
             <div style={{ borderBottom: '1px solid var(--border-subtle)', flexShrink: 0 }}>
               <div style={{ padding: '16px 24px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600, flex: 1 }}>{isChinese ? '通知' : 'Notifications'}</h3>
+                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600, flex: 1 }}>{t('notifications.title')}</h3>
                 {unreadCount > 0 && (
                   <button className="btn btn-ghost" onClick={onMarkAllRead} style={{ fontSize: '12px', padding: '4px 10px' }}>
-                    {isChinese ? '全部已读' : 'Mark all read'}
+                    {t('notifications.markAllRead')}
                   </button>
                 )}
                 <button className="btn btn-ghost" onClick={onClose} style={{ padding: '4px 8px', fontSize: '18px', lineHeight: 1 }}>
@@ -70,10 +67,10 @@ export default function NotificationCenter({
                 </button>
               </div>
               <div style={{ display: 'flex', gap: '0', padding: '0 24px', marginTop: '12px' }}>
-                {notificationTabs.map((tab) => (
+                {NOTIFICATION_TAB_KEYS.map((key) => (
                   <button
-                    key={tab.key}
-                    onClick={() => onSetNotifCategory(tab.key)}
+                    key={key}
+                    onClick={() => onSetNotifCategory(key)}
                     style={{
                       background: 'none',
                       border: 'none',
@@ -81,13 +78,13 @@ export default function NotificationCenter({
                       padding: '8px 14px',
                       fontSize: '13px',
                       fontWeight: 500,
-                      color: notifCategory === tab.key ? 'var(--text-primary)' : 'var(--text-tertiary)',
-                      borderBottom: notifCategory === tab.key ? '2px solid var(--accent-primary)' : '2px solid transparent',
+                      color: notifCategory === key ? 'var(--text-primary)' : 'var(--text-tertiary)',
+                      borderBottom: notifCategory === key ? '2px solid var(--accent-primary)' : '2px solid transparent',
                       marginBottom: '-1px',
                       transition: 'all 0.15s',
                     }}
                   >
-                    {isChinese ? tab.zh : tab.en}
+                    {t(`notifications.tabs.${key}`)}
                   </button>
                 ))}
               </div>
@@ -96,7 +93,7 @@ export default function NotificationCenter({
             <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
               {notifications.length === 0 && (
                 <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-tertiary)', fontSize: '13px' }}>
-                  {isChinese ? '暂无通知' : 'No notifications'}
+                  {t('notifications.empty')}
                 </div>
               )}
               {notifications.map((notification) => (
@@ -202,7 +199,7 @@ export default function NotificationCenter({
                 whiteSpace: 'pre-wrap',
               }}
             >
-              {selectedNotification.body || (isChinese ? '无详细内容' : 'No details provided')}
+              {selectedNotification.body || t('notifications.noDetails')}
             </div>
             <div
               style={{
@@ -217,9 +214,7 @@ export default function NotificationCenter({
             >
               <span>
                 {selectedNotification.sender_name
-                  ? isChinese
-                    ? `来自: ${selectedNotification.sender_name}`
-                    : `From: ${selectedNotification.sender_name}`
+                  ? t('notifications.from', { name: selectedNotification.sender_name })
                   : ''}
               </span>
               <span>{selectedNotification.created_at ? new Date(selectedNotification.created_at).toLocaleString() : ''}</span>

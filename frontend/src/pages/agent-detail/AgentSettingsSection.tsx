@@ -93,15 +93,14 @@ export default function AgentSettingsSection({
 
       const clamped = result?._clamped_fields;
       if (clamped && clamped.length > 0) {
-        const isCh = i18n.language?.startsWith('zh');
-        const fieldNames: Record<string, string> = isCh
-          ? { min_poll_interval_min: 'Poll 最短间隔', webhook_rate_limit: 'Webhook 频率限制', heartbeat_interval_minutes: '心跳间隔' }
-          : { min_poll_interval_min: 'Min Poll Interval', webhook_rate_limit: 'Webhook Rate Limit', heartbeat_interval_minutes: 'Heartbeat Interval' };
+        const fieldNames: Record<string, string> = {
+          min_poll_interval_min: t('agent.settings.clampedField.minPollInterval'),
+          webhook_rate_limit: t('agent.settings.clampedField.webhookRateLimit'),
+          heartbeat_interval_minutes: t('agent.settings.clampedField.heartbeatInterval'),
+        };
         const msgs = clamped.map((c: any) => {
           const name = fieldNames[c.field] || c.field;
-          return isCh
-            ? `${name}: ${c.requested} -> ${c.applied} (公司策略限制)`
-            : `${name}: ${c.requested} -> ${c.applied} (company policy)`;
+          return t('agent.settings.clampedMessage', { name, requested: c.requested, applied: c.applied });
         });
         onSetSettingsError(`Some values were adjusted:\n${msgs.join('\n')}`);
         setTimeout(() => onSetSettingsError(''), 5000);
@@ -161,8 +160,6 @@ export default function AgentSettingsSection({
     company: '🏢 ' + t('agent.settings.perm.companyWide', 'Company-wide'),
     user: '👤 ' + t('agent.settings.perm.onlyMe', 'Only Me'),
   };
-  const isChinese = i18n.language?.startsWith('zh');
-
   return (
     <div>
       <div
@@ -236,13 +233,13 @@ export default function AgentSettingsSection({
               const fb = llmModels.find((m: any) => m.id === settingsForm.fallback_model_id);
               return fb ? (
                 <div style={{ fontSize: '11px', color: 'var(--accent)', marginTop: '4px' }}>
-                  {isChinese ? `当前使用备选模型: ${fb.label}` : `Using fallback model: ${fb.label}`}
+                  {t('agent.settings.usingFallback', { model: fb.label })}
                 </div>
               ) : null;
             })()}
             {!settingsForm.primary_model_id && !settingsForm.fallback_model_id && llmModels.length > 0 && (
               <div style={{ fontSize: '11px', color: 'var(--warning)', marginTop: '4px' }}>
-                {isChinese ? '未选择模型，Agent 将无法对话' : 'No model selected. Agent cannot chat.'}
+                {t('agent.settings.noModelWarning')}
               </div>
             )}
             <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>{t('agent.settings.primaryModel')}</div>
@@ -273,35 +270,35 @@ export default function AgentSettingsSection({
 
 
       <div className="card" style={{ marginBottom: '12px' }}>
-        <h4 style={{ marginBottom: '12px' }}>Token 用量统计</h4>
+        <h4 style={{ marginBottom: '12px' }}>{t('agent.settings.tokenStats')}</h4>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
           <div>
-            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>今日</div>
+            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>{t('agent.settings.tokenToday')}</div>
             <div style={{ fontSize: '18px', fontWeight: 600 }}>{formatTokens(agent?.tokens_used_today || 0)}</div>
           </div>
           <div>
-            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>本月</div>
+            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>{t('agent.settings.tokenMonth')}</div>
             <div style={{ fontSize: '18px', fontWeight: 600 }}>{formatTokens(agent?.tokens_used_month || 0)}</div>
           </div>
           <div>
-            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>累计</div>
+            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>{t('agent.settings.tokenTotal')}</div>
             <div style={{ fontSize: '18px', fontWeight: 600 }}>{formatTokens(agent?.tokens_used_total || 0)}</div>
           </div>
         </div>
         <div style={{ fontSize: '11px', color: 'var(--text-quaternary)', marginTop: '8px' }}>
-          Token 配额在"公司设置 → 配额"中按员工统一管理
+          {t('agent.settings.tokenQuotaHint')}
         </div>
       </div>
 
       <div className="card" style={{ marginBottom: '12px' }}>
-        <h4 style={{ marginBottom: '4px' }}>{isChinese ? '触发器限制' : 'Trigger Limits'}</h4>
+        <h4 style={{ marginBottom: '4px' }}>{t('agent.settings.triggerLimits')}</h4>
         <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
-          {isChinese ? '控制该 Agent 可以创建的触发器数量和行为限制' : 'Limit how many triggers this agent can create and their behavior'}
+          {t('agent.settings.triggerLimitsDesc')}
         </p>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
           <div>
             <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, marginBottom: '6px' }}>
-              {isChinese ? '最大触发器数' : 'Max Triggers'}
+              {t('agent.settings.maxTriggers')}
             </label>
             <input
               className="input"
@@ -315,12 +312,12 @@ export default function AgentSettingsSection({
               style={{ width: '100%' }}
             />
             <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-              {isChinese ? 'Agent 最多可同时拥有的触发器数量' : 'Max active triggers the agent can have'}
+              {t('agent.settings.maxTriggersDesc')}
             </div>
           </div>
           <div>
             <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, marginBottom: '6px' }}>
-              {isChinese ? 'Poll 最短间隔 (分钟)' : 'Min Poll Interval (min)'}
+              {t('agent.settings.minPollInterval')}
             </label>
             <input
               className="input"
@@ -334,12 +331,12 @@ export default function AgentSettingsSection({
               style={{ width: '100%' }}
             />
             <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-              {isChinese ? '定时轮询外部接口的最短间隔' : 'Minimum interval for polling external URLs'}
+              {t('agent.settings.minPollIntervalDesc')}
             </div>
           </div>
           <div>
             <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, marginBottom: '6px' }}>
-              {isChinese ? 'Webhook 频率限制 (次/分钟)' : 'Webhook Rate Limit (/min)'}
+              {t('agent.settings.webhookRateLimit')}
             </label>
             <input
               className="input"
@@ -353,7 +350,7 @@ export default function AgentSettingsSection({
               style={{ width: '100%' }}
             />
             <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-              {isChinese ? '外部系统每分钟最多可调用的 Webhook 次数' : 'Max webhook calls per minute from external services'}
+              {t('agent.settings.webhookRateLimitDesc')}
             </div>
           </div>
         </div>
@@ -361,13 +358,11 @@ export default function AgentSettingsSection({
 
       <div className="card" style={{ marginBottom: '12px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
-          <h4 style={{ margin: 0 }}>{isChinese ? '欢迎语' : 'Welcome Message'}</h4>
-          {wmSaved && <span style={{ fontSize: '12px', color: 'var(--success)' }}>✓ {isChinese ? '已保存' : 'Saved'}</span>}
+          <h4 style={{ margin: 0 }}>{t('agent.settings.welcomeMessage')}</h4>
+          {wmSaved && <span style={{ fontSize: '12px', color: 'var(--success)' }}>✓ {t('agent.settings.saved')}</span>}
         </div>
         <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
-          {isChinese
-            ? '当用户在网页端发起新对话时，Agent 会自动发送的欢迎语。支持 Markdown 语法。留空则不发送。'
-            : 'Greeting message sent automatically when a user starts a new web conversation. Supports Markdown. Leave empty to disable.'}
+          {t('agent.settings.welcomeMessageDesc')}
         </p>
         <textarea
           className="input"
@@ -375,7 +370,7 @@ export default function AgentSettingsSection({
           value={wmDraft}
           onChange={(e) => onSetWmDraft(e.target.value)}
           onBlur={saveWelcomeMessage}
-          placeholder={isChinese ? '例如：你好！我是你的 AI 助手，有什么可以帮你的吗？' : "e.g. Hello! I'm your AI assistant. How can I help you?"}
+          placeholder={t('agent.settings.welcomeMessagePlaceholder')}
           style={{
             width: '100%',
             minHeight: '80px',
@@ -394,9 +389,9 @@ export default function AgentSettingsSection({
             { key: 'read_files', label: t('agent.settings.autonomy.readFiles'), desc: t('agent.settings.autonomy.readFilesDesc') },
             { key: 'write_workspace_files', label: t('agent.settings.autonomy.writeFiles'), desc: t('agent.settings.autonomy.writeFilesDesc') },
             { key: 'delete_files', label: t('agent.settings.autonomy.deleteFiles'), desc: t('agent.settings.autonomy.deleteFilesDesc') },
-            { key: 'execute_code', label: isChinese ? '执行代码' : 'Execute Code', desc: isChinese ? '在沙箱中运行 Python/Bash/Node 代码' : 'Run Python/Bash/Node code in sandbox' },
-            { key: 'send_email', label: isChinese ? '发送邮件' : 'Send Email', desc: isChinese ? '向外部收件人发送或回复邮件' : 'Send or reply to emails to external recipients' },
-            { key: 'import_mcp_server', label: isChinese ? '安装 MCP 工具' : 'Install MCP Tools', desc: isChinese ? '从注册表安装第三方工具扩展' : 'Install third-party tool extensions from registries' },
+            { key: 'execute_code', label: t('agent.settings.autonomy.executeCode'), desc: t('agent.settings.autonomy.executeCodeDesc') },
+            { key: 'send_email', label: t('agent.settings.autonomy.sendEmail'), desc: t('agent.settings.autonomy.sendEmailDesc') },
+            { key: 'import_mcp_server', label: t('agent.settings.autonomy.installMcp'), desc: t('agent.settings.autonomy.installMcpDesc') },
             { key: 'send_feishu_message', label: t('agent.settings.autonomy.sendFeishu'), desc: t('agent.settings.autonomy.sendFeishuDesc') },
             { key: 'web_search', label: t('agent.settings.autonomy.webSearch'), desc: t('agent.settings.autonomy.webSearchDesc') },
             { key: 'manage_tasks', label: t('agent.settings.autonomy.manageTasks'), desc: t('agent.settings.autonomy.manageTasksDesc') },

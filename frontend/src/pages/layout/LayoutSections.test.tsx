@@ -7,7 +7,7 @@ import NotificationCenter from './NotificationCenter';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, fallback?: string) => fallback || key.split('.').pop() || key,
+    t: (key: string, opts?: string | Record<string, unknown>) => (typeof opts === 'string' ? opts : null) || key.split('.').pop() || key,
     i18n: { language: 'en', changeLanguage: vi.fn() },
   }),
 }));
@@ -64,7 +64,6 @@ describe('Layout extracted sections', () => {
     const markup = renderToStaticMarkup(
       <NotificationCenter
         isOpen={true}
-        isChinese={false}
         unreadCount={2}
         notifications={[
           {
@@ -91,9 +90,9 @@ describe('Layout extracted sections', () => {
       />,
     );
 
-    expect(markup).toContain('Notifications');
+    expect(markup).toContain('title');       // t('notifications.title')
     expect(markup).toContain('Deploy notice');
     expect(markup).toContain('Release finished successfully.');
-    expect(markup).toContain('Mark all read');
+    expect(markup).toContain('markAllRead'); // t('notifications.markAllRead')
   });
 });

@@ -115,6 +115,21 @@ export default function AgentCreate() {
         }
     }, [hrAgentId, selectSession]);
 
+    // Delete session
+    const deleteSession = useCallback(async (sid: string) => {
+        if (!hrAgentId) return;
+        try {
+            await chatApi.deleteSession(hrAgentId, sid);
+            setSessions((prev) => prev.filter((s) => s.id !== sid));
+            if (sessionId === sid) {
+                setSessionId(null);
+                setMessages([]);
+            }
+        } catch (err: any) {
+            alert(err.message || 'Failed to delete session');
+        }
+    }, [hrAgentId, sessionId]);
+
     // WebSocket connection
     useEffect(() => {
         if (!hrAgentId || !sessionId || !token) return;
@@ -303,8 +318,24 @@ export default function AgentCreate() {
                                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                             }}
                         >
-                            <div style={{ fontWeight: s.id === sessionId ? 600 : 400 }}>
-                                {s.title || 'New Session'}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                <div style={{ flex: 1, fontWeight: s.id === sessionId ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {s.title || 'New Session'}
+                                </div>
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (confirm(t('chat.deleteConfirm', 'Delete this session?'))) deleteSession(s.id);
+                                    }}
+                                    style={{
+                                        background: 'none', border: 'none', cursor: 'pointer',
+                                        color: 'var(--text-tertiary)', fontSize: '11px', padding: '0 2px',
+                                        opacity: 0.5, flexShrink: 0,
+                                    }}
+                                    onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = 'var(--error)'; }}
+                                    onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.5'; e.currentTarget.style.color = 'var(--text-tertiary)'; }}
+                                    title={t('common.delete', 'Delete')}
+                                >&#x2715;</button>
                             </div>
                             <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginTop: '2px' }}>
                                 {new Date(s.created_at).toLocaleDateString()}

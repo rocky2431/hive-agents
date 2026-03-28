@@ -6,6 +6,7 @@
  */
 
 import { Routes, Route, Navigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useAuthStore } from './stores';
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { authApi } from './api/domains/auth';
@@ -28,9 +29,10 @@ const WorkspaceLayout = lazy(() => import('./surfaces/workspace/WorkspaceLayout'
 const AdminLayout = lazy(() => import('./surfaces/admin/AdminLayout'));
 
 function RouteFallback() {
+    const { t } = useTranslation();
     return (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '40vh', color: 'var(--text-tertiary)' }}>
-            加载中...
+            {t('common.loading')}
         </div>
     );
 }
@@ -77,6 +79,7 @@ function NotificationBar() {
 }
 
 export default function App() {
+    const { t } = useTranslation();
     const { token, setAuth, user } = useAuthStore();
     const [loading, setLoading] = useState(true);
 
@@ -97,7 +100,7 @@ export default function App() {
     if (loading) {
         return (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', color: 'var(--text-tertiary)' }}>
-                加载中...
+                {t('common.loading')}
             </div>
         );
     }

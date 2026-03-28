@@ -11,7 +11,8 @@ import AppSidebar from './layout/AppSidebar';
 import NotificationCenter from './layout/NotificationCenter';
 
 /* ────── Account Settings Modal ────── */
-function AccountSettingsModal({ user, onClose, isChinese }: { user: any; onClose: () => void; isChinese: boolean }) {
+function AccountSettingsModal({ user, onClose }: { user: any; onClose: () => void }) {
+    const { t } = useTranslation();
     const { setUser } = useAuthStore();
     const [username, setUsername] = useState(user?.username || '');
     const [email, setEmail] = useState(user?.email || '');
@@ -34,22 +35,22 @@ function AccountSettingsModal({ user, onClose, isChinese }: { user: any; onClose
             if (username !== user?.username) body.username = username;
             if (email !== user?.email) body.email = email;
             if (displayName !== user?.display_name) body.display_name = displayName;
-            if (Object.keys(body).length === 0) { showMsg(isChinese ? '没有变更' : 'No changes', 'error'); setSaving(false); return; }
+            if (Object.keys(body).length === 0) { showMsg(t('account.noChanges'), 'error'); setSaving(false); return; }
             const updated = await authApi.updateMe(body);
             setUser(updated);
-            showMsg(isChinese ? '个人信息已更新' : 'Profile updated');
+            showMsg(t('account.profileUpdated'));
         } catch (e: any) { showMsg(e.message || 'Failed', 'error'); }
         setSaving(false);
     };
 
     const handleChangePassword = async () => {
-        if (!oldPassword || !newPassword) { showMsg(isChinese ? '请填写所有密码字段' : 'Fill all password fields', 'error'); return; }
-        if (newPassword.length < 6) { showMsg(isChinese ? '新密码至少 6 个字符' : 'Min 6 characters', 'error'); return; }
-        if (newPassword !== confirmPassword) { showMsg(isChinese ? '两次密码不一致' : 'Passwords do not match', 'error'); return; }
+        if (!oldPassword || !newPassword) { showMsg(t('account.fillAllPasswordFields'), 'error'); return; }
+        if (newPassword.length < 6) { showMsg(t('account.minPasswordLength'), 'error'); return; }
+        if (newPassword !== confirmPassword) { showMsg(t('account.passwordsDoNotMatch'), 'error'); return; }
         setSaving(true);
         try {
             await authApi.changePassword({ old_password: oldPassword, new_password: newPassword });
-            showMsg(isChinese ? '密码已修改' : 'Password changed');
+            showMsg(t('account.passwordChanged'));
             setOldPassword(''); setNewPassword(''); setConfirmPassword('');
         } catch (e: any) { showMsg(e.message || 'Failed', 'error'); }
         setSaving(false);
@@ -62,26 +63,26 @@ function AccountSettingsModal({ user, onClose, isChinese }: { user: any; onClose
         <div style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
             <div style={{ background: 'var(--bg-primary)', borderRadius: '12px', border: '1px solid var(--border-subtle)', width: '420px', maxHeight: '90vh', overflow: 'auto', padding: '24px', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }} onClick={e => e.stopPropagation()}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                    <h3 style={{ margin: 0 }}>{isChinese ? '账户设置' : 'Account Settings'}</h3>
+                    <h3 style={{ margin: 0 }}>{t('account.title')}</h3>
                     <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', fontSize: '18px', cursor: 'pointer', padding: '4px 8px' }}>×</button>
                 </div>
                 {msg && <div style={{ padding: '8px 12px', borderRadius: '6px', fontSize: '12px', marginBottom: '16px', background: msgType === 'success' ? 'rgba(0,180,120,0.12)' : 'rgba(255,80,80,0.12)', color: msgType === 'success' ? 'var(--success)' : 'var(--error)' }}>{msg}</div>}
                 {/* Profile */}
-                <h4 style={{ margin: '0 0 12px', fontSize: '13px', color: 'var(--text-secondary)' }}>{isChinese ? '个人信息' : 'Profile'}</h4>
+                <h4 style={{ margin: '0 0 12px', fontSize: '13px', color: 'var(--text-secondary)' }}>{t('account.profile')}</h4>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '20px' }}>
-                    <div><label style={labelStyle}>{isChinese ? '用户名' : 'Username'}</label><input className="form-input" value={username} onChange={e => setUsername(e.target.value)} style={inputStyle} /></div>
-                    <div><label style={labelStyle}>{isChinese ? '邮箱' : 'Email'}</label><input className="form-input" type="email" value={email} onChange={e => setEmail(e.target.value)} style={inputStyle} /></div>
-                    <div><label style={labelStyle}>{isChinese ? '显示名称' : 'Display Name'}</label><input className="form-input" value={displayName} onChange={e => setDisplayName(e.target.value)} style={inputStyle} /></div>
-                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}><button className="btn btn-primary" onClick={handleSaveProfile} disabled={saving} style={{ padding: '6px 16px', fontSize: '12px' }}>{saving ? '...' : (isChinese ? '保存' : 'Save')}</button></div>
+                    <div><label style={labelStyle}>{t('account.username')}</label><input className="form-input" value={username} onChange={e => setUsername(e.target.value)} style={inputStyle} /></div>
+                    <div><label style={labelStyle}>{t('account.email')}</label><input className="form-input" type="email" value={email} onChange={e => setEmail(e.target.value)} style={inputStyle} /></div>
+                    <div><label style={labelStyle}>{t('account.displayName')}</label><input className="form-input" value={displayName} onChange={e => setDisplayName(e.target.value)} style={inputStyle} /></div>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}><button className="btn btn-primary" onClick={handleSaveProfile} disabled={saving} style={{ padding: '6px 16px', fontSize: '12px' }}>{saving ? '...' : t('common.save')}</button></div>
                 </div>
                 <div style={{ borderTop: '1px solid var(--border-subtle)', marginBottom: '20px' }} />
                 {/* Password */}
-                <h4 style={{ margin: '0 0 12px', fontSize: '13px', color: 'var(--text-secondary)' }}>{isChinese ? '修改密码' : 'Change Password'}</h4>
+                <h4 style={{ margin: '0 0 12px', fontSize: '13px', color: 'var(--text-secondary)' }}>{t('account.changePassword')}</h4>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    <div><label style={labelStyle}>{isChinese ? '当前密码' : 'Current Password'}</label><input className="form-input" type="password" value={oldPassword} onChange={e => setOldPassword(e.target.value)} style={inputStyle} /></div>
-                    <div><label style={labelStyle}>{isChinese ? '新密码' : 'New Password'}</label><input className="form-input" type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder={isChinese ? '至少 6 个字符' : 'Min 6 characters'} style={inputStyle} /></div>
-                    <div><label style={labelStyle}>{isChinese ? '确认新密码' : 'Confirm New Password'}</label><input className="form-input" type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} style={inputStyle} /></div>
-                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}><button className="btn btn-primary" onClick={handleChangePassword} disabled={saving} style={{ padding: '6px 16px', fontSize: '12px' }}>{saving ? '...' : (isChinese ? '修改密码' : 'Change Password')}</button></div>
+                    <div><label style={labelStyle}>{t('account.currentPassword')}</label><input className="form-input" type="password" value={oldPassword} onChange={e => setOldPassword(e.target.value)} style={inputStyle} /></div>
+                    <div><label style={labelStyle}>{t('account.newPassword')}</label><input className="form-input" type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder={t('account.minPasswordPlaceholder')} style={inputStyle} /></div>
+                    <div><label style={labelStyle}>{t('account.confirmNewPassword')}</label><input className="form-input" type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} style={inputStyle} /></div>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}><button className="btn btn-primary" onClick={handleChangePassword} disabled={saving} style={{ padding: '6px 16px', fontSize: '12px' }}>{saving ? '...' : t('account.changePassword')}</button></div>
                 </div>
             </div>
         </div>
@@ -273,7 +274,6 @@ export default function Layout() {
 
             <NotificationCenter
                 isOpen={showNotifications}
-                isChinese={!!isChinese}
                 unreadCount={Number(unreadCount) || 0}
                 notifications={notifications as any[]}
                 notifCategory={notifCategory}
@@ -293,7 +293,6 @@ export default function Layout() {
                 <AccountSettingsModal
                     user={user}
                     onClose={() => setShowAccountSettings(false)}
-                    isChinese={!!isChinese}
                 />
             )}
         </div>

@@ -64,48 +64,52 @@ export default function WorkspaceQuotasSection() {
       {/* Token Quotas */}
       <div className="card" style={{ padding: '16px', marginBottom: '16px' }}>
         <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '12px' }}>
-          Token 配额
+          {t('workspace.quotas.tokenQuotas')}
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
           <div className="form-group">
-            <label className="form-label">每日 Token 上限</label>
+            <label className="form-label">{t('workspace.quotas.dailyTokenLimit')}</label>
             <input
               className="form-input"
               type="number"
               min={0}
-              placeholder="不限制"
+              placeholder={t('workspace.quotas.unlimited')}
               value={form.default_tokens_per_day ?? ''}
               onChange={(e) => setForm({ ...form, default_tokens_per_day: e.target.value ? Number(e.target.value) : null })}
             />
             <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-              员工每天可消耗的最大 token 数{form.default_tokens_per_day ? `（约 ${formatTokens(form.default_tokens_per_day)}）` : '（不限制）'}
+              {form.default_tokens_per_day
+                ? t('workspace.quotas.dailyTokenDesc', { amount: formatTokens(form.default_tokens_per_day) })
+                : t('workspace.quotas.dailyTokenDescUnlimited')}
             </div>
           </div>
           <div className="form-group">
-            <label className="form-label">每月 Token 上限</label>
+            <label className="form-label">{t('workspace.quotas.monthlyTokenLimit')}</label>
             <input
               className="form-input"
               type="number"
               min={0}
-              placeholder="不限制"
+              placeholder={t('workspace.quotas.unlimited')}
               value={form.default_tokens_per_month ?? ''}
               onChange={(e) => setForm({ ...form, default_tokens_per_month: e.target.value ? Number(e.target.value) : null })}
             />
             <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-              员工每月可消耗的最大 token 数{form.default_tokens_per_month ? `（约 ${formatTokens(form.default_tokens_per_month)}）` : '（不限制）'}
+              {form.default_tokens_per_month
+                ? t('workspace.quotas.monthlyTokenDesc', { amount: formatTokens(form.default_tokens_per_month) })
+                : t('workspace.quotas.monthlyTokenDescUnlimited')}
             </div>
           </div>
         </div>
       </div>
 
-      {/* System Settings (pending discussion) */}
+      {/* System Settings */}
       <div className="card" style={{ padding: '16px' }}>
         <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '12px' }}>
-          系统设置
+          {t('workspace.quotas.systemSettings')}
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
           <div className="form-group">
-            <label className="form-label">最小心跳间隔（分钟）</label>
+            <label className="form-label">{t('workspace.quotas.minHeartbeatInterval')}</label>
             <input
               className="form-input"
               type="number"
@@ -114,11 +118,11 @@ export default function WorkspaceQuotasSection() {
               onChange={(e) => setForm({ ...form, min_heartbeat_interval_minutes: Number(e.target.value) })}
             />
             <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-              所有数字员工的心跳间隔下限
+              {t('workspace.quotas.minHeartbeatDesc')}
             </div>
           </div>
           <div className="form-group">
-            <label className="form-label">默认最大触发器数量</label>
+            <label className="form-label">{t('workspace.quotas.defaultMaxTriggers')}</label>
             <input
               className="form-input"
               type="number"
@@ -128,13 +132,13 @@ export default function WorkspaceQuotasSection() {
               onChange={(e) => setForm({ ...form, default_max_triggers: Number(e.target.value) })}
             />
             <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-              新数字员工的触发器限制
+              {t('workspace.quotas.defaultMaxTriggersDesc')}
             </div>
           </div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
           <div className="form-group">
-            <label className="form-label">最小轮询间隔（分钟）</label>
+            <label className="form-label">{t('workspace.quotas.minPollInterval')}</label>
             <input
               className="form-input"
               type="number"
@@ -144,11 +148,11 @@ export default function WorkspaceQuotasSection() {
               onChange={(e) => setForm({ ...form, min_poll_interval_floor: Number(e.target.value) })}
             />
             <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-              全公司下限
+              {t('workspace.quotas.minPollDesc')}
             </div>
           </div>
           <div className="form-group">
-            <label className="form-label">最大 Webhook 速率（/分钟）</label>
+            <label className="form-label">{t('workspace.quotas.maxWebhookRate')}</label>
             <input
               className="form-input"
               type="number"
@@ -158,7 +162,7 @@ export default function WorkspaceQuotasSection() {
               onChange={(e) => setForm({ ...form, max_webhook_rate_ceiling: Number(e.target.value) })}
             />
             <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-              全公司上限
+              {t('workspace.quotas.maxWebhookDesc')}
             </div>
           </div>
         </div>
@@ -166,9 +170,9 @@ export default function WorkspaceQuotasSection() {
 
       <div style={{ marginTop: '16px', display: 'flex', gap: '8px', alignItems: 'center' }}>
         <button className="btn btn-primary" onClick={save} disabled={saving}>
-          {saving ? '保存中...' : '保存'}
+          {saving ? t('common.saving') : t('common.save')}
         </button>
-        {saved && <span style={{ color: 'var(--success)', fontSize: '12px' }}>✅ 已保存</span>}
+        {saved && <span style={{ color: 'var(--success)', fontSize: '12px' }}>{t('workspace.quotas.saved')}</span>}
       </div>
     </div>
   );

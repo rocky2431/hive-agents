@@ -9,9 +9,8 @@ type AgentApprovalsSectionProps = {
 };
 
 export default function AgentApprovalsSection({ agentId }: AgentApprovalsSectionProps) {
-  const { i18n } = useTranslation();
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const isChinese = i18n.language?.startsWith('zh');
   const { data: approvals = [], refetch: refetchApprovals } = useQuery({
     queryKey: ['agent-approvals', agentId],
     queryFn: () => agentApi.getApprovals(agentId),
@@ -46,7 +45,7 @@ export default function AgentApprovalsSection({ agentId }: AgentApprovalsSection
       {pending.length > 0 && (
         <>
           <h4 style={{ margin: '0 0 12px', fontSize: '13px', color: 'var(--warning)' }}>
-            {isChinese ? `${pending.length} 个待审批` : `${pending.length} Pending`}
+            {t('agent.approvals.pendingCount', { count: pending.length })}
           </h4>
           {pending.map((approval: any) => (
             <div
@@ -79,7 +78,7 @@ export default function AgentApprovalsSection({ agentId }: AgentApprovalsSection
                   onClick={() => resolveMutation.mutate({ approvalId: approval.id, action: 'approve' })}
                   disabled={resolveMutation.isPending}
                 >
-                  {isChinese ? '批准' : 'Approve'}
+                  {t('agent.approvals.approve')}
                 </button>
                 <button
                   className="btn btn-danger"
@@ -87,7 +86,7 @@ export default function AgentApprovalsSection({ agentId }: AgentApprovalsSection
                   onClick={() => resolveMutation.mutate({ approvalId: approval.id, action: 'reject' })}
                   disabled={resolveMutation.isPending}
                 >
-                  {isChinese ? '拒绝' : 'Reject'}
+                  {t('agent.approvals.reject')}
                 </button>
               </div>
             </div>
@@ -97,11 +96,11 @@ export default function AgentApprovalsSection({ agentId }: AgentApprovalsSection
       )}
 
       <h4 style={{ margin: '0 0 12px', fontSize: '13px', color: 'var(--text-secondary)' }}>
-        {isChinese ? '审批历史' : 'History'}
+        {t('agent.approvals.history')}
       </h4>
       {resolved.length === 0 && pending.length === 0 && (
         <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-tertiary)', fontSize: '13px' }}>
-          {isChinese ? '暂无审批记录' : 'No approval records'}
+          {t('agent.approvals.noRecords')}
         </div>
       )}
       {resolved.map((approval: any) => (
