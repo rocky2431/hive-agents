@@ -31,7 +31,6 @@ class AgentProjection(BaseModel):
     name: str
     role_description: str
     bio: str | None = None
-    agent_kind: str
     parent_agent_id: uuid.UUID | None = None
     owner_user_id: uuid.UUID | None = None
     channel_perms: bool = False
@@ -70,8 +69,7 @@ class UserProjection(BaseModel):
 class BootstrapResponse(BaseModel):
     sync_version: int
     user: UserProjection
-    main_agent: AgentProjection | None = None
-    sub_agents: list[AgentProjection] = []
+    agents: list[AgentProjection] = []
     policy: dict = {}
     llm_config: list[LLMConfigItem] = []
 
@@ -87,25 +85,15 @@ class SyncResponse(BaseModel):
 # ─── Helpers ────────────────────────────────────────────
 
 
-async def _get_user_agents(db: AsyncSession, user: User) -> tuple[AgentProjection | None, list[AgentProjection]]:
-    """Load the user's main agent and sub-agents (tenant-isolated)."""
+async def _get_user_agents(db: AsyncSession, user: User) -> list[AgentProjection]:
+    """Load the user's agents (tenant-isolated)."""
     result = await db.execute(
         select(Agent).where(
             Agent.owner_user_id == user.id,
             Agent.tenant_id == user.tenant_id,
         )
     )
-    agents = result.scalars().all()
-
-    main_agent = None
-    sub_agents = []
-    for a in agents:
-        proj = AgentProjection.model_validate(a)
-        if a.agent_kind == "main":
-            main_agent = proj
-        else:
-            sub_agents.append(proj)
-    return main_agent, sub_agents
+    return [AgentProjection.model_validate(a) for a in result.scalars().all()]
 
 
 async def _get_llm_config(db: AsyncSession, tenant_id: uuid.UUID | None) -> list[LLMConfigItem]:
@@ -158,15 +146,14 @@ async def desktop_bootstrap(
     login and cache the result locally.
     """
     sync_version = await _get_tenant_sync_version(db, current_user.tenant_id)
-    main_agent, sub_agents = await _get_user_agents(db, current_user)
+    agents = await _get_user_agents(db, current_user)
     llm_config = await _get_llm_config(db, current_user.tenant_id)
     policy = await _get_guard_policy(db, current_user.tenant_id)
 
     return BootstrapResponse(
         sync_version=sync_version,
         user=UserProjection.model_validate(current_user),
-        main_agent=main_agent,
-        sub_agents=sub_agents,
+        agents=agents,
         policy=policy,
         llm_config=llm_config,
     )
@@ -189,16 +176,14 @@ async def desktop_sync(
     if v >= current_version:
         return SyncResponse(not_modified=True, sync_version=current_version)
 
-    main_agent, sub_agents = await _get_user_agents(db, current_user)
-    all_agents = ([main_agent] if main_agent else []) + sub_agents
+    agents = await _get_user_agents(db, current_user)
     llm_config = await _get_llm_config(db, current_user.tenant_id)
-
     policy = await _get_guard_policy(db, current_user.tenant_id)
 
     return SyncResponse(
         not_modified=False,
         sync_version=current_version,
-        agents=all_agents,
+        agents=agents,
         policy=policy,
         llm_config=llm_config,
     )

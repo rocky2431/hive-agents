@@ -32,13 +32,6 @@ async def feishu_oauth_callback(code: str, db: AsyncSession = Depends(get_db)):
 
     user, token = await feishu_service.login_or_register(db, feishu_user)
 
-    # Auto-provision Main Agent on first login (Phase 5)
-    try:
-        from app.services.auto_provision import ensure_main_agent
-        await ensure_main_agent(db, user)
-    except Exception:
-        logger.warning("Main Agent auto-provision failed", exc_info=True)
-
     return TokenResponse(access_token=token, user=UserOut.model_validate(user))
 
 
@@ -545,7 +538,8 @@ async def process_feishu_event(agent_id: uuid.UUID, body: dict, db: AsyncSession
             agent_r = await db.execute(select(AgentModel).where(AgentModel.id == agent_id))
             agent_obj = agent_r.scalar_one_or_none()
             creator_id = agent_obj.creator_id if agent_obj else agent_id
-            ctx_size = agent_obj.context_window_size if agent_obj else 100
+            from app.services.memory_service import compute_history_limit_for_agent
+            _hist_limit = await compute_history_limit_for_agent(agent_id)
 
             # Pre-resolve session so history lookup uses the UUID  (session created later if new)
             _pre_sess_r = await db.execute(
@@ -561,7 +555,7 @@ async def process_feishu_event(agent_id: uuid.UUID, body: dict, db: AsyncSession
                 select(ChatMessage)
                 .where(ChatMessage.agent_id == agent_id, ChatMessage.conversation_id == _history_conv_id)
                 .order_by(ChatMessage.created_at.desc())
-                .limit(ctx_size)
+                .limit(_hist_limit)
             )
             history_msgs = history_result.scalars().all()
             history = [{"role": m.role, "content": m.content} for m in reversed(history_msgs)]
@@ -1195,12 +1189,13 @@ async def _handle_feishu_file(db, agent_id, config, message, sender_open_id, cha
         _sess.last_message_at = _dt.now(_tz.utc)
 
         # Load conversation history for LLM context
-        ctx_size = agent_obj.context_window_size if agent_obj else 100
+        from app.services.memory_service import compute_history_limit_for_agent as _chlfa
+        _hist_limit2 = await _chlfa(agent_id)
         _hist_r = await db.execute(
             _select(ChatMessage)
             .where(ChatMessage.agent_id == agent_id, ChatMessage.conversation_id == session_conv_id)
             .order_by(ChatMessage.created_at.desc())
-            .limit(ctx_size)
+            .limit(_hist_limit2)
         )
         _history = [{"role": m.role, "content": m.content} for m in reversed(_hist_r.scalars().all())]
 

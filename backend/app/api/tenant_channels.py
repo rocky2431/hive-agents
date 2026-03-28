@@ -230,10 +230,10 @@ def _compute_feishu_signature(timestamp: str, nonce: str, encrypt_key: str, body
 async def _resolve_sender_agent(
     db: AsyncSession, tenant_id: uuid.UUID, feishu_user_id: str, feishu_open_id: str,
 ) -> uuid.UUID | None:
-    """Resolve a Feishu sender to their Main Agent within the tenant.
+    """Resolve a Feishu sender to their agent within the tenant.
 
-    Lookup chain: feishu_user_id → User → Main Agent (agent_kind='main')
-    Fallback: feishu_open_id → User → Main Agent
+    Lookup chain: feishu_user_id → User → owned Agent
+    Fallback: feishu_open_id → User → owned Agent
     """
     user = None
 
@@ -252,13 +252,11 @@ async def _resolve_sender_agent(
     if not user:
         return None
 
-    # Find user's Main Agent
+    # Find user's owned agent
     result = await db.execute(
         select(Agent.id).where(
             Agent.owner_user_id == user.id,
-            Agent.agent_kind == "main",
             Agent.tenant_id == tenant_id,
-        )
+        ).limit(1)
     )
-    row = result.scalar_one_or_none()
-    return row
+    return result.scalar_one_or_none()

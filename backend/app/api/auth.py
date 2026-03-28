@@ -155,13 +155,6 @@ async def login(data: UserLogin, db: AsyncSession = Depends(get_db)):
     except Exception:
         logger.warning("Audit write failed for auth.login", exc_info=True)
 
-    # Auto-provision Main Agent on first login (Phase 5)
-    try:
-        from app.services.auto_provision import ensure_main_agent
-        await ensure_main_agent(db, user)
-    except Exception:
-        logger.warning("Main Agent auto-provision failed", exc_info=True)
-
     needs_setup = user.tenant_id is None
     token = create_access_token(str(user.id), user.role, tenant_id=str(user.tenant_id) if user.tenant_id else None)
     return TokenResponse(

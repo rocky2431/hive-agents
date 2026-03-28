@@ -80,8 +80,6 @@ class Agent(Base):
     # Timezone (IANA format, e.g. "Asia/Shanghai"). None = inherit from tenant.
     timezone: Mapped[str | None] = mapped_column(String(50), default=None, nullable=True)
 
-    # Desktop integration: Main/Sub agent model (ARCHITECTURE.md §6.1)
-    agent_kind: Mapped[str] = mapped_column(String(10), default="main", nullable=False, server_default="main")
     parent_agent_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("agents.id"), nullable=True,
     )
