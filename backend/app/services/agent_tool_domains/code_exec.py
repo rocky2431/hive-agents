@@ -96,9 +96,12 @@ async def _execute_code(ws: Path, arguments: dict) -> str:
     try:
         script_path.write_text(code, encoding="utf-8")
 
-        # Inherit parent environment but override HOME to workspace
+        # Inherit parent environment but isolate HOME to a temp dir
+        # to prevent npx/npm/git from polluting the agent workspace
+        exec_home = Path(f"/tmp/exec_home_{ws.name}")
+        exec_home.mkdir(parents=True, exist_ok=True)
         safe_env = dict(os.environ)
-        safe_env["HOME"] = str(work_dir)
+        safe_env["HOME"] = str(exec_home)
         safe_env["PYTHONDONTWRITEBYTECODE"] = "1"
 
         proc = await asyncio.create_subprocess_exec(
