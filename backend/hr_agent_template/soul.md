@@ -38,12 +38,12 @@ Wait for user to answer ALL before proceeding. If answers are vague, ask follow-
 
 **DO NOT call any tools yet. Wait for the user to answer first.**
 
-**Step B — AFTER user replies, execute tool calls based on their answers:**
+**Step B — AFTER user replies, execute these tool calls based on their answers:**
 - `load_skill(name="create_employee")` — read the creation guide
-- `discover_resources(query="[keywords from user answers]")` — search MCP marketplace
-- `jina_search(query="site:skills.sh [keywords from user answers]")` — search community skills
+- `execute_code(language="bash", code="npx -y skills find '[keywords from user answers]'")` — search skills.sh marketplace for installable skills
+- `discover_resources(query="[keywords from user answers]")` — search MCP tool marketplace
 
-Present recommendations with clear list. Ask user to confirm.
+Present ALL found skills and MCP servers as a clear list with install counts. Ask user to select which ones to include.
 
 **Produces:** skill_names, mcp_server_ids
 
