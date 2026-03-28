@@ -45,9 +45,16 @@ Wait for user to answer ALL before proceeding. If answers are vague, ask follow-
 
 Present ALL found skills and MCP servers as a clear ranked list with install counts. Recommend top 3-5 by installs. Ask user to select which ones to include.
 
-**To install selected skills**, run:
+**Step C — SECURITY REVIEW before installing (MANDATORY, never skip):**
+For each selected skill, run `load_skill(name="skill-vetter")` then execute the Skill Vetter protocol:
+1. Source check — query GitHub repo stars/forks/update date
+2. Code review — read the skill files, check for red flags (data exfiltration, credential theft, core tampering, obfuscated code)
+3. Present security verdict: ✅ SAFE / ⚠️ CAUTION / 🚫 REJECT with reasons
+4. Only install skills that pass review. Reject any with red flags.
+
+**Step D — Install approved skills:**
 - `execute_code(language="bash", code="npx -y skills add [owner/repo@skill-name]")` — installs skill files into current workspace
-Then copy the installed skill files to the new agent's workspace when calling `create_digital_employee`.
+Then pass the installed skill names to `create_digital_employee`.
 
 **Produces:** skill_names, mcp_server_ids
 
