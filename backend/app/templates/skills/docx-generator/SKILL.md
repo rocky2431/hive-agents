@@ -2,19 +2,16 @@
 name: DOCX Generator
 license: MIT
 metadata:
-  version: "1.0.0"
+  version: "2.0"
   category: document-processing
-  author: MiniMaxAI
   sources:
     - "ECMA-376 Office Open XML File Formats"
     - "GB/T 9704-2012 Layout Standard for Official Documents"
-    - "IEEE / ACM / APA / MLA / Chicago / Turabian Style Guides"
-    - "Springer LNCS / Nature / HBR Document Templates"
 description: >
-  Professional DOCX document creation, editing, and formatting using OpenXML SDK (.NET).
+  Professional DOCX document creation, editing, and formatting using python-docx.
   Three pipelines: (A) create new documents from scratch, (B) fill/edit content in existing
-  documents, (C) apply template formatting with XSD validation gate-check.
-  MUST use this skill whenever the user wants to produce, modify, or format a Word document —
+  documents, (C) apply template formatting.
+  MUST use this skill whenever the user wants to produce, modify, or format a Word document --
   including when they say "write a report", "draft a proposal", "make a contract",
   "fill in this form", "reformat to match this template", or any task whose final output
   is a .docx file. Even if the user doesn't mention "docx" explicitly, if the task
@@ -23,55 +20,16 @@ triggers:
   - Word
   - docx
   - document
-  - 文档
-  - Word文档
-  - 报告
-  - 合同
-  - 公文
-  - 排版
-  - 套模板
+  - Word document
+  - report
+  - contract
+  - formatting
+  - template
 ---
 
 # minimax-docx
 
-Create, edit, and format DOCX documents via CLI tools or direct C# scripts built on OpenXML SDK (.NET).
-
-## Setup
-
-**First time:** `bash scripts/setup.sh` (or `powershell scripts/setup.ps1` on Windows, `--minimal` to skip optional deps).
-
-**First operation in session:** `scripts/env_check.sh` — do not proceed if `NOT READY`. (Skip on subsequent operations within the same session.)
-
-## Quick Start: Direct C# Path
-
-When the task requires structural document manipulation (custom styles, complex tables, multi-section layouts, headers/footers, TOC, images), write C# directly instead of wrestling with CLI limitations. Use this scaffold:
-
-```csharp
-// File: scripts/dotnet/task.csx  (or a new .cs in a Console project)
-// dotnet run --project scripts/dotnet/MiniMaxAIDocx.Cli -- run-script task.csx
-#r "nuget: DocumentFormat.OpenXml, 3.2.0"
-
-using DocumentFormat.OpenXml;
-using DocumentFormat.OpenXml.Packaging;
-using DocumentFormat.OpenXml.Wordprocessing;
-
-using var doc = WordprocessingDocument.Create("output.docx", WordprocessingDocumentType.Document);
-var mainPart = doc.AddMainDocumentPart();
-mainPart.Document = new Document(new Body());
-
-// --- Your logic here ---
-// Read the relevant Samples/*.cs file FIRST for tested patterns.
-// See Samples/ table in References section below.
-```
-
-**Before writing any C#, read the relevant `Samples/*.cs` file** — they contain compilable, SDK-version-verified patterns. The Samples table in the References section below maps topics to files.
-
-## CLI shorthand
-
-All CLI commands below use `$CLI` as shorthand for:
-```bash
-dotnet run --project scripts/dotnet/MiniMaxAIDocx.Cli --
-```
+Create, edit, and format DOCX documents using **python-docx only** -- no .NET, no OpenXML SDK, no C#.
 
 ## Pipeline routing
 
@@ -79,196 +37,336 @@ Route by checking: does the user have an input .docx file?
 
 ```
 User task
-├─ No input file → Pipeline A: CREATE
-│   signals: "write", "create", "draft", "generate", "new", "make a report/proposal/memo"
-│   → Read references/scenario_a_create.md
-│
-└─ Has input .docx
-    ├─ Replace/fill/modify content → Pipeline B: FILL-EDIT
-    │   signals: "fill in", "replace", "update", "change text", "add section", "edit"
-    │   → Read references/scenario_b_edit_content.md
-    │
-    └─ Reformat/apply style/template → Pipeline C: FORMAT-APPLY
-        signals: "reformat", "apply template", "restyle", "match this format", "套模板", "排版"
-        ├─ Template is pure style (no content) → C-1: OVERLAY (apply styles to source)
-        └─ Template has structure (cover/TOC/example sections) → C-2: BASE-REPLACE
-            (use template as base, replace example content with user content)
-        → Read references/scenario_c_apply_template.md
++-- No input file --> Pipeline A: CREATE
+|   signals: "write", "create", "draft", "generate", "new", "make a report/proposal/memo"
+|
++-- Has input .docx
+    +-- Replace/fill/modify content --> Pipeline B: FILL-EDIT
+    |   signals: "fill in", "replace", "update", "change text", "add section", "edit"
+    |
+    +-- Reformat/apply style/template --> Pipeline C: FORMAT-APPLY
+        signals: "reformat", "apply template", "restyle", "match this format"
 ```
 
-If the request spans multiple pipelines, run them sequentially (e.g., Create then Format-Apply).
+---
 
-## Pre-processing
+## Pipeline A: CREATE -- New Document from Scratch
 
-Convert `.doc` → `.docx` if needed: `scripts/doc_to_docx.sh input.doc output_dir/`
+### Step 1: Create document with page setup
 
-Preview before editing (avoids reading raw XML): `scripts/docx_preview.sh document.docx`
+```python
+from docx import Document
+from docx.shared import Inches, Pt, Cm, RGBColor, Emu
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
+from docx.enum.table import WD_TABLE_ALIGNMENT
+from docx.enum.section import WD_ORIENT
 
-Analyze structure for editing scenarios: `$CLI analyze --input document.docx`
+doc = Document()
 
-## Scenario A: Create
+# Page setup (A4)
+section = doc.sections[0]
+section.page_width = Cm(21.0)
+section.page_height = Cm(29.7)
+section.top_margin = Cm(2.54)
+section.bottom_margin = Cm(2.54)
+section.left_margin = Cm(3.18)
+section.right_margin = Cm(3.18)
 
-Read `references/scenario_a_create.md`, `references/typography_guide.md`, and `references/design_principles.md` first. Pick an aesthetic recipe from `Samples/AestheticRecipeSamples.cs` that matches the document type — do not invent formatting values. For CJK, also read `references/cjk_typography.md`.
-
-**Choose your path:**
-- **Simple** (plain text, minimal formatting): use CLI — `$CLI create --type report --output out.docx --config content.json`
-- **Structural** (custom styles, multi-section, TOC, images, complex tables): write C# directly. Read the relevant `Samples/*.cs` first.
-
-CLI options: `--type` (report|letter|memo|academic), `--title`, `--author`, `--page-size` (letter|a4|legal|a3), `--margins` (standard|narrow|wide), `--header`, `--footer`, `--page-numbers`, `--toc`, `--content-json`.
-
-Then run the **validation pipeline** (below).
-
-## Scenario B: Edit / Fill
-
-Read `references/scenario_b_edit_content.md` first. Preview → analyze → edit → validate.
-
-**Choose your path:**
-- **Simple** (text replacement, placeholder fill): use CLI subcommands.
-- **Structural** (add/reorganize sections, modify styles, manipulate tables, insert images): write C# directly. Read `references/openxml_element_order.md` and the relevant `Samples/*.cs`.
-
-Available CLI edit subcommands:
-- `replace-text --find "X" --replace "Y"`
-- `fill-placeholders --data '{"key":"value"}'`
-- `fill-table --data table.json`
-- `insert-section`, `remove-section`, `update-header-footer`
-
-```bash
-$CLI edit replace-text --input in.docx --output out.docx --find "OLD" --replace "NEW"
-$CLI edit fill-placeholders --input in.docx --output out.docx --data '{"name":"John"}'
+# For landscape:
+# section.orientation = WD_ORIENT.LANDSCAPE
+# section.page_width, section.page_height = section.page_height, section.page_width
 ```
 
-Then run the **validation pipeline**. Also run diff to verify minimal changes:
-```bash
-$CLI diff --before in.docx --after out.docx
+### Step 2: Define styles
+
+```python
+from docx.enum.style import WD_STYLE_TYPE
+
+# -- Heading styles --
+for level, (size, color, spacing_before, spacing_after) in enumerate([
+    (Pt(22), RGBColor(0x1A, 0x1A, 0x2E), Pt(24), Pt(10)),  # Heading 1
+    (Pt(16), RGBColor(0x1A, 0x1A, 0x2E), Pt(18), Pt(8)),   # Heading 2
+    (Pt(13), RGBColor(0x1A, 0x1A, 0x2E), Pt(12), Pt(6)),   # Heading 3
+], start=1):
+    style = doc.styles[f"Heading {level}"]
+    font = style.font
+    font.name = "Liberation Sans"
+    font.size = size
+    font.bold = True
+    font.color.rgb = color
+    pf = style.paragraph_format
+    pf.space_before = spacing_before
+    pf.space_after = spacing_after
+    pf.keep_with_next = True
+    # OutlineLevel for TOC and navigation
+    pf.outline_level = level - 1
+
+# -- Body style --
+style = doc.styles["Normal"]
+style.font.name = "Liberation Sans"
+style.font.size = Pt(10.5)
+style.font.color.rgb = RGBColor(0x33, 0x33, 0x33)
+style.paragraph_format.line_spacing_rule = WD_LINE_SPACING.MULTIPLE
+style.paragraph_format.line_spacing = 1.15
+style.paragraph_format.space_after = Pt(6)
+
+# -- CJK font assignment --
+# python-docx sets the Latin font via font.name; for CJK, set the East Asian font:
+from docx.oxml.ns import qn
+rpr = style.element.get_or_add_rPr()
+rFonts = rpr.get_or_add_rFonts()
+rFonts.set(qn("w:eastAsia"), "Noto Sans CJK SC")
 ```
 
-## Scenario C: Apply Template
+### Step 3: Add content
 
-Read `references/scenario_c_apply_template.md` first. Preview and analyze both source and template.
+```python
+# Title
+title = doc.add_heading("Document Title", level=0)
+title.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-```bash
-$CLI apply-template --input source.docx --template template.docx --output out.docx
+# Headings
+doc.add_heading("Introduction", level=1)
+
+# Body paragraphs
+p = doc.add_paragraph("This is the main body text with ")
+p.add_run("bold emphasis").bold = True
+p.add_run(" and ")
+p.add_run("italic text").italic = True
+p.add_run(".")
+
+# Bullet list
+doc.add_paragraph("First point", style="List Bullet")
+doc.add_paragraph("Second point", style="List Bullet")
+doc.add_paragraph("Third point", style="List Bullet")
+
+# Numbered list
+doc.add_paragraph("Step one", style="List Number")
+doc.add_paragraph("Step two", style="List Number")
+
+# Block quote / callout
+callout = doc.add_paragraph()
+callout.style = doc.styles["Normal"]
+callout_pf = callout.paragraph_format
+callout_pf.left_indent = Cm(1.0)
+# Add left border via XML (accent-colored bar)
+from docx.oxml import OxmlElement
+pPr = callout._element.get_or_add_pPr()
+pBdr = OxmlElement("w:pBdr")
+left_border = OxmlElement("w:left")
+left_border.set(qn("w:val"), "single")
+left_border.set(qn("w:sz"), "24")  # 3pt
+left_border.set(qn("w:space"), "8")
+left_border.set(qn("w:color"), "2D5F8A")
+pBdr.append(left_border)
+pPr.append(pBdr)
+callout.add_run("This is a callout block with an accent-colored left border.")
 ```
 
-For complex template operations (multi-template merge, per-section headers/footers, style merging), write C# directly — see Critical Rules below for required patterns.
+### Step 4: Add tables
 
-Run the **validation pipeline**, then the **hard gate-check**:
-```bash
-$CLI validate --input out.docx --gate-check assets/xsd/business-rules.xsd
+```python
+# Table with header row
+headers = ["Quarter", "Revenue", "Growth"]
+data = [["Q1", "$120K", "12%"], ["Q2", "$145K", "21%"], ["Q3", "$132K", "-9%"]]
+
+table = doc.add_table(rows=1, cols=len(headers))
+table.style = "Table Grid"
+table.alignment = WD_TABLE_ALIGNMENT.CENTER
+
+# Header row
+for i, header in enumerate(headers):
+    cell = table.rows[0].cells[i]
+    cell.text = header
+    # Style header
+    p = cell.paragraphs[0]
+    p.runs[0].bold = True
+    p.runs[0].font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+    p.runs[0].font.size = Pt(10)
+    p.runs[0].font.name = "Liberation Sans"
+    # Header background
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    shading = OxmlElement("w:shd")
+    shading.set(qn("w:val"), "clear")
+    shading.set(qn("w:color"), "auto")
+    shading.set(qn("w:fill"), "2D5F8A")
+    cell._element.get_or_add_tcPr().append(shading)
+
+# Data rows
+for row_data in data:
+    row = table.add_row()
+    for i, val in enumerate(row_data):
+        row.cells[i].text = val
+        p = row.cells[i].paragraphs[0]
+        for run in p.runs:
+            run.font.size = Pt(10)
+            run.font.name = "Liberation Sans"
+
+# Set column widths
+for i, width in enumerate([Cm(4), Cm(4), Cm(4)]):
+    for row in table.rows:
+        row.cells[i].width = width
 ```
-Gate-check is a **hard requirement**. Do NOT deliver until it passes. If it fails: diagnose, fix, re-run.
 
-Also diff to verify content preservation: `$CLI diff --before source.docx --after out.docx`
+### Step 5: Add images
 
-## Validation pipeline
+```python
+# Inline image
+doc.add_picture("chart.png", width=Inches(5.5))
 
-Run after every write operation. For Scenario C the full pipeline is **mandatory**; for A/B it is **recommended** (skip only if the operation was trivially simple).
-
-```bash
-$CLI merge-runs --input doc.docx                                    # 1. consolidate runs
-$CLI validate --input doc.docx --xsd assets/xsd/wml-subset.xsd     # 2. XSD structure
-$CLI validate --input doc.docx --business                           # 3. business rules
+# Image with caption
+doc.add_picture("diagram.png", width=Inches(4.0))
+caption = doc.add_paragraph("Figure 1: System Architecture")
+caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
+caption.style.font.size = Pt(9)
+caption.style.font.color.rgb = RGBColor(0x88, 0x88, 0x88)
 ```
 
-If XSD fails, auto-repair and retry:
-```bash
-$CLI fix-order --input doc.docx
-$CLI validate --input doc.docx --xsd assets/xsd/wml-subset.xsd
+### Step 6: Headers, footers, and page numbers
+
+```python
+section = doc.sections[0]
+
+# Header
+header = section.header
+header.is_linked_to_previous = False
+hp = header.paragraphs[0]
+hp.text = "Company Name"
+hp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+hp.runs[0].font.size = Pt(8)
+hp.runs[0].font.color.rgb = RGBColor(0x88, 0x88, 0x88)
+
+# Footer with page number
+footer = section.footer
+footer.is_linked_to_previous = False
+fp = footer.paragraphs[0]
+fp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+# Add page number field
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+run = fp.add_run()
+fldChar1 = OxmlElement("w:fldChar")
+fldChar1.set(qn("w:fldCharType"), "begin")
+run._element.append(fldChar1)
+
+run2 = fp.add_run()
+instrText = OxmlElement("w:instrText")
+instrText.set(qn("xml:space"), "preserve")
+instrText.text = " PAGE "
+run2._element.append(instrText)
+
+run3 = fp.add_run()
+fldChar2 = OxmlElement("w:fldChar")
+fldChar2.set(qn("w:fldCharType"), "end")
+run3._element.append(fldChar2)
 ```
 
-If XSD still fails, fall back to business rules + preview:
-```bash
-$CLI validate --input doc.docx --business
-scripts/docx_preview.sh doc.docx
-# Verify: font contamination=0, table count correct, drawing count correct, sectPr count correct
+### Step 7: Save
+
+```python
+doc.save("output.docx")
+print("Saved output.docx")
 ```
 
-Final preview: `scripts/docx_preview.sh doc.docx`
+---
 
-## Critical rules
+## Pipeline B: FILL-EDIT -- Modify Existing Documents
 
-These prevent file corruption — OpenXML is strict about element ordering.
+```python
+from docx import Document
 
-**Element order** (properties always first):
+doc = Document("input.docx")
 
-| Parent | Order |
-|--------|-------|
-| `w:p`  | `pPr` → runs |
-| `w:r`  | `rPr` → `t`/`br`/`tab` |
-| `w:tbl`| `tblPr` → `tblGrid` → `tr` |
-| `w:tr` | `trPr` → `tc` |
-| `w:tc` | `tcPr` → `p` (min 1 `<w:p/>`) |
-| `w:body` | block content → `sectPr` (LAST child) |
+# Replace text (preserving formatting)
+for para in doc.paragraphs:
+    for run in para.runs:
+        if "{{COMPANY_NAME}}" in run.text:
+            run.text = run.text.replace("{{COMPANY_NAME}}", "Acme Corp")
 
-**Direct format contamination:** When copying content from a source document, inline `rPr` (fonts, color) and `pPr` (borders, shading, spacing) override template styles. Always strip direct formatting — keep only `pStyle` reference and `t` text. Clean tables too (including `pPr/rPr` inside cells).
+# Fill table cells
+for table in doc.tables:
+    for row in table.rows:
+        for cell in row.cells:
+            if "{{PLACEHOLDER}}" in cell.text:
+                for para in cell.paragraphs:
+                    for run in para.runs:
+                        run.text = run.text.replace("{{PLACEHOLDER}}", "Filled Value")
 
-**Track changes:** `<w:del>` uses `<w:delText>`, never `<w:t>`. `<w:ins>` uses `<w:t>`, never `<w:delText>`.
+# Add a new section
+doc.add_page_break()
+doc.add_heading("New Section", level=1)
+doc.add_paragraph("Content for the new section.")
 
-**Font size:** `w:sz` = points × 2 (12pt → `sz="24"`). Margins/spacing in DXA (1 inch = 1440, 1cm ≈ 567).
+doc.save("output.docx")
+```
 
-**Heading styles MUST have OutlineLevel:** When defining heading styles (Heading1, ThesisH1, etc.), always include `new OutlineLevel { Val = N }` in `StyleParagraphProperties` (H1→0, H2→1, H3→2). Without this, Word sees them as plain styled text — TOC and navigation pane won't work.
+**Important:** When editing, always iterate through `runs` to preserve formatting. Do not replace `paragraph.text` directly as it strips all formatting.
 
-**Multi-template merge:** When given multiple template files (font, heading, breaks), read `references/scenario_c_apply_template.md` section "Multi-Template Merge" FIRST. Key rules:
-- Merge styles from all templates into one styles.xml. Structure (sections/breaks) comes from the breaks template.
-- Each content paragraph must appear exactly ONCE — never duplicate when inserting section breaks.
-- NEVER insert empty/blank paragraphs as padding or section separators. Output paragraph count must equal input. Use section break properties (`w:sectPr` inside `w:pPr`) and style spacing (`w:spacing` before/after) for visual separation.
-- Insert oddPage section breaks before EVERY chapter heading, not just the first. Even if a chapter has dual-column content, it MUST start with oddPage; use a second continuous break after the heading for column switching.
-- Dual-column chapters need THREE section breaks: (1) oddPage in preceding para's pPr, (2) continuous+cols=2 in the chapter HEADING's pPr, (3) continuous+cols=1 in the last body para's pPr to revert.
-- Copy `titlePg` settings from the breaks template for EACH section. Abstract and TOC sections typically need `titlePg=true`.
+---
 
-**Multi-section headers/footers:** Templates with 10+ sections (e.g., Chinese thesis) have DIFFERENT headers/footers per section (Roman vs Arabic page numbers, different header text per zone). Rules:
-- Use C-2 Base-Replace: copy the TEMPLATE as output base, then replace body content. This preserves all sections, headers, footers, and titlePg settings automatically.
-- NEVER recreate headers/footers from scratch — copy template header/footer XML byte-for-byte.
-- NEVER add formatting (borders, alignment, font size) not present in the template header XML.
-- Non-cover sections MUST have header/footer XML files (at least empty header + page number footer).
-- See `references/scenario_c_apply_template.md` section "Multi-Section Header/Footer Transfer".
+## Pipeline C: FORMAT-APPLY -- Apply Template Styling
 
-## References
+```python
+from docx import Document
 
-Load as needed — don't load all at once. Pick the most relevant files for the task.
+# Open source document
+source = Document("source.docx")
 
-**The C# samples and design references below are the project's knowledge base ("encyclopedia").** When writing OpenXML code, ALWAYS read the relevant sample file first — it contains compilable, SDK-version-verified patterns that prevent common errors. When making aesthetic decisions, read the design principles and recipe files — they encode tested, harmonious parameter sets from authoritative sources (IEEE, ACM, APA, Nature, etc.), not guesses.
+# Open template for style reference
+template = Document("template.docx")
 
-### Scenario guides (read first for each pipeline)
+# Copy styles from template
+# Strategy: create new doc from template, then paste content
+output = Document("template.docx")
 
-| File | When |
-|------|------|
-| `references/scenario_a_create.md` | Pipeline A: creating from scratch |
-| `references/scenario_b_edit_content.md` | Pipeline B: editing existing content |
-| `references/scenario_c_apply_template.md` | Pipeline C: applying template formatting |
+# Clear template body content
+for para in output.paragraphs:
+    p_element = para._element
+    p_element.getparent().remove(p_element)
 
-### C# code samples (compilable, heavily commented — read when writing code)
+# Re-add content from source with template styles
+for para in source.paragraphs:
+    new_para = output.add_paragraph()
+    new_para.style = para.style
+    for run in para.runs:
+        new_run = new_para.add_run(run.text)
+        # Apply template style fonts (not source formatting)
 
-| File | Topic |
-|------|-------|
-| `Samples/DocumentCreationSamples.cs` | Document lifecycle: create, open, save, streams, doc defaults, settings, properties, page setup, multi-section |
-| `Samples/StyleSystemSamples.cs` | Styles: Normal/Heading chain, character/table/list styles, DocDefaults, latentStyles, CJK 公文, APA 7th, import, resolve inheritance |
-| `Samples/CharacterFormattingSamples.cs` | RunProperties: fonts, size, bold/italic, all underlines, color, highlight, strike, sub/super, caps, spacing, shading, border, emphasis marks |
-| `Samples/ParagraphFormattingSamples.cs` | ParagraphProperties: justification, indentation, line/paragraph spacing, keep/widow, outline level, borders, tabs, numbering, bidi, frame |
-| `Samples/TableSamples.cs` | Tables: borders, grid, cell props, margins, row height, header repeat, merge (H+V), nested, floating, three-line 三线表, zebra striping |
-| `Samples/HeaderFooterSamples.cs` | Headers/footers: page numbers, "Page X of Y", first/even/odd, logo image, table layout, 公文 "-X-", per-section |
-| `Samples/ImageSamples.cs` | Images: inline, floating, text wrapping, border, alt text, in header/table, replace, SVG fallback, dimension calc |
-| `Samples/ListAndNumberingSamples.cs` | Numbering: bullets, multi-level decimal, custom symbols, outline→headings, legal, Chinese 一/（一）/1./(1), restart/continue |
-| `Samples/FieldAndTocSamples.cs` | Fields: TOC, SimpleField vs complex field, DATE/PAGE/REF/SEQ/MERGEFIELD/IF/STYLEREF, TOC styles |
-| `Samples/FootnoteAndCommentSamples.cs` | Footnotes, endnotes, comments (4-file system), bookmarks, hyperlinks (internal + external) |
-| `Samples/TrackChangesSamples.cs` | Revisions: insertions (w:t), deletions (w:delText!), formatting changes, accept/reject all, move tracking |
-| `Samples/AestheticRecipeSamples.cs` | 13 aesthetic recipes from authoritative sources: ModernCorporate, AcademicThesis, ExecutiveBrief, ChineseGovernment (GB/T 9704), MinimalModern, IEEE Conference, ACM sigconf, APA 7th, MLA 9th, Chicago/Turabian, Springer LNCS, Nature, HBR — each with exact values from official style guides |
+output.save("formatted.docx")
+```
 
-Note: `Samples/` path is relative to `scripts/dotnet/MiniMaxAIDocx.Core/`.
+---
 
-### Markdown references (read when you need specifications or design rules)
+## Aesthetic Recipes
 
-| File | When |
-|------|------|
-| `references/openxml_element_order.md` | XML element ordering rules (prevents corruption) |
-| `references/openxml_units.md` | Unit conversion: DXA, EMU, half-points, eighth-points |
-| `references/openxml_encyclopedia_part1.md` | Detailed C# encyclopedia: document creation, styles, character & paragraph formatting |
-| `references/openxml_encyclopedia_part2.md` | Detailed C# encyclopedia: page setup, tables, headers/footers, sections, doc properties |
-| `references/openxml_encyclopedia_part3.md` | Detailed C# encyclopedia: TOC, footnotes, fields, track changes, comments, images, math, numbering, protection |
-| `references/typography_guide.md` | Font pairing, sizes, spacing, page layout, table design, color schemes |
-| `references/cjk_typography.md` | CJK fonts, 字号 sizes, RunFonts mapping, GB/T 9704 公文 standard |
-| `references/cjk_university_template_guide.md` | Chinese university thesis templates: numeric styleIds (1/2/3 vs Heading1), document zone structure (cover→abstract→TOC→body→references), font expectations, common mistakes |
-| `references/design_principles.md` | **Aesthetic foundations**: 6 design principles (white space, contrast/scale, proximity, alignment, repetition, hierarchy) — teaches WHY, not just WHAT |
-| `references/design_good_bad_examples.md` | **Good vs Bad comparisons**: 10 categories of typography mistakes with OpenXML values, ASCII mockups, and fixes |
-| `references/track_changes_guide.md` | Revision marks deep dive |
-| `references/troubleshooting.md` | **Symptom-driven fixes**: 13 common problems indexed by what you SEE (headings wrong, images missing, TOC broken, etc.) — search by symptom, find the fix |
+| Recipe | Body Font | Heading Font | Body Size | H1 Size | Line Spacing | Margins |
+|--------|-----------|-------------|-----------|---------|-------------|---------|
+| Corporate Modern | Liberation Sans | Liberation Sans Bold | 10.5pt | 22pt | 1.15 | 2.54cm |
+| Academic Thesis | Liberation Sans | Liberation Sans Bold | 12pt | 16pt | 2.0 | 2.54cm / 3.18cm |
+| Executive Brief | Liberation Sans | Liberation Sans Bold | 11pt | 18pt | 1.25 | 2.0cm |
+| Minimal | Liberation Sans | Liberation Sans Bold | 10pt | 20pt | 1.3 | 3.0cm |
+| Chinese Official (GB/T 9704) | Noto Sans CJK SC | Noto Sans CJK SC | 16pt (3 hao) | 22pt (2 hao) | Fixed 29pt | 3.7cm / 2.6cm |
+
+---
+
+## Critical Rules
+
+1. **CJK font** -- Set East Asian font via `rFonts.set(qn("w:eastAsia"), "Noto Sans CJK SC")` on run properties
+2. **Font path** -- CJK: `/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc`; English: `/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf`
+3. **Heading OutlineLevel** -- Always set `paragraph_format.outline_level` on heading styles for TOC to work
+4. **Font size units** -- Use `Pt()` for points. Internal OOXML uses half-points (`w:sz="24"` = 12pt)
+5. **Margin/spacing units** -- Use `Cm()` or `Inches()`. Internal OOXML uses DXA (1 inch = 1440 DXA)
+6. **Preserve formatting on edit** -- Iterate `para.runs`, never assign `para.text` directly
+7. **Table cell must have paragraph** -- Every `<w:tc>` must contain at least one `<w:p>`
+8. **Section break** -- `doc.add_section(WD_ORIENT.PORTRAIT)` adds a new section with page break
+
+---
+
+## Dependencies
+
+- `pip install python-docx` -- all DOCX operations
+- `pip install Pillow` -- image handling
+
+No .NET, no OpenXML SDK, no C# required.
