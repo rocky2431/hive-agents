@@ -11,6 +11,10 @@ set -e
 # Fix volume permissions (Railway mounts volumes as root, app runs as hive)
 chown -R hive:hive /data 2>/dev/null || true
 
+# Force git to use HTTPS instead of SSH (container has no SSH keys)
+git config --global url."https://github.com/".insteadOf "git@github.com:"
+git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+
 echo "[entrypoint] Step 1: Creating/verifying database tables..."
 
 python << 'PYEOF'
