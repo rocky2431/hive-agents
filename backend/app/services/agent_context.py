@@ -109,7 +109,7 @@ async def build_agent_context(agent_id: uuid.UUID, agent_name: str, role_descrip
     data_ws = PERSISTENT_DATA / str(agent_id)
 
     # --- Soul ---
-    soul = _read_file_safe(tool_ws / "soul.md", 2000) or _read_file_safe(data_ws / "soul.md", 2000)
+    soul = _read_file_safe(tool_ws / "soul.md", 8000) or _read_file_safe(data_ws / "soul.md", 8000)
     # Strip markdown heading if present
     if soul.startswith("# "):
         soul = "\n".join(soul.split("\n")[1:]).strip()

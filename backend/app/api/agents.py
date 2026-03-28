@@ -140,7 +140,25 @@ async def get_or_create_hr_agent(
     )
     hr_agent = result.scalar_one_or_none()
 
+    # Shared: find default model for tenant
+    from app.models.llm import LLMModel
+
+    async def _get_default_model() -> LLMModel | None:
+        result = await db.execute(
+            select(LLMModel)
+            .where(LLMModel.tenant_id == tenant_id, LLMModel.enabled.is_(True))
+            .order_by(LLMModel.created_at)
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
     if hr_agent:
+        # Auto-assign model if the agent was created before any model was configured
+        if not hr_agent.primary_model_id:
+            default_model = await _get_default_model()
+            if default_model:
+                hr_agent.primary_model_id = default_model.id
+                await db.commit()
         return {"id": str(hr_agent.id), "name": hr_agent.name, "status": hr_agent.status}
 
     # Lazy-create the HR agent (race-safe: unique constraint on name+tenant+agent_class
@@ -148,15 +166,7 @@ async def get_or_create_hr_agent(
     from app.models.participant import Participant
     from app.services.agent_manager import agent_manager
 
-    # Find default model for tenant
-    from app.models.llm import LLMModel
-    model_result = await db.execute(
-        select(LLMModel)
-        .where(LLMModel.tenant_id == tenant_id, LLMModel.enabled.is_(True))
-        .order_by(LLMModel.created_at)
-        .limit(1)
-    )
-    default_model = model_result.scalar_one_or_none()
+    default_model = await _get_default_model()
 
     hr_agent = Agent(
         name=HR_AGENT_NAME,
