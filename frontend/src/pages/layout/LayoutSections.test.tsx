@@ -28,6 +28,9 @@ describe('Layout extracted sections', () => {
         theme="dark"
         isSidebarCollapsed={false}
         onToggleSidebar={vi.fn()}
+        tenants={[{ id: 'tenant-1', name: 'Company A' }, { id: 'tenant-2', name: 'Company B' }]}
+        currentTenant="tenant-1"
+        onSwitchTenant={vi.fn()}
         agents={[
           { id: 'agent-1', name: 'Agent One', created_at: '2026-03-27T00:00:00Z', status: 'running', agent_type: 'native' },
           { id: 'agent-2', name: 'Agent Two', created_at: '2026-03-26T00:00:00Z', status: 'idle', agent_type: 'native' },

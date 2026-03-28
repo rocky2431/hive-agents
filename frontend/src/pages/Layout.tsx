@@ -7,6 +7,7 @@ import { agentApi } from '../api/domains/agents';
 import { authApi } from '../api/domains/auth';
 import { notificationsApi } from '../api/domains/notifications';
 import { systemApi } from '../api/domains/system';
+import { adminApi } from '../api/domains/admin';
 import AppSidebar from './layout/AppSidebar';
 import NotificationCenter from './layout/NotificationCenter';
 
@@ -200,15 +201,34 @@ export default function Layout() {
         });
     };
 
-    // Use user's own tenant_id directly (no switching)
-    const currentTenant = user?.tenant_id || '';
+    // Tenant switching (platform_admin)
+    const isPlatformAdmin = user?.role === 'platform_admin';
+    const [currentTenant, setCurrentTenant] = useState(() =>
+        localStorage.getItem('current_tenant_id') || user?.tenant_id || ''
+    );
+    const [tenants, setTenants] = useState<{ id: string; name: string }[]>([]);
 
-    // Keep tenant in localStorage for other components that read it
     useEffect(() => {
-        if (currentTenant) {
-            localStorage.setItem('current_tenant_id', currentTenant);
+        if (!isPlatformAdmin) {
+            const tid = user?.tenant_id || '';
+            setCurrentTenant(tid);
+            if (tid) localStorage.setItem('current_tenant_id', tid);
+            return;
         }
-    }, [currentTenant]);
+        adminApi.listCompanies().then((companies: any[]) => {
+            setTenants(companies.map((c: any) => ({ id: c.id, name: c.name })));
+            if (!localStorage.getItem('current_tenant_id') && user?.tenant_id) {
+                localStorage.setItem('current_tenant_id', user.tenant_id);
+            }
+        }).catch(() => {});
+    }, [isPlatformAdmin, user?.tenant_id]);
+
+    const switchTenant = (tenantId: string) => {
+        setCurrentTenant(tenantId);
+        localStorage.setItem('current_tenant_id', tenantId);
+        window.dispatchEvent(new StorageEvent('storage', { key: 'current_tenant_id', newValue: tenantId }));
+        queryClient.invalidateQueries({ queryKey: ['agents'] });
+    };
 
     const { data: agents = [] } = useQuery({
         queryKey: ['agents', currentTenant],
@@ -245,6 +265,9 @@ export default function Layout() {
                 agents={agents}
                 pinnedAgents={pinnedAgents}
                 onTogglePin={togglePin}
+                tenants={tenants}
+                currentTenant={currentTenant}
+                onSwitchTenant={switchTenant}
                 isChinese={!!isChinese}
                 sidebarSearch={sidebarSearch}
                 onSetSidebarSearch={setSidebarSearch}

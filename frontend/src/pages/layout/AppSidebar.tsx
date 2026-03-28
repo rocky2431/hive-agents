@@ -60,6 +60,9 @@ interface AppSidebarProps {
   agents: any[];
   pinnedAgents: Set<string>;
   onTogglePin: (agentId: string) => void;
+  tenants: { id: string; name: string }[];
+  currentTenant: string;
+  onSwitchTenant: (tenantId: string) => void;
   isChinese: boolean;
   sidebarSearch: string;
   onSetSidebarSearch: (value: string) => void;
@@ -83,6 +86,9 @@ export default function AppSidebar({
   agents,
   pinnedAgents,
   onTogglePin,
+  tenants,
+  currentTenant,
+  onSwitchTenant,
   isChinese,
   sidebarSearch,
   onSetSidebarSearch,
@@ -360,6 +366,27 @@ export default function AppSidebar({
               )}
             </button>
           </div>
+
+          {/* Tenant switcher (platform_admin only) */}
+          {user?.role === 'platform_admin' && tenants.length > 1 && !isSidebarCollapsed && (
+            <select
+              value={currentTenant}
+              onChange={e => onSwitchTenant(e.target.value)}
+              aria-label={t('layout.switchTenant', 'Switch company')}
+              className="tenant-switcher"
+              style={{
+                width: '100%', borderRadius: '6px',
+                border: '1px solid var(--border-subtle)',
+                background: 'var(--bg-tertiary)', color: 'var(--text-primary)',
+                fontSize: '12px', cursor: 'pointer',
+                padding: '5px 8px', marginBottom: '8px',
+              }}
+            >
+              {tenants.map(tn => (
+                <option key={tn.id} value={tn.id}>{tn.name}</option>
+              ))}
+            </select>
+          )}
 
           <div ref={accountMenuRef} style={{ position: 'relative' }}>
             {showAccountMenu && (
