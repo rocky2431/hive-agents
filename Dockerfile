@@ -37,8 +37,7 @@ RUN useradd --create-home hive && \
     chmod +x /app/entrypoint.sh && \
     chown -R hive:hive /app /data
 
-USER hive
-
+# Stay root for entrypoint — it fixes volume permissions then drops to hive
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
     CMD curl -f http://localhost:8000/api/health || exit 1
 

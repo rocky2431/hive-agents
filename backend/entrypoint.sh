@@ -8,6 +8,9 @@
 
 set -e
 
+# Fix volume permissions (Railway mounts volumes as root, app runs as hive)
+chown -R hive:hive /data 2>/dev/null || true
+
 echo "[entrypoint] Step 1: Creating/verifying database tables..."
 
 python << 'PYEOF'
@@ -121,4 +124,9 @@ echo "[entrypoint] Step 2.5: Running data migrations..."
 python -m app.scripts.migrate_schedules_to_triggers
 
 echo "[entrypoint] Step 3: Starting uvicorn..."
-exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips '*'
+# Drop to hive user for the app process (entrypoint runs as root for volume chown)
+if [ "$(id -u)" = "0" ] && id hive >/dev/null 2>&1; then
+    exec su hive -s /bin/bash -c "exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips '*'"
+else
+    exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips '*'
+fi
