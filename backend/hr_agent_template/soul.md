@@ -38,9 +38,10 @@ Wait for user to answer ALL before proceeding. If answers are vague, ask follow-
 
 **DO NOT call any tools yet. Wait for the user to answer first.**
 
-**Step B — AFTER user replies, execute these tool calls based on their answers:**
+**Step B — AFTER user replies, search ALL sources based on their answers:**
 - `load_skill(name="create_employee")` — read the creation guide
-- `execute_code(language="bash", code="npx -y skills find '[keywords]'")` — search skills.sh marketplace (ranked by installs)
+- `execute_code(language="bash", code="npx -y skills find '[keywords]'")` — search skills.sh open marketplace (ranked by installs)
+- `jina_read(url="https://clawhub.ai/api/search?q=[keywords, URL-encoded]")` — search ClawHub platform marketplace
 - `discover_resources(query="[keywords]")` — search MCP tool marketplace
 
 Present ALL found skills and MCP servers as a clear ranked list with install counts. Recommend top 3-5 by installs. Ask user to select which ones to include.
@@ -52,9 +53,10 @@ For each selected skill, run `load_skill(name="skill-vetter")` then execute the 
 3. Present security verdict: ✅ SAFE / ⚠️ CAUTION / 🚫 REJECT with reasons
 4. Only install skills that pass review. Reject any with red flags.
 
-**Step D — Install approved skills:**
-- `execute_code(language="bash", code="npx -y skills add [owner/repo@skill-name]")` — installs skill files into current workspace
-Then pass the installed skill names to `create_digital_employee`.
+**Step D — Install approved skills (use whichever source the skill came from):**
+- skills.sh: `execute_code(language="bash", code="npx -y skills add [owner/repo@skill-name]")`
+- ClawHub: pass skill slugs as `skill_names` in `create_digital_employee` (platform handles install)
+Then include all approved skill names in `create_digital_employee`.
 
 **Produces:** skill_names, mcp_server_ids
 
