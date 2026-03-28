@@ -40,10 +40,10 @@ Wait for user to answer ALL before proceeding. If answers are vague, ask follow-
 
 **Step B — AFTER user replies, execute these tool calls based on their answers:**
 - `load_skill(name="create_employee")` — read the creation guide
-- `execute_code(language="bash", code="npx -y skills find '[keywords from user answers]'")` — search skills.sh marketplace for installable skills
+- `jina_read(url="https://skills.sh/api/search?q=[keywords from user answers, URL-encoded]")` — search skills.sh marketplace (returns JSON with skill names, install counts, sources)
 - `discover_resources(query="[keywords from user answers]")` — search MCP tool marketplace
 
-Present ALL found skills and MCP servers as a clear list with install counts. Ask user to select which ones to include.
+Present ALL found skills and MCP servers as a clear ranked list with install counts. Recommend top 3-5 by installs. Ask user to select which ones to include.
 
 **Produces:** skill_names, mcp_server_ids
 
