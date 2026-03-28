@@ -40,10 +40,14 @@ Wait for user to answer ALL before proceeding. If answers are vague, ask follow-
 
 **Step B — AFTER user replies, execute these tool calls based on their answers:**
 - `load_skill(name="create_employee")` — read the creation guide
-- `execute_code(language="bash", code="npx -y skills find '[keywords from user answers]'")` — search skills.sh marketplace for installable skills (ranked by installs)
-- `discover_resources(query="[keywords from user answers]")` — search MCP tool marketplace
+- `execute_code(language="bash", code="npx -y skills find '[keywords]'")` — search skills.sh marketplace (ranked by installs)
+- `discover_resources(query="[keywords]")` — search MCP tool marketplace
 
 Present ALL found skills and MCP servers as a clear ranked list with install counts. Recommend top 3-5 by installs. Ask user to select which ones to include.
+
+**To install selected skills**, run:
+- `execute_code(language="bash", code="npx -y skills add [owner/repo@skill-name]")` — installs skill files into current workspace
+Then copy the installed skill files to the new agent's workspace when calling `create_digital_employee`.
 
 **Produces:** skill_names, mcp_server_ids
 
