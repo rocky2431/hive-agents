@@ -1,866 +1,538 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { agentApi } from '../api/domains/agents';
-import { channelApi } from '../api/domains/channels';
-import { enterpriseApi } from '../api/domains/enterprise';
-import { skillApi } from '../api/domains/skills';
-import ChannelConfig from '../components/ChannelConfig';
+import { chatApi, type ChatSession } from '../api/domains/chat';
+import { useAuthStore } from '../stores';
+import MarkdownRenderer from '../components/MarkdownRenderer';
 
-const STEPS = ['basicInfo', 'personality', 'skills', 'permissions', 'channel'] as const;
-const OPENCLAW_STEPS = ['basicInfo', 'permissions'] as const;
-
-/**
- * Generic parser for soul_template markdown format.
- * Extracts content from sections by header names (## Header Name).
- * 
- * @param soulTemplate - The markdown template string
- * @param sectionNames - Array of section names to extract (e.g., ['Personality', 'Boundaries'])
- * @returns Object with extracted section contents (lowercase keys)
- * 
- * @example
- * const sections = parseSoulTemplate(markdown, ['Personality', 'Boundaries', 'Identity']);
- * // Returns: { personality: '...', boundaries: '...', identity: '...' }
- */
-function parseSoulTemplate(soulTemplate: string, sectionNames: string[] = []): Record<string, string> {
-    if (!soulTemplate) {
-        const empty: Record<string, string> = {};
-        sectionNames.forEach(name => {
-            empty[name.toLowerCase()] = '';
-        });
-        return empty;
-    }
-
-    const result: Record<string, string> = {};
-    
-    // Initialize all requested sections as empty
-    sectionNames.forEach(name => {
-        result[name.toLowerCase()] = '';
-    });
-
-    // Split by markdown ## headers
-    const sections = soulTemplate.split(/^##\s+/m);
-
-    for (let i = 0; i < sections.length; i++) {
-        const section = sections[i].trim();
-        const firstLineEnd = section.indexOf('\n');
-        const headerName = firstLineEnd > 0 ? section.slice(0, firstLineEnd).trim() : section.trim();
-        const content = firstLineEnd > 0 ? section.slice(firstLineEnd + 1).trim() : '';
-
-        // If this header matches one of our requested sections
-        const matchedSection = sectionNames.find(name => 
-            name.toLowerCase() === headerName.toLowerCase()
-        );
-        
-        if (matchedSection) {
-            result[matchedSection.toLowerCase()] = content;
-        }
-    }
-
-    return result;
-}
+type ChatMessage = {
+    role: 'user' | 'assistant' | 'system';
+    content: string;
+    thinking?: string;
+    toolName?: string;
+    toolStatus?: 'running' | 'done';
+    toolResult?: string;
+};
 
 export default function AgentCreate() {
     const { t } = useTranslation();
     const navigate = useNavigate();
-    const queryClient = useQueryClient();
-    const [step, setStep] = useState(0);
-    const [error, setError] = useState('');
-    const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-    const [agentType, setAgentType] = useState<'native' | 'openclaw'>('native');
-    // Clear field error when user edits a field
-    const clearFieldError = (field: string) => setFieldErrors(prev => { const n = { ...prev }; delete n[field]; return n; });
-    const [createdApiKey, setCreatedApiKey] = useState('');
-    // Current company (tenant) selection from layout sidebar
-    const [currentTenant] = useState<string | null>(() => localStorage.getItem('current_tenant_id'));
+    const token = useAuthStore((s) => s.token);
 
-    const [form, setForm] = useState({
-        name: '',
-        role_description: '',
-        personality: '',
-        boundaries: '',
-        primary_model_id: '' as string,
-        fallback_model_id: '' as string,
-        permission_scope_type: 'company',
-        permission_access_level: 'use',
-        template_id: '' as string,
-        max_tokens_per_day: '',
-        max_tokens_per_month: '',
-        skill_ids: [] as string[],
+    // HR Agent state
+    const [sessionId, setSessionId] = useState<string | null>(null);
+    const [sessions, setSessions] = useState<ChatSession[]>([]);
+    const [loadError, setLoadError] = useState('');
+
+    // Chat state
+    const [messages, setMessages] = useState<ChatMessage[]>([]);
+    const [input, setInput] = useState('');
+    const [wsConnected, setWsConnected] = useState(false);
+    const [isWaiting, setIsWaiting] = useState(false);
+    const [isStreaming, setIsStreaming] = useState(false);
+    const [createdAgentId, setCreatedAgentId] = useState<string | null>(null);
+
+    const wsRef = useRef<WebSocket | null>(null);
+    const chatEndRef = useRef<HTMLDivElement>(null);
+    const chatContainerRef = useRef<HTMLDivElement>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
+
+    // Fetch HR agent
+    const { data: hrAgent, isLoading: hrLoading } = useQuery({
+        queryKey: ['hr-agent'],
+        queryFn: () => agentApi.getHrAgent(),
+        retry: 1,
     });
-    const [channelValues, setChannelValues] = useState<Record<string, string>>({});
+    const hrAgentId = hrAgent?.id ?? null;
 
-    // Fetch LLM models for step 1
-    const { data: models = [] } = useQuery({
-        queryKey: ['llm-models'],
-        queryFn: () => enterpriseApi.llmModels(),
-    });
-
-    // Fetch templates
-    const { data: templates = [] } = useQuery({
-        queryKey: ['templates'],
-        queryFn: enterpriseApi.templates,
-    });
-
-    // Fetch global skills for step 3
-    const { data: globalSkills = [] } = useQuery({
-        queryKey: ['global-skills'],
-        queryFn: skillApi.list,
-    });
-
-    // Auto-select default skills
+    // Load session list
     useEffect(() => {
-        if (globalSkills.length > 0) {
-            const defaultIds = globalSkills.filter((s: any) => s.is_default).map((s: any) => s.id);
-            if (defaultIds.length > 0) {
-                setForm(prev => ({
-                    ...prev,
-                    skill_ids: Array.from(new Set([...prev.skill_ids, ...defaultIds]))
-                }));
-            }
-        }
-    }, [globalSkills]);
-
-    const createMutation = useMutation({
-        mutationFn: async (data: any) => {
-            const agent = await agentApi.create(data);
-            return agent;
-        },
-        onSuccess: async (agent) => {
-            queryClient.invalidateQueries({ queryKey: ['agents'] });
-
-            // Automatically bind channels if configured in wizard
-            // Feishu
-            if (channelValues.feishu_app_id && channelValues.feishu_app_secret) {
-                try {
-                    await channelApi.create(agent.id, {
-                        channel_type: 'feishu',
-                        app_id: channelValues.feishu_app_id,
-                        app_secret: channelValues.feishu_app_secret,
-                        encrypt_key: channelValues.feishu_encrypt_key || undefined,
-                        extra_config: {
-                            connection_mode: channelValues.feishu_connection_mode || 'websocket'
-                        }
-                    });
-                } catch (err) {
-                    console.error('Failed to bind Feishu channel:', err);
-                    setError(
-                        'Failed to bind the Feishu channel. Please verify the Feishu configuration on the agent settings page and try again.'
-                    );
+        if (!hrAgentId) return;
+        chatApi.listSessions(hrAgentId).then((list) => {
+            setSessions(list);
+            if (!sessionId) {
+                if (list.length > 0) {
+                    // Resume most recent session
+                    selectSession(list[0].id);
+                } else {
+                    // First visit — auto-create a session
+                    chatApi.createSession(hrAgentId!).then((sess) => {
+                        setSessions([sess]);
+                        selectSession(sess.id);
+                    }).catch(() => {});
                 }
             }
+        }).catch(() => {});
+    }, [hrAgentId]);
 
-            // Slack
-            if (channelValues.slack_bot_token && channelValues.slack_signing_secret) {
-                try {
-                    await channelApi.create(agent.id, {
-                        channel_type: 'slack',
-                        app_id: channelValues.slack_bot_token,
-                        app_secret: channelValues.slack_signing_secret,
-                    });
-                } catch (err) {
-                    console.error('Failed to bind Slack channel:', err);
-                    setError(
-                        'Failed to bind the Slack channel. Please verify the Slack configuration on the agent settings page and try again.'
-                    );
+    // Load messages for a session
+    const selectSession = useCallback(async (sid: string) => {
+        if (!hrAgentId || sid === sessionId) return;
+        setSessionId(sid);
+        setMessages([]);
+        setCreatedAgentId(null);
+        setWsConnected(false);
+        setIsWaiting(false);
+        setIsStreaming(false);
+
+        try {
+            const history = await chatApi.getSessionMessages(hrAgentId, sid);
+            const restored: ChatMessage[] = [];
+            for (const m of history) {
+                const role = (m as any).role;
+                if (role === 'user' || role === 'assistant') {
+                    restored.push({ role: role as 'user' | 'assistant', content: m.content || '' });
+                } else if (role === 'tool_call') {
+                    try {
+                        const tc = JSON.parse(m.content || '{}');
+                        restored.push({
+                            role: 'assistant',
+                            content: '',
+                            toolName: tc.name || 'unknown',
+                            toolStatus: 'done',
+                            toolResult: (tc.result || '').slice(0, 500),
+                        });
+                    } catch { /* skip malformed */ }
                 }
             }
+            setMessages(restored);
+        } catch {
+            // Session might be empty — that's fine
+        }
+    }, [hrAgentId, sessionId]);
 
-            // Discord
-            if (channelValues.discord_bot_token && channelValues.discord_application_id) {
-                try {
-                    await channelApi.create(agent.id, {
-                        channel_type: 'discord',
-                        app_id: channelValues.discord_application_id,
-                        app_secret: channelValues.discord_bot_token,
-                        encrypt_key: channelValues.discord_public_key || undefined,
-                    });
-                } catch (err) {
-                    console.error('Failed to bind Discord channel:', err);
-                    setError(
-                        'Failed to bind the Discord channel. Please verify the Discord configuration on the agent settings page and try again.'
+    // Create new session
+    const createNewSession = useCallback(async () => {
+        if (!hrAgentId) return;
+        try {
+            const sess = await chatApi.createSession(hrAgentId);
+            setSessions((prev) => [sess, ...prev]);
+            selectSession(sess.id);
+        } catch (err: any) {
+            setLoadError(err.message || 'Failed to create session');
+        }
+    }, [hrAgentId, selectSession]);
+
+    // WebSocket connection
+    useEffect(() => {
+        if (!hrAgentId || !sessionId || !token) return;
+
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const ws = new WebSocket(
+            `${protocol}//${window.location.host}/ws/chat/${hrAgentId}?token=${token}&session_id=${sessionId}`
+        );
+        wsRef.current = ws;
+
+        ws.onopen = () => {
+            if (wsRef.current === ws) setWsConnected(true);
+        };
+        ws.onclose = () => {
+            // Only clear state if this is still the active WebSocket
+            // (prevents old WS onclose from destroying new WS reference)
+            if (wsRef.current === ws) {
+                setWsConnected(false);
+                wsRef.current = null;
+            }
+        };
+        ws.onerror = () => {
+            if (wsRef.current === ws) setWsConnected(false);
+        };
+
+        ws.onmessage = (e) => {
+            let d: any;
+            try { d = JSON.parse(e.data); } catch { return; }
+
+            if (d.type === 'chunk') {
+                setIsWaiting(false);
+                setIsStreaming(true);
+                setMessages((prev) => {
+                    const last = prev[prev.length - 1];
+                    if (last?.role === 'assistant' && !last.toolName) {
+                        return [...prev.slice(0, -1), { ...last, content: last.content + d.content }];
+                    }
+                    return [...prev, { role: 'assistant', content: d.content }];
+                });
+            } else if (d.type === 'thinking') {
+                setIsWaiting(false);
+                setIsStreaming(true);
+                // Accumulate thinking into the current assistant message
+                setMessages((prev) => {
+                    const last = prev[prev.length - 1];
+                    if (last?.role === 'assistant' && !last.toolName) {
+                        return [...prev.slice(0, -1), { ...last, thinking: (last.thinking || '') + d.content }];
+                    }
+                    return [...prev, { role: 'assistant', content: '', thinking: d.content }];
+                });
+            } else if (d.type === 'tool_call') {
+                setIsWaiting(false);
+                setIsStreaming(true);
+                // Display tool call as a message
+                setMessages((prev) => {
+                    const existing = prev.findIndex(
+                        (m) => m.toolName === d.name && m.toolStatus === 'running'
                     );
+                    if (d.status === 'done' && existing >= 0) {
+                        // Update running → done
+                        const updated = [...prev];
+                        updated[existing] = {
+                            ...updated[existing],
+                            toolStatus: 'done',
+                            toolResult: d.result?.slice(0, 500) || '',
+                        };
+                        return updated;
+                    }
+                    if (d.status === 'running') {
+                        return [...prev, {
+                            role: 'assistant',
+                            content: '',
+                            toolName: d.name,
+                            toolStatus: 'running',
+                            toolArgs: d.args,
+                        }];
+                    }
+                    return prev;
+                });
+                // Detect agent creation success
+                if (d.name === 'create_digital_employee' && d.status === 'done' && d.result) {
+                    const idMatch = d.result.match(/ID:\s*([0-9a-f-]{36})/i);
+                    if (idMatch) {
+                        setCreatedAgentId(idMatch[1]);
+                    }
+                }
+            } else if (d.type === 'done' || d.type === 'error') {
+                setIsWaiting(false);
+                setIsStreaming(false);
+                if (d.type === 'error' && d.message) {
+                    setMessages((prev) => [...prev, { role: 'system', content: d.message }]);
                 }
             }
+        };
 
-            // WeCom
-            if (channelValues.wecom_bot_id && channelValues.wecom_bot_secret) {
-                try {
-                    const connMode = channelValues.wecom_connection_mode || 'websocket';
-                    await channelApi.create(agent.id, {
-                        channel_type: 'wecom',
-                        app_id: connMode === 'websocket' ? channelValues.wecom_bot_id : undefined,
-                        app_secret: connMode === 'websocket' ? channelValues.wecom_bot_secret : undefined,
-                        extra_config: {
-                            connection_mode: connMode,
-                            bot_id: channelValues.wecom_bot_id,
-                            bot_secret: channelValues.wecom_bot_secret,
-                        }
-                    });
-                } catch (err) {
-                    console.error('Failed to bind WeCom channel:', err);
-                    setError(
-                        'Failed to bind the WeCom channel. Please verify the WeCom configuration on the agent settings page and try again.'
-                    );
-                }
-            }
+        return () => {
+            ws.close();
+            wsRef.current = null;
+        };
+    }, [hrAgentId, sessionId, token]);
 
-            if (agent.api_key) {
-                setCreatedApiKey(agent.api_key);
-            } else {
-                navigate(`/agents/${agent.id}`);
-            }
-        },
-        onError: (err: any) => setError(err.message),
-    });
+    // Auto-scroll
+    useEffect(() => {
+        chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [messages, isWaiting]);
 
-    const validateStep0 = (): boolean => {
-        const errors: Record<string, string> = {};
-        const name = form.name.trim();
-        if (!name) {
-            errors.name = t('wizard.errors.nameRequired', '智能体名称不能为空');
-        } else if (name.length < 2) {
-            errors.name = t('wizard.errors.nameTooShort', '名称至少需要 2 个字符');
-        } else if (name.length > 100) {
-            errors.name = t('wizard.errors.nameTooLong', '名称不能超过 100 个字符');
+    const sendMessage = useCallback((text?: string) => {
+        const msg = (text || input).trim();
+        if (!msg || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+
+        setMessages((prev) => [...prev, { role: 'user', content: msg }]);
+        wsRef.current.send(JSON.stringify({ type: 'chat', content: msg }));
+        setInput('');
+        setIsWaiting(true);
+        inputRef.current?.focus();
+    }, [input]);
+
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
         }
-        if (form.role_description.length > 500) {
-            errors.role_description = t('wizard.errors.roleDescTooLong', '角色描述不能超过 500 个字符（当前 {{count}} 字符）').replace('{{count}}', String(form.role_description.length));
-        }
-        if (form.max_tokens_per_day && (isNaN(Number(form.max_tokens_per_day)) || Number(form.max_tokens_per_day) <= 0)) {
-            errors.max_tokens_per_day = t('wizard.errors.tokenLimitInvalid', '请输入有效的正整数');
-        }
-        if (form.max_tokens_per_month && (isNaN(Number(form.max_tokens_per_month)) || Number(form.max_tokens_per_month) <= 0)) {
-            errors.max_tokens_per_month = t('wizard.errors.tokenLimitInvalid', '请输入有效的正整数');
-        }
-        const enabledModels = (models as any[]).filter((m: any) => m.enabled);
-        if (agentType === 'native' && enabledModels.length > 0 && !form.primary_model_id) {
-            errors.primary_model_id = t('wizard.errors.modelRequired', '请选择一个主模型');
-        }
-        setFieldErrors(errors);
-        return Object.keys(errors).length === 0;
     };
 
-    const handleNext = () => {
-        setError('');
-        if (step === 0 && !validateStep0()) return;
-        setStep(step + 1);
-    };
+    const suggestions = [
+        { icon: '\uD83D\uDD2C', label: t('wizard.templates.Market Researcher', '\u5e02\u573a\u7814\u7a76\u5458'), prompt: t('hrChat.suggestResearcher', '\u6211\u60f3\u8981\u4e00\u4e2a\u5e02\u573a\u7814\u7a76\u5458\uff0c\u5e2e\u6211\u641c\u96c6\u884c\u4e1a\u65b0\u95fb\u548c\u7ade\u54c1\u52a8\u6001') },
+        { icon: '\uD83D\uDCCB', label: t('wizard.templates.Project Manager', '\u9879\u76ee\u7ecf\u7406'), prompt: t('hrChat.suggestPM', '\u6211\u9700\u8981\u4e00\u4e2a\u9879\u76ee\u7ecf\u7406\u52a9\u624b\uff0c\u5e2e\u6211\u8ddf\u8e2a\u4efb\u52a1\u8fdb\u5ea6\u548c\u534f\u8c03\u56e2\u961f') },
+        { icon: '\uD83C\uDFA8', label: t('hrChat.contentCreator', '\u5185\u5bb9\u521b\u4f5c'), prompt: t('hrChat.suggestContent', '\u6211\u60f3\u8981\u4e00\u4e2a\u5185\u5bb9\u521b\u4f5c\u52a9\u624b\uff0c\u5e2e\u6211\u5199\u8425\u9500\u6587\u6848\u548c\u793e\u4ea4\u5a92\u4f53\u5185\u5bb9') },
+        { icon: '\uD83D\uDC69\u200D\uD83D\uDCBB', label: t('hrChat.customerService', '\u5ba2\u6237\u670d\u52a1'), prompt: t('hrChat.suggestCS', '\u6211\u9700\u8981\u4e00\u4e2a\u5ba2\u670d\u52a9\u624b\uff0c\u5e2e\u6211\u56de\u590d\u5ba2\u6237\u54a8\u8be2\u548c\u5904\u7406\u552e\u540e\u95ee\u9898') },
+    ];
 
-    const handleFinish = () => {
-        setError('');
-        if (step === 0 || agentType === 'openclaw') {
-            if (!validateStep0()) return;
-        }
-        createMutation.mutate({
-            name: form.name,
-            agent_type: agentType,
-            role_description: form.role_description,
-            personality: agentType === 'native' ? form.personality : undefined,
-            boundaries: agentType === 'native' ? form.boundaries : undefined,
-            primary_model_id: agentType === 'native' ? (form.primary_model_id || undefined) : undefined,
-            fallback_model_id: agentType === 'native' ? (form.fallback_model_id || undefined) : undefined,
-            template_id: form.template_id || undefined,
-            permission_scope_type: form.permission_scope_type,
-            max_tokens_per_day: form.max_tokens_per_day ? Number(form.max_tokens_per_day) : undefined,
-            max_tokens_per_month: form.max_tokens_per_month ? Number(form.max_tokens_per_month) : undefined,
-            skill_ids: agentType === 'native' ? form.skill_ids : [],
-            permission_access_level: form.permission_access_level,
-            tenant_id: currentTenant || undefined,
-        });
-    };
-
-    const selectedModel = models.find((m: any) => m.id === form.primary_model_id);
-    const activeSteps = agentType === 'openclaw' ? OPENCLAW_STEPS : STEPS;
-
-    // If OpenClaw agent just created, show success page with API key
-    if (createdApiKey && createMutation.data) {
-        const agent = createMutation.data;
+    if (hrLoading) {
         return (
-            <div>
-                <div className="page-header">
-                    <h1 className="page-title">{t('openclaw.created', 'OpenClaw Agent Created')}</h1>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh' }}>
+                <div style={{ textAlign: 'center', color: 'var(--text-secondary)' }}>
+                    <div className="spinner" style={{ margin: '0 auto 12px' }} />
+                    <p>{t('hrChat.loading', 'Loading HR agent...')}</p>
                 </div>
-                <div className="card" style={{ maxWidth: '640px' }}>
-                    <div style={{ textAlign: 'center', padding: '20px 0' }}>
-                        <div style={{ fontSize: '32px', marginBottom: '12px' }}>&#x2713;</div>
-                        <h3 style={{ fontWeight: 600, marginBottom: '8px' }}>{agent.name}</h3>
-                        <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '24px' }}>
-                            {t('openclaw.createdDesc2', 'Your OpenClaw agent has been registered. Copy the instruction below and send it to your OpenClaw agent to complete the setup.')}
-                        </p>
-                    </div>
+            </div>
+        );
+    }
 
-                    {/* Setup Instruction — single block to send to OpenClaw */}
-                    <div style={{ marginBottom: '20px' }}>
-                        <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '6px', color: 'var(--text-secondary)' }}>
-                            {t('openclaw.setupInstruction', 'Setup Instruction')}
-                        </label>
-                        <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '8px' }}>
-                            {t('openclaw.setupInstructionDesc', 'Copy and send this to your OpenClaw agent. It will configure itself automatically.')}
-                        </p>
-                        <div style={{ position: 'relative' }}>
-                            <pre style={{
-                                padding: '12px', background: 'var(--bg-secondary)', borderRadius: '6px',
-                                fontSize: '11px', lineHeight: 1.6, overflow: 'auto', maxHeight: '280px',
-                                border: '1px solid var(--border-default)', whiteSpace: 'pre-wrap',
-                            }}>{`Please create a skill file at skills/clawith_sync.md with the following content, then add "Check Clawith inbox using the clawith_sync skill and process any pending messages" to your HEARTBEAT.md:
+    if (loadError) {
+        return (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh' }}>
+                <div style={{ textAlign: 'center', color: 'var(--error)' }}>
+                    <p>{loadError}</p>
+                    <button className="btn btn-primary" style={{ marginTop: '12px' }} onClick={() => window.location.reload()}>
+                        {t('common.retry', 'Retry')}
+                    </button>
+                </div>
+            </div>
+        );
+    }
 
----
-name: clawith_sync
-description: Sync with Clawith platform — check inbox, submit results, and send messages.
----
-
-# Clawith Sync
-
-## When to use
-Check for new messages from the Clawith platform during every heartbeat cycle.
-You can also proactively send messages to people and agents in your relationships.
-
-## Instructions
-
-### 1. Check inbox
-Make an HTTP GET request:
-- URL: ${window.location.origin}/api/gateway/poll
-- Header: X-Api-Key: ${createdApiKey}
-
-The response contains a \`messages\` array. Each message includes:
-- \`id\` — unique message ID (use this for reporting)
-- \`content\` — the message text
-- \`sender_user_name\` — name of the Clawith user who sent it
-- \`sender_user_id\` — unique ID of the sender
-- \`conversation_id\` — the conversation this message belongs to
-- \`history\` — array of previous messages in this conversation for context
-
-The response also contains a \`relationships\` array describing your colleagues:
-- \`name\` — the person or agent name
-- \`type\` — "human" or "agent"
-- \`role\` — relationship type (e.g. collaborator, supervisor)
-- \`channels\` — available communication channels (e.g. ["feishu"], ["agent"])
-
-**IMPORTANT**: Use the \`history\` array to understand conversation context before replying.
-Different \`sender_user_name\` values mean different people — address them accordingly.
-
-### 2. Report results
-For each completed message, make an HTTP POST request:
-- URL: ${window.location.origin}/api/gateway/report
-- Header: X-Api-Key: ${createdApiKey}
-- Header: Content-Type: application/json
-- Body: {"message_id": "<id from the message>", "result": "<your response>"}
-
-### 3. Send a message to someone
-To proactively contact a person or agent, make an HTTP POST request:
-- URL: ${window.location.origin}/api/gateway/send-message
-- Header: X-Api-Key: ${createdApiKey}
-- Header: Content-Type: application/json
-- Body: {"target": "<name of person or agent>", "content": "<your message>"}
-
-The system auto-detects the best channel. For agents, the reply appears in your next poll.
-For humans, the message is delivered via their available channel (e.g. Feishu).`}</pre>
-                            <button className="btn btn-ghost" style={{ position: 'absolute', top: '4px', right: '4px', fontSize: '11px' }}
-                                onClick={() => {
-                                    const text = `Please create a skill file at skills/clawith_sync.md with the following content, then add "Check Clawith inbox using the clawith_sync skill and process any pending messages" to your HEARTBEAT.md:\n\n---\nname: clawith_sync\ndescription: Sync with Clawith platform — check inbox, submit results, and send messages.\n---\n\n# Clawith Sync\n\n## When to use\nCheck for new messages from the Clawith platform during every heartbeat cycle.\nYou can also proactively send messages to people and agents in your relationships.\n\n## Instructions\n\n### 1. Check inbox\nMake an HTTP GET request:\n- URL: ${window.location.origin}/api/gateway/poll\n- Header: X-Api-Key: ${createdApiKey}\n\nThe response contains a \`messages\` array. Each message includes:\n- \`id\` — unique message ID (use this for reporting)\n- \`content\` — the message text\n- \`sender_user_name\` — name of the Clawith user who sent it\n- \`sender_user_id\` — unique ID of the sender\n- \`conversation_id\` — the conversation this message belongs to\n- \`history\` — array of previous messages in this conversation for context\n\nThe response also contains a \`relationships\` array describing your colleagues:\n- \`name\` — the person or agent name\n- \`type\` — "human" or "agent"\n- \`role\` — relationship type (e.g. collaborator, supervisor)\n- \`channels\` — available communication channels (e.g. ["feishu"], ["agent"])\n\n**IMPORTANT**: Use the \`history\` array to understand conversation context before replying.\nDifferent \`sender_user_name\` values mean different people — address them accordingly.\n\n### 2. Report results\nFor each completed message, make an HTTP POST request:\n- URL: ${window.location.origin}/api/gateway/report\n- Header: X-Api-Key: ${createdApiKey}\n- Header: Content-Type: application/json\n- Body: {"message_id": "<id from the message>", "result": "<your response>"}\n\n### 3. Send a message to someone\nTo proactively contact a person or agent, make an HTTP POST request:\n- URL: ${window.location.origin}/api/gateway/send-message\n- Header: X-Api-Key: ${createdApiKey}\n- Header: Content-Type: application/json\n- Body: {"target": "<name of person or agent>", "content": "<your message>"}\n\nThe system auto-detects the best channel. For agents, the reply appears in your next poll.\nFor humans, the message is delivered via their available channel (e.g. Feishu).`;
-                                    navigator.clipboard.writeText(text);
-                                }}
-                            >{t('common.copy', 'Copy')}</button>
-                        </div>
-                    </div>
-
-                    {/* API Key — collapsed by default */}
-                    <details style={{ marginBottom: '24px' }}>
-                        <summary style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', cursor: 'pointer', userSelect: 'none' }}>
-                            API Key
-                        </summary>
-                        <div style={{ marginTop: '8px' }}>
-                            <div style={{ display: 'flex', gap: '8px' }}>
-                                <code style={{
-                                    flex: 1, padding: '10px 12px', background: 'var(--bg-secondary)', borderRadius: '6px',
-                                    fontSize: '13px', fontFamily: 'monospace', wordBreak: 'break-all',
-                                    border: '1px solid var(--border-default)',
-                                }}>{createdApiKey}</code>
-                                <button className="btn btn-secondary" onClick={() => navigator.clipboard.writeText(createdApiKey)}>
-                                    {t('common.copy', 'Copy')}
-                                </button>
+    return (
+        <div style={{ display: 'flex', height: 'calc(100vh - 64px)' }}>
+            {/* Session Sidebar */}
+            <div style={{
+                width: '220px', flexShrink: 0, borderRight: '1px solid var(--border-default)',
+                display: 'flex', flexDirection: 'column', background: 'var(--bg-secondary)',
+            }}>
+                <div style={{ padding: '16px 12px 8px', flexShrink: 0 }}>
+                    <h2 style={{ fontSize: '14px', fontWeight: 600, margin: '0 0 10px' }}>
+                        {t('hrChat.sessions', 'Sessions')}
+                    </h2>
+                    <button
+                        className="btn btn-secondary"
+                        style={{ width: '100%', fontSize: '12px', padding: '6px 10px' }}
+                        onClick={createNewSession}
+                    >
+                        + {t('hrChat.newSession', 'New Session')}
+                    </button>
+                </div>
+                <div style={{ flex: 1, overflowY: 'auto', padding: '4px 8px' }}>
+                    {sessions.map((s) => (
+                        <div
+                            key={s.id}
+                            onClick={() => selectSession(s.id)}
+                            style={{
+                                padding: '8px 10px', borderRadius: '6px', cursor: 'pointer',
+                                marginBottom: '2px', fontSize: '12px', lineHeight: 1.4,
+                                background: s.id === sessionId ? 'var(--accent-subtle)' : 'transparent',
+                                border: s.id === sessionId ? '1px solid var(--accent-primary)' : '1px solid transparent',
+                                color: s.id === sessionId ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                            }}
+                        >
+                            <div style={{ fontWeight: s.id === sessionId ? 600 : 400 }}>
+                                {s.title || 'New Session'}
                             </div>
-                            <p style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '6px' }}>
-                                {t('openclaw.keyNote', 'This key is already embedded in the instruction above. Save it separately if needed for manual configuration.')}
+                            <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginTop: '2px' }}>
+                                {new Date(s.created_at).toLocaleDateString()}
+                            </div>
+                        </div>
+                    ))}
+                    {sessions.length === 0 && (
+                        <div style={{ padding: '16px 8px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '12px' }}>
+                            {t('hrChat.noSessions', 'No sessions yet')}
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {/* Main Chat Area */}
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', maxWidth: '780px', margin: '0 auto', padding: '0 16px' }}>
+                {/* Header */}
+                <div style={{ padding: '16px 0 8px', flexShrink: 0 }}>
+                    <h1 className="page-title" style={{ fontSize: '18px', fontWeight: 600, margin: 0 }}>
+                        {t('nav.newAgent', 'Create Digital Employee')}
+                    </h1>
+                    <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                        {t('hrChat.subtitle', 'Tell the HR agent what kind of digital employee you need')}
+                    </p>
+                </div>
+
+                {/* Chat Messages */}
+                <div
+                    ref={chatContainerRef}
+                    style={{
+                        flex: 1, overflowY: 'auto', padding: '12px 0',
+                        display: 'flex', flexDirection: 'column', gap: '16px',
+                    }}
+                >
+                    {/* Welcome / suggestions when empty */}
+                    {messages.length === 0 && !sessionId && (
+                        <div style={{ padding: '24px 0', textAlign: 'center' }}>
+                            <div style={{ fontSize: '36px', marginBottom: '12px' }}>&#x1F464;</div>
+                            <h3 style={{ fontWeight: 600, fontSize: '16px', marginBottom: '8px' }}>
+                                {t('hrChat.welcome', 'Hi! I\'m the HR onboarding specialist.')}
+                            </h3>
+                            <p style={{ fontSize: '14px', color: 'var(--text-secondary)', maxWidth: '480px', margin: '0 auto 24px', lineHeight: 1.6 }}>
+                                {t('hrChat.welcomeDesc', 'Tell me what kind of digital employee you\'d like, and I\'ll help you create one through a simple conversation.')}
                             </p>
                         </div>
-                    </details>
-
-                    <button className="btn btn-primary" style={{ width: '100%' }} onClick={() => navigate(`/agents/${agent.id}`)}>
-                        {t('openclaw.goToAgent', 'Go to Agent Page')}
-                    </button>
-                </div>
-            </div>
-        );
-    }
-
-    // ── Type Selector (shared between both modes) ──
-    const typeSelector = (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', maxWidth: '640px', marginBottom: '24px' }}>
-            <div
-                onClick={() => { setAgentType('native'); setStep(0); }}
-                style={{
-                    padding: '16px', borderRadius: '8px', cursor: 'pointer',
-                    border: `1.5px solid ${agentType === 'native' ? 'var(--accent-primary)' : 'var(--border-default)'}`,
-                    background: agentType === 'native' ? 'var(--accent-subtle)' : 'var(--bg-elevated)',
-                }}
-            >
-                <div style={{ fontWeight: 600, fontSize: '14px', marginBottom: '4px' }}>{t('openclaw.nativeTitle', 'Platform Hosted')}</div>
-                <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{t('openclaw.nativeDesc', 'Full agent running on Clawith platform')}</div>
-            </div>
-            <div
-                onClick={() => { setAgentType('openclaw'); setStep(0); }}
-                style={{
-                    padding: '16px', borderRadius: '8px', cursor: 'pointer', position: 'relative',
-                    border: `1.5px solid ${agentType === 'openclaw' ? 'var(--accent-primary)' : 'var(--border-default)'}`,
-                    background: agentType === 'openclaw' ? 'var(--accent-subtle)' : 'var(--bg-elevated)',
-                }}
-            >
-                <span style={{
-                    position: 'absolute', top: '8px', right: '8px',
-                    fontSize: '10px', padding: '2px 6px', borderRadius: '4px',
-                    background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', color: '#fff', fontWeight: 600,
-                    letterSpacing: '0.5px',
-                }}>Lab</span>
-                <div style={{ fontWeight: 600, fontSize: '14px', marginBottom: '4px' }}>{t('openclaw.openclawTitle', 'Link OpenClaw')}</div>
-                <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{t('openclaw.openclawDesc', 'Connect your existing OpenClaw agent')}</div>
-            </div>
-        </div>
-    );
-
-    // ── OpenClaw mode: completely separate page ──
-    if (agentType === 'openclaw') {
-        return (
-            <div>
-                <div className="page-header">
-                    <h1 className="page-title">{t('nav.newAgent')}</h1>
-                </div>
-
-                {typeSelector}
-
-                {error && (
-                    <div style={{ background: 'var(--error-subtle)', color: 'var(--error)', padding: '8px 12px', borderRadius: '6px', fontSize: '13px', marginBottom: '16px', maxWidth: '640px' }}>
-                        {error}
-                    </div>
-                )}
-
-                <div className="card" style={{ maxWidth: '640px' }}>
-                    <h3 style={{ marginBottom: '6px', fontWeight: 600, fontSize: '15px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        {t('openclaw.basicTitle', 'Link OpenClaw Agent')}
-                        <span style={{
-                            fontSize: '10px', padding: '2px 6px', borderRadius: '4px',
-                            background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', color: '#fff', fontWeight: 600,
-                        }}>Lab</span>
-                    </h3>
-                    <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '20px' }}>
-                        {t('openclaw.basicDesc', 'Give your OpenClaw agent a name and description. The LLM model, personality, and skills are configured on your OpenClaw instance.')}
-                    </p>
-
-                    <div className="form-group">
-                        <label className="form-label">{t('agent.fields.name')} *</label>
-                        <input className={`form-input${fieldErrors.name ? ' input-error' : ''}`} value={form.name}
-                            onChange={(e) => { setForm({ ...form, name: e.target.value }); clearFieldError('name'); }}
-                            placeholder={t('openclaw.namePlaceholder', 'e.g. My OpenClaw Bot')} autoFocus />
-                        {fieldErrors.name && <div style={{ color: 'var(--error)', fontSize: '12px', marginTop: '4px' }}>{fieldErrors.name}</div>}
-                    </div>
-                    <div className="form-group">
-                        <label className="form-label">{t('agent.fields.role')}</label>
-                        <input className={`form-input${fieldErrors.role_description ? ' input-error' : ''}`} value={form.role_description}
-                            onChange={(e) => { setForm({ ...form, role_description: e.target.value }); clearFieldError('role_description'); }}
-                            placeholder={t('openclaw.rolePlaceholder', 'e.g. Personal assistant running on my Mac')} />
-                        {fieldErrors.role_description && <div style={{ color: 'var(--error)', fontSize: '12px', marginTop: '4px' }}>{fieldErrors.role_description}</div>}
-                    </div>
-
-                    {/* Permissions */}
-                    <div className="form-group" style={{ marginTop: '8px' }}>
-                        <label className="form-label">{t('wizard.step4.title')}</label>
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                            {[
-                                { value: 'company', label: t('wizard.step4.companyWide'), desc: t('wizard.step4.companyWideDesc') },
-                                { value: 'user', label: t('wizard.step4.selfOnly'), desc: t('wizard.step4.selfOnlyDesc') },
-                            ].map((scope) => (
-                                <label key={scope.value} style={{
-                                    flex: 1, display: 'flex', alignItems: 'center', gap: '10px', padding: '12px',
-                                    background: form.permission_scope_type === scope.value ? 'var(--accent-subtle)' : 'var(--bg-elevated)',
-                                    border: `1px solid ${form.permission_scope_type === scope.value ? 'var(--accent-primary)' : 'var(--border-default)'}`,
-                                    borderRadius: '8px', cursor: 'pointer',
-                                }}>
-                                    <input type="radio" name="scope" checked={form.permission_scope_type === scope.value}
-                                        onChange={() => setForm({ ...form, permission_scope_type: scope.value })} />
-                                    <div>
-                                        <div style={{ fontWeight: 500, fontSize: '13px' }}>{scope.label}</div>
-                                        <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{scope.desc}</div>
-                                    </div>
-                                </label>
-                            ))}
-                        </div>
-                    </div>
-
-                    {/* Actions */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '24px' }}>
-                        <button className="btn btn-secondary" onClick={() => navigate('/')}>{t('common.cancel')}</button>
-                        <button className="btn btn-primary" onClick={handleFinish}
-                            disabled={createMutation.isPending}>
-                            {createMutation.isPending ? t('common.loading') : t('openclaw.createBtn', 'Link Agent')}
-                        </button>
-                    </div>
-                </div>
-            </div>
-        );
-    }
-
-    // ── Native mode: original multi-step wizard ──
-    return (
-        <div>
-            <div className="page-header">
-                <h1 className="page-title">{t('nav.newAgent')}</h1>
-            </div>
-
-            {typeSelector}
-
-            {/* Stepper */}
-            <div className="wizard-steps">
-                {STEPS.map((s, i) => (
-                    <div key={s} style={{ display: 'contents' }}>
-                        <div className={`wizard-step ${i === step ? 'active' : i < step ? 'completed' : ''}`}>
-                            <div className="wizard-step-number">{i < step ? '\u2713' : i + 1}</div>
-                            <span>{t(`wizard.steps.${s}`)}</span>
-                        </div>
-                        {i < STEPS.length - 1 && <div className="wizard-connector" />}
-                    </div>
-                ))}
-            </div>
-
-            {/* Removed top navigation, moved to bottom */}
-
-            {error && (
-                <div style={{ background: 'var(--error-subtle)', color: 'var(--error)', padding: '8px 12px', borderRadius: '6px', fontSize: '13px', marginBottom: '16px' }}>
-                    {error}
-                </div>
-            )}
-
-            <div className="card" style={{ maxWidth: '640px' }}>
-                {/* Step 1: Basic Info + Model */}
-                {step === 0 && (
-                    <div>
-                        <h3 style={{ marginBottom: '20px', fontWeight: 600, fontSize: '15px' }}>{t('wizard.step1.title')}</h3>
-
-                        {/* Template selector */}
-                        {templates.length > 0 && (
-                            <div className="form-group">
-                                <label className="form-label">{t('wizard.step1.selectTemplate')}</label>
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
-                                    <div
-                                        onClick={() => setForm({ ...form, template_id: '' })}
-                                        style={{
-                                            padding: '12px', borderRadius: '8px', cursor: 'pointer', textAlign: 'center',
-                                            border: `1px solid ${!form.template_id ? 'var(--accent-primary)' : 'var(--border-default)'}`,
-                                            background: !form.template_id ? 'var(--accent-subtle)' : 'var(--bg-elevated)',
-                                        }}
-                                    >
-                                        <div style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)' }}>{t('wizard.step1.custom')}</div>
-                                        <div style={{ fontSize: '12px', marginTop: '4px' }}>{t('wizard.step1.custom')}</div>
-                                    </div>
-                                    {templates.map((tmpl: any) => (
-                                        <div
-                                            key={tmpl.id}
-                                            onClick={() => {
-                                                // Parse soul_template to extract personality and boundaries
-                                                const sections = parseSoulTemplate(tmpl.soul_template, ['Personality', 'Boundaries']);
-                                                setForm({
-                                                    ...form,
-                                                    template_id: tmpl.id,
-                                                    role_description: tmpl.description,
-                                                    personality: sections.personality || '',
-                                                    boundaries: sections.boundaries || '',
-                                                });
-                                            }}
-                                            style={{
-                                                padding: '12px', borderRadius: '8px', cursor: 'pointer', textAlign: 'center',
-                                                border: `1px solid ${form.template_id === tmpl.id ? 'var(--accent-primary)' : 'var(--border-default)'}`,
-                                                background: form.template_id === tmpl.id ? 'var(--accent-subtle)' : 'var(--bg-elevated)',
-                                            }}
-                                        >
-                                            <div style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)' }}>{tmpl.icon || tmpl.name?.[0] || '·'}</div>
-                                            <div style={{ fontSize: '12px', marginTop: '4px' }}>{String(t(`wizard.templates.${tmpl.name}`, tmpl.name))}</div>
-                                        </div>
-                                    ))}
-                                </div>
-
-                                {/* JSON Import */}
-                                <div style={{ marginTop: '8px' }}>
-                                    <label className="btn btn-ghost" style={{ fontSize: '12px', cursor: 'pointer', color: 'var(--text-tertiary)' }}>
-                                        ↑ {t('wizard.step1.importFromJson')}
-                                        <input type="file" accept=".json" style={{ display: 'none' }} onChange={e => {
-                                            const file = e.target.files?.[0];
-                                            if (!file) return;
-                                            const reader = new FileReader();
-                                            reader.onload = ev => {
-                                                try {
-                                                    const data = JSON.parse(ev.target?.result as string);
-                                                    setForm(prev => ({
-                                                        ...prev,
-                                                        name: data.name || prev.name,
-                                                        role_description: data.role_description || data.description || prev.role_description,
-                                                        template_id: '',
-                                                    }));
-                                                } catch {
-                                                    alert('Invalid JSON file');
-                                                }
-                                            };
-                                            reader.readAsText(file);
-                                            e.target.value = '';
-                                        }} />
-                                    </label>
-                                </div>
-                            </div>
-                        )}
-
-                        <div className="form-group">
-                            <label className="form-label">{t('agent.fields.name')} <span style={{ color: 'var(--error)' }}>*</span></label>
-                            <input className={`form-input${fieldErrors.name ? ' input-error' : ''}`} value={form.name}
-                                onChange={(e) => { setForm({ ...form, name: e.target.value }); clearFieldError('name'); }}
-                                placeholder={t("wizard.step1.namePlaceholder")} autoFocus />
-                            {fieldErrors.name && <div style={{ color: 'var(--error)', fontSize: '12px', marginTop: '4px' }}>{fieldErrors.name}</div>}
-                        </div>
-                        <div className="form-group">
-                            <label className="form-label">{t('agent.fields.role')}</label>
-                            <input className={`form-input${fieldErrors.role_description ? ' input-error' : ''}`} value={form.role_description}
-                                onChange={(e) => { setForm({ ...form, role_description: e.target.value }); clearFieldError('role_description'); }}
-                                placeholder={t('wizard.roleHint')} />
-                            {fieldErrors.role_description && <div style={{ color: 'var(--error)', fontSize: '12px', marginTop: '4px' }}>{fieldErrors.role_description}</div>}
-                        </div>
-
-                        {/* Model Selection */}
-                        <div className="form-group">
-                            <label className="form-label">{t('wizard.step1.primaryModel')} <span style={{ color: 'var(--error)' }}>*</span></label>
-                            {models.length > 0 ? (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                    {models.filter((m: any) => m.enabled).map((m: any) => (
-                                        <label key={m.id} style={{
-                                            display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px',
-                                            background: form.primary_model_id === m.id ? 'var(--accent-subtle)' : 'var(--bg-elevated)',
-                                            border: `1px solid ${form.primary_model_id === m.id ? 'var(--accent-primary)' : fieldErrors.primary_model_id ? 'var(--error)' : 'var(--border-default)'}`,
-                                            borderRadius: '8px', cursor: 'pointer',
-                                        }}>
-                                            <input type="radio" name="model" checked={form.primary_model_id === m.id}
-                                                onChange={() => { setForm({ ...form, primary_model_id: m.id }); clearFieldError('primary_model_id'); }} />
-                                            <div>
-                                                <div style={{ fontWeight: 500, fontSize: '13px' }}>{m.label}</div>
-                                                <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{m.provider}/{m.model}</div>
-                                            </div>
-                                        </label>
-                                    ))}
-                                    {fieldErrors.primary_model_id && <div style={{ color: 'var(--error)', fontSize: '12px', marginTop: '2px' }}>{fieldErrors.primary_model_id}</div>}
-                                </div>
-                            ) : (
-                                <div style={{ padding: '16px', background: 'var(--bg-elevated)', borderRadius: '8px', fontSize: '13px', color: 'var(--text-tertiary)', textAlign: 'center' }}>
-                                    {t('wizard.step1.noModels')} <span style={{ color: 'var(--accent-primary)', cursor: 'pointer' }} onClick={() => navigate('/enterprise')}>{t('wizard.step1.enterpriseSettings')}</span> {t('wizard.step1.addModels')}
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Token limits */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                            <div className="form-group">
-                                <label className="form-label">{t('wizard.step1.dailyTokenLimit')}</label>
-                                <input className={`form-input${fieldErrors.max_tokens_per_day ? ' input-error' : ''}`} type="number" value={form.max_tokens_per_day}
-                                    onChange={(e) => { setForm({ ...form, max_tokens_per_day: e.target.value }); clearFieldError('max_tokens_per_day'); }}
-                                    placeholder={t("wizard.step1.unlimited")} />
-                                {fieldErrors.max_tokens_per_day && <div style={{ color: 'var(--error)', fontSize: '12px', marginTop: '4px' }}>{fieldErrors.max_tokens_per_day}</div>}
-                            </div>
-                            <div className="form-group">
-                                <label className="form-label">{t('wizard.step1.monthlyTokenLimit')}</label>
-                                <input className={`form-input${fieldErrors.max_tokens_per_month ? ' input-error' : ''}`} type="number" value={form.max_tokens_per_month}
-                                    onChange={(e) => { setForm({ ...form, max_tokens_per_month: e.target.value }); clearFieldError('max_tokens_per_month'); }}
-                                    placeholder={t("wizard.step1.unlimited")} />
-                                {fieldErrors.max_tokens_per_month && <div style={{ color: 'var(--error)', fontSize: '12px', marginTop: '4px' }}>{fieldErrors.max_tokens_per_month}</div>}
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {/* Step 2: Personality */}
-                {step === 1 && (
-                    <div>
-                        <h3 style={{ marginBottom: '20px', fontWeight: 600, fontSize: '15px' }}>{t('wizard.step2.title')}</h3>
-                        <div className="form-group">
-                            <label className="form-label">{t('agent.fields.personality')}</label>
-                            <textarea className="form-textarea" rows={4} value={form.personality}
-                                onChange={(e) => setForm({ ...form, personality: e.target.value })}
-                                placeholder={t("wizard.step2.personalityPlaceholder")} />
-                        </div>
-                        <div className="form-group">
-                            <label className="form-label">{t('agent.fields.boundaries')}</label>
-                            <textarea className="form-textarea" rows={4} value={form.boundaries}
-                                onChange={(e) => setForm({ ...form, boundaries: e.target.value })}
-                                placeholder={t("wizard.step2.boundariesPlaceholder")} />
-                        </div>
-                    </div>
-                )}
-
-                {/* Step 3: Skills */}
-                {step === 2 && (
-                    <div>
-                        <h3 style={{ marginBottom: '20px', fontWeight: 600, fontSize: '15px' }}>{t('wizard.step3.title')}</h3>
-                        <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
-                            {t('wizard.step3.description')}
-                        </p>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            {globalSkills.map((skill: any) => {
-                                const isDefault = skill.is_default;
-                                const isChecked = form.skill_ids.includes(skill.id);
-                                return (
-                                    <label key={skill.id} style={{
-                                        display: 'flex', alignItems: 'center', gap: '12px', padding: '12px',
-                                        background: isChecked ? 'var(--accent-subtle)' : 'var(--bg-elevated)',
-                                        border: `1px solid ${isChecked ? 'var(--accent-primary)' : 'var(--border-default)'}`,
-                                        borderRadius: '8px', cursor: isDefault ? 'default' : 'pointer',
-                                        opacity: isDefault ? 0.85 : 1,
-                                    }}>
-                                        <input type="checkbox"
-                                            checked={isChecked}
-                                            disabled={isDefault}
-                                            onChange={(e) => {
-                                                if (isDefault) return;
-                                                if (e.target.checked) {
-                                                    setForm({ ...form, skill_ids: [...form.skill_ids, skill.id] });
-                                                } else {
-                                                    setForm({ ...form, skill_ids: form.skill_ids.filter((id: string) => id !== skill.id) });
-                                                }
-                                            }}
-                                        />
-                                        <div style={{ fontSize: '18px' }}>{skill.icon}</div>
-                                        <div style={{ flex: 1 }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                <span style={{ fontWeight: 500, fontSize: '13px' }}>{skill.name}</span>
-                                                {isDefault && <span style={{ fontSize: '10px', padding: '1px 6px', borderRadius: '4px', background: 'var(--accent-primary)', color: '#fff', fontWeight: 500 }}>Required</span>}
-                                            </div>
-                                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{skill.description}</div>
-                                        </div>
-                                    </label>);
-                            })}
-                            {globalSkills.length === 0 && (
-                                <div style={{ padding: '16px', background: 'var(--bg-elevated)', borderRadius: '8px', fontSize: '13px', color: 'var(--text-tertiary)', textAlign: 'center' }}>
-                                    No skills available. Add skills in Company Settings.
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                )}
-
-                {/* Step 4: Permissions */}
-                {step === 3 && (
-                    <div>
-                        <h3 style={{ marginBottom: '20px', fontWeight: 600, fontSize: '15px' }}>{t('wizard.step4.title')}</h3>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '20px' }}>
-                            {[
-                                { value: 'company', label: t('wizard.step4.companyWide'), desc: t('wizard.step4.companyWideDesc') },
-                                { value: 'user', label: t('wizard.step4.selfOnly'), desc: t('wizard.step4.selfOnlyDesc') },
-                            ].map((scope) => (
-                                <label key={scope.value} style={{
-                                    display: 'flex', alignItems: 'center', gap: '12px', padding: '14px',
-                                    background: form.permission_scope_type === scope.value ? 'var(--accent-subtle)' : 'var(--bg-elevated)',
-                                    border: `1px solid ${form.permission_scope_type === scope.value ? 'var(--accent-primary)' : 'var(--border-default)'}`,
-                                    borderRadius: '8px', cursor: 'pointer',
-                                }}>
-                                    <input type="radio" name="scope" checked={form.permission_scope_type === scope.value}
-                                        onChange={() => setForm({ ...form, permission_scope_type: scope.value })} />
-
-                                    <div>
-                                        <div style={{ fontWeight: 500, fontSize: '13px' }}>{scope.label}</div>
-                                        <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{scope.desc}</div>
-                                    </div>
-                                </label>
-                            ))}
-                        </div>
-
-                        {/* Access Level — only for company scope */}
-                        {form.permission_scope_type === 'company' && (
-                            <div>
-                                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '10px' }}>
-                                    {t('wizard.step4.accessLevel', 'Default Access Level')}
-                                </label>
-                                <div style={{ display: 'flex', gap: '8px' }}>
-                                    {[
-                                        { value: 'use', icon: '👁️', label: t('wizard.step4.useLevel', 'Use'), desc: t('wizard.step4.useDesc', 'Can use Task, Chat, Tools, Skills, Workspace') },
-                                        { value: 'manage', icon: '⚙️', label: t('wizard.step4.manageLevel', 'Manage'), desc: t('wizard.step4.manageDesc', 'Full access including Settings, Mind, Relationships') },
-                                    ].map((lvl) => (
-                                        <label key={lvl.value} style={{
-                                            flex: 1, display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '12px',
-                                            background: form.permission_access_level === lvl.value ? 'var(--accent-subtle)' : 'var(--bg-elevated)',
-                                            border: `1px solid ${form.permission_access_level === lvl.value ? 'var(--accent-primary)' : 'var(--border-default)'}`,
-                                            borderRadius: '8px', cursor: 'pointer',
-                                        }}>
-                                            <input type="radio" name="access_level" checked={form.permission_access_level === lvl.value}
-                                                onChange={() => setForm({ ...form, permission_access_level: lvl.value })} style={{ marginTop: '2px' }} />
-                                            <div>
-                                                <div style={{ fontWeight: 500, fontSize: '13px' }}>{lvl.icon} {lvl.label}</div>
-                                                <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '2px' }}>{lvl.desc}</div>
-                                            </div>
-                                        </label>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                )}
-
-                {/* Step 5: Channel */}
-                {step === 4 && (
-                    <div>
-                        <h3 style={{ marginBottom: '20px', fontWeight: 600, fontSize: '15px' }}>{t('wizard.step5.title', 'Channel Configuration')}</h3>
-                        <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
-                            {t('wizard.step5.description', 'Connect messaging platforms to enable your agent to communicate through different channels.')}
-                        </p>
-
-                        <ChannelConfig mode="create" values={channelValues} onChange={setChannelValues} />
-
-                        {Object.keys(channelValues).length === 0 && (
-                            <div style={{ padding: '12px', background: 'var(--bg-secondary)', borderRadius: '8px', fontSize: '12px', color: 'var(--text-tertiary)', textAlign: 'center', marginTop: '12px' }}>
-                                {t('wizard.step5.skipHint')}
-                            </div>
-                        )}
-                    </div>
-                )}
-
-
-            </div>
-
-            {/* Summary sidebar */}
-            {selectedModel && (
-                <div style={{ marginTop: '16px', padding: '12px', background: 'var(--bg-elevated)', borderRadius: '8px', fontSize: '12px', color: 'var(--text-secondary)', maxWidth: '640px', marginBottom: '80px' }}>
-                    <strong>{form.name || t('wizard.summary.unnamed')}</strong> · {t('wizard.summary.model')}: {selectedModel.label}
-                    {form.max_tokens_per_day && ` · ${t('wizard.summary.dailyLimit')}: ${Number(form.max_tokens_per_day).toLocaleString()}`}
-                </div>
-            )}
-            {!selectedModel && <div style={{ marginBottom: '80px' }}></div>}
-
-            {/* Navigation — sticky footer at the bottom */}
-            <div style={{
-                position: 'fixed', bottom: 0, left: 'var(--sidebar-width)', right: 0,
-                background: 'var(--bg-primary)', borderTop: '1px solid var(--border-subtle)',
-                padding: '16px 32px', zIndex: 100,
-                display: 'flex', justifyContent: 'flex-start',
-                transition: 'left var(--transition-default)'
-            }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', maxWidth: '640px' }}>
-                    <button className="btn btn-secondary" onClick={() => step > 0 ? setStep(step - 1) : navigate('/')}
-                        disabled={createMutation.isPending}>
-                        {step === 0 ? t('common.cancel') : t('wizard.prev')}
-                    </button>
-                    {step < STEPS.length - 1 ? (
-                        <button className="btn btn-primary" onClick={handleNext}>
-                            {t('wizard.next')} →
-                        </button>
-                    ) : (
-                        <button className="btn btn-primary" onClick={handleFinish}
-                            disabled={createMutation.isPending}>
-                            {createMutation.isPending ? t('common.loading') : t('wizard.finish')}
-                        </button>
                     )}
+
+                    {/* Suggestions at top of empty active session */}
+                    {messages.length === 0 && sessionId && (
+                        <div style={{ padding: '40px 0 16px', textAlign: 'center' }}>
+                            <div style={{ fontSize: '36px', marginBottom: '12px' }}>&#x1F464;</div>
+                            <p style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '20px' }}>
+                                {t('hrChat.welcomeDesc', 'Tell me what kind of digital employee you\'d like, and I\'ll help you create one through a simple conversation.')}
+                            </p>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px', maxWidth: '520px', margin: '0 auto' }}>
+                                {suggestions.map((s) => (
+                                    <button
+                                        key={s.label}
+                                        className="btn btn-ghost"
+                                        style={{
+                                            display: 'flex', alignItems: 'center', gap: '8px',
+                                            padding: '12px 14px', borderRadius: '10px',
+                                            border: '1px solid var(--border-default)',
+                                            background: 'var(--bg-elevated)', textAlign: 'left',
+                                            fontSize: '13px', lineHeight: 1.4, cursor: 'pointer',
+                                        }}
+                                        onClick={() => sendMessage(s.prompt)}
+                                        disabled={!wsConnected}
+                                    >
+                                        <span style={{ fontSize: '20px', flexShrink: 0 }}>{s.icon}</span>
+                                        <span>{s.label}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Messages */}
+                    {messages.map((msg, i) => {
+                        // Tool call message
+                        if (msg.toolName) {
+                            const isRunning = msg.toolStatus === 'running';
+                            return (
+                                <div key={i} style={{ paddingLeft: '4px' }}>
+                                    <details style={{
+                                        borderRadius: '8px', background: 'var(--accent-subtle)',
+                                        border: '1px solid var(--accent-subtle)', fontSize: '12px', overflow: 'hidden',
+                                    }}>
+                                        <summary style={{
+                                            padding: '6px 10px', cursor: 'pointer', display: 'flex',
+                                            alignItems: 'center', gap: '6px', userSelect: 'none', listStyle: 'none',
+                                        }}>
+                                            <span style={{ fontSize: '13px' }}>{isRunning ? '\u23F3' : '\u26A1'}</span>
+                                            <span style={{ fontWeight: 600, color: 'var(--accent-text)' }}>{msg.toolName}</span>
+                                            {isRunning && <span style={{ color: 'var(--text-tertiary)', fontSize: '11px', marginLeft: 'auto' }}>{t('common.loading')}</span>}
+                                        </summary>
+                                        {msg.toolResult && (
+                                            <div style={{ padding: '4px 10px 8px' }}>
+                                                <div style={{
+                                                    color: 'var(--text-secondary)', fontSize: '11px', fontFamily: 'var(--font-mono)',
+                                                    whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: '200px',
+                                                    overflow: 'auto', background: 'rgba(0,0,0,0.08)', borderRadius: '4px', padding: '4px 6px',
+                                                }}>{msg.toolResult}</div>
+                                            </div>
+                                        )}
+                                    </details>
+                                </div>
+                            );
+                        }
+
+                        // Normal message (user / assistant / system)
+                        return (
+                            <div
+                                key={i}
+                                style={{
+                                    display: 'flex',
+                                    justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
+                                }}
+                            >
+                                <div
+                                    style={{
+                                        maxWidth: '85%',
+                                        padding: '10px 14px',
+                                        borderRadius: msg.role === 'user' ? '14px 14px 4px 14px' : '14px 14px 14px 4px',
+                                        background: msg.role === 'user'
+                                            ? 'var(--accent-primary)'
+                                            : msg.role === 'system'
+                                                ? 'var(--error-subtle)'
+                                                : 'var(--bg-elevated)',
+                                        color: msg.role === 'user' ? '#fff' : msg.role === 'system' ? 'var(--error)' : 'var(--text-primary)',
+                                        fontSize: '14px',
+                                        lineHeight: 1.6,
+                                        border: msg.role === 'assistant' ? '1px solid var(--border-default)' : 'none',
+                                    }}
+                                >
+                                    {msg.thinking && (
+                                        <details style={{ marginBottom: '6px', fontSize: '12px' }}>
+                                            <summary style={{ cursor: 'pointer', color: 'var(--text-tertiary)', userSelect: 'none' }}>
+                                                {t('chat.thinking', 'Thinking...')}
+                                            </summary>
+                                            <div style={{ color: 'var(--text-tertiary)', whiteSpace: 'pre-wrap', marginTop: '4px' }}>
+                                                {msg.thinking}
+                                            </div>
+                                        </details>
+                                    )}
+                                    {msg.role === 'assistant' ? (
+                                        <MarkdownRenderer content={msg.content} />
+                                    ) : (
+                                        <span style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</span>
+                                    )}
+                                </div>
+                            </div>
+                        );
+                    })}
+
+                    {/* Waiting indicator */}
+                    {isWaiting && (
+                        <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+                            <div style={{
+                                padding: '10px 14px', borderRadius: '14px 14px 14px 4px',
+                                background: 'var(--bg-elevated)', border: '1px solid var(--border-default)',
+                                fontSize: '14px', color: 'var(--text-secondary)',
+                            }}>
+                                <span className="typing-dots">&#x2022;&#x2022;&#x2022;</span>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Created success card */}
+                    {createdAgentId && (
+                        <div style={{
+                            padding: '20px', borderRadius: '12px',
+                            background: 'var(--success-subtle, #f0fdf4)',
+                            border: '1px solid var(--success, #22c55e)',
+                            textAlign: 'center',
+                        }}>
+                            <div style={{ fontSize: '28px', marginBottom: '8px' }}>&#x2705;</div>
+                            <h3 style={{ fontWeight: 600, fontSize: '15px', marginBottom: '8px' }}>
+                                {t('hrChat.created', 'Digital employee created successfully!')}
+                            </h3>
+                            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+                                {t('hrChat.createdDesc', 'You can now visit the detail page to further customize or start chatting.')}
+                            </p>
+                            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+                                <button className="btn btn-primary" onClick={() => navigate(`/agents/${createdAgentId}`)}>
+                                    {t('hrChat.goToAgent', 'Go to Detail Page')}
+                                </button>
+                                <button className="btn btn-secondary" onClick={createNewSession}>
+                                    {t('hrChat.createAnother', 'Create Another')}
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    <div ref={chatEndRef} />
+                </div>
+
+                {/* Input Area */}
+                <div style={{
+                    flexShrink: 0, padding: '12px 0 20px',
+                    borderTop: '1px solid var(--border-default)',
+                }}>
+                    {!wsConnected && sessionId && (
+                        <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '8px', textAlign: 'center' }}>
+                            {t('hrChat.connecting', 'Connecting...')}
+                        </div>
+                    )}
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <input
+                            ref={inputRef}
+                            className="form-input"
+                            style={{ flex: 1, fontSize: '14px', padding: '10px 14px', borderRadius: '12px' }}
+                            value={input}
+                            onChange={(e) => setInput(e.target.value)}
+                            onKeyDown={handleKeyDown}
+                            placeholder={t('hrChat.inputPlaceholder', 'Describe the digital employee you want...')}
+                            disabled={!wsConnected || isWaiting || isStreaming}
+                            autoFocus
+                        />
+                        <button
+                            className="btn btn-primary"
+                            style={{ padding: '10px 20px', borderRadius: '12px', flexShrink: 0 }}
+                            onClick={() => sendMessage()}
+                            disabled={!wsConnected || !input.trim() || isWaiting || isStreaming}
+                        >
+                            {t('common.send', 'Send')}
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>

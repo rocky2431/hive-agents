@@ -544,6 +544,27 @@
       "modelRequired": "Please select a primary model"
     }
   },
+  "hrChat": {
+    "loading": "Preparing HR agent...",
+    "subtitle": "Tell the HR agent what kind of digital employee you need",
+    "welcome": "Hi! I'm the HR onboarding specialist.",
+    "welcomeDesc": "Tell me what kind of digital employee you'd like, and I'll help you create one through a simple conversation.",
+    "inputPlaceholder": "Describe the digital employee you want...",
+    "sessions": "Sessions",
+    "newSession": "New Session",
+    "noSessions": "No sessions yet",
+    "connecting": "Connecting...",
+    "created": "Digital employee created successfully!",
+    "createdDesc": "You can visit the detail page to further customize, or start chatting right away.",
+    "goToAgent": "Go to Detail Page",
+    "createAnother": "Create Another",
+    "contentCreator": "Content Creator",
+    "customerService": "Customer Service",
+    "suggestResearcher": "I'd like a market researcher to collect industry news and track competitors",
+    "suggestPM": "I need a project manager assistant to track tasks and coordinate the team",
+    "suggestContent": "I want a content creator to write marketing copy and social media posts",
+    "suggestCS": "I need a customer service agent to handle inquiries and after-sales issues"
+  },
   "task": {
     "todo": "Todo",
     "doing": "Doing",
@@ -653,6 +674,9 @@
       "maxOutputTokens": "Max Output Tokens",
       "maxOutputTokensPlaceholder": "Provider default",
       "maxOutputTokensDesc": "Override the default output token limit. Auto-filled from provider; adjust as needed.",
+      "maxInputTokens": "Context Window",
+      "maxInputTokensPlaceholder": "e.g. 128000 (Leave empty for provider default)",
+      "maxInputTokensDesc": "Max input tokens the model supports. Used to calculate conversation memory depth.",
       "enabled": "Enabled",
       "disabled": "Disabled",
       "save": "Save",
@@ -809,6 +833,8 @@
     "all": "All",
     "none": "None",
     "download": "Download",
+    "send": "Send",
+    "retry": "Retry",
     "channels": {
       "feishu": "Feishu",
       "discord": "Discord",

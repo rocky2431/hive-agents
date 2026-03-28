@@ -277,7 +277,8 @@ async def discord_interaction_webhook(
                 agent_r = await bg_db.execute(select(AgentModel).where(AgentModel.id == agent_id))
                 agent_obj = agent_r.scalar_one_or_none()
                 creator_id = agent_obj.creator_id if agent_obj else agent_id
-                ctx_size = agent_obj.context_window_size if agent_obj else 20
+                from app.services.memory_service import compute_history_limit_for_agent
+                _hist_limit = await compute_history_limit_for_agent(agent_id)
 
                 # Find-or-create platform user for this Discord sender
                 from app.models.user import User as _User
@@ -317,7 +318,7 @@ async def discord_interaction_webhook(
                     select(ChatMessage)
                     .where(ChatMessage.agent_id == agent_id, ChatMessage.conversation_id == session_conv_id)
                     .order_by(ChatMessage.created_at.desc())
-                    .limit(ctx_size)
+                    .limit(_hist_limit)
                 )
                 history = [{"role": m.role, "content": m.content} for m in reversed(history_r.scalars().all())]
 

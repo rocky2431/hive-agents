@@ -151,7 +151,8 @@ async def process_dingtalk_message(
             logger.warning(f"[DingTalk] Agent {agent_id} not found")
             return
         creator_id = agent_obj.creator_id
-        ctx_size = agent_obj.context_window_size if agent_obj else 20
+        from app.services.memory_service import compute_history_limit_for_agent
+        _hist_limit = await compute_history_limit_for_agent(agent_id)
 
         # Determine conv_id for session isolation
         if conversation_type == "2":
@@ -195,7 +196,7 @@ async def process_dingtalk_message(
             _select(ChatMessage)
             .where(ChatMessage.agent_id == agent_id, ChatMessage.conversation_id == session_conv_id)
             .order_by(ChatMessage.created_at.desc())
-            .limit(ctx_size)
+            .limit(_hist_limit)
         )
         history = [{"role": m.role, "content": m.content} for m in reversed(history_r.scalars().all())]
 

@@ -97,6 +97,7 @@ class AgentOut(BaseModel):
     welcome_message: str | None = None
     status: str
     creator_id: uuid.UUID
+    owner_user_id: uuid.UUID | None = None
     tenant_id: uuid.UUID | None = None
     creator_username: str | None = None  # Populated by API layer; not in ORM model directly
     primary_model_id: uuid.UUID | None = None

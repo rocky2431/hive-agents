@@ -48,7 +48,14 @@ export interface AgentMetrics {
   [key: string]: any;
 }
 
+export interface HrAgentInfo {
+  id: string;
+  name: string;
+  status: string;
+}
+
 export const agentApi = {
+  getHrAgent: () => get<HrAgentInfo>('/agents/system/hr'),
   list: (tenantId?: string) => get<Agent[]>(`/agents/${tenantId ? `?tenant_id=${tenantId}` : ''}`),
   getById: (id: string) => get<Agent>(`/agents/${id}`),
   create: (data: AgentCreateParams) => post<Agent>('/agents/', data),

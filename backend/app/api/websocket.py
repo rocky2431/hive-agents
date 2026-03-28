@@ -209,8 +209,7 @@ async def websocket_chat(
             agent_type = agent.agent_type or ""
             role_description = agent.role_description or ""
             welcome_message = agent.welcome_message or ""
-            ctx_size = agent.context_window_size or 100
-            logger.info(f"[WS] Agent: {agent_name}, type: {agent_type}, model_id: {agent.primary_model_id}, ctx: {ctx_size}")
+            logger.info(f"[WS] Agent: {agent_name}, type: {agent_type}, model_id: {agent.primary_model_id}")
 
             # Load the agent's primary model
             if agent.primary_model_id:
@@ -278,14 +277,21 @@ async def websocket_chat(
                     logger.info(f"[WS] Created default session {conv_id}")
 
             try:
+                # Dynamic history limit based on model context window
+                from app.services.memory_service import compute_history_limit
+                _hist_limit = compute_history_limit(
+                    llm_model.provider if llm_model else "openai",
+                    llm_model.model if llm_model else "",
+                    getattr(llm_model, "max_input_tokens", None) if llm_model else None,
+                )
                 history_result = await db.execute(
                     select(ChatMessage)
                     .where(ChatMessage.agent_id == agent_id, ChatMessage.conversation_id == conv_id)
                     .order_by(ChatMessage.created_at.desc())
-                    .limit(20)
+                    .limit(_hist_limit)
                 )
                 history_messages = list(reversed(history_result.scalars().all()))
-                logger.info(f"[WS] Loaded {len(history_messages)} history messages for session {conv_id}")
+                logger.info(f"[WS] Loaded {len(history_messages)}/{_hist_limit} history messages for session {conv_id}")
             except Exception as e:
                 logger.warning(f"[WS] History load failed (non-fatal): {e}")
     except Exception as e:
@@ -532,7 +538,7 @@ async def websocket_chat(
                     cancel_event = asyncio.Event()
                     llm_task = asyncio.create_task(call_llm(
                         llm_model,
-                        conversation[-ctx_size:],
+                        conversation,
                         agent_name,
                         role_description,
                         fallback_model=fallback_llm_model,

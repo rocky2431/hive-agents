@@ -10,6 +10,7 @@ export interface WorkspaceLlmModel {
   base_url?: string;
   api_key_masked?: string;
   max_output_tokens?: number | null;
+  max_input_tokens?: number | null;
   temperature?: number | null;
 }
 
@@ -30,6 +31,7 @@ export interface WorkspaceLlmModelForm {
   label: string;
   supports_vision: boolean;
   max_output_tokens: string;
+  max_input_tokens: string;
   temperature: string;
 }
 
@@ -160,6 +162,17 @@ export default function WorkspaceLlmSection({
               <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>{t('enterprise.llm.maxOutputTokensDesc', 'Limits generation length')}</div>
             </div>
             <div className="form-group">
+              <label className="form-label">{t('enterprise.llm.maxInputTokens', 'Context Window')}</label>
+              <input
+                className="form-input"
+                type="number"
+                placeholder={t('enterprise.llm.maxInputTokensPlaceholder', 'e.g. 128000 (Leave empty for provider default)')}
+                value={modelForm.max_input_tokens}
+                onChange={(event) => onModelFormChange({ max_input_tokens: event.target.value })}
+              />
+              <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>{t('enterprise.llm.maxInputTokensDesc', 'Max input tokens the model supports. Used to calculate conversation memory depth.')}</div>
+            </div>
+            <div className="form-group">
               <label className="form-label">{t('enterprise.llm.temperature', 'Temperature')}</label>
               <input
                 className="form-input"
@@ -227,6 +240,11 @@ export default function WorkspaceLlmSection({
                     <label className="form-label">{t('enterprise.llm.maxOutputTokens', 'Max Output Tokens')}</label>
                     <input className="form-input" type="number" placeholder={t('enterprise.llm.maxOutputTokensPlaceholder', 'e.g. 4096')} value={modelForm.max_output_tokens} onChange={(event) => onModelFormChange({ max_output_tokens: event.target.value })} />
                     <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>{t('enterprise.llm.maxOutputTokensDesc', 'Limits generation length')}</div>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">{t('enterprise.llm.maxInputTokens', 'Context Window')}</label>
+                    <input className="form-input" type="number" placeholder={t('enterprise.llm.maxInputTokensPlaceholder', 'e.g. 128000')} value={modelForm.max_input_tokens} onChange={(event) => onModelFormChange({ max_input_tokens: event.target.value })} />
+                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>{t('enterprise.llm.maxInputTokensDesc', 'Max input tokens. Used to calculate conversation memory depth.')}</div>
                   </div>
                   <div className="form-group">
                     <label className="form-label">{t('enterprise.llm.temperature', 'Temperature')}</label>

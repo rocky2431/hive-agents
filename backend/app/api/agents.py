@@ -55,7 +55,10 @@ async def list_agents(
     # platform_admin & org_admin see all agents (optionally filtered by tenant)
     if current_user.role in ("platform_admin", "org_admin"):
         target_tenant_id = resolve_tenant_scope(current_user, tenant_id)
-        stmt = select(Agent).where(Agent.tenant_id == target_tenant_id)
+        stmt = select(Agent).where(
+            Agent.tenant_id == target_tenant_id,
+            Agent.agent_class != "internal_system",
+        )
         result = await db.execute(stmt.order_by(Agent.created_at.desc()))
         agents = result.scalars().all()
         # Lazy reset token counters
@@ -71,8 +74,12 @@ async def list_agents(
     # All scoped to user's tenant
     user_tenant = current_user.tenant_id
 
-    # Get agents user created (within their tenant)
-    created = select(Agent).where(Agent.creator_id == current_user.id, Agent.tenant_id == user_tenant)
+    # Get agents user created (within their tenant), excluding system agents
+    created = select(Agent).where(
+        Agent.creator_id == current_user.id,
+        Agent.tenant_id == user_tenant,
+        Agent.agent_class != "internal_system",
+    )
 
     # Get agents user has permission to (within their tenant)
     permitted_ids = (
@@ -86,7 +93,11 @@ async def list_agents(
             )
         )
     )
-    permitted = select(Agent).where(Agent.id.in_(permitted_ids), Agent.tenant_id == user_tenant)
+    permitted = select(Agent).where(
+        Agent.id.in_(permitted_ids),
+        Agent.tenant_id == user_tenant,
+        Agent.agent_class != "internal_system",
+    )
 
     # Union
     from sqlalchemy import union_all
@@ -104,6 +115,123 @@ async def list_agents(
     if needs_flush:
         await db.commit()
     return [AgentOut.model_validate(a) for a in agents]
+
+
+HR_AGENT_NAME = "__system_hr__"
+
+
+@router.get("/system/hr")
+async def get_or_create_hr_agent(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get the HR onboarding agent for the current tenant. Creates one if it doesn't exist."""
+    tenant_id = current_user.tenant_id
+    if not tenant_id:
+        raise HTTPException(status_code=400, detail="User has no tenant")
+
+    # Look up existing HR agent (with row lock to prevent duplicate creation)
+    result = await db.execute(
+        select(Agent).where(
+            Agent.tenant_id == tenant_id,
+            Agent.agent_class == "internal_system",
+            Agent.name == HR_AGENT_NAME,
+        ).with_for_update(skip_locked=True)
+    )
+    hr_agent = result.scalar_one_or_none()
+
+    if hr_agent:
+        return {"id": str(hr_agent.id), "name": hr_agent.name, "status": hr_agent.status}
+
+    # Lazy-create the HR agent (race-safe: unique constraint on name+tenant+agent_class
+    # will reject duplicates if two requests slip past the lock)
+    from app.models.participant import Participant
+    from app.services.agent_manager import agent_manager
+
+    # Find default model for tenant
+    from app.models.llm import LLMModel
+    model_result = await db.execute(
+        select(LLMModel)
+        .where(LLMModel.tenant_id == tenant_id, LLMModel.enabled.is_(True))
+        .order_by(LLMModel.created_at)
+        .limit(1)
+    )
+    default_model = model_result.scalar_one_or_none()
+
+    hr_agent = Agent(
+        name=HR_AGENT_NAME,
+        role_description="Digital Employee Onboarding Specialist — guides users through creating new digital employees via conversation",
+        creator_id=current_user.id,
+        tenant_id=tenant_id,
+        agent_type="native",
+        agent_class="internal_system",
+        security_zone="standard",
+        primary_model_id=default_model.id if default_model else None,
+        status="creating",
+    )
+    db.add(hr_agent)
+    await db.flush()
+
+    # Participant identity
+    db.add(Participant(
+        type="agent", ref_id=hr_agent.id,
+        display_name="HR Onboarding Agent", avatar_url=None,
+    ))
+    await db.flush()
+
+    # No public permissions — HR agent is only accessible via this endpoint
+    db.add(AgentPermission(
+        agent_id=hr_agent.id, scope_type="company", access_level="use",
+    ))
+    await db.flush()
+
+    # Initialize files using standard template (same as normal agents)
+    await agent_manager.initialize_agent_files(db, hr_agent)
+
+    # Overlay HR-specific files (soul.md, skills/CREATE_EMPLOYEE.md)
+    import shutil
+    from pathlib import Path
+    hr_template_dir = Path(__file__).resolve().parent.parent.parent / "hr_agent_template"
+    agent_dir = agent_manager._agent_dir(hr_agent.id)
+
+    if hr_template_dir.exists():
+        # Copy HR soul.md (overwrites the standard one)
+        hr_soul = hr_template_dir / "soul.md"
+        if hr_soul.exists():
+            (agent_dir / "soul.md").write_text(hr_soul.read_text(encoding="utf-8"), encoding="utf-8")
+        # Copy HR-specific skills
+        hr_skills = hr_template_dir / "skills"
+        if hr_skills.exists():
+            for skill_file in hr_skills.rglob("*"):
+                if skill_file.is_file():
+                    rel = skill_file.relative_to(hr_skills)
+                    dest = agent_dir / "skills" / rel
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(str(skill_file), str(dest))
+
+    # Start container
+    await agent_manager.start_container(db, hr_agent)
+    await db.flush()
+
+    try:
+        await db.commit()
+    except Exception:
+        # Race condition: another request created the HR agent first
+        await db.rollback()
+        retry_result = await db.execute(
+            select(Agent).where(
+                Agent.tenant_id == tenant_id,
+                Agent.agent_class == "internal_system",
+                Agent.name == HR_AGENT_NAME,
+            )
+        )
+        existing = retry_result.scalar_one_or_none()
+        if existing:
+            return {"id": str(existing.id), "name": existing.name, "status": existing.status}
+        raise HTTPException(status_code=500, detail="Failed to create HR agent")
+
+    logger.info(f"[HR] Created HR agent {hr_agent.id} for tenant {tenant_id}")
+    return {"id": str(hr_agent.id), "name": hr_agent.name, "status": hr_agent.status}
 
 
 @router.post("/", status_code=status.HTTP_201_CREATED)
@@ -180,6 +308,11 @@ async def create_agent(
 
     await db.flush()
 
+    # Assign default platform tools
+    from app.services.tool_seeder import assign_default_tools_to_agent
+    await assign_default_tools_to_agent(db, agent.id)
+    await db.flush()
+
     # Initialize agent file system from template
     from app.services.agent_manager import agent_manager
     await agent_manager.initialize_agent_files(
@@ -252,11 +385,15 @@ async def get_agent(
     out = AgentOut.model_validate(agent).model_dump()
     out["access_level"] = access_level
 
-    # Resolve creator username (one extra query, only on detail page)
+    # Resolve creator + owner usernames (one extra query each, only on detail page)
     if agent.creator_id:
         creator_result = await db.execute(select(User).where(User.id == agent.creator_id))
         creator = creator_result.scalar_one_or_none()
         out["creator_username"] = creator.username if creator else None
+    if agent.owner_user_id:
+        owner_result = await db.execute(select(User).where(User.id == agent.owner_user_id))
+        owner = owner_result.scalar_one_or_none()
+        out["owner_username"] = owner.display_name if owner else None
 
     # Resolve effective timezone (agent → tenant → UTC)
     effective_tz = agent.timezone

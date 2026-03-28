@@ -75,6 +75,7 @@ def _import_handler_modules() -> None:
     import app.tools.handlers.mcp  # noqa: F401
     import app.tools.handlers.email  # noqa: F401
     import app.tools.handlers.plaza  # noqa: F401
+    import app.tools.handlers.hr  # noqa: F401
 
 
 def collect_tools() -> CollectedTools:

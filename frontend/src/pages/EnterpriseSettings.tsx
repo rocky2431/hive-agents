@@ -23,7 +23,7 @@ import WorkspaceUsersSection from './workspace/WorkspaceUsersSection';
 
 interface LLMModel {
     id: string; provider: string; model: string; label: string;
-    base_url?: string; api_key_masked?: string; max_tokens_per_day?: number; enabled: boolean; supports_vision?: boolean; max_output_tokens?: number | null; temperature?: number | null; created_at?: string;
+    base_url?: string; api_key_masked?: string; max_tokens_per_day?: number; enabled: boolean; supports_vision?: boolean; max_output_tokens?: number | null; max_input_tokens?: number | null; temperature?: number | null; created_at?: string;
 }
 
 interface LLMProviderSpec {
@@ -405,7 +405,7 @@ export default function EnterpriseSettings({ forcedTab, hideTabs = false }: Ente
     });
     const [showAddModel, setShowAddModel] = useState(false);
     const [editingModelId, setEditingModelId] = useState<string | null>(null);
-    const [modelForm, setModelForm] = useState({ provider: 'anthropic', model: '', api_key: '', base_url: '', label: '', supports_vision: false, max_output_tokens: '' as string, temperature: '' as string });
+    const [modelForm, setModelForm] = useState({ provider: 'anthropic', model: '', api_key: '', base_url: '', label: '', supports_vision: false, max_output_tokens: '' as string, max_input_tokens: '' as string, temperature: '' as string });
     const { data: providerSpecs = [] } = useQuery({
         queryKey: ['llm-provider-specs'],
         queryFn: () => enterpriseApi.getLLMProviders() as Promise<LLMProviderSpec[]>,
@@ -454,6 +454,7 @@ export default function EnterpriseSettings({ forcedTab, hideTabs = false }: Ente
             label: '',
             supports_vision: false,
             max_output_tokens: defaultSpec ? String(defaultSpec.default_max_tokens) : '4096',
+            max_input_tokens: '',
             temperature: '',
         });
         setShowAddModel(true);
@@ -505,6 +506,7 @@ export default function EnterpriseSettings({ forcedTab, hideTabs = false }: Ente
         addModel.mutate({
             ...modelForm,
             max_output_tokens: modelForm.max_output_tokens ? Number(modelForm.max_output_tokens) : null,
+            max_input_tokens: modelForm.max_input_tokens ? Number(modelForm.max_input_tokens) : null,
             temperature: modelForm.temperature !== '' ? Number(modelForm.temperature) : null,
         });
     };
@@ -527,6 +529,7 @@ export default function EnterpriseSettings({ forcedTab, hideTabs = false }: Ente
             data: {
                 ...modelForm,
                 max_output_tokens: modelForm.max_output_tokens ? Number(modelForm.max_output_tokens) : null,
+                max_input_tokens: modelForm.max_input_tokens ? Number(modelForm.max_input_tokens) : null,
                 temperature: modelForm.temperature !== '' ? Number(modelForm.temperature) : null,
             },
         });
@@ -551,6 +554,7 @@ export default function EnterpriseSettings({ forcedTab, hideTabs = false }: Ente
             api_key: model.api_key_masked || '',
             supports_vision: model.supports_vision || false,
             max_output_tokens: model.max_output_tokens ? String(model.max_output_tokens) : '',
+            max_input_tokens: model.max_input_tokens ? String(model.max_input_tokens) : '',
             temperature: model.temperature !== null && model.temperature !== undefined ? String(model.temperature) : '',
         });
         setShowAddModel(true);

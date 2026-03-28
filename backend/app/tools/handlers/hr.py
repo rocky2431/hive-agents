@@ -1,0 +1,350 @@
+"""HR tools — create digital employees through conversational guidance."""
+
+from __future__ import annotations
+
+import logging
+import uuid
+
+from app.tools.decorator import ToolMeta, tool
+from app.tools.runtime import ToolExecutionRequest
+
+logger = logging.getLogger(__name__)
+
+
+@tool(ToolMeta(
+    name="create_digital_employee",
+    description=(
+        "Create a new digital employee with the given configuration. "
+        "Use this ONLY after confirming the full plan with the user. "
+        "Includes heartbeat schedule and custom heartbeat instructions. "
+        "Returns the new employee's name and ID on success."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "name": {
+                "type": "string",
+                "description": "Name for the new digital employee (2-100 characters)",
+            },
+            "role_description": {
+                "type": "string",
+                "description": "What this employee does — their core job responsibilities",
+            },
+            "personality": {
+                "type": "string",
+                "description": "Personality traits, one per line",
+            },
+            "boundaries": {
+                "type": "string",
+                "description": "Behavioral boundaries, one per line",
+            },
+            "skill_names": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "EXTRA skill folder_names beyond defaults (e.g. ['feishu-integration', 'dingtalk-integration']). 10 default skills are auto-installed — only list non-default ones here.",
+            },
+            "mcp_server_ids": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Smithery MCP server IDs to install (e.g. ['LinkupPlatform/linkup-mcp-server']). Found via discover_resources.",
+            },
+            "permission_scope": {
+                "type": "string",
+                "enum": ["company", "self"],
+                "description": "'company' (everyone) or 'self' (creator only). Default: 'company'.",
+            },
+            "heartbeat_enabled": {
+                "type": "boolean",
+                "description": "Enable heartbeat (self-awareness cycle: check plaza, explore topics, update memory). Default: true.",
+            },
+            "heartbeat_interval_minutes": {
+                "type": "integer",
+                "description": "Heartbeat interval in minutes. Default: 120.",
+            },
+            "heartbeat_active_hours": {
+                "type": "string",
+                "description": "Heartbeat active hours (e.g. '09:00-18:00'). Default: '09:00-18:00'.",
+            },
+            "triggers": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "Trigger name (e.g. 'daily_news_report')"},
+                        "type": {"type": "string", "enum": ["cron", "interval"], "description": "cron or interval"},
+                        "config": {"type": "object", "description": "For cron: {\"expr\": \"0 9 * * *\"}. For interval: {\"minutes\": 30}"},
+                        "reason": {"type": "string", "description": "What the agent should do when triggered (the instruction)"},
+                    },
+                    "required": ["name", "type", "config", "reason"],
+                },
+                "description": "Scheduled tasks. Use cron for fixed times, interval for recurring.",
+            },
+            "welcome_message": {
+                "type": "string",
+                "description": "Greeting shown when someone first chats with this agent. Should introduce the agent's role and capabilities.",
+            },
+            "focus_content": {
+                "type": "string",
+                "description": "Initial focus.md content — what should the agent work on first? Written as a task list or agenda in markdown.",
+            },
+            "heartbeat_topics": {
+                "type": "string",
+                "description": "Role-specific topics for heartbeat exploration. Appended to HEARTBEAT.md. E.g. 'Focus on AI/VC funding news, semiconductor breakthroughs, and founder movements.'",
+            },
+        },
+        "required": ["name"],
+    },
+    category="hr",
+    display_name="Create Digital Employee",
+    icon="\U0001f464",
+    governance="",
+    adapter="request",
+))
+async def create_digital_employee(request: ToolExecutionRequest) -> str:
+    args = request.arguments
+    user_id = request.context.user_id
+    tenant_id = request.context.tenant_id
+
+    name = (args.get("name") or "").strip()
+    if not name or len(name) < 2:
+        return "Error: name is required and must be at least 2 characters."
+    if len(name) > 100:
+        return "Error: name must be 100 characters or less."
+
+    role_description = args.get("role_description", "")
+    personality = args.get("personality", "")
+    boundaries = args.get("boundaries", "")
+    skill_names = args.get("skill_names") or []
+    mcp_server_ids = args.get("mcp_server_ids") or []
+    permission_scope = args.get("permission_scope", "company")
+
+    # Heartbeat config (self-awareness cycle)
+    heartbeat_enabled = args.get("heartbeat_enabled", True)
+    heartbeat_interval = args.get("heartbeat_interval_minutes", 120)
+    heartbeat_active_hours = args.get("heartbeat_active_hours", "09:00-18:00")
+    # Triggers (scheduled tasks)
+    triggers = args.get("triggers") or []
+    # New customization params
+    welcome_message = args.get("welcome_message", "")
+    focus_content = args.get("focus_content", "")
+    heartbeat_topics = args.get("heartbeat_topics", "")
+
+    from sqlalchemy import select
+
+    from app.database import async_session
+    from app.models.agent import Agent, AgentPermission
+    from app.models.participant import Participant
+    from app.models.skill import Skill
+    from app.models.user import User
+    from app.services.agent_manager import agent_manager
+
+    try:
+        async with async_session() as db:
+            # Look up the calling user
+            user_result = await db.execute(select(User).where(User.id == user_id))
+            user = user_result.scalar_one_or_none()
+            if not user:
+                return "Error: could not identify the requesting user."
+
+            effective_tenant_id = uuid.UUID(tenant_id) if tenant_id else user.tenant_id
+
+            # Resolve default model for this tenant
+            primary_model_id = None
+            from app.models.llm import LLMModel
+            model_result = await db.execute(
+                select(LLMModel)
+                .where(LLMModel.tenant_id == effective_tenant_id, LLMModel.enabled.is_(True))
+                .order_by(LLMModel.created_at)
+                .limit(1)
+            )
+            default_model = model_result.scalar_one_or_none()
+            if default_model:
+                primary_model_id = default_model.id
+
+            # Resolve tenant defaults
+            default_max_triggers = 20
+            default_min_poll = 5
+            default_webhook_rate = 5
+            if effective_tenant_id:
+                from app.models.tenant import Tenant
+                tenant_result = await db.execute(select(Tenant).where(Tenant.id == effective_tenant_id))
+                tenant_obj = tenant_result.scalar_one_or_none()
+                if tenant_obj:
+                    default_max_triggers = tenant_obj.default_max_triggers or 20
+                    default_min_poll = tenant_obj.min_poll_interval_floor or 5
+                    default_webhook_rate = tenant_obj.max_webhook_rate_ceiling or 5
+
+            # Create the agent
+            agent = Agent(
+                name=name,
+                role_description=role_description,
+                welcome_message=welcome_message or None,
+                creator_id=user.id,
+                owner_user_id=user.id,
+                tenant_id=effective_tenant_id,
+                agent_type="native",
+                agent_class="internal_tenant",
+                security_zone="standard",
+                primary_model_id=primary_model_id,
+                status="creating",
+                max_triggers=default_max_triggers,
+                min_poll_interval_min=default_min_poll,
+                webhook_rate_limit=default_webhook_rate,
+                heartbeat_enabled=heartbeat_enabled,
+                heartbeat_interval_minutes=heartbeat_interval,
+                heartbeat_active_hours=heartbeat_active_hours,
+            )
+            db.add(agent)
+            await db.flush()
+
+            # Participant identity
+            db.add(Participant(
+                type="agent", ref_id=agent.id,
+                display_name=agent.name, avatar_url=None,
+            ))
+            await db.flush()
+
+            # Permissions
+            if permission_scope == "self":
+                db.add(AgentPermission(
+                    agent_id=agent.id, scope_type="user",
+                    scope_id=user.id, access_level="manage",
+                ))
+            else:
+                db.add(AgentPermission(
+                    agent_id=agent.id, scope_type="company",
+                    access_level="use",
+                ))
+            await db.flush()
+
+            # Assign default platform tools
+            from app.services.tool_seeder import assign_default_tools_to_agent
+            await assign_default_tools_to_agent(db, agent.id)
+            await db.flush()
+
+            # Initialize agent file system (standard template)
+            await agent_manager.initialize_agent_files(
+                db, agent,
+                personality=personality,
+                boundaries=boundaries,
+            )
+
+            agent_dir = agent_manager._agent_dir(agent.id)
+
+            # Write focus.md (initial working agenda)
+            if focus_content:
+                (agent_dir / "focus.md").write_text(f"# Focus\n\n{focus_content}", encoding="utf-8")
+
+            # Customize HEARTBEAT.md with role-specific topics
+            if heartbeat_topics:
+                heartbeat_path = agent_dir / "HEARTBEAT.md"
+                if heartbeat_path.exists():
+                    existing = heartbeat_path.read_text(encoding="utf-8")
+                    existing += f"\n\n## Role-Specific Exploration\n{heartbeat_topics}\n"
+                    heartbeat_path.write_text(existing, encoding="utf-8")
+
+            # Create triggers (scheduled tasks)
+            if triggers:
+                from app.models.trigger import AgentTrigger
+                for trig in triggers:
+                    db.add(AgentTrigger(
+                        agent_id=agent.id,
+                        name=trig.get("name", "task"),
+                        type=trig.get("type", "cron"),
+                        config=trig.get("config", {}),
+                        reason=trig.get("reason", ""),
+                    ))
+                await db.flush()
+
+            # Copy default skills + requested skills
+            from sqlalchemy.orm import selectinload
+
+            default_skill_result = await db.execute(
+                select(Skill).where(Skill.is_default).options(selectinload(Skill.files))
+            )
+            all_skills_to_copy: list[Skill] = list(default_skill_result.scalars().all())
+
+            if skill_names:
+                from sqlalchemy import or_
+                for sname in skill_names:
+                    sr = await db.execute(
+                        select(Skill)
+                        .where(
+                            Skill.folder_name == sname,
+                            or_(
+                                Skill.tenant_id == effective_tenant_id,
+                                Skill.tenant_id.is_(None),
+                            ),
+                        )
+                        .options(selectinload(Skill.files))
+                    )
+                    skill = sr.scalar_one_or_none()
+                    if skill and skill not in all_skills_to_copy:
+                        all_skills_to_copy.append(skill)
+
+            skills_dir = agent_dir / "skills"
+            skills_dir.mkdir(parents=True, exist_ok=True)
+
+            for skill in all_skills_to_copy:
+                skill_folder = skills_dir / skill.folder_name
+                skill_folder.mkdir(parents=True, exist_ok=True)
+                for sf in skill.files:
+                    file_path = skill_folder / sf.path
+                    file_path.parent.mkdir(parents=True, exist_ok=True)
+                    file_path.write_text(sf.content)
+
+            # Start container
+            await agent_manager.start_container(db, agent)
+            await db.flush()
+
+            # Audit
+            try:
+                from app.core.policy import write_audit_event
+                await write_audit_event(
+                    db, event_type="agent.created", severity="info",
+                    actor_type="user", actor_id=user.id,
+                    tenant_id=effective_tenant_id or user.tenant_id or uuid.UUID(int=0),
+                    action="create_agent", resource_type="agent", resource_id=agent.id,
+                    details={"name": agent.name, "created_via": "hr_agent"},
+                )
+            except Exception:
+                logger.warning("Audit write failed for hr agent.created", exc_info=True)
+
+            await db.commit()
+
+            # Install MCP servers (after commit, so agent exists in DB)
+            mcp_results = []
+            if mcp_server_ids:
+                from app.services.resource_discovery import import_mcp_from_smithery
+                for server_id in mcp_server_ids:
+                    try:
+                        result = await import_mcp_from_smithery(server_id, agent.id)
+                        mcp_results.append(f"✅ {server_id}")
+                        logger.info(f"[HR] Installed MCP {server_id} for agent {agent.id}")
+                    except Exception as mcp_err:
+                        mcp_results.append(f"⚠️ {server_id}: {mcp_err}")
+                        logger.warning(f"[HR] MCP install failed for {server_id}: {mcp_err}")
+
+            # Build response
+            features = [f"name='{agent.name}'"]
+            if heartbeat_enabled:
+                features.append(f"heartbeat={heartbeat_active_hours} every {heartbeat_interval}min")
+            if triggers:
+                trigger_names = [t.get("name", "?") for t in triggers]
+                features.append(f"triggers={trigger_names}")
+            if skill_names:
+                features.append(f"extra_skills={skill_names}")
+            if mcp_results:
+                features.append(f"mcp={mcp_results}")
+
+            return (
+                f"Successfully created digital employee '{agent.name}' (ID: {agent.id}). "
+                f"Config: {', '.join(features)}. "
+                f"10 default skills auto-installed. "
+                f"Skills directory: {agent_dir / 'skills'}. "
+                f"The employee is now being initialized and will be ready shortly."
+            )
+
+    except Exception as e:
+        logger.error(f"[HR] create_digital_employee failed: {e}", exc_info=True)
+        return "Error: failed to create the digital employee. Please try again or contact support."

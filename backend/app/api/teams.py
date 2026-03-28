@@ -491,15 +491,14 @@ async def teams_event_webhook(
         session_conv_id = str(sess.id)
 
         # Load history
-        agent_r = await db.execute(select(AgentModel).where(AgentModel.id == agent_id))
-        agent_obj = agent_r.scalar_one_or_none()
-        ctx_size = agent_obj.context_window_size if agent_obj else 20
+        from app.services.memory_service import compute_history_limit_for_agent
+        _hist_limit = await compute_history_limit_for_agent(agent_id)
 
         history_r = await db.execute(
             select(ChatMessage)
             .where(ChatMessage.agent_id == agent_id, ChatMessage.conversation_id == session_conv_id)
             .order_by(ChatMessage.created_at.desc())
-            .limit(ctx_size)
+            .limit(_hist_limit)
         )
         history = [{"role": m.role, "content": m.content} for m in reversed(history_r.scalars().all())]
 

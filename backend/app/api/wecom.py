@@ -397,7 +397,8 @@ async def _process_wecom_text(
             logger.warning(f"[WeCom] Agent {agent_id} not found")
             return
         creator_id = agent_obj.creator_id
-        ctx_size = agent_obj.context_window_size if agent_obj else 20
+        from app.services.memory_service import compute_history_limit_for_agent
+        _hist_limit = await compute_history_limit_for_agent(agent_id)
 
         conv_id = f"wecom_p2p_{from_user}"
 
@@ -456,7 +457,7 @@ async def _process_wecom_text(
             _select(ChatMessage)
             .where(ChatMessage.agent_id == agent_id, ChatMessage.conversation_id == session_conv_id)
             .order_by(ChatMessage.created_at.desc())
-            .limit(ctx_size)
+            .limit(_hist_limit)
         )
         history = [{"role": m.role, "content": m.content} for m in reversed(history_r.scalars().all())]
 

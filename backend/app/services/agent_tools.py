@@ -153,6 +153,11 @@ _ALWAYS_INCLUDE_CORE = set(CORE_TOOL_NAMES)
 # to avoid exposing unnecessary tools to non-Feishu agents (reduces hallucination risk).
 _HR_TOOL_NAMES = {
     "create_digital_employee",
+    "discover_resources",
+    "web_search",
+    "jina_search",
+    "jina_read",
+    "execute_code",
 }
 
 _FEISHU_TOOL_NAMES = {
@@ -246,8 +251,12 @@ async def get_agent_tools_for_llm(
             agent_result = await db.execute(select(Agent).where(Agent.id == agent_id))
             agent = agent_result.scalar_one_or_none()
             is_system_agent = agent is not None and getattr(agent, "agent_class", None) == "internal_system"
+            _core = _get_always_core_tools()
+            if is_system_agent:
+                # HR agent: remove tool_search (searches own workspace, useless for HR)
+                _core = [t for t in _core if t["function"]["name"] != "tool_search"]
             _always_tools = (
-                _get_always_core_tools()
+                _core
                 + (_get_feishu_tools() if has_feishu else [])
                 + (_get_hr_tools() if is_system_agent else [])
             )

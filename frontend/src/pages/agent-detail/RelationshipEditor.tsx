@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { agentApi } from '../../api/domains/agents';
 import { put } from '../../api/core';
 import { usersApi } from '../../api/domains/users';
+import { useAuthStore } from '../../stores';
 
 type RelationshipEditorProps = {
   agentId: string;
@@ -23,11 +24,16 @@ export default function RelationshipEditor({ agentId, agent }: RelationshipEdito
     queryFn: () => agentApi.list(tenantId),
   });
 
-  const { data: users = [] } = useQuery({
+  const currentUser = useAuthStore((s) => s.user);
+  const { data: fetchedUsers = [] } = useQuery({
     queryKey: ['users', tenantId],
     queryFn: () => usersApi.list(tenantId) as Promise<any[]>,
     enabled: !!tenantId,
   });
+  // If user list is empty (member 403), at least include the current user
+  const users = fetchedUsers.length > 0 ? fetchedUsers
+    : currentUser ? [{ id: currentUser.id, display_name: currentUser.display_name || currentUser.username, username: currentUser.username, email: currentUser.email || '' }]
+    : [];
 
   const peerAgents = allAgents.filter((a: any) => a.id !== agentId);
 
@@ -36,6 +42,7 @@ export default function RelationshipEditor({ agentId, agent }: RelationshipEdito
 
   const ownerUser = agent?.owner_user_id
     ? users.find((u: any) => u.id === agent.owner_user_id)
+      || (agent.owner_username ? { display_name: agent.owner_username, username: agent.owner_username, email: '' } : null)
     : null;
 
   const handleBind = async (userId: string) => {

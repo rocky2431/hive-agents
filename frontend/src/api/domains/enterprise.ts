@@ -15,6 +15,7 @@ export interface LLMModel {
   base_url?: string;
   api_key_masked?: string;
   max_output_tokens?: number | null;
+  max_input_tokens?: number | null;
   temperature?: number | null;
   created_at?: string;
 }

@@ -45,6 +45,7 @@ describe('WorkspaceLlmSection', () => {
           label: '',
           supports_vision: false,
           max_output_tokens: '',
+          max_input_tokens: '',
           temperature: '',
         }}
         onStartCreateModel={() => {}}

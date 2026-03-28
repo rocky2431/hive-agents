@@ -201,8 +201,9 @@ async def jina_read(arguments: dict) -> str:
     governance="safe",
     pack="mcp_admin_pack",
     adapter="args_only",
-    config={"modelscope_api_token": ""},
+    config={"smithery_api_key": "", "modelscope_api_token": ""},
     config_schema={"fields": [
+        {"key": "smithery_api_key", "label": "Smithery API Key", "type": "password", "default": "", "placeholder": "从 smithery.ai/account/api-keys 获取"},
         {"key": "modelscope_api_token", "label": "ModelScope API Token", "type": "password", "default": "", "placeholder": "从 modelscope.cn 获取"},
     ]},
 ))

@@ -272,7 +272,8 @@ async def _process_wecom_stream_message(
         if not agent_obj:
             logger.warning(f"[WeCom Stream] Agent {agent_id} not found")
             return "Agent not found"
-        ctx_size = agent_obj.context_window_size or 20
+        from app.services.memory_service import compute_history_limit_for_agent
+        _hist_limit = await compute_history_limit_for_agent(agent_id)
 
         # Conversation ID: differentiate single chat vs group chat
         if chat_type == "group" and chat_id:
@@ -314,7 +315,7 @@ async def _process_wecom_stream_message(
             _select(ChatMessage)
             .where(ChatMessage.agent_id == agent_id, ChatMessage.conversation_id == session_conv_id)
             .order_by(ChatMessage.created_at.desc())
-            .limit(ctx_size)
+            .limit(_hist_limit)
         )
         history = [{"role": m.role, "content": m.content} for m in reversed(history_r.scalars().all())]
 
