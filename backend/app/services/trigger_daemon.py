@@ -375,7 +375,7 @@ async def _invoke_agent_for_triggers(agent_id: uuid.UUID, triggers: list[AgentTr
             # Load agent
             result = await db.execute(select(Agent).where(Agent.id == agent_id))
             agent = result.scalar_one_or_none()
-            if not agent or agent.is_expired:
+            if not agent or agent.status in ("expired", "stopped", "error", "archived"):
                 return
 
             # Set execution identity — autonomous agent action
@@ -587,8 +587,8 @@ async def _invoke_agent_for_triggers(agent_id: uuid.UUID, triggers: list[AgentTr
                                 "content": notification,
                                 "triggers": [t.name for t in triggers],
                             })
-                        except Exception:
-                            pass  # Connection may have closed
+                        except Exception as ws_err:
+                            logger.debug(f"WebSocket send failed (connection may have closed): {ws_err}")
             except Exception as e:
                 logger.error(f"Failed to push trigger result to WebSocket: {e}")
                 import traceback

@@ -480,9 +480,8 @@ async def _send_message_to_agent(from_agent_id: uuid.UUID, args: dict) -> str:
                 names = [a.name for a in all_r.scalars().all()]
                 return f"❌ No agent found matching '{agent_name}'. Available: {', '.join(names) if names else 'none'}"
 
-            # Check if target agent has expired
-            if target.is_expired or (target.expires_at and datetime.now(timezone.utc) >= target.expires_at):
-                return f"⚠️ {target.name} is currently unavailable — their service period has ended. Please contact the platform administrator."
+            if target.status in ("expired", "stopped", "archived"):
+                return f"⚠️ {target.name} is currently {target.status} and cannot receive messages."
 
             # ── OpenClaw target: queue message for gateway poll ──
             if getattr(target, "agent_type", "native") == "openclaw":

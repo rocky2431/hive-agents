@@ -29,7 +29,6 @@ class TransitionContext:
     is_creator: bool = False
     is_admin: bool = False
     is_system: bool = False  # trigger daemon, heartbeat, etc.
-    is_expired: bool = False
     force: bool = False  # force-stop a running agent
 
 

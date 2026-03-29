@@ -19,47 +19,71 @@ from app.runtime.invoker import AgentInvocationRequest, invoke_agent
 from app.runtime.session import SessionContext
 from app.services.agent_tools import execute_tool
 
-# Default heartbeat instruction used when HEARTBEAT.md doesn't exist
-DEFAULT_HEARTBEAT_INSTRUCTION = """[Heartbeat Check]
+# Default heartbeat instruction used when HEARTBEAT.md doesn't exist.
+# This is the evolution-aware fallback — agents with custom HEARTBEAT.md
+# will use their own (which they can self-modify).
+DEFAULT_HEARTBEAT_INSTRUCTION = """[Heartbeat — Self-Evolution Protocol]
 
-This is your periodic heartbeat — a moment for self-maintenance, proactive thinking, and exploration.
+You are in heartbeat mode. Your goal: observe your performance, do ONE useful thing, learn from the outcome, evolve.
 
-## Phase 1: Self-Check (Always)
+## Phase 1: OBSERVE (2-3 tool calls max)
 
-1. Read `focus.md` — is it current? Update if stale or missing.
-2. Check `memory/learnings/ERRORS.md` — any unresolved errors to retry or document?
-3. Check `memory/learnings/LEARNINGS.md` — any learnings worth promoting to `soul.md` or `memory/memory.md`?
-4. Verify `memory/memory.md` — any important context from recent conversations that should be persisted?
+1. Read `evolution/scorecard.md` — your performance history.
+2. Read `evolution/blocklist.md` — approaches you MUST NOT retry.
+3. Read `focus.md` — your current work priorities.
+4. Skim `memory/learnings/ERRORS.md` — any unresolved errors.
 
-## Phase 2: Proactive Thinking
+**RULE: If an approach is in blocklist.md, do NOT attempt it. Find an alternative or skip.**
+
+## Phase 2: ANALYZE (think, no tool calls)
 
 Ask yourself:
-- What could I do right now that would help my user without being asked?
-- Are there repeated requests I could automate with a trigger?
-- Are there decisions older than 7 days that need follow-up?
+- What is my highest-priority focus item that I can actually make progress on?
+- Have I been failing at the same thing repeatedly? If yes, either:
+  a) Try a fundamentally different approach (not a minor variation)
+  b) Add it to blocklist.md and move to something else
+  c) Send a message to your user asking for help
+- What is ONE action that would create the most value right now?
 
-If you identify something actionable, do it (within your autonomy policy).
+## Phase 3: ACT (1 focused action, 5-8 tool calls max)
 
-## Phase 3: Exploration (Conditional)
+Do exactly ONE of these (pick the highest value):
+- [ ] Advance a focus.md task using a NEW approach (not blocked)
+- [ ] Fix an unresolved error from ERRORS.md
+- [ ] Create or improve a skill in skills/
+- [ ] Update focus.md with new priorities based on what you learned
+- [ ] Research something relevant (load_skill first, max 3 searches)
+- [ ] Post to plaza (max 1 post, 2 comments)
 
-Review recent conversations for topics worth investigating.
-If a genuine, role-relevant topic emerges:
-1. Use `load_skill` or `tool_search` to activate web research
-2. Investigate with web tools (maximum 5 searches)
-3. Record findings to `memory/curiosity_journal.md` with source URL and relevance rating
+**If nothing is actionable: skip to Phase 4. Do NOT waste rounds.**
 
-If nothing worth exploring, skip to Phase 4.
+## Phase 4: EVOLVE (2-3 tool calls)
 
-## Phase 4: Agent Plaza
+1. **Score this heartbeat** (0-10):
+   - 0: Did nothing / repeated a blocked approach
+   - 3: Maintained state (updated focus.md, logged learnings)
+   - 5: Made partial progress on a task
+   - 7: Completed a subtask or fixed an error
+   - 10: Delivered a complete result
 
-1. Call `plaza_get_new_posts` to check recent activity
-2. Share 1 valuable discovery (max 1 post, must include source URL)
-3. Comment on relevant posts (max 2 comments)
+2. **Append to `evolution/lineage.md`**:
+   ```
+   ### HB-{YYYY-MM-DD-HH:MM}
+   - Strategy: {what I chose to do and why}
+   - Action: {what I actually did}
+   - Outcome: {result — success/partial/failure}
+   - Score: {0-10}
+   - Learning: {what I learned, if anything}
+   - Next: {what should the next heartbeat focus on}
+   ```
 
-## Phase 5: Wrap Up
+3. **Update `evolution/scorecard.md`**: increment counters.
 
-- If nothing needed attention: reply HEARTBEAT_OK
-- Otherwise: briefly summarize what you did and why
+4. **If score <= 2 for 3 consecutive heartbeats on the same approach**:
+   - Add the approach to `evolution/blocklist.md` with the reason
+   - Consider editing your HEARTBEAT.md to improve your strategy
+
+5. **If you discovered a better strategy**: edit HEARTBEAT.md to refine Phase 3.
 
 ⚠️ PRIVACY RULES — STRICTLY FOLLOW:
 - NEVER share information from private user conversations
@@ -140,19 +164,90 @@ def _load_heartbeat_instruction(agent_id: uuid.UUID) -> str:
     return heartbeat_instruction
 
 
-def _format_recent_activity_context(recent_activities: list) -> str:
-    if not recent_activities:
-        return ""
 
-    items = []
-    for act in reversed(recent_activities):
-        ts = act.created_at.strftime("%m-%d %H:%M") if act.created_at else ""
-        items.append(f"- [{ts}] {act.action_type}: {act.summary[:120]}")
-    return (
-        "\n\n---\n## Recent Activity Context\n"
-        "Here are your recent interactions and work to help you identify relevant topics:\n\n"
-        + "\n".join(items)
-    )
+async def _build_evolution_context(agent_id: uuid.UUID, recent_activities: list) -> str:
+    """Build structured evolution context from activity logs and workspace evolution files.
+
+    This is the server-side pattern analysis that feeds into the heartbeat prompt,
+    giving the agent pre-computed metrics instead of raw activity logs.
+    """
+    from collections import Counter
+    from pathlib import Path
+
+    from app.config import get_settings
+
+    settings = get_settings()
+    parts: list[str] = []
+
+    # 1. Read evolution files from workspace
+    for ws_root in [
+        Path("/tmp/hive_workspaces") / str(agent_id),
+        Path(settings.AGENT_DATA_DIR) / str(agent_id),
+    ]:
+        for filename in ["evolution/scorecard.md", "evolution/blocklist.md"]:
+            fpath = ws_root / filename
+            if fpath.exists():
+                try:
+                    content = fpath.read_text(encoding="utf-8", errors="replace").strip()
+                    if content:
+                        parts.append(content)
+                except Exception as e:
+                    logger.debug(f"Failed to read evolution file {fpath}: {e}")
+
+        # Only read lineage tail (last 5 entries to save tokens)
+        lineage_path = ws_root / "evolution" / "lineage.md"
+        if lineage_path.exists():
+            try:
+                full = lineage_path.read_text(encoding="utf-8", errors="replace").strip()
+                lines = full.split("\n")
+                if len(lines) > 35:
+                    parts.append("\n".join(lines[:3] + ["...(earlier entries omitted)..."] + lines[-30:]))
+                else:
+                    parts.append(full)
+            except Exception as e:
+                logger.debug(f"Failed to read evolution lineage: {e}")
+
+        if parts:
+            break  # Found workspace, don't check fallback path
+
+    # 2. Compute pattern summary from activity logs
+    if recent_activities:
+        error_count = sum(1 for a in recent_activities if a.action_type == "error")
+        heartbeat_count = sum(1 for a in recent_activities if a.action_type == "heartbeat")
+        tool_count = sum(1 for a in recent_activities if a.action_type == "tool_call")
+        total = len(recent_activities)
+
+        # Detect repeated failure patterns
+        error_summaries = [a.summary[:80] for a in recent_activities if a.action_type == "error"]
+        repeated_errors = [
+            f"  - '{err}' (x{count})"
+            for err, count in Counter(error_summaries).most_common(3)
+            if count > 1
+        ]
+
+        # Tool usage frequency
+        tool_names = []
+        for a in recent_activities:
+            if a.action_type == "tool_call" and a.detail_json:
+                tool_name = a.detail_json.get("tool", "")
+                if tool_name:
+                    tool_names.append(tool_name)
+        top_tools = [f"  - {name} (x{count})" for name, count in Counter(tool_names).most_common(5)]
+
+        pattern_section = (
+            f"\n---\n## Activity Pattern Analysis (auto-computed, last {total} activities)\n"
+            f"- Errors: {error_count} ({error_count * 100 // max(total, 1)}%)\n"
+            f"- Heartbeats logged: {heartbeat_count}\n"
+            f"- Tool calls: {tool_count}\n"
+        )
+        if repeated_errors:
+            pattern_section += "- **Repeated failures** (MUST NOT retry these approaches):\n" + "\n".join(repeated_errors) + "\n"
+        if top_tools:
+            pattern_section += "- Top tools used:\n" + "\n".join(top_tools) + "\n"
+
+        parts.append(pattern_section)
+
+    return "\n\n".join(parts) if parts else ""
 
 
 def _build_heartbeat_tool_executor(agent_id: uuid.UUID, creator_id: uuid.UUID):
@@ -203,24 +298,28 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
             if not model:
                 return
 
-            # Fetch recent activity to give heartbeat context for curiosity exploration
+            # Fetch recent activity for evolution context
             from app.models.activity_log import AgentActivityLog
             try:
                 recent_result = await db.execute(
                     select(AgentActivityLog)
                     .where(AgentActivityLog.agent_id == agent_id)
-                    .where(AgentActivityLog.action_type.in_(["chat_reply", "tool_call", "task_created", "task_updated"]))
+                    .where(AgentActivityLog.action_type.in_(
+                        ["chat_reply", "tool_call", "task_created", "task_updated", "error", "heartbeat"]
+                    ))
                     .order_by(AgentActivityLog.created_at.desc())
                     .limit(50)
                 )
                 recent_activities = recent_result.scalars().all()
-                recent_context = _format_recent_activity_context(recent_activities)
+                evolution_context = await _build_evolution_context(agent_id, recent_activities)
             except Exception as e:
-                logger.warning(f"Failed to fetch recent activity for heartbeat context: {e}")
-                recent_context = ""
+                logger.warning(f"Failed to build evolution context for heartbeat: {e}")
+                evolution_context = ""
 
-            full_instruction = _load_heartbeat_instruction(agent_id) + recent_context
-            runtime_messages = [{"role": "user", "content": full_instruction}]
+            heartbeat_instruction = _load_heartbeat_instruction(agent_id)
+            if evolution_context:
+                heartbeat_instruction += "\n\n" + evolution_context
+            runtime_messages = [{"role": "user", "content": heartbeat_instruction}]
 
             result = await invoke_agent(
                 AgentInvocationRequest(
@@ -243,26 +342,32 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
                     ),
                     tool_executor=_build_heartbeat_tool_executor(agent_id, agent.creator_id),
                     core_tools_only=True,
-                    max_tool_rounds=50,
+                    max_tool_rounds=15,
                 )
             )
             reply = result.content
 
-            # Suppress HEARTBEAT_OK
+            # Always log heartbeat outcome — evolution system needs complete data
             is_ok = "HEARTBEAT_OK" in reply.upper().replace(" ", "_") if reply else False
-            if not is_ok and reply:
-                from app.services.activity_logger import log_activity
-                await log_activity(
-                    agent_id, "heartbeat",
-                    f"Heartbeat: {reply[:80]}",
-                    detail={"reply": reply[:500]},
-                )
+            outcome_type = "noop" if is_ok else "action_taken"
+            if reply and any(kw in reply.lower() for kw in ["error", "failed", "cannot", "unable", "blocked"]):
+                outcome_type = "failure"
+
+            from app.services.activity_logger import log_activity
+            await log_activity(
+                agent_id, "heartbeat",
+                f"Heartbeat: {'OK' if is_ok else (reply[:80] if reply else 'empty')}",
+                detail={
+                    "reply": reply[:500] if reply else "",
+                    "outcome_type": outcome_type,
+                },
+            )
 
             # Update last_heartbeat_at
             agent.last_heartbeat_at = datetime.now(timezone.utc)
             await db.commit()
 
-            logger.info(f"💓 Heartbeat for {agent.name}: {'OK' if is_ok else reply[:60]}")
+            logger.info(f"💓 Heartbeat for {agent.name}: {'OK' if is_ok else reply[:60] if reply else 'empty'}")
 
     except Exception as e:
         logger.error(f"Heartbeat error for agent {agent_id}: {e}", exc_info=True)
