@@ -56,7 +56,9 @@ class AgentManager:
             (agent_dir / "workspace").mkdir(exist_ok=True)
             (agent_dir / "workspace" / "knowledge_base").mkdir(exist_ok=True)
             (agent_dir / "memory").mkdir(exist_ok=True)
+            (agent_dir / "memory" / "learnings").mkdir(exist_ok=True)
             (agent_dir / "skills").mkdir(exist_ok=True)
+            (agent_dir / "evolution").mkdir(exist_ok=True)
             (agent_dir / "tasks.json").write_text("[]", encoding="utf-8")
 
         # Customize soul.md
@@ -67,18 +69,26 @@ class AgentManager:
         creator = result.scalar_one_or_none()
         creator_name = creator.display_name if creator else "Unknown"
 
-        soul_content = f"# Personality\n\nI'm {agent.name}, {agent.role_description or 'a digital assistant'}.\n"
         if soul_path.exists():
             template_content = soul_path.read_text()
             soul_content = template_content.replace("{{agent_name}}", agent.name)
             soul_content = soul_content.replace("{{role_description}}", agent.role_description or "通用助手")
             soul_content = soul_content.replace("{{creator_name}}", creator_name)
             soul_content = soul_content.replace("{{created_at}}", datetime.now(timezone.utc).strftime("%Y-%m-%d"))
-
-        if personality:
-            soul_content += f"\n\n## Personality\n{personality}\n"
-        if boundaries:
-            soul_content += f"\n## Boundaries\n{boundaries}\n"
+            if personality:
+                soul_content += f"\n\n## Personality\n{personality}\n"
+            if boundaries:
+                soul_content += f"\n## Boundaries\n{boundaries}\n"
+        else:
+            # No template — build soul.md from scratch (single Personality section)
+            role = agent.role_description or "a digital assistant"
+            parts = [f"# Soul — {agent.name}\n"]
+            parts.append(f"## Identity\n- Name: {agent.name}\n- Role: {role}\n- Creator: {creator_name}\n- Created: {datetime.now(timezone.utc).strftime('%Y-%m-%d')}\n")
+            if personality:
+                parts.append(f"## Personality\n{personality}\n")
+            if boundaries:
+                parts.append(f"## Boundaries\n{boundaries}\n")
+            soul_content = "\n".join(parts)
 
         soul_path.write_text(soul_content, encoding="utf-8")
 

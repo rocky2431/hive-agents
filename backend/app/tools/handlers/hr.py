@@ -231,17 +231,14 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
 
             agent_dir = agent_manager._agent_dir(agent.id)
 
-            # Write focus.md (initial working agenda)
+            # Write focus.md (initial working agenda + exploration topics)
+            focus_parts = ["# Focus\n"]
             if focus_content:
-                (agent_dir / "focus.md").write_text(f"# Focus\n\n{focus_content}", encoding="utf-8")
-
-            # Customize HEARTBEAT.md with role-specific topics
+                focus_parts.append(focus_content)
             if heartbeat_topics:
-                heartbeat_path = agent_dir / "HEARTBEAT.md"
-                if heartbeat_path.exists():
-                    existing = heartbeat_path.read_text(encoding="utf-8")
-                    existing += f"\n\n## Role-Specific Exploration\n{heartbeat_topics}\n"
-                    heartbeat_path.write_text(existing, encoding="utf-8")
+                focus_parts.append(f"\n## Exploration Directions\n{heartbeat_topics}")
+            if len(focus_parts) > 1:
+                (agent_dir / "focus.md").write_text("\n".join(focus_parts), encoding="utf-8")
 
             # Create triggers (scheduled tasks)
             if triggers:

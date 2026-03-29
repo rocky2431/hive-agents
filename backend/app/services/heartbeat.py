@@ -10,6 +10,7 @@ Runs as a background task inside the FastAPI process.
 import asyncio
 import uuid
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 
 from loguru import logger
 from sqlalchemy import select
@@ -19,81 +20,29 @@ from app.runtime.invoker import AgentInvocationRequest, invoke_agent
 from app.runtime.session import SessionContext
 from app.services.agent_tools import execute_tool
 
-# Default heartbeat instruction used when HEARTBEAT.md doesn't exist.
-# This is the evolution-aware fallback — agents with custom HEARTBEAT.md
-# will use their own (which they can self-modify).
-DEFAULT_HEARTBEAT_INSTRUCTION = """[Heartbeat — Self-Evolution Protocol]
+# Single source of truth: app/templates/HEARTBEAT.md
+# No hardcoded instruction here — read from template file at runtime.
+_HEARTBEAT_TEMPLATE_PATH = Path(__file__).parent.parent / "templates" / "HEARTBEAT.md"
 
-You are in heartbeat mode. Your goal: observe your performance, do ONE useful thing, learn from the outcome, evolve.
-
-## Phase 1: OBSERVE (2-3 tool calls max)
-
-1. Read `evolution/scorecard.md` — your performance history.
-2. Read `evolution/blocklist.md` — approaches you MUST NOT retry.
-3. Read `focus.md` — your current work priorities.
-4. Skim `memory/learnings/ERRORS.md` — any unresolved errors.
-
-**RULE: If an approach is in blocklist.md, do NOT attempt it. Find an alternative or skip.**
-
-## Phase 2: ANALYZE (think, no tool calls)
-
-Ask yourself:
-- What is my highest-priority focus item that I can actually make progress on?
-- Have I been failing at the same thing repeatedly? If yes, either:
-  a) Try a fundamentally different approach (not a minor variation)
-  b) Add it to blocklist.md and move to something else
-  c) Send a message to your user asking for help
-- What is ONE action that would create the most value right now?
-
-## Phase 3: ACT (1 focused action, 5-8 tool calls max)
-
-Do exactly ONE of these (pick the highest value):
-- [ ] Advance a focus.md task using a NEW approach (not blocked)
-- [ ] Fix an unresolved error from ERRORS.md
-- [ ] Create or improve a skill in skills/
-- [ ] Update focus.md with new priorities based on what you learned
-- [ ] Research something relevant (load_skill first, max 3 searches)
-- [ ] Post to plaza (max 1 post, 2 comments)
-
-**If nothing is actionable: skip to Phase 4. Do NOT waste rounds.**
-
-## Phase 4: EVOLVE (2-3 tool calls)
-
-1. **Score this heartbeat** (0-10):
-   - 0: Did nothing / repeated a blocked approach
-   - 3: Maintained state (updated focus.md, logged learnings)
-   - 5: Made partial progress on a task
-   - 7: Completed a subtask or fixed an error
-   - 10: Delivered a complete result
-
-2. **Append to `evolution/lineage.md`**:
-   ```
-   ### HB-{YYYY-MM-DD-HH:MM}
-   - Strategy: {what I chose to do and why}
-   - Action: {what I actually did}
-   - Outcome: {result — success/partial/failure}
-   - Score: {0-10}
-   - Learning: {what I learned, if anything}
-   - Next: {what should the next heartbeat focus on}
-   ```
-
-3. **Update `evolution/scorecard.md`**: increment counters.
-
-4. **If score <= 2 for 3 consecutive heartbeats on the same approach**:
-   - Add the approach to `evolution/blocklist.md` with the reason
-   - Consider editing your HEARTBEAT.md to improve your strategy
-
-5. **If you discovered a better strategy**: edit HEARTBEAT.md to refine Phase 3.
-
+_HEARTBEAT_PRIVACY_SUFFIX = """
 ⚠️ PRIVACY RULES — STRICTLY FOLLOW:
 - NEVER share information from private user conversations
 - NEVER share content from memory/memory.md or workspace/ files
+- NEVER share task details from tasks.json
 - You may ONLY share: general work insights, public information, opinions on plaza posts
 
 ⚠️ POSTING LIMITS per heartbeat:
 - Maximum 1 new post, 2 comments
 - Do NOT post trivial or repetitive content
 """
+
+
+def _get_default_heartbeat_instruction() -> str:
+    """Read default heartbeat instruction from templates/HEARTBEAT.md (single source of truth)."""
+    try:
+        return _HEARTBEAT_TEMPLATE_PATH.read_text(encoding="utf-8").strip()
+    except Exception:
+        return "[Heartbeat] Check focus.md, do one useful thing, reply HEARTBEAT_OK if nothing needed."
 
 
 def _is_in_active_hours(active_hours: str, tz_name: str = "UTC") -> bool:
@@ -125,13 +74,10 @@ def _is_in_active_hours(active_hours: str, tz_name: str = "UTC") -> bool:
 
 
 def _load_heartbeat_instruction(agent_id: uuid.UUID) -> str:
-    """Read HEARTBEAT.md if present, otherwise fall back to the default instruction."""
-    from pathlib import Path
-
+    """Read agent's HEARTBEAT.md, fallback to templates/HEARTBEAT.md (single source of truth)."""
     from app.config import get_settings
 
     settings = get_settings()
-    heartbeat_instruction = DEFAULT_HEARTBEAT_INSTRUCTION
 
     for ws_root in [
         Path("/tmp/hive_workspaces") / str(agent_id),
@@ -142,26 +88,14 @@ def _load_heartbeat_instruction(agent_id: uuid.UUID) -> str:
             continue
         try:
             custom = hb_file.read_text(encoding="utf-8", errors="replace").strip()
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to read HEARTBEAT.md from {hb_file}: {e}")
             custom = ""
         if not custom:
             break
-        return custom + """
+        return custom + _HEARTBEAT_PRIVACY_SUFFIX
 
-⚠️ PRIVACY RULES — STRICTLY FOLLOW:
-- NEVER share information from private user conversations
-- NEVER share content from memory/memory.md
-- NEVER share content from workspace/ files
-- NEVER share task details from tasks.json
-- You may ONLY share: general work insights, public information, opinions on plaza posts
-
-⚠️ POSTING LIMITS per heartbeat:
-- Maximum 1 new post
-- Maximum 2 comments on existing posts
-- Do NOT post trivial or repetitive content
-"""
-
-    return heartbeat_instruction
+    return _get_default_heartbeat_instruction() + _HEARTBEAT_PRIVACY_SUFFIX
 
 
 
@@ -371,6 +305,29 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
 
     except Exception as e:
         logger.error(f"Heartbeat error for agent {agent_id}: {e}", exc_info=True)
+        # CRITICAL: Update last_heartbeat_at even on failure to prevent
+        # every-minute storm (if timestamp stays None, agent is always eligible)
+        try:
+            from app.database import async_session as _async_session
+            async with _async_session() as _db:
+                from app.models.agent import Agent as _Agent
+                _result = await _db.execute(select(_Agent).where(_Agent.id == agent_id))
+                _agent = _result.scalar_one_or_none()
+                if _agent:
+                    _agent.last_heartbeat_at = datetime.now(timezone.utc)
+                    await _db.commit()
+        except Exception as db_err:
+            logger.warning(f"Failed to update last_heartbeat_at after error: {db_err}")
+        # Log crash to activity so evolution system can see it
+        try:
+            from app.services.activity_logger import log_activity
+            await log_activity(
+                agent_id, "heartbeat",
+                f"Heartbeat crash: {str(e)[:80]}",
+                detail={"outcome_type": "crash", "error": str(e)[:300]},
+            )
+        except Exception as log_err:
+            logger.debug(f"Failed to log heartbeat crash to activity: {log_err}")
 
 
 async def _heartbeat_tick():
