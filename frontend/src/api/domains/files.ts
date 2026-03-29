@@ -27,7 +27,7 @@ export const fileApi = {
   read: (agentId: string, path: string) =>
     get<FileContent>(`/agents/${agentId}/files/content?path=${encodeURIComponent(path)}`),
   write: (agentId: string, path: string, content: string) =>
-    put<void>(`/agents/${agentId}/files/content`, { path, content }),
+    put<void>(`/agents/${agentId}/files/content?path=${encodeURIComponent(path)}`, { content }),
   remove: (agentId: string, path: string) =>
     del(`/agents/${agentId}/files/content?path=${encodeURIComponent(path)}`),
   delete: (agentId: string, path: string) =>
