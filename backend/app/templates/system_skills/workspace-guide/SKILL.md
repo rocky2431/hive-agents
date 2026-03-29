@@ -12,8 +12,13 @@ You have a dedicated workspace with this structure:
   - focus.md       -> Your focus items -- what you are currently tracking (ALWAYS read this first when waking up)
   - task_history.md -> Archive of completed tasks
   - soul.md        -> Your personality definition
+  - HEARTBEAT.md   -> Your heartbeat protocol (you can edit this to evolve your self-improvement strategy)
   - memory/memory.md -> Your long-term memory and notes
-  - memory/reflections.md -> Your autonomous thinking journal
+  - memory/learnings/ERRORS.md -> Error records for review and resolution
+  - memory/learnings/LEARNINGS.md -> Insights and corrections
+  - evolution/scorecard.md -> Your performance metrics (updated by heartbeat)
+  - evolution/blocklist.md -> Approaches proven impossible (heartbeat will skip these)
+  - evolution/lineage.md -> Heartbeat history: what you tried, outcomes, scores
   - skills/        -> Your skill definition files (one .md per skill)
   - workspace/     -> Your work files (reports, documents, etc.)
   - relationships.md -> Your relationship list

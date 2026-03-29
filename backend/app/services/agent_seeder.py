@@ -180,15 +180,15 @@ async def seed_default_agents():
                 encoding="utf-8",
             )
 
-            # Reflections journal — copy from central template
-            refl_template = Path(__file__).parent.parent / "templates" / "reflections.md"
-            refl_content = refl_template.read_text(encoding="utf-8") if refl_template.exists() else "# Reflections Journal\n"
-            (agent_dir / "memory" / "reflections.md").write_text(refl_content, encoding="utf-8")
-
             # Heartbeat — copy from central template
             hb_template = Path(__file__).parent.parent / "templates" / "HEARTBEAT.md"
             hb_content = hb_template.read_text(encoding="utf-8") if hb_template.exists() else "# Heartbeat Instructions\n"
             (agent_dir / "HEARTBEAT.md").write_text(hb_content, encoding="utf-8")
+
+            # Bootstrap evolution directory for self-evolution heartbeat engine
+            from app.tools.workspace import _bootstrap_evolution_files
+            (agent_dir / "evolution").mkdir(exist_ok=True)
+            _bootstrap_evolution_files(agent_dir)
 
             # Tasks (empty)
             (agent_dir / "tasks.json").write_text("[]", encoding="utf-8")

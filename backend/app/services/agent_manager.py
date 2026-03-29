@@ -87,19 +87,16 @@ class AgentManager:
         if not mem_path.exists():
             mem_path.write_text("# Memory\n\n_Record important information and knowledge here._\n", encoding="utf-8")
 
-        # Ensure reflections.md exists — copy from central template
-        refl_path = agent_dir / "memory" / "reflections.md"
-        if not refl_path.exists():
-            refl_template = Path(__file__).parent.parent / "templates" / "reflections.md"
-            refl_content = refl_template.read_text(encoding="utf-8") if refl_template.exists() else "# Reflections Journal\n"
-            refl_path.write_text(refl_content, encoding="utf-8")
-
         # Ensure HEARTBEAT.md exists — copy from central template
         hb_path = agent_dir / "HEARTBEAT.md"
         if not hb_path.exists():
             hb_template = Path(__file__).parent.parent / "templates" / "HEARTBEAT.md"
             hb_content = hb_template.read_text(encoding="utf-8") if hb_template.exists() else "# Heartbeat Instructions\n"
             hb_path.write_text(hb_content, encoding="utf-8")
+
+        # Bootstrap evolution directory for self-evolution heartbeat engine
+        from app.tools.workspace import _bootstrap_evolution_files
+        _bootstrap_evolution_files(agent_dir)
 
         # Ensure relationships.md exists — list other agents in the same tenant
         rel_path = agent_dir / "relationships.md"
