@@ -89,7 +89,7 @@ logger = logging.getLogger(__name__)
             },
             "heartbeat_topics": {
                 "type": "string",
-                "description": "Role-specific topics for heartbeat exploration. Appended to HEARTBEAT.md. E.g. 'Focus on AI/VC funding news, semiconductor breakthroughs, and founder movements.'",
+                "description": "Role-specific exploration topics, written to focus.md as initial directions. E.g. 'Focus on AI/VC funding news, semiconductor breakthroughs, and founder movements.'",
             },
         },
         "required": ["name"],
