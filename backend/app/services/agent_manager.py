@@ -49,6 +49,9 @@ class AgentManager:
         if template_dir.exists():
             # Copy template
             shutil.copytree(str(template_dir), str(agent_dir))
+            # Ensure required dirs exist even if template was incomplete
+            for d in ["memory", "memory/learnings", "skills", "evolution", "workspace"]:
+                (agent_dir / d).mkdir(parents=True, exist_ok=True)
         else:
             # No template dir (local dev) — create minimal workspace structure
             logger.info(f"Template dir not found ({template_dir}), creating minimal workspace")
