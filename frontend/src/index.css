@@ -1453,6 +1453,9 @@ select:focus {
   }
 }
 
+/* Session list — hover to show delete button */
+.session-item:hover .del-btn { opacity: 1 !important; }
+
 /* Chat */
 .chat-container {
   display: flex;
