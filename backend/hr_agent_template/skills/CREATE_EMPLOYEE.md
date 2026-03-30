@@ -10,25 +10,20 @@ tools: [create_digital_employee, discover_resources, web_search, jina_search, ji
 
 After Round 1 (user described their needs), execute these tool calls in order:
 
-### Step 1: Search MCP marketplace
+### Step 1: Match platform skills FIRST
+Check the catalog below. Select which NON-default skills to add to `skill_names`. This is the fastest and most reliable path.
+
+### Step 2: Search MCP marketplace
 ```
 discover_resources(query="[role-relevant keywords in English]", max_results=5)
 ```
 This searches Smithery. Save the server IDs of useful results for `mcp_server_ids`.
 
-### Step 2: Search community skills
-Use `web_search` to find skills on skills.sh:
+### Step 3: Web search for additional capabilities
 ```
-web_search(query="site:skills.sh [role-relevant keywords in English]")
+web_search(query="[role-relevant keywords] AI agent tool integration")
 ```
-This searches skills.sh marketplace. If you find useful skills, note them. After agent creation, install them with:
-```
-execute_code(code="cd [skills_directory] && npx skills add <owner/repo@skill> -y")
-```
-The skills directory path is returned in the create_digital_employee result.
-
-### Step 3: Match platform skills
-Check the catalog below. Select which NON-default skills to add to `skill_names`.
+Search for relevant integrations or capabilities not covered by platform skills or MCP.
 
 ## Platform Skill Catalog
 
@@ -123,7 +118,6 @@ GOOD: "搜索AI/硬科技最新融资动态（关键词：AI startup funding, �
 
 ## After Creation
 
-1. What works NOW (default skills + installed MCP)
+1. What works NOW (14 default skills + any non-default skills + installed MCP)
 2. What needs setup (channel config: 详情页 → 渠道配置)
-3. If community skills found: install with execute_code
-4. Suggest first task to try
+3. Suggest first task to try

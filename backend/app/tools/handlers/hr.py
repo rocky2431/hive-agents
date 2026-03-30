@@ -123,7 +123,14 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
     # Heartbeat config (self-awareness cycle)
     heartbeat_enabled = args.get("heartbeat_enabled", True)
     heartbeat_interval = args.get("heartbeat_interval_minutes", 120)
-    heartbeat_active_hours = args.get("heartbeat_active_hours", "09:00-18:00")
+    raw_hours = str(args.get("heartbeat_active_hours", "09:00-18:00"))
+    # Normalize common LLM responses: "24/7" → "00:00-23:59", strip whitespace
+    if "24" in raw_hours and "7" in raw_hours:
+        heartbeat_active_hours = "00:00-23:59"
+    elif "-" in raw_hours and ":" in raw_hours:
+        heartbeat_active_hours = raw_hours.strip()
+    else:
+        heartbeat_active_hours = "09:00-18:00"
     # Triggers (scheduled tasks) — LLM may pass string or malformed data
     raw_triggers = args.get("triggers") or []
     if isinstance(raw_triggers, str):

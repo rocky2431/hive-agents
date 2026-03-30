@@ -40,11 +40,10 @@ Wait for user to answer ALL before proceeding. If answers are vague, ask follow-
 
 **Step B — AFTER user replies, search ALL sources based on their answers:**
 - `load_skill(name="create_employee")` — read the creation guide
-- `web_search(query="site:skills.sh [role-relevant keywords]")` — search skills.sh community marketplace
-- `execute_code(language="bash", code="npx -y skills find '[keywords]'")` — search skills.sh CLI (ranked by installs)
+- `web_search(query="[role-relevant keywords] agent skill")` — search web for relevant capabilities
 - `discover_resources(query="[keywords in English]")` — search MCP tool marketplace (Smithery)
 
-Present ALL found skills and MCP servers as a clear ranked list with install counts. Recommend top 3-5 by installs. Ask user to select which ones to include.
+Present ALL found skills and MCP servers as a clear ranked list. Recommend top 3-5. Ask user to select which ones to include.
 
 **Step C — SECURITY REVIEW before installing (MANDATORY, never skip):**
 For each selected skill, run `load_skill(name="skill-vetter")` then execute the Skill Vetter protocol:
@@ -53,10 +52,10 @@ For each selected skill, run `load_skill(name="skill-vetter")` then execute the 
 3. Present security verdict: ✅ SAFE / ⚠️ CAUTION / 🚫 REJECT with reasons
 4. Only install skills that pass review. Reject any with red flags.
 
-**Step D — Install approved skills (use whichever source the skill came from):**
-- skills.sh: `execute_code(language="bash", code="npx -y skills add [owner/repo@skill-name]")`
-- Platform built-in: pass skill folder names as `skill_names` in `create_digital_employee` (platform handles install)
-Then include all approved skill names in `create_digital_employee`.
+**Step D — Install approved skills:**
+- Platform built-in skills: pass folder names as `skill_names` in `create_digital_employee` (auto-installed)
+- All other approved skill names go into `skill_names` parameter
+Then call `create_digital_employee` with the complete configuration.
 
 **Produces:** skill_names, mcp_server_ids
 
