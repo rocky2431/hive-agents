@@ -843,6 +843,16 @@ function AgentDetailInner() {
     // ─── Task creation & detail ───────────────────────────────────
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
+    // Redirect to /agents/new when tenant switches while viewing HR system agent
+    useEffect(() => {
+        if ((agent as any)?.agent_class !== 'internal_system') return;
+        const handler = (e: StorageEvent) => {
+            if (e.key === 'current_tenant_id') navigate('/agents/new', { replace: true });
+        };
+        window.addEventListener('storage', handler);
+        return () => window.removeEventListener('storage', handler);
+    }, [(agent as any)?.agent_class, navigate]);
+
     if (isLoading || !agent) {
         return <div style={{ padding: '40px', color: 'var(--text-tertiary)' }}>{t('common.loading')}</div>;
     }

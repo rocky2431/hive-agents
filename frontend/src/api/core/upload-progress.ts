@@ -25,6 +25,8 @@ export function uploadFileWithProgress(
 
     xhr.open('POST', `${API_BASE}${url}`);
     if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    const tenantId = localStorage.getItem('current_tenant_id');
+    if (tenantId) xhr.setRequestHeader('X-Tenant-Id', tenantId);
     xhr.timeout = timeoutMs;
 
     if (onProgress) {

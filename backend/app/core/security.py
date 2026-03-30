@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 import bcrypt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from sqlalchemy import select
@@ -70,10 +70,16 @@ def decode_access_token(token: str) -> dict:
 
 
 async def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: AsyncSession = Depends(get_db),
 ):
-    """Dependency to get the current authenticated user."""
+    """Dependency to get the current authenticated user.
+
+    Supports X-Tenant-Id header for tenant context switching:
+    - platform_admin: can operate as any active tenant
+    - org_admin / member: can only use their own tenant (header ignored if mismatched)
+    """
     from app.models.user import User
     from app.models.tenant import Tenant
 
@@ -101,6 +107,27 @@ async def get_current_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Company has been disabled",
         )
+
+    # Tenant context override via X-Tenant-Id header
+    requested_tenant = request.headers.get("x-tenant-id")
+    if requested_tenant and user.tenant_id and str(user.tenant_id) != requested_tenant:
+        if user.role == "platform_admin":
+            try:
+                target_id = uuid.UUID(requested_tenant)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid X-Tenant-Id")
+            target_result = await db.execute(
+                select(Tenant.is_active).where(Tenant.id == target_id)
+            )
+            target_active = target_result.scalar_one_or_none()
+            if target_active is None:
+                raise HTTPException(status_code=404, detail="Target tenant not found")
+            if not target_active:
+                raise HTTPException(status_code=403, detail="Target tenant is disabled")
+            # Detach user from ORM session and override tenant_id in-memory
+            db.expunge(user)
+            user.tenant_id = target_id
+
     return user
 
 

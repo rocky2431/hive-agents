@@ -85,8 +85,10 @@ class TenantMiddleware(BaseHTTPMiddleware):
             tenant_id = payload.get("tid")
             user_role = payload.get("role", "")
 
-            if not tenant_id and user_role == "platform_admin":
-                tenant_id = request.headers.get("x-tenant-id")
+            if user_role == "platform_admin":
+                override = request.headers.get("x-tenant-id")
+                if override:
+                    tenant_id = override
 
         except Exception as e:
             logger.debug("JWT decode skipped in TenantMiddleware: %s", e)

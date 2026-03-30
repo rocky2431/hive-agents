@@ -17,8 +17,12 @@ function getToken(): string | null {
 }
 
 function authHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {};
   const token = getToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const tenantId = localStorage.getItem('current_tenant_id');
+  if (tenantId) headers['X-Tenant-Id'] = tenantId;
+  return headers;
 }
 
 function handleUnauthorized(url: string): never {

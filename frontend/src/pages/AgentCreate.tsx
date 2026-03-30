@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
@@ -9,13 +9,25 @@ import { agentApi } from '../api/domains/agents';
  * The HR Agent is fetched (or lazily created) via GET /agents/system/hr,
  * then the user is redirected to /agents/{hrAgentId}#chat where the full
  * AgentDetail UI handles chat, settings, skills, etc.
+ *
+ * Query key includes current_tenant_id so switching companies re-fetches.
  */
 export default function AgentCreate() {
     const { t } = useTranslation();
     const navigate = useNavigate();
+    const [tenantId, setTenantId] = useState(localStorage.getItem('current_tenant_id') || '');
+
+    // Listen for tenant switches
+    useEffect(() => {
+        const handler = (e: StorageEvent) => {
+            if (e.key === 'current_tenant_id') setTenantId(e.newValue || '');
+        };
+        window.addEventListener('storage', handler);
+        return () => window.removeEventListener('storage', handler);
+    }, []);
 
     const { data: hrAgent, isLoading, error } = useQuery({
-        queryKey: ['hr-agent'],
+        queryKey: ['hr-agent', tenantId],
         queryFn: () => agentApi.getHrAgent(),
         retry: 2,
     });
