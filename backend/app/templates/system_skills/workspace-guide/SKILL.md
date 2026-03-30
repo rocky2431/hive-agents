@@ -1,6 +1,6 @@
 ---
 name: Workspace Guide
-description: 工作区结构、文件操作规则、Focus 管理指南
+description: Workspace structure, file operation rules, and focus management guide
 is_system: true
 ---
 

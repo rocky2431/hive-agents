@@ -1,6 +1,6 @@
 ---
 name: Self-Improving Agent
-description: 持续自我改进协议。记录错误、纠正和学习，将经验沉淀为可复用知识。当操作失败、用户纠正、发现更好方法时自动触发。
+description: Continuous self-improvement protocol. Records errors, corrections, and learnings as reusable knowledge. Triggers on operation failures, user corrections, or discovery of better approaches.
 tools:
   - write_file
   - read_file
@@ -11,169 +11,161 @@ is_default: true
 
 # Self-Improving Agent
 
-记录错误和经验教训，沉淀为持久知识。重要学习会晋升到 agent 核心文件。
+Record errors and lessons learned, distill them into persistent knowledge. Important learnings get promoted to core agent files.
 
-## 触发时机
+## Trigger Conditions
 
-| 情况 | 操作 |
-|------|------|
-| 命令/操作失败 | 记录到 `memory/learnings/ERRORS.md` |
-| 用户纠正你 | 记录到 `memory/learnings/LEARNINGS.md`，分类 `correction` |
-| 用户需要你没有的能力 | 记录到 `memory/learnings/FEATURE_REQUESTS.md` |
-| API/外部工具失败 | 记录到 `memory/learnings/ERRORS.md` |
-| 发现你的知识过时 | 记录到 `memory/learnings/LEARNINGS.md`，分类 `knowledge_gap` |
-| 发现更好的方法 | 记录到 `memory/learnings/LEARNINGS.md`，分类 `best_practice` |
-| 广泛适用的经验 | 晋升到 `soul.md` 或 `memory/memory.md` |
+| Situation | Action |
+|-----------|--------|
+| Command/operation fails | Record to `memory/learnings/ERRORS.md` |
+| User corrects you | Record to `memory/learnings/LEARNINGS.md`, category `correction` |
+| User needs a capability you lack | Record to `memory/learnings/FEATURE_REQUESTS.md` |
+| API/external tool fails | Record to `memory/learnings/ERRORS.md` |
+| Your knowledge is outdated | Record to `memory/learnings/LEARNINGS.md`, category `knowledge_gap` |
+| Better approach discovered | Record to `memory/learnings/LEARNINGS.md`, category `best_practice` |
+| Broadly applicable insight | Promote to `soul.md` or `memory/memory.md` |
 
-## 检测触发词
+## Detection Triggers
 
-**用户纠正**（→ learning, correction）：
-- "不对"、"错了"、"实际上应该是..."、"那个过时了"
+**User correction** (-> learning, correction):
+- "That's wrong", "Actually it should be...", "That's outdated"
 
-**知识缺口**（→ learning, knowledge_gap）：
-- 用户提供了你不知道的信息
-- 你引用的文档已过时
+**Knowledge gap** (-> learning, knowledge_gap):
+- User provides information you didn't know
+- Documentation you referenced is outdated
 
-**错误**（→ error）：
-- 命令返回非零退出码
-- 异常或堆栈跟踪
-- 超时或连接失败
+**Error** (-> error):
+- Command returns non-zero exit code
+- Exception or stack trace
+- Timeout or connection failure
 
-## 文件结构
+## File Structure
 
 ```
 memory/
-├── memory.md              # 长期记忆（已有）
-├── learnings/             # 本 skill 的记录目录
-│   ├── LEARNINGS.md       # 纠正、知识缺口、最佳实践
-│   ├── ERRORS.md          # 命令失败、异常
-│   └── FEATURE_REQUESTS.md # 用户需要的新能力
+├── memory.md              # Long-term memory (existing)
+├── learnings/             # This skill's record directory
+│   ├── LEARNINGS.md       # Corrections, knowledge gaps, best practices
+│   ├── ERRORS.md          # Command failures, exceptions
+│   └── FEATURE_REQUESTS.md # Capabilities users need but you lack
 ```
 
-首次使用时自动创建 `memory/learnings/` 目录。
+The `memory/learnings/` directory is pre-created in the workspace.
 
-## 记录格式
+## Record Format
 
-### 学习条目
+### Learning Entry
 
-追加到 `memory/learnings/LEARNINGS.md`：
+Append to `memory/learnings/LEARNINGS.md`:
 
 ```markdown
-## [LRN-YYYYMMDD-XXX] 分类
+## [LRN-YYYYMMDD-XXX] category
 
-**时间**: ISO-8601
-**优先级**: low | medium | high | critical
-**状态**: pending
+**Time**: ISO-8601
+**Priority**: low | medium | high | critical
+**Status**: pending
 
-### 概要
-一句话描述学到了什么
+### Summary
+One sentence describing what was learned
 
-### 详情
-完整上下文：发生了什么，哪里错了，正确做法是什么
+### Details
+Full context: what happened, what went wrong, what the correct approach is
 
-### 建议操作
-具体的改进措施
+### Suggested Action
+Specific improvement measures
 
-### 元数据
-- 来源: conversation | error | user_feedback
-- 相关文件: path/to/file
-- 关联: LRN-20250110-001（如果和已有条目相关）
+### Metadata
+- Source: conversation | error | user_feedback
+- Related file: path/to/file
+- Related: LRN-20250110-001 (if connected to existing entry)
 ---
 ```
 
-### 错误条目
+### Error Entry
 
-追加到 `memory/learnings/ERRORS.md`：
+Append to `memory/learnings/ERRORS.md`:
 
 ```markdown
-## [ERR-YYYYMMDD-XXX] 命令或工具名
+## [ERR-YYYYMMDD-XXX] command_or_tool_name
 
-**时间**: ISO-8601
-**优先级**: high
-**状态**: pending
+**Time**: ISO-8601
+**Priority**: high
+**Status**: pending
 
-### 概要
-简述什么失败了
+### Summary
+Brief description of what failed
 
-### 错误信息
-实际的错误输出
+### Error Message
+Actual error output
 
-### 上下文
-- 尝试执行的命令/操作
-- 使用的输入或参数
+### Context
+- Command/operation attempted
+- Input or parameters used
 
-### 建议修复
-可能的解决方案
+### Suggested Fix
+Possible solutions
 
-### 元数据
-- 可复现: yes | no | unknown
-- 相关文件: path/to/file
+### Metadata
+- Reproducible: yes | no | unknown
+- Related file: path/to/file
 ---
 ```
 
-## 解决条目
+## Resolving Entries
 
-修复问题后更新条目：
-1. 将 `**状态**: pending` 改为 `**状态**: resolved`
-2. 添加解决记录：
+After fixing an issue, update the entry:
+1. Change `**Status**: pending` to `**Status**: resolved`
+2. Add resolution record:
 
 ```markdown
-### 解决
-- **解决时间**: 2025-01-16T09:00:00Z
-- **备注**: 简述做了什么
+### Resolution
+- **Resolved at**: 2025-01-16T09:00:00Z
+- **Notes**: Brief description of what was done
 ```
 
-## 晋升到核心文件
+## Promotion to Core Files
 
-当经验具有广泛适用性时，晋升到永久知识：
+When a learning has broad applicability, promote it to permanent knowledge:
 
-| 学习类型 | 晋升目标 | 示例 |
-|---------|---------|------|
-| 行为模式/性格调整 | `soul.md`（每次调用注入，2000字符） | "简洁回复，避免废话" |
-| 当前任务相关的经验 | `focus.md`（每次调用注入，3000字符） | "用户偏好方案 A，API 端点已改" |
-| 长期有效的知识 | `memory/memory.md`（每次调用注入，2000字符） | "项目用 pnpm，不是 npm" |
-| 工具使用技巧 | `memory/learnings/LEARNINGS.md` | 保留，不晋升 |
+| Learning Type | Promotion Target | Example |
+|--------------|-----------------|---------|
+| Behavior/personality adjustment | `soul.md` (injected every call, 2000 chars) | "Keep replies concise, avoid filler" |
+| Current task-related insight | `focus.md` (injected every call, 3000 chars) | "User prefers plan A, API endpoint changed" |
+| Long-term valid knowledge | `memory/memory.md` (injected every call, 2000 chars) | "Project uses pnpm, not npm" |
+| Tool usage tips | `memory/learnings/LEARNINGS.md` | Keep as-is, don't promote |
 
-### 晋升条件
+### Promotion Criteria
 
-满足以下任一条件时晋升：
-- 同一问题出现 3 次以上
-- 跨多个文件/功能的通用知识
-- 防止反复犯错的规则
+Promote when any of these conditions are met:
+- Same issue occurred 3+ times
+- Knowledge applies across multiple files/features
+- Rule that prevents repeated mistakes
 
-### 晋升步骤
+### Promotion Steps
 
-1. **提炼**为简洁的规则或事实
-2. **添加**到目标文件的合适位置
-3. **更新**原条目状态为 `promoted`
+1. **Distill** into a concise rule or fact
+2. **Add** to the appropriate section in the target file
+3. **Update** original entry status to `promoted`
 
-## 周期性回顾
+## Periodic Review
 
-在以下时机回顾 `memory/learnings/`：
-- 开始重大新任务前
-- 完成一个功能后
-- 在有历史问题的领域工作时
+Review `memory/learnings/` at these times:
+- Before starting a major new task
+- After completing a feature
+- When working in an area with historical issues
 
-```bash
-# 查看待处理项数量
-grep -h "状态.*pending" memory/learnings/*.md | wc -l
+## Repeated Pattern Detection
 
-# 查看高优先级待处理项
-grep -B3 "优先级.*high" memory/learnings/*.md | grep "^## \["
-```
+Before recording similar content, search first:
+1. Search existing entries for similar issues
+2. If found, add a cross-reference
+3. Increase priority
+4. Consider promoting to core knowledge
 
-## 反复模式检测
+## Best Practices
 
-记录类似内容前先搜索：
-1. 搜索已有条目中是否有类似问题
-2. 如果有，添加关联引用
-3. 提高优先级
-4. 考虑晋升为核心知识
-
-## 最佳实践
-
-1. **立即记录** — 上下文最新鲜的时候
-2. **具体明确** — 未来需要快速理解
-3. **包含重现步骤** — 尤其是错误
-4. **建议具体修复** — 不要只写"调查一下"
-5. **积极晋升** — 有疑虑时就晋升到核心文件
+1. **Record immediately** — context is freshest right away
+2. **Be specific** — future you needs to understand quickly
+3. **Include reproduction steps** — especially for errors
+4. **Suggest specific fixes** — don't just write "investigate"
+5. **Promote proactively** — when in doubt, promote to core files

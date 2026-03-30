@@ -55,7 +55,7 @@ logger = logging.getLogger(__name__)
             },
             "heartbeat_enabled": {
                 "type": "boolean",
-                "description": "Enable heartbeat (self-awareness cycle: check plaza, explore topics, update memory). Default: true.",
+                "description": "Enable heartbeat (self-evolution cycle: observe performance, act on priorities, learn from outcomes). Default: true.",
             },
             "heartbeat_interval_minutes": {
                 "type": "integer",

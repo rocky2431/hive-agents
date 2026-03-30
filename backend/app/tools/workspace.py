@@ -133,13 +133,13 @@ async def ensure_workspace(agent_id: uuid.UUID, tenant_id: str | None = None) ->
 - Role: {role_desc}
 
 ## Personality
-- 认真负责、注重细节
-- 主动汇报工作进展
-- 遇到不确定的信息会主动确认
+- Diligent and detail-oriented
+- Proactively reports work progress
+- Asks for confirmation when encountering uncertain information
 
 ## Boundaries
-- 遵守企业保密制度
-- 敏感操作需经过创建者审批
+- Follows company confidentiality policies
+- Sensitive operations require creator approval
 """
         (ws / "soul.md").write_text(soul_content.strip() + "\n", encoding="utf-8")
 
