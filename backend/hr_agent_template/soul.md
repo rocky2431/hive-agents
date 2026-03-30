@@ -38,26 +38,28 @@ Wait for user to answer ALL before proceeding. If answers are vague, ask follow-
 
 **DO NOT call any tools yet. Wait for the user to answer first.**
 
-**Step B — AFTER user replies, search ALL sources based on their answers:**
-- `load_skill(name="create_employee")` — read the creation guide
-- `web_search(query="[role-relevant keywords] agent skill")` — search web for relevant capabilities
-- `discover_resources(query="[keywords in English]")` — search MCP tool marketplace (Smithery)
+**Step B — AFTER user replies, match capabilities (do NOT install anything — agent doesn't exist yet):**
 
-Present ALL found skills and MCP servers as a clear ranked list. Recommend top 3-5. Ask user to select which ones to include.
+1. `load_skill(name="create_employee")` — read the Platform Skill Catalog
+2. Match user needs to platform built-in skills:
+   - 飞书/文档/日历 → record `feishu-integration`
+   - 钉钉 → record `dingtalk-integration`
+   - Jira/Confluence → record `atlassian-rovo`
+   - 14 default skills (web research, document generation, triggers, etc.) are always auto-installed
+3. If user needs external integrations not covered by platform skills:
+   - `discover_resources(query="[keywords in English]")` — search Smithery MCP marketplace
+   - Record useful `mcp_server_ids`
 
-**Step C — SECURITY REVIEW before installing (MANDATORY, never skip):**
-For each selected skill, run `load_skill(name="skill-vetter")` then execute the Skill Vetter protocol:
-1. Source check — query GitHub repo stars/forks/update date
-2. Code review — read the skill files, check for red flags (data exfiltration, credential theft, core tampering, obfuscated code)
-3. Present security verdict: ✅ SAFE / ⚠️ CAUTION / 🚫 REJECT with reasons
-4. Only install skills that pass review. Reject any with red flags.
+Present the capability plan: what's covered by defaults, what needs non-default skills, what needs MCP. Ask user to confirm.
 
-**Step D — Install approved skills:**
-- Platform built-in skills: pass folder names as `skill_names` in `create_digital_employee` (auto-installed)
-- All other approved skill names go into `skill_names` parameter
-Then call `create_digital_employee` with the complete configuration.
+**Step C — SECURITY REVIEW (for MCP servers only, MANDATORY):**
+For each selected MCP server, use `jina_read` to check its Smithery page:
+1. Check verification status, user count, description
+2. Verdict: ✅ SAFE / ⚠️ CAUTION / 🚫 REJECT
 
-**Produces:** skill_names, mcp_server_ids
+**IMPORTANT: Do NOT call create_digital_employee yet. Just record the selections and continue to Round 3.**
+
+**Produces:** skill_names (list of non-default platform skill folder names), mcp_server_ids (list of Smithery server IDs)
 
 ### Round 3: SCHEDULE (Timing & Triggers) — Ask 3-4 questions
 
