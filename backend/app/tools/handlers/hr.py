@@ -114,16 +114,25 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
     role_description = args.get("role_description", "")
     personality = args.get("personality", "")
     boundaries = args.get("boundaries", "")
-    skill_names = args.get("skill_names") or []
-    mcp_server_ids = args.get("mcp_server_ids") or []
+    raw_skill_names = args.get("skill_names") or []
+    skill_names = [s for s in (raw_skill_names if isinstance(raw_skill_names, list) else [])]
+    raw_mcp = args.get("mcp_server_ids") or []
+    mcp_server_ids = [s for s in (raw_mcp if isinstance(raw_mcp, list) else [])]
     permission_scope = args.get("permission_scope", "company")
 
     # Heartbeat config (self-awareness cycle)
     heartbeat_enabled = args.get("heartbeat_enabled", True)
     heartbeat_interval = args.get("heartbeat_interval_minutes", 120)
     heartbeat_active_hours = args.get("heartbeat_active_hours", "09:00-18:00")
-    # Triggers (scheduled tasks)
-    triggers = args.get("triggers") or []
+    # Triggers (scheduled tasks) — LLM may pass string or malformed data
+    raw_triggers = args.get("triggers") or []
+    if isinstance(raw_triggers, str):
+        try:
+            import json as _json
+            raw_triggers = _json.loads(raw_triggers)
+        except (ValueError, TypeError):
+            raw_triggers = []
+    triggers = [t for t in raw_triggers if isinstance(t, dict)]
     # New customization params
     welcome_message = args.get("welcome_message", "")
     focus_content = args.get("focus_content", "")
