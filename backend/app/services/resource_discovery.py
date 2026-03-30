@@ -3,9 +3,21 @@
 import uuid
 import httpx
 from loguru import logger
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from app.database import async_session
+from app.models.agent import Agent
 from app.models.tool import Tool, AgentTool
+
+
+async def _resolve_agent_tenant_id(agent_id: uuid.UUID) -> uuid.UUID | None:
+    """Look up the tenant_id for an agent. Returns None if not found."""
+    try:
+        async with async_session() as db:
+            r = await db.execute(select(Agent.tenant_id).where(Agent.id == agent_id))
+            return r.scalar_one_or_none()
+    except Exception as exc:
+        logger.warning(f"[ResourceDiscovery] Failed to resolve tenant_id for agent {agent_id}: {exc}")
+        return None
 
 
 # ── Smithery Registry Search ────────────────────────────────────
@@ -23,9 +35,7 @@ async def _get_smithery_api_key(agent_id: uuid.UUID | None = None) -> str:
         async with async_session() as db:
             # 1) Per-agent: check AgentTool configs for any MCP tool with a smithery_api_key
             if agent_id:
-                at_r = await db.execute(
-                    select(AgentTool).where(AgentTool.agent_id == agent_id)
-                )
+                at_r = await db.execute(select(AgentTool).where(AgentTool.agent_id == agent_id))
                 for at in at_r.scalars().all():
                     if at.config and at.config.get("smithery_api_key"):
                         return at.config["smithery_api_key"]
@@ -35,8 +45,8 @@ async def _get_smithery_api_key(agent_id: uuid.UUID | None = None) -> str:
                 tool = r.scalar_one_or_none()
                 if tool and tool.config and tool.config.get("smithery_api_key"):
                     return tool.config["smithery_api_key"]
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug(f"[ResourceDiscovery] Could not read Smithery API key: {exc}")
     return ""
 
 
@@ -57,16 +67,18 @@ async def _search_smithery_api(query: str, max_results: int, api_key: str) -> li
             data = resp.json()
         results = []
         for srv in data.get("servers", [])[:max_results]:
-            results.append({
-                "name": srv.get("qualifiedName", ""),
-                "display_name": srv.get("displayName", ""),
-                "description": srv.get("description", "")[:200],
-                "remote": srv.get("remote", False),
-                "verified": srv.get("verified", False),
-                "use_count": srv.get("useCount", 0),
-                "homepage": srv.get("homepage", ""),
-                "source": "Smithery",
-            })
+            results.append(
+                {
+                    "name": srv.get("qualifiedName", ""),
+                    "display_name": srv.get("displayName", ""),
+                    "description": srv.get("description", "")[:200],
+                    "remote": srv.get("remote", False),
+                    "verified": srv.get("verified", False),
+                    "use_count": srv.get("useCount", 0),
+                    "homepage": srv.get("homepage", ""),
+                    "source": "Smithery",
+                }
+            )
         return results
     except Exception:
         return []
@@ -81,8 +93,8 @@ async def _get_modelscope_api_token() -> str:
                 tool = r.scalar_one_or_none()
                 if tool and tool.config and tool.config.get("modelscope_api_token"):
                     return tool.config["modelscope_api_token"]
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug(f"[ResourceDiscovery] Could not read ModelScope API token: {exc}")
     return ""
 
 
@@ -118,16 +130,18 @@ async def _search_modelscope_api(query: str, max_results: int) -> list[dict]:
         results = []
         for srv in servers_data[:max_results]:
             server_id = srv.get("id", "")
-            results.append({
-                "name": server_id,
-                "display_name": srv.get("name", server_id),
-                "description": srv.get("description", "")[:200],
-                "remote": srv.get("is_hosted", False),
-                "verified": True,
-                "use_count": 0,
-                "homepage": f"https://modelscope.cn/mcp/servers/{server_id}",
-                "source": "ModelScope",
-            })
+            results.append(
+                {
+                    "name": server_id,
+                    "display_name": srv.get("name", server_id),
+                    "description": srv.get("description", "")[:200],
+                    "remote": srv.get("is_hosted", False),
+                    "verified": True,
+                    "use_count": 0,
+                    "homepage": f"https://modelscope.cn/mcp/servers/{server_id}",
+                    "source": "ModelScope",
+                }
+            )
         return results
     except Exception as e:
         logger.error(f"[ResourceDiscovery] ModelScope search failed: {e}")
@@ -140,6 +154,7 @@ async def search_registries(query: str, max_results: int = 5) -> str:
 
     # Search both registries in parallel
     import asyncio
+
     smithery_task = _search_smithery_api(query, max_results, api_key)
     modelscope_task = _search_modelscope_api(query, max_results)
     smithery_results, modelscope_results = await asyncio.gather(smithery_task, modelscope_task)
@@ -164,7 +179,7 @@ async def search_registries(query: str, max_results: int = 5) -> str:
         else:
             deploy_info = "💻 Local install required"
         use_info = f" · 👥 {srv['use_count']:,} users" if srv["use_count"] else ""
-        hp = srv['homepage']
+        hp = srv["homepage"]
 
         results.append(
             f"**{i}. {srv['display_name']}**{verified} {source_tag}\n"
@@ -189,6 +204,7 @@ async def search_smithery(query: str, max_results: int = 5) -> str:
 
 
 # ── Import MCP Server ───────────────────────────────────────────
+
 
 async def _ensure_smithery_connection(api_key: str, mcp_url: str, display_name: str) -> dict:
     """Create or reuse a Smithery Connect namespace + connection.
@@ -250,6 +266,9 @@ async def import_mcp_from_smithery(
     """
     config = dict(config) if config else {}  # mutable copy
 
+    # Resolve agent's tenant_id for tool scoping
+    agent_tenant_id = await _resolve_agent_tenant_id(agent_id)
+
     # Extract smithery_api_key from config (user-provided) or fallback to stored
     api_key = config.pop("smithery_api_key", None) or await _get_smithery_api_key(agent_id)
     if not api_key:
@@ -281,13 +300,18 @@ async def import_mcp_from_smithery(
                 if at:
                     at.config = {**(at.config or {}), "smithery_api_key": api_key}
                 else:
-                    db.add(AgentTool(
-                        agent_id=agent_id, tool_id=tool.id, enabled=True,
-                        source="system", config={"smithery_api_key": api_key},
-                    ))
+                    db.add(
+                        AgentTool(
+                            agent_id=agent_id,
+                            tool_id=tool.id,
+                            enabled=True,
+                            source="system",
+                            config={"smithery_api_key": api_key},
+                        )
+                    )
             await db.commit()
-    except Exception:
-        pass  # non-critical — key is still usable from MCP tool configs
+    except Exception as exc:
+        logger.debug(f"[ResourceDiscovery] Could not persist Smithery API key to AgentTool: {exc}")
 
     # ---- Early exit: check if this server's tools are already installed for this agent ----
     # Check by both tool name prefix AND mcp_server_name to catch different server_id variants
@@ -296,9 +320,12 @@ async def import_mcp_from_smithery(
     try:
         async with async_session() as db:
             from sqlalchemy import or_
+
+            tenant_filter = Tool.tenant_id == agent_tenant_id if agent_tenant_id else Tool.tenant_id.is_(None)
             existing_server_r = await db.execute(
                 select(Tool).where(
                     Tool.type == "mcp",
+                    tenant_filter,
                     or_(
                         Tool.name.like(f"mcp_{clean_id_check}%"),
                         Tool.name.like(f"mcp_{clean_id_check.split('_')[-1]}%"),
@@ -321,12 +348,13 @@ async def import_mcp_from_smithery(
                     more = f" ... and {len(existing_server_tools) - 5} more" if len(existing_server_tools) > 5 else ""
                     return (
                         f"⏭️ You already have **{len(existing_server_tools)}** tools from this MCP server installed:\n"
-                        + "\n".join(f"  • {n}" for n in tool_names) + more
+                        + "\n".join(f"  • {n}" for n in tool_names)
+                        + more
                         + "\n\nNo action needed. These tools are ready to use."
-                        + "\n\n💡 If tools stopped working (e.g. OAuth expired), use `import_mcp_server(server_id=\"....\", reauthorize=true)` to re-authorize."
+                        + '\n\n💡 If tools stopped working (e.g. OAuth expired), use `import_mcp_server(server_id="....", reauthorize=true)` to re-authorize.'
                     )
-    except Exception:
-        pass  # non-critical — proceed to normal import flow
+    except Exception as exc:
+        logger.debug(f"[ResourceDiscovery] Early-exit dedup check failed, proceeding: {exc}")
 
     # Step 1: Search for server by ID
     headers = {"Accept": "application/json"}
@@ -386,11 +414,14 @@ async def import_mcp_from_smithery(
                         "description": t.get("description", ""),
                         "inputSchema": t.get("inputSchema", {}),
                     }
-                    for t in raw_tools if t.get("name")
+                    for t in raw_tools
+                    if t.get("name")
                 ]
                 logger.info(f"[ResourceDiscovery] Got {len(tools_discovered)} tools from registry for {qualified_name}")
             else:
-                logger.warning(f"[ResourceDiscovery] Could not fetch detail for {qualified_name}: HTTP {detail_resp.status_code}")
+                logger.warning(
+                    f"[ResourceDiscovery] Could not fetch detail for {qualified_name}: HTTP {detail_resp.status_code}"
+                )
     except Exception as e:
         logger.error(f"[ResourceDiscovery] Could not fetch server detail: {e}")
 
@@ -433,11 +464,16 @@ async def import_mcp_from_smithery(
             if at:
                 at.config = {**(at.config or {}), **agent_tool_config}
             else:
-                db.add(AgentTool(
-                    agent_id=agent_id, tool_id=tool_id, enabled=True,
-                    source="user_installed", installed_by_agent_id=agent_id,
-                    config=agent_tool_config,
-                ))
+                db.add(
+                    AgentTool(
+                        agent_id=agent_id,
+                        tool_id=tool_id,
+                        enabled=True,
+                        source="user_installed",
+                        installed_by_agent_id=agent_id,
+                        config=agent_tool_config,
+                    )
+                )
 
         # On re-import/reauthorize: update ALL existing tools for this server
         if config or reauthorize:
@@ -448,15 +484,16 @@ async def import_mcp_from_smithery(
                 et.mcp_server_url = base_mcp_url
                 await _ensure_agent_tool(et.id)
 
+        # Tenant-scoped dedup filter for all tool lookups
+        _tenant_filter = Tool.tenant_id == agent_tenant_id if agent_tenant_id else Tool.tenant_id.is_(None)
+
         if tools_discovered:
             # Clean up old generic entry if individual tools are now discovered
             generic_name = f"mcp_{server_id.replace('/', '_').replace('@', '')}"
-            old_generic_r = await db.execute(select(Tool).where(Tool.name == generic_name))
+            old_generic_r = await db.execute(select(Tool).where(Tool.name == generic_name, _tenant_filter))
             old_generic = old_generic_r.scalar_one_or_none()
             if old_generic:
-                await db.execute(
-                    AgentTool.__table__.delete().where(AgentTool.tool_id == old_generic.id)
-                )
+                await db.execute(delete(AgentTool).where(AgentTool.tool_id == old_generic.id))
                 await db.delete(old_generic)
                 await db.flush()
 
@@ -465,7 +502,7 @@ async def import_mcp_from_smithery(
                 tool_name = f"mcp_{server_id.replace('/', '_').replace('@', '')}_{mcp_tool['name']}"
                 tool_display = f"{display_name}: {mcp_tool['name']}"
 
-                existing_r = await db.execute(select(Tool).where(Tool.name == tool_name))
+                existing_r = await db.execute(select(Tool).where(Tool.name == tool_name, _tenant_filter))
                 existing_tool = existing_r.scalar_one_or_none()
                 if existing_tool:
                     existing_tool.mcp_server_url = base_mcp_url
@@ -491,6 +528,7 @@ async def import_mcp_from_smithery(
                     mcp_tool_name=mcp_tool["name"],
                     enabled=True,
                     is_default=False,
+                    tenant_id=agent_tenant_id,
                 )
                 db.add(tool)
                 await db.flush()
@@ -501,7 +539,7 @@ async def import_mcp_from_smithery(
             tool_name = f"mcp_{server_id.replace('/', '_').replace('@', '')}"
             tool_display = display_name
 
-            existing_r = await db.execute(select(Tool).where(Tool.name == tool_name))
+            existing_r = await db.execute(select(Tool).where(Tool.name == tool_name, _tenant_filter))
             existing_tool = existing_r.scalar_one_or_none()
             if existing_tool:
                 existing_tool.mcp_server_url = base_mcp_url
@@ -524,6 +562,7 @@ async def import_mcp_from_smithery(
                 mcp_server_name=display_name,
                 enabled=True,
                 is_default=False,
+                tenant_id=agent_tenant_id,
             )
             db.add(tool)
             await db.flush()
@@ -544,6 +583,7 @@ async def import_mcp_from_smithery(
 
 # ── Direct URL Import ───────────────────────────────────────────
 
+
 async def import_mcp_direct(
     mcp_url: str,
     agent_id: uuid.UUID,
@@ -556,6 +596,9 @@ async def import_mcp_direct(
     MCP servers that provide their own public endpoint.
     """
     from app.services.mcp_client import MCPClient
+
+    # Resolve agent's tenant_id for tool scoping
+    agent_tenant_id = await _resolve_agent_tenant_id(agent_id)
 
     # Build URL with apiKey if provided
     full_url = mcp_url
@@ -595,18 +638,26 @@ async def import_mcp_direct(
             if at:
                 at.config = {**(at.config or {}), **agent_tool_config}
             else:
-                db.add(AgentTool(
-                    agent_id=agent_id, tool_id=tool_id, enabled=True,
-                    source="user_installed", installed_by_agent_id=agent_id,
-                    config=agent_tool_config,
-                ))
+                db.add(
+                    AgentTool(
+                        agent_id=agent_id,
+                        tool_id=tool_id,
+                        enabled=True,
+                        source="user_installed",
+                        installed_by_agent_id=agent_id,
+                        config=agent_tool_config,
+                    )
+                )
+
+        # Tenant-scoped dedup filter
+        _tenant_filter = Tool.tenant_id == agent_tenant_id if agent_tenant_id else Tool.tenant_id.is_(None)
 
         if tools_discovered:
             for mcp_tool in tools_discovered:
                 tool_name = f"mcp_{safe_name}_{mcp_tool['name']}"
                 tool_display = f"{display_name}: {mcp_tool['name']}"
 
-                existing_r = await db.execute(select(Tool).where(Tool.name == tool_name))
+                existing_r = await db.execute(select(Tool).where(Tool.name == tool_name, _tenant_filter))
                 existing_tool = existing_r.scalar_one_or_none()
                 if existing_tool:
                     existing_tool.mcp_server_url = mcp_url
@@ -627,6 +678,7 @@ async def import_mcp_direct(
                     mcp_tool_name=mcp_tool["name"],
                     enabled=True,
                     is_default=False,
+                    tenant_id=agent_tenant_id,
                 )
                 db.add(tool)
                 await db.flush()
@@ -634,7 +686,7 @@ async def import_mcp_direct(
                 imported_tools.append(f"✅ {tool_display}")
         else:
             tool_name = f"mcp_{safe_name}"
-            existing_r = await db.execute(select(Tool).where(Tool.name == tool_name))
+            existing_r = await db.execute(select(Tool).where(Tool.name == tool_name, _tenant_filter))
             existing_tool = existing_r.scalar_one_or_none()
             if existing_tool:
                 existing_tool.mcp_server_url = mcp_url
@@ -653,6 +705,7 @@ async def import_mcp_direct(
                 mcp_server_name=display_name,
                 enabled=True,
                 is_default=False,
+                tenant_id=agent_tenant_id,
             )
             db.add(tool)
             await db.flush()
@@ -759,6 +812,7 @@ async def refresh_atlassian_rovo_api_key(api_key: str) -> None:
     """
     async with async_session() as db:
         from sqlalchemy import update as _update
+
         await db.execute(
             _update(Tool)
             .where(Tool.mcp_server_name == ATLASSIAN_ROVO_SERVER_NAME, Tool.type == "mcp")
@@ -766,4 +820,3 @@ async def refresh_atlassian_rovo_api_key(api_key: str) -> None:
         )
         await db.commit()
     logger.info("[AtlassianRovo] API key refreshed for all Rovo tools")
-

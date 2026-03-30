@@ -6,7 +6,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.permissions import check_agent_access
@@ -176,7 +176,14 @@ async def list_tools(
     scope_tenant_id = await _resolve_tenant_scope(current_user, tenant_id)
     stmt = select(Tool)
     if scope_tenant_id:
-        stmt = stmt.where(or_(Tool.tenant_id == scope_tenant_id, Tool.tenant_id.is_(None)))
+        # Tenant-scoped tools + platform built-in tools (tenant_id IS NULL, non-MCP).
+        # MCP tools must match tenant_id exactly — prevents cross-tenant leakage.
+        stmt = stmt.where(
+            or_(
+                Tool.tenant_id == scope_tenant_id,
+                and_(Tool.tenant_id.is_(None), Tool.type != "mcp"),
+            )
+        )
     stmt = stmt.order_by(Tool.category.asc(), Tool.display_name.asc())
     result = await db.execute(stmt)
     tools = result.scalars().all()
@@ -359,7 +366,9 @@ async def list_agent_tools_with_config(
     rows = result.all()
     return [
         {
-            **_serialize_tool(tool, enabled=agent_tool.enabled, config={**(tool.config or {}), **(agent_tool.config or {})}),
+            **_serialize_tool(
+                tool, enabled=agent_tool.enabled, config={**(tool.config or {}), **(agent_tool.config or {})}
+            ),
             "agent_tool_id": str(agent_tool.id),
             "source": agent_tool.source,
             "global_config": tool.config or {},
