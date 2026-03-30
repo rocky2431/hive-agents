@@ -17,13 +17,9 @@ discover_resources(query="[role-relevant keywords in English]", max_results=5)
 This searches Smithery. Save the server IDs of useful results for `mcp_server_ids`.
 
 ### Step 2: Search community skills
-Try `jina_search` first (better quality). If it fails (401), fall back to `web_search`:
+Use `web_search` to find skills on skills.sh:
 ```
-jina_search(query="site:skills.sh [role-relevant keywords in English]")
-```
-or
-```
-web_search(query="site:skills.sh [role-relevant keywords]")
+web_search(query="site:skills.sh [role-relevant keywords in English]")
 ```
 This searches skills.sh marketplace. If you find useful skills, note them. After agent creation, install them with:
 ```

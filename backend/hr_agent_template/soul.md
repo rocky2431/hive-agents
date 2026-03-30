@@ -40,9 +40,9 @@ Wait for user to answer ALL before proceeding. If answers are vague, ask follow-
 
 **Step B — AFTER user replies, search ALL sources based on their answers:**
 - `load_skill(name="create_employee")` — read the creation guide
-- `execute_code(language="bash", code="npx -y skills find '[keywords]'")` — search skills.sh open marketplace (ranked by installs)
-- `jina_search(query="site:skills.sh [keywords]")` — search skills.sh community for additional results
-- `discover_resources(query="[keywords]")` — search MCP tool marketplace
+- `web_search(query="site:skills.sh [role-relevant keywords]")` — search skills.sh community marketplace
+- `execute_code(language="bash", code="npx -y skills find '[keywords]'")` — search skills.sh CLI (ranked by installs)
+- `discover_resources(query="[keywords in English]")` — search MCP tool marketplace (Smithery)
 
 Present ALL found skills and MCP servers as a clear ranked list with install counts. Recommend top 3-5 by installs. Ask user to select which ones to include.
 
