@@ -108,10 +108,10 @@ class AgentManager:
         from app.tools.workspace import _bootstrap_evolution_files
         _bootstrap_evolution_files(agent_dir)
 
-        # Ensure relationships.md exists — list other agents in the same tenant
+        # Ensure relationships.md exists — format aligned with workspace_sync.py
         rel_path = agent_dir / "relationships.md"
         if not rel_path.exists():
-            rel_lines = ["# Relationships\n"]
+            rel_lines = ["# 关系", ""]
             try:
                 other_agents = await db.execute(
                     select(Agent.name, Agent.role_description).where(
@@ -121,13 +121,14 @@ class AgentManager:
                 )
                 peers = other_agents.all()
                 if peers:
-                    rel_lines.append("## Digital Employee Colleagues\n")
+                    rel_lines.append("## 同事")
                     for name, role in peers:
-                        rel_lines.append(f"- **{name}** (collaborator): {role or 'Digital assistant'}")
+                        rel_lines.append(f"- **{name}**: {role or '无描述'}")
+                    rel_lines.append("")
                 else:
-                    rel_lines.append("_No relationships configured yet._\n")
+                    rel_lines.append("_暂无关系信息。_")
             except Exception:
-                rel_lines.append("_No relationships configured yet._\n")
+                rel_lines.append("_暂无关系信息。_")
             rel_path.write_text("\n".join(rel_lines), encoding="utf-8")
 
         # Customize state.json

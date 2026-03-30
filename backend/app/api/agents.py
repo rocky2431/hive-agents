@@ -171,7 +171,7 @@ async def get_or_create_hr_agent(
         hr_template_dir = Path(__file__).resolve().parent.parent.parent / "hr_agent_template"
         if hr_template_dir.exists():
             hr_soul = hr_template_dir / "soul.md"
-            if hr_soul.exists():
+            if hr_soul.exists() and not (agent_dir / "soul.md").exists():
                 agent_dir.mkdir(parents=True, exist_ok=True)
                 (agent_dir / "soul.md").write_text(hr_soul.read_text(encoding="utf-8"), encoding="utf-8")
             hr_skills = hr_template_dir / "skills"

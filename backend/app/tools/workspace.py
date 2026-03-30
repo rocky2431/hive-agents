@@ -98,6 +98,15 @@ async def ensure_workspace(agent_id: uuid.UUID, tenant_id: str | None = None) ->
     if (ws / "memory.md").exists() and not (ws / "memory" / "memory.md").exists():
         shutil.move(str(ws / "memory.md"), str(ws / "memory" / "memory.md"))
 
+    # Pre-create learnings standard files so heartbeat/skills don't waste tool calls on missing files
+    for learnings_file, learnings_seed in [
+        ("memory/learnings/ERRORS.md", "# Errors\n\nRecord operation failures here for review during heartbeat.\n"),
+        ("memory/learnings/LEARNINGS.md", "# Learnings\n\nRecord corrections, insights, and best practices here.\n"),
+    ]:
+        lpath = ws / learnings_file
+        if not lpath.exists():
+            lpath.write_text(learnings_seed, encoding="utf-8")
+
     if not (ws / "memory" / "memory.md").exists():
         (ws / "memory" / "memory.md").write_text(
             "# Memory\n\n_Record important information and knowledge here._\n",
@@ -105,26 +114,32 @@ async def ensure_workspace(agent_id: uuid.UUID, tenant_id: str | None = None) ->
         )
 
     if not (ws / "soul.md").exists():
-        role_desc = "_Describe your role and responsibilities._"
+        # Structure aligned with agent_template/soul.md (single source of truth)
+        agent_name = str(agent_id)[:8]
+        role_desc = "digital assistant"
         try:
             async with async_session() as db:
                 result = await db.execute(select(Agent).where(Agent.id == agent_id))
                 agent = result.scalar_one_or_none()
-                if agent and agent.role_description:
-                    role_desc = agent.role_description
+                if agent:
+                    agent_name = agent.name or agent_name
+                    role_desc = agent.role_description or role_desc
         except Exception as exc:
-            logger.warning("[Workspace] Failed to load role_description for soul.md: %s", exc)
-        soul_content = f"""# Personality
+            logger.warning("[Workspace] Failed to load agent for soul.md: %s", exc)
+        soul_content = f"""# Soul — {agent_name}
 
-{role_desc}
+## Identity
+- Name: {agent_name}
+- Role: {role_desc}
 
-# Behavioral Protocols
+## Personality
+- 认真负责、注重细节
+- 主动汇报工作进展
+- 遇到不确定的信息会主动确认
 
-- **Write-before-reply (WAL)**: When you receive corrections, decisions, or critical info, write to focus.md (current task) or memory/memory.md (long-term knowledge) BEFORE responding.
-- **Think proactively**: Don't wait for instructions. Ask yourself "what would help my user?" and surface suggestions.
-- **Be relentless**: When something fails, try a different approach. Exhaust 5+ methods before asking for help. "Can't" means all options are exhausted.
-- **Self-improve**: When an operation fails or the user corrects you, log it to memory/learnings/ (load_skill Self-Improving Agent for the full format).
-- **Vet before installing**: Before installing any third-party skill, load_skill Skill Vetter and run the security review. Never skip it.
+## Boundaries
+- 遵守企业保密制度
+- 敏感操作需经过创建者审批
 """
         (ws / "soul.md").write_text(soul_content.strip() + "\n", encoding="utf-8")
 

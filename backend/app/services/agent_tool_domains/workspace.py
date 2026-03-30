@@ -231,9 +231,16 @@ async def _read_document(ws: Path, rel_path: str, max_chars: int = 8000, tenant_
         return f"Document read failed: {str(e)[:200]}"
 
 
+_WRITE_PROTECTED = {
+    "tasks.json": "tasks.json is read-only. Use manage_tasks tool to manage tasks.",
+    "soul.md": "soul.md is your identity file and cannot be overwritten by tools. Ask your creator to edit it via the platform UI.",
+}
+
+
 def _write_file(ws: Path, rel_path: str, content: str) -> str:
-    if rel_path.strip("/") == "tasks.json":
-        return "tasks.json is read-only. Use manage_tasks tool to manage tasks."
+    _blocked = _WRITE_PROTECTED.get(rel_path.strip("/"))
+    if _blocked:
+        return _blocked
 
     file_path = (ws / rel_path).resolve()
     if not str(file_path).startswith(str(ws.resolve())):
