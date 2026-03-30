@@ -625,7 +625,8 @@
     "suggestResearcher": "我想要一个市场研究员，帮我搜集行业新闻和竞品动态",
     "suggestPM": "我需要一个项目经理助手，帮我跟踪任务进度和协调团队",
     "suggestContent": "我想要一个内容创作助手，帮我写营销文案和社交媒体内容",
-    "suggestCS": "我需要一个客服助手，帮我回复客户咨询和处理售后问题"
+    "suggestCS": "我需要一个客服助手，帮我回复客户咨询和处理售后问题",
+    "loadError": "HR 助手加载失败，请检查 LLM 模型配置。"
   },
   "task": {
     "todo": "待办",
@@ -704,7 +705,8 @@
       "skills": "技能管理",
       "quotas": "配额",
       "users": "用户",
-      "invites": "邀请码"
+      "invites": "邀请码",
+      "hr": "HR 助手"
     },
     "invites": {
       "pageTitle": "邀请码",
@@ -960,6 +962,20 @@
     "passwordChanged": "密码已修改"
   },
   "workspace": {
+    "hr": {
+      "title": "HR 入职助手",
+      "description": "通过对话引导用户创建数字员工。可为您的公司定制其行为。",
+      "manage": "管理",
+      "openChat": "打开对话",
+      "settings": "设置",
+      "welcomeMessage": "欢迎语",
+      "welcomePlaceholder": "用户开始新对话时显示的问候语",
+      "soulEditor": "系统提示词 (soul.md)",
+      "resetDefault": "重置为默认",
+      "resetConfirm": "重置 HR 助手为默认模板？当前自定义将丢失。",
+      "saveFailed": "保存失败：",
+      "noAgent": "HR 助手不可用。请确保已配置至少一个 LLM 模型。"
+    },
     "quotas": {
       "tokenQuotas": "Token 配额",
       "dailyTokenLimit": "每日 Token 上限",

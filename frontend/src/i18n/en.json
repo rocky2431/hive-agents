@@ -597,7 +597,8 @@
     "suggestResearcher": "I'd like a market researcher to collect industry news and track competitors",
     "suggestPM": "I need a project manager assistant to track tasks and coordinate the team",
     "suggestContent": "I want a content creator to write marketing copy and social media posts",
-    "suggestCS": "I need a customer service agent to handle inquiries and after-sales issues"
+    "suggestCS": "I need a customer service agent to handle inquiries and after-sales issues",
+    "loadError": "Failed to load HR agent. Please check LLM model configuration."
   },
   "task": {
     "todo": "Todo",
@@ -640,7 +641,8 @@
       "skills": "Skills",
       "quotas": "Quotas",
       "users": "Users",
-      "invites": "Invitation Codes"
+      "invites": "Invitation Codes",
+      "hr": "HR Agent"
     },
     "invites": {
       "pageTitle": "Invitation Codes",
@@ -913,6 +915,20 @@
     "passwordChanged": "Password changed"
   },
   "workspace": {
+    "hr": {
+      "title": "HR Onboarding Agent",
+      "description": "Guides users through creating digital employees via conversation. Customize its behavior for your company.",
+      "manage": "Manage",
+      "openChat": "Open Chat",
+      "settings": "Settings",
+      "welcomeMessage": "Welcome Message",
+      "welcomePlaceholder": "Greeting shown when users start a new conversation",
+      "soulEditor": "System Prompt (soul.md)",
+      "resetDefault": "Reset to Default",
+      "resetConfirm": "Reset HR Agent to default template? Current customizations will be lost.",
+      "saveFailed": "Failed to save: ",
+      "noAgent": "HR Agent not available. Ensure at least one LLM model is configured."
+    },
     "quotas": {
       "tokenQuotas": "Token Quotas",
       "dailyTokenLimit": "Daily Token Limit",

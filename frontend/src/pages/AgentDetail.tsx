@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, Component, ErrorInfo } from 'react';
-import { useParams, useLocation } from 'react-router-dom';
+import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 
@@ -33,6 +33,7 @@ const TABS = ['status', 'aware', 'mind', 'tools', 'skills', 'relationships', 'wo
 function AgentDetailInner() {
     const { t, i18n } = useTranslation();
     const { id } = useParams<{ id: string }>();
+    const navigate = useNavigate();
     const queryClient = useQueryClient();
     const location = useLocation();
     const validTabs = ['status', 'aware', 'mind', 'tools', 'skills', 'relationships', 'workspace', 'chat', 'activityLog', 'approvals', 'settings'];
@@ -307,6 +308,7 @@ function AgentDetailInner() {
     const [uploadProgress, setUploadProgress] = useState(-1);
     const uploadAbortRef = useRef<(() => void) | null>(null);
     const [attachedFiles, setAttachedFiles] = useState<{ name: string; text: string; path?: string; imageUrl?: string }[]>([]);
+    const [createdAgentId, setCreatedAgentId] = useState<string | null>(null);
     const wsRef = useRef<WebSocket | null>(null);
     const chatEndRef = useRef<HTMLDivElement>(null);
     const chatContainerRef = useRef<HTMLDivElement>(null);
@@ -523,6 +525,10 @@ function AgentDetailInner() {
                     }
                     return [...prev, toolMsg];
                 });
+                if (d.name === 'create_digital_employee' && d.status === 'done' && d.result) {
+                    const idMatch = d.result.match(/ID:\s*([0-9a-f-]{36})/i);
+                    if (idMatch) setCreatedAgentId(idMatch[1]);
+                }
             } else if (d.type === 'chunk') {
                 setChatMessages(prev => {
                     const last = prev[prev.length - 1];
@@ -854,11 +860,30 @@ function AgentDetailInner() {
     };
     const statusKey = computeStatusKey();
     const canManage = (agent as any).access_level === 'manage' || isAdmin;
+    const isSystemHrRaw = (agent as any).agent_class === 'internal_system';
+    const isManageMode = new URLSearchParams(location.search).has('manage');
+    const isSystemHr = isSystemHrRaw && !isManageMode;
+
+    // HR system agent: force chat-only mode
+    if (isSystemHr && activeTab !== 'chat') {
+        setActiveTab('chat');
+    }
 
     return (
         <>
             <div>
                 {/* Header */}
+                {isSystemHr ? (
+                    <div className="page-header">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'var(--accent-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px' }}>&#x1F464;</div>
+                            <div>
+                                <h1 className="page-title" style={{ marginBottom: 0 }}>{t('nav.newAgent', 'Create Digital Employee')}</h1>
+                                <p className="page-subtitle" style={{ marginTop: '2px' }}>{t('hrChat.subtitle', 'Tell the HR agent what kind of digital employee you need')}</p>
+                            </div>
+                        </div>
+                    </div>
+                ) : (
                 <div className="page-header">
                     <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                         <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'var(--accent-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px' }}>{(Array.from(agent.name || 'A')[0] as string || 'A').toUpperCase()}</div>
@@ -978,8 +1003,10 @@ function AgentDetailInner() {
                         )}
                     </div>
                 </div>
+                )}
 
-                {/* Tabs */}
+                {/* Tabs — hidden for HR system agent */}
+                {!isSystemHr && (
                 <div className="tabs">
                     {TABS.filter(tab => {
                         // 'use' access: hide settings and approvals tabs
@@ -997,6 +1024,7 @@ function AgentDetailInner() {
                         </div>
                     ))}
                 </div>
+                )}
 
                 {/* ── Enhanced Status Tab ── */}
                 {activeTab === 'status' && (
@@ -1075,7 +1103,7 @@ function AgentDetailInner() {
                         <AgentChatSection
                             agent={agent}
                             currentUser={currentUser}
-                            isAdmin={isAdmin}
+                            isAdmin={isSystemHr ? false : isAdmin}
                             chatScope={chatScope}
                             onSetChatScope={setChatScope}
                             onLoadAllSessions={fetchAllSessions}
@@ -1130,6 +1158,26 @@ function AgentDetailInner() {
                         />
                     )
                 }
+
+                {/* Agent creation success banner (HR Agent flow) */}
+                {createdAgentId && activeTab === 'chat' && (
+                    <div style={{
+                        position: 'fixed', bottom: '24px', left: '50%', transform: 'translateX(-50%)',
+                        zIndex: 1000, padding: '16px 24px', borderRadius: '12px',
+                        background: 'var(--success-subtle, #f0fdf4)', border: '1px solid var(--success, #22c55e)',
+                        boxShadow: '0 4px 24px rgba(0,0,0,0.12)', display: 'flex', alignItems: 'center', gap: '16px',
+                    }}>
+                        <span style={{ fontSize: '22px' }}>&#x2705;</span>
+                        <div>
+                            <div style={{ fontWeight: 600, fontSize: '14px' }}>{t('hrChat.created', 'Digital employee created successfully!')}</div>
+                            <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>{t('hrChat.createdDesc', 'You can now visit the detail page to further customize or start chatting.')}</div>
+                        </div>
+                        <button className="btn btn-primary" style={{ flexShrink: 0 }} onClick={() => navigate(`/agents/${createdAgentId}`)}>
+                            {t('hrChat.goToAgent', 'Go to Detail Page')}
+                        </button>
+                        <button style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px', color: 'var(--text-tertiary)', padding: '4px' }} onClick={() => setCreatedAgentId(null)}>&#x2715;</button>
+                    </div>
+                )}
 
                 {
                     activeTab === 'activityLog' && (

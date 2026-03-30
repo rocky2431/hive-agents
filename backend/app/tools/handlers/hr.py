@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
             "skill_names": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "EXTRA skill folder_names beyond defaults (e.g. ['feishu-integration', 'dingtalk-integration']). 10 default skills are auto-installed — only list non-default ones here.",
+                "description": "EXTRA skill folder_names beyond defaults (e.g. ['feishu-integration', 'dingtalk-integration']). 14 default skills are auto-installed — only list non-default ones here.",
             },
             "mcp_server_ids": {
                 "type": "array",
@@ -337,7 +337,7 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
             return (
                 f"Successfully created digital employee '{agent.name}' (ID: {agent.id}). "
                 f"Config: {', '.join(features)}. "
-                f"10 default skills auto-installed. "
+                f"14 default skills auto-installed. "
                 f"Skills directory: {agent_dir / 'skills'}. "
                 f"The employee is now being initialized and will be ready shortly."
             )

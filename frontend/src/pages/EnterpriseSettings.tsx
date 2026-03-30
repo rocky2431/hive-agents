@@ -18,6 +18,7 @@ import WorkspaceLlmSection from './workspace/WorkspaceLlmSection';
 import WorkspaceOrgSection from './workspace/WorkspaceOrgSection';
 import WorkspaceQuotasSection from './workspace/WorkspaceQuotasSection';
 import WorkspaceSkillsSection from './workspace/WorkspaceSkillsSection';
+import WorkspaceHrAgentSection from './workspace/WorkspaceHrAgentSection';
 import WorkspaceToolsSection from './workspace/WorkspaceToolsSection';
 import WorkspaceUsersSection from './workspace/WorkspaceUsersSection';
 
@@ -39,6 +40,7 @@ export type EnterpriseSettingsTab =
     | 'llm'
     | 'org'
     | 'info'
+    | 'hr'
     | 'approvals'
     | 'audit'
     | 'tools'
@@ -608,9 +610,9 @@ export default function EnterpriseSettings({ forcedTab, hideTabs = false }: Ente
 
                 {!hideTabs && (
                     <div className="tabs">
-                        {(['info', 'llm', 'tools', 'skills', 'invites', 'quotas', 'users', 'org', 'approvals', 'audit'] as const).map(tab => (
+                        {(['info', 'llm', 'hr', 'tools', 'skills', 'invites', 'quotas', 'users', 'org', 'approvals', 'audit'] as const).map(tab => (
                             <div key={tab} className={`tab ${activeTab === tab ? 'active' : ''}`} onClick={() => setActiveTab(tab)}>
-                                {tab === 'quotas' ? t('enterprise.tabs.quotas', 'Quotas') : tab === 'users' ? t('enterprise.tabs.users', 'Users') : tab === 'invites' ? t('enterprise.tabs.invites', 'Invitations') : t(`enterprise.tabs.${tab}`)}
+                                {tab === 'quotas' ? t('enterprise.tabs.quotas', 'Quotas') : tab === 'users' ? t('enterprise.tabs.users', 'Users') : tab === 'invites' ? t('enterprise.tabs.invites', 'Invitations') : tab === 'hr' ? t('enterprise.tabs.hr', 'HR Agent') : t(`enterprise.tabs.${tab}`)}
                             </div>
                         ))}
                     </div>
@@ -672,6 +674,9 @@ export default function EnterpriseSettings({ forcedTab, hideTabs = false }: Ente
 
                 {/* ── Tools Tab ── */}
                 {activeTab === 'tools' && <WorkspaceToolsSection selectedTenantId={selectedTenantId} />}
+
+                {/* ── HR Agent Tab ── */}
+                {activeTab === 'hr' && <WorkspaceHrAgentSection selectedTenantId={selectedTenantId} />}
 
                 {/* ── Skills Tab ── */}
                 {activeTab === 'skills' && <WorkspaceSkillsSection />}
