@@ -138,7 +138,7 @@ async def compute_history_limit_for_agent(agent_id: uuid.UUID) -> int:
             agent = agent_r.scalar_one_or_none()
             if agent and agent.primary_model_id:
                 model_r = await db.execute(
-                    select(LLMModel).where(LLMModel.id == agent.primary_model_id)
+                    select(LLMModel).where(LLMModel.id == agent.primary_model_id, LLMModel.tenant_id == agent.tenant_id)
                 )
                 model = model_r.scalar_one_or_none()
                 if model:
@@ -320,7 +320,7 @@ async def _get_summary_model_config(tenant_id: uuid.UUID) -> dict | None:
     try:
         async with async_session() as db:
             result = await db.execute(
-                select(LLMModel).where(LLMModel.id == uuid.UUID(str(model_id)))
+                select(LLMModel).where(LLMModel.id == uuid.UUID(str(model_id)), LLMModel.tenant_id == tenant_id)
             )
             model = result.scalar_one_or_none()
             if not model or not model.enabled:

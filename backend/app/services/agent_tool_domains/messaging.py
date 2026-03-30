@@ -536,12 +536,16 @@ async def _send_message_to_agent(from_agent_id: uuid.UUID, args: dict) -> str:
             # Load primary model (with fallback support)
             target_model = None
             if target.primary_model_id:
-                model_r = await db.execute(select(LLMModel).where(LLMModel.id == target.primary_model_id))
+                model_r = await db.execute(
+                    select(LLMModel).where(LLMModel.id == target.primary_model_id, LLMModel.tenant_id == target.tenant_id)
+                )
                 target_model = model_r.scalar_one_or_none()
 
             # Config-level fallback: primary missing -> use fallback
             if not target_model and target.fallback_model_id:
-                fb_r = await db.execute(select(LLMModel).where(LLMModel.id == target.fallback_model_id))
+                fb_r = await db.execute(
+                    select(LLMModel).where(LLMModel.id == target.fallback_model_id, LLMModel.tenant_id == target.tenant_id)
+                )
                 target_model = fb_r.scalar_one_or_none()
                 if target_model:
                     logger.warning(f"[A2A] Primary model unavailable for {target.name}, using fallback: {target_model.model}")

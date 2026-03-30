@@ -113,14 +113,18 @@ async def _get_agent_reply(target_agent, message: str, db) -> str | None:
         return None
 
     from sqlalchemy import select as _select
-    model_result = await db.execute(_select(LLMModel).where(LLMModel.id == model_id))
+    model_result = await db.execute(
+        _select(LLMModel).where(LLMModel.id == model_id, LLMModel.tenant_id == target_agent.tenant_id)
+    )
     model = model_result.scalar_one_or_none()
     if not model:
         return None
 
     fallback_model = None
     if target_agent.primary_model_id and target_agent.fallback_model_id:
-        fallback_result = await db.execute(_select(LLMModel).where(LLMModel.id == target_agent.fallback_model_id))
+        fallback_result = await db.execute(
+            _select(LLMModel).where(LLMModel.id == target_agent.fallback_model_id, LLMModel.tenant_id == target_agent.tenant_id)
+        )
         fallback_model = fallback_result.scalar_one_or_none()
 
     runtime_messages = [{"role": "user", "content": message}]

@@ -93,7 +93,7 @@ async def execute_task(task_id: uuid.UUID, agent_id: uuid.UUID) -> None:
             return
 
         model_result = await db.execute(
-            select(LLMModel).where(LLMModel.id == model_id)
+            select(LLMModel).where(LLMModel.id == model_id, LLMModel.tenant_id == agent.tenant_id)
         )
         model = model_result.scalar_one_or_none()
         if not model:

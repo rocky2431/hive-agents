@@ -37,10 +37,11 @@ Check the catalog below. Select which NON-default skills to add to `skill_names`
 ## Platform Skill Catalog
 
 ### Default Skills (AUTO-INSTALLED — do NOT pass to skill_names)
-These 10 skills are automatically installed for every new agent:
+These 14 skills are automatically installed for every new agent:
 - web-research-guide, trigger-guide, workspace-guide, mcp-installer
 - complex-task-executor, find-skills, skill-creator
 - proactive-agent, self-improving-agent, skill-vetter
+- pdf-generator, docx-generator, xlsx-processor, pptx-generator
 
 ### Non-Default Skills (pass to skill_names if needed)
 | folder_name | When to add |

@@ -488,6 +488,10 @@
     }
   },
   "wizard": {
+    "templates": {
+      "Market Researcher": "Market Researcher",
+      "Project Manager": "Project Manager"
+    },
     "steps": {
       "basicInfo": "Basic Info",
       "personality": "Personality",

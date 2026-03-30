@@ -41,7 +41,7 @@ Wait for user to answer ALL before proceeding. If answers are vague, ask follow-
 **Step B — AFTER user replies, search ALL sources based on their answers:**
 - `load_skill(name="create_employee")` — read the creation guide
 - `execute_code(language="bash", code="npx -y skills find '[keywords]'")` — search skills.sh open marketplace (ranked by installs)
-- `jina_read(url="https://clawhub.ai/api/search?q=[keywords, URL-encoded]")` — search ClawHub platform marketplace
+- `jina_search(query="site:skills.sh [keywords]")` — search skills.sh community for additional results
 - `discover_resources(query="[keywords]")` — search MCP tool marketplace
 
 Present ALL found skills and MCP servers as a clear ranked list with install counts. Recommend top 3-5 by installs. Ask user to select which ones to include.
@@ -55,7 +55,7 @@ For each selected skill, run `load_skill(name="skill-vetter")` then execute the 
 
 **Step D — Install approved skills (use whichever source the skill came from):**
 - skills.sh: `execute_code(language="bash", code="npx -y skills add [owner/repo@skill-name]")`
-- ClawHub: pass skill slugs as `skill_names` in `create_digital_employee` (platform handles install)
+- Platform built-in: pass skill folder names as `skill_names` in `create_digital_employee` (platform handles install)
 Then include all approved skill names in `create_digital_employee`.
 
 **Produces:** skill_names, mcp_server_ids

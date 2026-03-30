@@ -33,6 +33,7 @@ CAPABILITY_MAP: dict[str, str] = {
     "update_trigger": "agent.trigger.modify",
     "import_mcp_server": "agent.tool.install",
     "send_message_to_agent": "agent.message.send",
+    "create_digital_employee": "agent.employee.create",
     "web_search": "external.web.search",
     "jina_search": "external.web.search",
     "bing_search": "external.web.search",

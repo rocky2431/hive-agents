@@ -180,7 +180,9 @@ class AgentManager:
         # Get model config
         model = None
         if agent.primary_model_id:
-            result = await db.execute(select(LLMModel).where(LLMModel.id == agent.primary_model_id))
+            result = await db.execute(
+                select(LLMModel).where(LLMModel.id == agent.primary_model_id, LLMModel.tenant_id == agent.tenant_id)
+            )
             model = result.scalar_one_or_none()
 
         # Generate OpenClaw config

@@ -160,8 +160,10 @@ async def _jina_read(arguments: dict) -> str:
         headers["Authorization"] = f"Bearer {api_key}"
 
     try:
+        from urllib.parse import quote
+
         async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
-            resp = await client.get(f"https://r.jina.ai/{url}", headers=headers)
+            resp = await client.get(f"https://r.jina.ai/{quote(url, safe='')}", headers=headers)
 
         if resp.status_code != 200:
             return f"❌ Jina Reader error HTTP {resp.status_code}: {resp.text[:200]}"

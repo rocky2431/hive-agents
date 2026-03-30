@@ -61,10 +61,10 @@ export default function AgentCreate() {
                     chatApi.createSession(hrAgentId!).then((sess) => {
                         setSessions([sess]);
                         selectSession(sess.id);
-                    }).catch(() => {});
+                    }).catch((err) => { console.error('[AgentCreate] Failed to create session:', err); });
                 }
             }
-        }).catch(() => {});
+        }).catch((err) => { console.error('[AgentCreate] Failed to load sessions:', err); });
     }, [hrAgentId]);
 
     // Load messages for a session
@@ -133,103 +133,110 @@ export default function AgentCreate() {
         }
     }, [hrAgentId, sessionId]);
 
-    // WebSocket connection
+    // WebSocket connection with auto-reconnect (exponential backoff)
     useEffect(() => {
         if (!hrAgentId || !sessionId || !token) return;
+        let cancelled = false;
+        let retryCount = 0;
+        const MAX_RETRIES = 5;
 
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const ws = new WebSocket(
-            `${protocol}//${window.location.host}/ws/chat/${hrAgentId}?token=${token}&session_id=${sessionId}`
-        );
-        wsRef.current = ws;
+        function connect() {
+            if (cancelled || retryCount >= MAX_RETRIES) return;
 
-        ws.onopen = () => {
-            if (wsRef.current === ws) setWsConnected(true);
-        };
-        ws.onclose = () => {
-            // Only clear state if this is still the active WebSocket
-            // (prevents old WS onclose from destroying new WS reference)
-            if (wsRef.current === ws) {
-                setWsConnected(false);
-                wsRef.current = null;
-            }
-        };
-        ws.onerror = () => {
-            if (wsRef.current === ws) setWsConnected(false);
-        };
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const ws = new WebSocket(
+                `${protocol}//${window.location.host}/ws/chat/${hrAgentId}?token=${token}&session_id=${sessionId}`
+            );
+            wsRef.current = ws;
 
-        ws.onmessage = (e) => {
-            let d: any;
-            try { d = JSON.parse(e.data); } catch { return; }
+            ws.onopen = () => {
+                if (!cancelled) { setWsConnected(true); retryCount = 0; }
+            };
+            ws.onclose = (event) => {
+                if (!cancelled) {
+                    setWsConnected(false);
+                    wsRef.current = null;
+                    if (event.code >= 4000 || event.code === 1000) return;
+                    retryCount++;
+                    const delay = Math.min(1000 * Math.pow(2, retryCount), 16000);
+                    setTimeout(connect, delay);
+                }
+            };
+            ws.onerror = () => {
+                if (!cancelled) setWsConnected(false);
+            };
 
-            if (d.type === 'chunk') {
-                setIsWaiting(false);
-                setIsStreaming(true);
-                setMessages((prev) => {
-                    const last = prev[prev.length - 1];
-                    if (last?.role === 'assistant' && !last.toolName) {
-                        return [...prev.slice(0, -1), { ...last, content: last.content + d.content }];
+            ws.onmessage = (e) => {
+                let d: any;
+                try { d = JSON.parse(e.data); } catch { return; }
+
+                if (d.type === 'chunk') {
+                    setIsWaiting(false);
+                    setIsStreaming(true);
+                    setMessages((prev) => {
+                        const last = prev[prev.length - 1];
+                        if (last?.role === 'assistant' && !last.toolName) {
+                            return [...prev.slice(0, -1), { ...last, content: last.content + d.content }];
+                        }
+                        return [...prev, { role: 'assistant', content: d.content }];
+                    });
+                } else if (d.type === 'thinking') {
+                    setIsWaiting(false);
+                    setIsStreaming(true);
+                    setMessages((prev) => {
+                        const last = prev[prev.length - 1];
+                        if (last?.role === 'assistant' && !last.toolName) {
+                            return [...prev.slice(0, -1), { ...last, thinking: (last.thinking || '') + d.content }];
+                        }
+                        return [...prev, { role: 'assistant', content: '', thinking: d.content }];
+                    });
+                } else if (d.type === 'tool_call') {
+                    setIsWaiting(false);
+                    setIsStreaming(true);
+                    setMessages((prev) => {
+                        const existing = prev.findIndex(
+                            (m) => m.toolName === d.name && m.toolStatus === 'running'
+                        );
+                        if (d.status === 'done' && existing >= 0) {
+                            const updated = [...prev];
+                            updated[existing] = {
+                                ...updated[existing],
+                                toolStatus: 'done',
+                                toolResult: d.result?.slice(0, 500) || '',
+                            };
+                            return updated;
+                        }
+                        if (d.status === 'running') {
+                            return [...prev, {
+                                role: 'assistant',
+                                content: '',
+                                toolName: d.name,
+                                toolStatus: 'running',
+                                toolArgs: d.args,
+                            }];
+                        }
+                        return prev;
+                    });
+                    if (d.name === 'create_digital_employee' && d.status === 'done' && d.result) {
+                        const idMatch = d.result.match(/ID:\s*([0-9a-f-]{36})/i);
+                        if (idMatch) {
+                            setCreatedAgentId(idMatch[1]);
+                        }
                     }
-                    return [...prev, { role: 'assistant', content: d.content }];
-                });
-            } else if (d.type === 'thinking') {
-                setIsWaiting(false);
-                setIsStreaming(true);
-                // Accumulate thinking into the current assistant message
-                setMessages((prev) => {
-                    const last = prev[prev.length - 1];
-                    if (last?.role === 'assistant' && !last.toolName) {
-                        return [...prev.slice(0, -1), { ...last, thinking: (last.thinking || '') + d.content }];
-                    }
-                    return [...prev, { role: 'assistant', content: '', thinking: d.content }];
-                });
-            } else if (d.type === 'tool_call') {
-                setIsWaiting(false);
-                setIsStreaming(true);
-                // Display tool call as a message
-                setMessages((prev) => {
-                    const existing = prev.findIndex(
-                        (m) => m.toolName === d.name && m.toolStatus === 'running'
-                    );
-                    if (d.status === 'done' && existing >= 0) {
-                        // Update running → done
-                        const updated = [...prev];
-                        updated[existing] = {
-                            ...updated[existing],
-                            toolStatus: 'done',
-                            toolResult: d.result?.slice(0, 500) || '',
-                        };
-                        return updated;
-                    }
-                    if (d.status === 'running') {
-                        return [...prev, {
-                            role: 'assistant',
-                            content: '',
-                            toolName: d.name,
-                            toolStatus: 'running',
-                            toolArgs: d.args,
-                        }];
-                    }
-                    return prev;
-                });
-                // Detect agent creation success
-                if (d.name === 'create_digital_employee' && d.status === 'done' && d.result) {
-                    const idMatch = d.result.match(/ID:\s*([0-9a-f-]{36})/i);
-                    if (idMatch) {
-                        setCreatedAgentId(idMatch[1]);
+                } else if (d.type === 'done' || d.type === 'error' || d.type === 'quota_exceeded') {
+                    setIsWaiting(false);
+                    setIsStreaming(false);
+                    if ((d.type === 'error' || d.type === 'quota_exceeded') && d.message) {
+                        setMessages((prev) => [...prev, { role: 'system', content: d.message }]);
                     }
                 }
-            } else if (d.type === 'done' || d.type === 'error') {
-                setIsWaiting(false);
-                setIsStreaming(false);
-                if (d.type === 'error' && d.message) {
-                    setMessages((prev) => [...prev, { role: 'system', content: d.message }]);
-                }
-            }
-        };
+            };
+        }
 
+        connect();
         return () => {
-            ws.close();
+            cancelled = true;
+            wsRef.current?.close();
             wsRef.current = null;
         };
     }, [hrAgentId, sessionId, token]);

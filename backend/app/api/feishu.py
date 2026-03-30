@@ -1400,16 +1400,20 @@ async def _call_agent_llm(
     if is_agent_expired(agent):
         return "This Agent has expired and is off duty. Please contact your admin to extend its service."
 
-    # Load primary model
+    # Load primary model (tenant-scoped)
     model = None
     if agent.primary_model_id:
-        model_result = await db.execute(select(LLMModel).where(LLMModel.id == agent.primary_model_id))
+        model_result = await db.execute(
+            select(LLMModel).where(LLMModel.id == agent.primary_model_id, LLMModel.tenant_id == agent.tenant_id)
+        )
         model = model_result.scalar_one_or_none()
 
-    # Load fallback model
+    # Load fallback model (tenant-scoped)
     fallback_model = None
     if agent.fallback_model_id:
-        fb_result = await db.execute(select(LLMModel).where(LLMModel.id == agent.fallback_model_id))
+        fb_result = await db.execute(
+            select(LLMModel).where(LLMModel.id == agent.fallback_model_id, LLMModel.tenant_id == agent.tenant_id)
+        )
         fallback_model = fb_result.scalar_one_or_none()
 
     # Config-level fallback: primary missing -> use fallback

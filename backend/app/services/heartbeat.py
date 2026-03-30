@@ -227,7 +227,9 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
             if not model_id:
                 return
 
-            model_result = await db.execute(select(LLMModel).where(LLMModel.id == model_id))
+            model_result = await db.execute(
+                select(LLMModel).where(LLMModel.id == model_id, LLMModel.tenant_id == agent.tenant_id)
+            )
             model = model_result.scalar_one_or_none()
             if not model:
                 return

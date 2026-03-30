@@ -386,7 +386,9 @@ async def _invoke_agent_for_triggers(agent_id: uuid.UUID, triggers: list[AgentTr
             if not agent.primary_model_id:
                 logger.warning(f"Agent {agent.name} has no LLM model, skipping trigger invocation")
                 return
-            result = await db.execute(select(LLMModel).where(LLMModel.id == agent.primary_model_id))
+            result = await db.execute(
+                select(LLMModel).where(LLMModel.id == agent.primary_model_id, LLMModel.tenant_id == agent.tenant_id)
+            )
             model = result.scalar_one_or_none()
             if not model:
                 return

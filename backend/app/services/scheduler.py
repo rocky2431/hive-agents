@@ -59,7 +59,9 @@ async def _execute_schedule(schedule_id: uuid.UUID, agent_id: uuid.UUID, instruc
                 logger.warning(f"Schedule {schedule_id}: agent {agent.name} has no LLM model")
                 return
 
-            model_result = await db.execute(select(LLMModel).where(LLMModel.id == model_id))
+            model_result = await db.execute(
+                select(LLMModel).where(LLMModel.id == model_id, LLMModel.tenant_id == agent.tenant_id)
+            )
             model = model_result.scalar_one_or_none()
             if not model:
                 logger.warning(f"Schedule {schedule_id}: LLM model {model_id} not found")

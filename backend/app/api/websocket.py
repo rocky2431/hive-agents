@@ -211,18 +211,18 @@ async def websocket_chat(
             welcome_message = agent.welcome_message or ""
             logger.info(f"[WS] Agent: {agent_name}, type: {agent_type}, model_id: {agent.primary_model_id}")
 
-            # Load the agent's primary model
+            # Load the agent's primary model (tenant-scoped)
             if agent.primary_model_id:
                 model_result = await db.execute(
-                    select(LLMModel).where(LLMModel.id == agent.primary_model_id)
+                    select(LLMModel).where(LLMModel.id == agent.primary_model_id, LLMModel.tenant_id == agent.tenant_id)
                 )
                 llm_model = model_result.scalar_one_or_none()
                 logger.info(f"[WS] Primary model loaded: {llm_model.model if llm_model else 'None'}")
 
-            # Load fallback model
+            # Load fallback model (tenant-scoped)
             if agent.fallback_model_id:
                 fb_result = await db.execute(
-                    select(LLMModel).where(LLMModel.id == agent.fallback_model_id)
+                    select(LLMModel).where(LLMModel.id == agent.fallback_model_id, LLMModel.tenant_id == agent.tenant_id)
                 )
                 fallback_llm_model = fb_result.scalar_one_or_none()
                 if fallback_llm_model:

@@ -279,6 +279,7 @@ async def _send_to_agent_background(
     target_primary_model_id: str,
     target_role_description: str,
     target_creator_id: str,
+    target_tenant_id: str,
     content: str,
 ):
     """Background task: invoke target agent LLM and write reply to gateway_messages.
@@ -296,10 +297,12 @@ async def _send_to_agent_background(
 
         async with async_session() as db:
             # Load target agent's LLM model
-            if not target_primary_model_id:
-                logger.warning(f"Target agent {target_agent_name} has no LLM model")
+            if not target_primary_model_id or not target_tenant_id:
+                logger.warning(f"Target agent {target_agent_name} has no LLM model or tenant")
                 return
-            result = await db.execute(select(LLMModel).where(LLMModel.id == target_primary_model_id))
+            result = await db.execute(
+                select(LLMModel).where(LLMModel.id == target_primary_model_id, LLMModel.tenant_id == target_tenant_id)
+            )
             model = result.scalar_one_or_none()
             if not model:
                 return
@@ -488,10 +491,11 @@ async def send_message(
             _tgt_model = str(target_agent.primary_model_id) if target_agent.primary_model_id else ""
             _tgt_role = target_agent.role_description or ""
             _tgt_creator = str(target_agent.creator_id) if target_agent.creator_id else ""
+            _tgt_tenant = str(target_agent.tenant_id) if target_agent.tenant_id else ""
             await db.commit()
             task = asyncio.create_task(_send_to_agent_background(
                 _src_id, _src_name, _tgt_id, _tgt_name,
-                _tgt_model, _tgt_role, _tgt_creator, content,
+                _tgt_model, _tgt_role, _tgt_creator, _tgt_tenant, content,
             ))
             _background_tasks.add(task)
             task.add_done_callback(_background_tasks.discard)
