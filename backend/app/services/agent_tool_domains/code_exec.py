@@ -122,6 +122,29 @@ async def _execute_code(ws: Path, arguments: dict) -> str:
         stdout_str = stdout.decode("utf-8", errors="replace")[:10000]
         stderr_str = stderr.decode("utf-8", errors="replace")[:5000]
 
+        # Post-exec: copy skills installed by `npx skills add` from sandbox HOME to agent workspace
+        sandbox_skills = exec_home / ".agents" / "skills"
+        if sandbox_skills.exists():
+            import shutil
+
+            agent_skills = ws / "skills"
+            agent_skills.mkdir(parents=True, exist_ok=True)
+            copied = []
+            for skill_dir in sandbox_skills.iterdir():
+                if skill_dir.is_dir():
+                    dest = agent_skills / skill_dir.name
+                    if dest.exists():
+                        shutil.rmtree(dest)
+                    shutil.copytree(skill_dir, dest)
+                    copied.append(skill_dir.name)
+                elif skill_dir.is_file() and skill_dir.suffix == ".md":
+                    dest = agent_skills / skill_dir.name
+                    shutil.copy2(skill_dir, dest)
+                    copied.append(skill_dir.name)
+            if copied:
+                logger.info(f"[exec] Copied {len(copied)} skills from sandbox to workspace: {copied}")
+            shutil.rmtree(sandbox_skills, ignore_errors=True)
+
         result_parts = []
         if stdout_str.strip():
             result_parts.append(f"📤 Output:\n{stdout_str}")
