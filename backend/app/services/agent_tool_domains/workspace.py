@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import subprocess
+
+logger = logging.getLogger(__name__)
 from pathlib import Path
 
 from app.config import get_settings
@@ -248,12 +251,21 @@ def _write_file(ws: Path, rel_path: str, content: str) -> str:
         return _blocked
 
     # soul.md is append-only: new content is appended under an evolution section
+    _APPEND_ONLY_MAX_CHARS = 16000
     if rel_path.strip("/") in _APPEND_ONLY:
         target = ws / rel_path.strip("/")
         if target.exists():
             existing = target.read_text(encoding="utf-8", errors="replace")
             if content.strip() in existing:
                 return f"✅ {rel_path} already contains this content."
+            # Enforce size cap — trim oldest evolution notes if exceeding limit
+            if len(existing) + len(content) > _APPEND_ONLY_MAX_CHARS:
+                separator = "\n\n---\n## Evolution Notes (heartbeat-appended)\n\n"
+                if separator.rstrip() in existing:
+                    identity, _, evo_notes = existing.partition(separator.rstrip())
+                    # Keep identity + trim evolution notes from the top
+                    trimmed_notes = evo_notes[len(content):]  # drop oldest chars equal to new content size
+                    existing = identity + separator.rstrip() + trimmed_notes
             separator = "\n\n---\n## Evolution Notes (heartbeat-appended)\n\n"
             if separator.rstrip() in existing:
                 target.write_text(existing.rstrip() + "\n\n" + content.strip() + "\n", encoding="utf-8")
@@ -374,7 +386,8 @@ def _grep_search(ws: Path, pattern: str, root: str = "", max_results: int = 50) 
                                 matches.append(f"{path.relative_to(ws).as_posix()}:{idx}:{line.strip()}")
                                 if len(matches) >= max_results:
                                     break
-                except Exception:
+                except Exception as _read_err:
+                    logger.debug("[Workspace] grep: skipped file %s: %s", path, _read_err)
                     continue
         except Exception as e:
             return f"Grep search failed: {e}"

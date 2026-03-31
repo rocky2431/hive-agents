@@ -690,9 +690,9 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
             except Exception as _evo_err:
                 logger.warning("[Heartbeat] Evolution writeback failed for %s: %s", agent_id, _evo_err)
 
-            # Bootstrap validation: if agent was in bootstrap mode, verify key files exist
-            if outcome_type == "action_taken":
-                _validate_bootstrap_completion(agent_id)
+            # Bootstrap validation: verify key files exist regardless of outcome
+            # (cold_start agents need validation even on failure/noop)
+            _validate_bootstrap_completion(agent_id)
 
             score_str = f" score={heartbeat_score}" if heartbeat_score is not None else ""
             logger.info(f"💓 Heartbeat for {agent.name}: {outcome_type}{score_str} — {summary}")

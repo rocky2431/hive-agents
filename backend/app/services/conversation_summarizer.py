@@ -45,6 +45,8 @@ async def summarize_conversation(
     trigger_tokens: int = 4000,
     keep_recent: int = 10,
     model_config: dict | None = None,
+    *,
+    provider: str = "",
 ) -> list[dict]:
     """Summarize old messages if conversation exceeds token threshold.
 
@@ -53,11 +55,12 @@ async def summarize_conversation(
         trigger_tokens: Summarize when total tokens exceed this
         keep_recent: Always keep this many recent messages verbatim
         model_config: LLM config for summarization call (optional, uses simple extraction if not provided)
+        provider: LLM provider name for accurate token estimation
 
     Returns:
         Potentially compressed message list with summary prepended
     """
-    total_tokens = estimate_tokens(messages)
+    total_tokens = estimate_tokens(messages, provider=provider)
 
     if total_tokens <= trigger_tokens:
         return messages  # No summarization needed

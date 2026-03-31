@@ -188,7 +188,7 @@ async def maybe_compress_messages(
     context_limit = _get_input_context_limit(model_provider, model_name, max_input_tokens_override)
     trigger_tokens = int(context_limit * threshold)
 
-    current_tokens = estimate_tokens(messages)
+    current_tokens = estimate_tokens(messages, provider=model_provider)
     if current_tokens <= trigger_tokens:
         return messages
 

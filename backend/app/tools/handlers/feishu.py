@@ -96,6 +96,8 @@ async def feishu_wiki_list(agent_id: uuid.UUID, arguments: dict) -> str:
     adapter="agent_args",
 ))
 async def feishu_doc_read(agent_id: uuid.UUID, arguments: dict) -> str:
+    if not await _check_feishu_configured(agent_id):
+        return _FEISHU_NOT_CONFIGURED_MSG
     from app.services.agent_tools import _feishu_doc_read
     return await _feishu_doc_read(agent_id, arguments)
 

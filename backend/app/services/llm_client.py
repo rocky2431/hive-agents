@@ -939,6 +939,40 @@ class GeminiClient(LLMClient):
                     out[tc_id] = tc_name
         return out
 
+    @staticmethod
+    def _sanitize_schema_for_gemini(schema: dict[str, Any]) -> dict[str, Any]:
+        """Recursively sanitize a JSON schema for Gemini compatibility.
+
+        Gemini rejects: empty enum values, empty enum arrays, empty anyOf/oneOf.
+        """
+        if not isinstance(schema, dict):
+            return schema
+
+        result = {}
+        for key, value in schema.items():
+            if key == "enum" and isinstance(value, list):
+                cleaned = [v for v in value if v != ""]
+                if cleaned:
+                    result[key] = cleaned
+                # Drop empty enum entirely — Gemini rejects enum: []
+            elif key in ("anyOf", "oneOf", "allOf") and isinstance(value, list):
+                cleaned = [GeminiClient._sanitize_schema_for_gemini(v) for v in value if isinstance(v, dict)]
+                # Drop variants that became empty after sanitization
+                cleaned = [v for v in cleaned if v]
+                if len(cleaned) == 1:
+                    # Collapse single-element anyOf/oneOf to inline
+                    result.update(cleaned[0])
+                elif cleaned:
+                    result[key] = cleaned
+                # Drop if empty
+            elif key == "properties" and isinstance(value, dict):
+                result[key] = {k: GeminiClient._sanitize_schema_for_gemini(v) for k, v in value.items()}
+            elif key == "items" and isinstance(value, dict):
+                result[key] = GeminiClient._sanitize_schema_for_gemini(value)
+            else:
+                result[key] = value
+        return result
+
     def _convert_tools(self, tools: list[dict] | None) -> tuple[list[dict[str, Any]] | None, dict[str, Any] | None]:
         """Convert OpenAI-style tools to Gemini function declarations."""
         if not tools:
@@ -955,7 +989,7 @@ class GeminiClient(LLMClient):
             }
             params = fn.get("parameters")
             if isinstance(params, dict):
-                decl["parameters"] = params
+                decl["parameters"] = self._sanitize_schema_for_gemini(params)
             declarations.append(decl)
 
         if not declarations:
@@ -1355,7 +1389,7 @@ class AnthropicClient(LLMClient):
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": anthropic_messages,
-            "max_tokens": max_tokens or 4096,
+            "max_tokens": max_tokens or 8192,
             "temperature": temperature,
             "stream": stream,
         }
@@ -1600,7 +1634,7 @@ class ProviderSpec:
     protocol: Literal["openai_compatible", "anthropic", "openai_responses", "gemini"]
     default_base_url: str | None
     supports_tool_choice: bool = True
-    default_max_tokens: int = 4096
+    default_max_tokens: int = 8192
     max_input_tokens: int = 128000
     model_max_tokens: dict[str, int] = field(default_factory=dict)
 

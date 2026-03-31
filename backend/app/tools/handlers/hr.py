@@ -465,7 +465,8 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
                                 continue
                             try:
                                 meta = resp.json()
-                            except Exception:
+                            except Exception as _json_err:
+                                logger.warning("[HR] ClawHub JSON parse failed for %s: %s", slug, _json_err)
                                 clawhub_results.append(f"⚠️ {slug}: invalid ClawHub response")
                                 continue
                         handle = meta.get("owner", {}).get("handle", "").lower()
