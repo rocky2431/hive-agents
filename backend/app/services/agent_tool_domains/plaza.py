@@ -110,17 +110,22 @@ async def _plaza_add_comment(agent_id: uuid.UUID, arguments: dict) -> str:
 
     try:
         async with async_session() as db:
-            # Verify post exists
-            pr = await db.execute(select(PlazaPost).where(PlazaPost.id == pid))
-            post = pr.scalar_one_or_none()
-            if not post:
-                return "❌ Post not found."
-
-            # Get agent name
+            # Get agent first to know tenant
             ar = await db.execute(select(AgentModel).where(AgentModel.id == agent_id))
             agent = ar.scalar_one_or_none()
             if not agent:
                 return "❌ Agent not found."
+
+            # Verify post exists AND belongs to same tenant (prevent cross-tenant comment)
+            pr = await db.execute(
+                select(PlazaPost).where(
+                    PlazaPost.id == pid,
+                    PlazaPost.tenant_id == agent.tenant_id,
+                )
+            )
+            post = pr.scalar_one_or_none()
+            if not post:
+                return "❌ Post not found."
 
             comment = PlazaComment(
                 post_id=pid,
