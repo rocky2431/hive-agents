@@ -336,6 +336,7 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
             await db.commit()
 
             # Install MCP servers (after commit, so agent exists in DB)
+            logger.info(f"[HR] Post-commit install phase: mcp={mcp_server_ids}, clawhub={clawhub_slugs}")
             mcp_results = []
             if mcp_server_ids:
                 from app.services.resource_discovery import import_mcp_from_smithery
@@ -349,6 +350,7 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
                         logger.warning(f"[HR] MCP install failed for {server_id}: {mcp_err}")
 
             # Install ClawHub skills (after commit, so agent exists on disk)
+            logger.info(f"[HR] ClawHub install phase: {len(clawhub_slugs)} slugs to install: {clawhub_slugs}")
             clawhub_results = []
             if clawhub_slugs:
                 import httpx
