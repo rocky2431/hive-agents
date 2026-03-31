@@ -207,9 +207,9 @@ async def _resolve_memory_context(
     request: AgentInvocationRequest,
     tenant_id: uuid.UUID | None,
 ) -> str:
-    if request.session_context and request.session_context.prompt_prefix:
-        return ""
-
+    # ALWAYS load memory — even when prompt_prefix is cached.
+    # The engine uses memory hash to invalidate the prompt cache,
+    # so it needs fresh memory context every round.
     parts: list[str] = []
     session_id = request.memory_session_id
     if not session_id and request.session_context:
@@ -365,7 +365,8 @@ async def _resolve_tool_expansion(
             return None
         try:
             skill = registry.resolve(requested)
-        except KeyError:
+        except KeyError as _ke:
+            logger.debug("[Invoker] Skill not found in registry: %s", _ke)
             return None
         if not skill.metadata.declared_tools:
             return None

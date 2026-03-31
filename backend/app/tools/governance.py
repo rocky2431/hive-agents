@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import logging
 import uuid
@@ -104,6 +105,9 @@ async def _emit_event(event_callback: EventCallback | None, payload: dict[str, A
             await _maybe_await(maybe_result)
 
 
+_GOVERNANCE_TIMEOUT_SECONDS = 5.0
+
+
 async def run_tool_governance(
     context: ToolGovernanceContext,
     deps: GovernanceDependencies,
@@ -113,10 +117,28 @@ async def run_tool_governance(
     """Run governance checks before tool execution.
 
     Returns a blocking message when execution should stop, otherwise None.
+    Entire governance pipeline has a hard timeout to prevent hanging on DB issues.
     """
     try:
+        return await asyncio.wait_for(
+            _run_governance_inner(context, deps, event_callback=event_callback),
+            timeout=_GOVERNANCE_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("[Governance] Timeout (%ss) for tool %s — blocking (fail-closed)", _GOVERNANCE_TIMEOUT_SECONDS, context.tool_name)
+        return f"🔒 Tool '{context.tool_name}' blocked — governance check timed out. Please retry."
+
+
+async def _run_governance_inner(
+    context: ToolGovernanceContext,
+    deps: GovernanceDependencies,
+    *,
+    event_callback: EventCallback | None = None,
+) -> str | None:
+    """Inner governance logic, wrapped by timeout in run_tool_governance."""
+    try:
         zone = await _maybe_await(deps.resolve_security_zone(context.agent_id))
-        zone = zone or "standard"
+        zone = zone or "restricted"
         if zone == "public" and context.tool_name not in SAFE_TOOLS:
             message = (
                 f"🔒 Tool '{context.tool_name}' is blocked — this agent is in the 'public' "

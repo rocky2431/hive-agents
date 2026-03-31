@@ -494,9 +494,8 @@ class OpenAICompatibleClient(LLMClient):
                     wait = (attempt + 1) * 1
                     logger.warning(f"Stream attempt {attempt + 1} failed ({type(e).__name__}), retrying in {wait}s...")
                     await asyncio.sleep(wait)
-                    full_content = ""
-                    full_reasoning = ""
-                    tool_calls_data = []
+                    # Preserve already-streamed content for client consistency.
+                    # Only reset parsing state, not accumulated content.
                     in_think = False
                     tag_buffer = ""
                 else:

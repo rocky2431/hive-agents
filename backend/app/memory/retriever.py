@@ -169,7 +169,7 @@ class MemoryRetriever:
                         )
 
         except Exception as exc:
-            logger.debug("Episodic retrieval failed (non-fatal): %s", exc)
+            logger.warning("Episodic retrieval failed: %s", exc)
 
         return items
 

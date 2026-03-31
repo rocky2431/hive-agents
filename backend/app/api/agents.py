@@ -351,51 +351,59 @@ async def create_agent(
     await assign_default_tools_to_agent(db, agent.id)
     await db.flush()
 
-    # Initialize agent file system from template
-    from app.services.agent_manager import agent_manager
-    await agent_manager.initialize_agent_files(
-        db, agent,
-        personality=data.personality,
-        boundaries=data.boundaries,
-    )
+    # Initialize agent — wrapped in try/except for rollback on failure (C-01)
+    try:
+        from app.services.agent_manager import agent_manager
+        await agent_manager.initialize_agent_files(
+            db, agent,
+            personality=data.personality,
+            boundaries=data.boundaries,
+        )
 
-    # Copy selected skills + mandatory default skills into agent workspace
-    from app.models.skill import Skill
-    from sqlalchemy.orm import selectinload
+        # Copy selected skills + mandatory default skills into agent workspace
+        from app.models.skill import Skill
+        from sqlalchemy.orm import selectinload
 
-    # Always include default skills
-    default_result = await db.execute(
-        select(Skill).where(Skill.is_default)
-    )
-    default_ids = {s.id for s in default_result.scalars().all()}
+        default_result = await db.execute(select(Skill).where(Skill.is_default))
+        default_ids = {s.id for s in default_result.scalars().all()}
+        all_skill_ids = set(data.skill_ids or []) | default_ids
 
-    # Merge user-selected + default skill IDs
-    all_skill_ids = set(data.skill_ids or []) | default_ids
+        if all_skill_ids:
+            agent_dir = agent_manager._agent_dir(agent.id)
+            skills_dir = agent_dir / "skills"
+            skills_dir.mkdir(parents=True, exist_ok=True)
 
-    if all_skill_ids:
-        agent_dir = agent_manager._agent_dir(agent.id)
-        skills_dir = agent_dir / "skills"
-        skills_dir.mkdir(parents=True, exist_ok=True)
+            for sid in all_skill_ids:
+                result = await db.execute(
+                    select(Skill).where(Skill.id == sid).options(selectinload(Skill.files))
+                )
+                skill = result.scalar_one_or_none()
+                if not skill:
+                    continue
+                skill_folder = skills_dir / skill.folder_name
+                skill_folder.mkdir(parents=True, exist_ok=True)
+                for sf in skill.files:
+                    file_path = skill_folder / sf.path
+                    file_path.parent.mkdir(parents=True, exist_ok=True)
+                    file_path.write_text(sf.content)
 
-        for sid in all_skill_ids:
-            result = await db.execute(
-                select(Skill).where(Skill.id == sid).options(selectinload(Skill.files))
-            )
-            skill = result.scalar_one_or_none()
-            if not skill:
-                continue
-            # Create folder: skills/<folder_name>/
-            skill_folder = skills_dir / skill.folder_name
-            skill_folder.mkdir(parents=True, exist_ok=True)
-            # Write each file
-            for sf in skill.files:
-                file_path = skill_folder / sf.path
-                file_path.parent.mkdir(parents=True, exist_ok=True)
-                file_path.write_text(sf.content)
+        # Start container
+        try:
+            await agent_manager.start_container(db, agent)
+        except Exception as _container_exc:
+            logger.warning("[Agent] Container start failed (non-fatal): %s", _container_exc)
+        await db.flush()
 
-    # Start container
-    await agent_manager.start_container(db, agent)
-    await db.flush()
+        # Transition to idle so heartbeat can pick up the agent
+        if agent.status == "creating":
+            agent.status = "idle"
+            await db.flush()
+
+    except Exception as init_err:
+        logger.error("[Agent] Creation failed for %s, rolling back: %s", agent.name, init_err)
+        agent.status = "error"
+        await db.commit()
+        raise HTTPException(status_code=500, detail=f"Agent creation failed: {type(init_err).__name__}")
 
     # Audit: agent created
     try:
@@ -404,8 +412,8 @@ async def create_agent(
             actor_type="user", actor_id=current_user.id, tenant_id=current_user.tenant_id,
             action="create_agent", resource_type="agent", resource_id=agent.id,
             details={"name": agent.name, "agent_type": agent.agent_type})
-    except Exception:
-        logger.warning("Audit write failed for agent.created", exc_info=True)
+    except Exception as _audit_err:
+        logger.warning("Audit write failed for agent.created: %s", _audit_err)
 
     return AgentOut.model_validate(agent)
 

@@ -258,14 +258,17 @@ def _write_file(ws: Path, rel_path: str, content: str) -> str:
             existing = target.read_text(encoding="utf-8", errors="replace")
             if content.strip() in existing:
                 return f"✅ {rel_path} already contains this content."
-            # Enforce size cap — trim oldest evolution notes if exceeding limit
+            # Enforce size cap — trim oldest evolution entries by boundary (### HB-)
             if len(existing) + len(content) > _APPEND_ONLY_MAX_CHARS:
                 separator = "\n\n---\n## Evolution Notes (heartbeat-appended)\n\n"
                 if separator.rstrip() in existing:
                     identity, _, evo_notes = existing.partition(separator.rstrip())
-                    # Keep identity + trim evolution notes from the top
-                    trimmed_notes = evo_notes[len(content):]  # drop oldest chars equal to new content size
-                    existing = identity + separator.rstrip() + trimmed_notes
+                    # Split by entry boundaries (### HB-) and drop oldest entries
+                    import re as _re
+                    entries = _re.split(r"(?=### HB-)", evo_notes)
+                    while entries and len(identity) + len(separator) + sum(len(e) for e in entries) + len(content) > _APPEND_ONLY_MAX_CHARS:
+                        entries.pop(0)  # drop oldest entry
+                    existing = identity + separator.rstrip() + "".join(entries)
             separator = "\n\n---\n## Evolution Notes (heartbeat-appended)\n\n"
             if separator.rstrip() in existing:
                 target.write_text(existing.rstrip() + "\n\n" + content.strip() + "\n", encoding="utf-8")

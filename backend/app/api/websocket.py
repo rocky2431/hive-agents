@@ -163,17 +163,17 @@ async def websocket_chat(
     6. Server calls the agent's configured LLM and sends response back
     7. Messages are persisted to chat_messages table under the session
     """
-    # Accept immediately so browser sees onopen without waiting for DB setup
-    await websocket.accept()
-
-    # Authenticate
+    # Authenticate BEFORE accepting — reject unauthenticated connections immediately
     try:
         payload = decode_access_token(token)
         user_id = uuid.UUID(payload["sub"])
     except Exception:
+        await websocket.accept()
         await websocket.send_json({"type": "error", "content": "Authentication failed"})
         await websocket.close(code=4001)
         return
+
+    await websocket.accept()
 
     # Verify access and load agent + model
     agent_name = ""
@@ -241,11 +241,12 @@ async def websocket_chat(
             from datetime import datetime as _dt, timezone as _tz
             conv_id = session_id
             if conv_id:
-                # Validate the session belongs to this agent
+                # Validate the session belongs to this agent AND this user
                 _sr = await db.execute(
                     _sel(ChatSession).where(
                         ChatSession.id == uuid.UUID(conv_id),
                         ChatSession.agent_id == agent_id,
+                        ChatSession.user_id == user_id,
                     )
                 )
                 _existing = _sr.scalar_one_or_none()
@@ -342,8 +343,11 @@ async def websocket_chat(
                     "tool_call_id": tc_id,
                     "content": str(tc_result)[:2000],
                 })
-            except Exception:
-                continue  # Skip malformed tool_call records
+                if len(str(tc_result)) > 2000:
+                    logger.info("[WS] Tool result truncated on reload: %d→2000 chars", len(str(tc_result)))
+            except Exception as _tc_parse_err:
+                logger.debug("[WS] Skipped malformed tool_call record: %s", _tc_parse_err)
+                continue
         else:
             entry = {"role": msg.role, "content": msg.content}
             if hasattr(msg, 'thinking') and msg.thinking:

@@ -100,7 +100,7 @@ class ToolRuntimeService:
             return f"[Tool Timeout] {tool_name} exceeded {int(timeout_seconds)} second time limit. Try a simpler operation."
         except Exception as exc:
             traceback.print_exc()
-            return f"Tool execution error ({tool_name}): {type(exc).__name__}: {str(exc)[:200]}"
+            return f"Tool execution error ({tool_name}): {type(exc).__name__}: {str(exc)[:500]}"
 
     async def execute_direct(
         self,

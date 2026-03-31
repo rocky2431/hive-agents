@@ -589,57 +589,56 @@ async def _tick():
             logger.warning(f"Error evaluating trigger {trigger.name}: {e}")
 
     # Invoke each agent (with dedup window + hourly rate limit)
+    # Per-agent try/except so one agent's failure doesn't block others (C-08)
     for agent_id, agent_triggers in fired_by_agent.items():
-        last = _last_invoke.get(agent_id)
-        if last and (now - last).total_seconds() < DEDUP_WINDOW:
-            continue  # Skip — invoked too recently
-
-        # Hourly rate limit — hard cap to prevent runaway cost
-        hour_ago = now - timedelta(hours=1)
-        history = _fire_history.get(agent_id, [])
-        history = [t for t in history if t > hour_ago]  # prune old entries
-        if len(history) >= MAX_FIRES_PER_HOUR:
-            logger.warning(
-                "Agent %s hit hourly rate limit (%d fires/hour) — skipping",
-                agent_id, MAX_FIRES_PER_HOUR,
-            )
-            _fire_history[agent_id] = history
-            continue
-        history.append(now)
-        _fire_history[agent_id] = history
-        _last_invoke[agent_id] = now
-
-        # ── Immediately update trigger state BEFORE launching async task ──
-        # This prevents the next tick from re-evaluating the same trigger as
-        # "should fire" while the LLM call is still running (which can take
-        # minutes). Without this, the 15s tick interval + 30s dedup window
-        # would cause repeated invocations for long-running triggers.
         try:
-            async with async_session() as db:
-                for t in agent_triggers:
-                    result = await db.execute(
-                        select(AgentTrigger).where(AgentTrigger.id == t.id)
-                    )
-                    trigger = result.scalar_one_or_none()
-                    if trigger:
-                        trigger.last_fired_at = now
-                        trigger.fire_count += 1
-                        # Auto-disable single-shot types only
-                        if trigger.type == "once":
-                            trigger.is_enabled = False
-                        if trigger.type == "webhook" and trigger.config:
-                            trigger.config = {
-                                **trigger.config,
-                                "_webhook_pending": False,
-                                "_webhook_payload": None,
-                            }
-                        if trigger.max_fires and trigger.fire_count >= trigger.max_fires:
-                            trigger.is_enabled = False
-                await db.commit()
-        except Exception as e:
-            logger.warning(f"Failed to pre-update trigger state: {e}")
+            last = _last_invoke.get(agent_id)
+            if last and (now - last).total_seconds() < DEDUP_WINDOW:
+                continue  # Skip — invoked too recently
 
-        asyncio.create_task(_invoke_agent_for_triggers(agent_id, agent_triggers))
+            # Hourly rate limit — hard cap to prevent runaway cost
+            hour_ago = now - timedelta(hours=1)
+            history = _fire_history.get(agent_id, [])
+            history = [t for t in history if t > hour_ago]  # prune old entries
+            if len(history) >= MAX_FIRES_PER_HOUR:
+                logger.warning(
+                    "Agent %s hit hourly rate limit (%d fires/hour) — skipping",
+                    agent_id, MAX_FIRES_PER_HOUR,
+                )
+                _fire_history[agent_id] = history
+                continue
+            history.append(now)
+            _fire_history[agent_id] = history
+            _last_invoke[agent_id] = now
+
+            # ── Immediately update trigger state BEFORE launching async task ──
+            try:
+                async with async_session() as db:
+                    for t in agent_triggers:
+                        result = await db.execute(
+                            select(AgentTrigger).where(AgentTrigger.id == t.id)
+                        )
+                        trigger = result.scalar_one_or_none()
+                        if trigger:
+                            trigger.last_fired_at = now
+                            trigger.fire_count += 1
+                            if trigger.type == "once":
+                                trigger.is_enabled = False
+                            if trigger.type == "webhook" and trigger.config:
+                                trigger.config = {
+                                    **trigger.config,
+                                    "_webhook_pending": False,
+                                    "_webhook_payload": None,
+                                }
+                            if trigger.max_fires and trigger.fire_count >= trigger.max_fires:
+                                trigger.is_enabled = False
+                    await db.commit()
+            except Exception as e:
+                logger.warning(f"Failed to pre-update trigger state: {e}")
+
+            asyncio.create_task(_invoke_agent_for_triggers(agent_id, agent_triggers))
+        except Exception as _agent_err:
+            logger.warning("[TriggerDaemon] Failed to process agent %s: %s", agent_id, _agent_err)
 
 
 async def start_trigger_daemon():

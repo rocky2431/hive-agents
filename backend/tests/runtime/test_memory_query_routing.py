@@ -34,10 +34,12 @@ async def test_resolve_memory_context_uses_snapshot_only_before_prefix_exists(mo
     assert result == "SNAPSHOT"
     assert snapshot_calls == ["s-1"]
 
+    # After prefix is cached, memory context should STILL be loaded (not skipped)
+    # This ensures the engine's hash-based cache invalidation works correctly.
     request.session_context.prompt_prefix = "CACHED_PREFIX"
     result = await invoker._resolve_memory_context(request, uuid4())
-    assert result == ""
-    assert snapshot_calls == ["s-1"]
+    assert result == "SNAPSHOT"  # Memory always loaded, even with cached prefix
+    assert len(snapshot_calls) == 2  # Called twice — once per invocation
 
 
 @pytest.mark.asyncio

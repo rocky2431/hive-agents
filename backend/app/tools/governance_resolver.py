@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
+
+logger = logging.getLogger(__name__)
 
 from sqlalchemy import select
 
@@ -38,7 +41,10 @@ class ToolGovernanceResolver:
             async with async_session() as db:
                 result = await db.execute(select(Agent).where(Agent.id == agent_id))
                 agent = result.scalar_one_or_none()
-                return getattr(agent, "security_zone", None) or "standard"
+                zone = getattr(agent, "security_zone", None)
+                if not zone:
+                    logger.warning("[Governance] Agent %s has no security_zone set — defaulting to 'restricted'", agent_id)
+                return zone or "restricted"
 
         async def _check_capability(tenant_id: uuid.UUID, agent_id: uuid.UUID, tool_name: str):
             async with async_session() as db:

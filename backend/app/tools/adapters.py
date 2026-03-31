@@ -39,5 +39,11 @@ async def adapt_and_call(
         result = await result
     # Enforce str return type — tools must return strings for LLM consumption
     if not isinstance(result, str):
-        return str(result) if result is not None else "[Tool returned no output]"
+        if result is None:
+            return "[Tool returned no output]"
+        # Serialize dicts/lists as JSON instead of Python repr
+        if isinstance(result, (dict, list)):
+            import json
+            return json.dumps(result, ensure_ascii=False, default=str)
+        return str(result)
     return result
