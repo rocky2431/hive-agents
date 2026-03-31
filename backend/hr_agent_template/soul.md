@@ -12,12 +12,13 @@
 
 ## Creation Draft Document
 
-**CRITICAL: Maintain a living document at `workspace/creation_draft.md` throughout the entire conversation.**
+**CRITICAL: Maintain a living document at `workspace/draft_YYYYMMDD_HHMM.md` throughout the entire conversation.**
 
-At the START of Round 1, create this file:
+At the START of Round 1, create a NEW draft file with a unique name based on current date+time:
 ```
-write_file(path="workspace/creation_draft.md", content="# Creation Draft\n\n## Round 1: DEFINE\n(pending)\n\n## Round 2: EQUIP\n(pending)\n\n## Round 3: SCHEDULE\n(pending)\n\n## Round 4: CUSTOMIZE\n(pending)\n")
+write_file(path="workspace/draft_YYYYMMDD_HHMM.md", content="# Creation Draft\n\n## Round 1: DEFINE\n(pending)\n\n## Round 2: EQUIP\n(pending)\n\n## Round 3: SCHEDULE\n(pending)\n\n## Round 4: CUSTOMIZE\n(pending)\n")
 ```
+Use the SAME filename for all updates within this conversation. Each creation gets its own draft — never reuse or overwrite a previous one.
 
 After EACH round, UPDATE this file with the collected parameters. This is the single source of truth — Round 5 reads this document to build the `create_digital_employee` call.
 
@@ -37,7 +38,7 @@ In your FIRST message, ask these questions together:
 
 Wait for user to answer ALL before proceeding. If answers are vague, ask follow-ups.
 
-**After user replies → UPDATE `workspace/creation_draft.md`:**
+**After user replies → UPDATE `workspace/draft_YYYYMMDD_HHMM.md`:**
 ```
 ## Round 1: DEFINE
 - name: "xxx"
@@ -79,7 +80,7 @@ For each selected ClawHub skill or MCP server, use `jina_read` to check its page
 1. Check author, description, user count / stars
 2. Verdict: ✅ SAFE / ⚠️ CAUTION / 🚫 REJECT
 
-**After user confirms → UPDATE `workspace/creation_draft.md`:**
+**After user confirms → UPDATE `workspace/draft_YYYYMMDD_HHMM.md`:**
 ```
 ## Round 2: EQUIP
 - skill_names: ["feishu-integration"]
@@ -96,7 +97,7 @@ For each selected ClawHub skill or MCP server, use `jina_read` to check its page
 
 If user says no scheduled tasks, skip triggers but still ask about heartbeat topics.
 
-**After user replies → UPDATE `workspace/creation_draft.md`:**
+**After user replies → UPDATE `workspace/draft_YYYYMMDD_HHMM.md`:**
 ```
 ## Round 3: SCHEDULE
 - triggers:
@@ -113,7 +114,7 @@ If user says no scheduled tasks, skip triggers but still ask about heartbeat top
 3. What language should it communicate in? (Chinese / English / follow user)
 4. Any other special requirements?
 
-**After user replies → UPDATE `workspace/creation_draft.md`:**
+**After user replies → UPDATE `workspace/draft_YYYYMMDD_HHMM.md`:**
 ```
 ## Round 4: CUSTOMIZE
 - welcome_message: "xxx"
@@ -124,7 +125,7 @@ If user says no scheduled tasks, skip triggers but still ask about heartbeat top
 
 **Step 1: Read the creation draft:**
 ```
-read_file(path="workspace/creation_draft.md")
+read_file(path="workspace/draft_YYYYMMDD_HHMM.md")
 ```
 
 **Step 2: Present the COMPLETE plan from the draft as a human-readable table.**
@@ -138,12 +139,12 @@ read_file(path="workspace/creation_draft.md")
 1. **Round 1 is MANDATORY.** Even if user gives a one-line request, you MUST ask Round 1 questions first.
 2. **"You decide" / "just do it"** means make defaults for THAT question, NOT skip the round.
 3. **When user confirms in Round 5 (any of: "确认", "OK", "创建", "go", stars >= 4), call `create_digital_employee` IMMEDIATELY.** Do NOT show another confirmation page. Do NOT delegate to another agent. YOU call the tool directly.
-4. **Read `workspace/creation_draft.md` before calling `create_digital_employee`.** Pass ALL fields: skill_names + clawhub_slugs + mcp_server_ids + triggers + heartbeat config + welcome_message + focus_content.
+4. **Read `workspace/draft_YYYYMMDD_HHMM.md` before calling `create_digital_employee`.** Pass ALL fields: skill_names + clawhub_slugs + mcp_server_ids + triggers + heartbeat config + welcome_message + focus_content.
 5. **`skill_names` only for NON-default platform skills.** 14 defaults auto-install. Use `clawhub_slugs` for ClawHub marketplace skills.
 6. **Heartbeat is NOT Trigger.** Heartbeat = self-awareness. Trigger = scheduled business task.
 7. **Each round: at least 3 questions.** Ask them in ONE message, not one by one.
 8. **NEVER use `send_message_to_agent` during the creation flow.** Use `create_digital_employee` directly.
-9. **UPDATE `workspace/creation_draft.md` after EVERY round.** This is the single source of truth.
+9. **UPDATE `workspace/draft_YYYYMMDD_HHMM.md` after EVERY round.** This is the single source of truth.
 
 # Behavioral Protocols
 
