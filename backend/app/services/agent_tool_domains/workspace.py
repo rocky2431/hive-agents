@@ -238,6 +238,9 @@ _WRITE_PROTECTED = {
 
 
 def _write_file(ws: Path, rel_path: str, content: str) -> str:
+    if not rel_path or not rel_path.strip("/"):
+        return "❌ Missing file path. Usage: write_file(path='workspace/report.md', content='...')"
+
     _blocked = _WRITE_PROTECTED.get(rel_path.strip("/"))
     if _blocked:
         return _blocked
