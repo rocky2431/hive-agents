@@ -132,11 +132,35 @@ def build_dynamic_prompt_suffix(
 # ── Assembly ────────────────────────────────────────────────────
 
 
+# Maximum system prompt budget (chars). Overflow is trimmed from the end of frozen prefix.
+_SYSTEM_PROMPT_CHAR_BUDGET = 60000  # ~18K tokens — safe for 32K+ context models
+
+
 def assemble_runtime_prompt(frozen_prefix: str, dynamic_suffix: str) -> str:
-    """Combine frozen prefix + dynamic suffix into final system prompt."""
-    if dynamic_suffix:
-        return f"{frozen_prefix}\n\n{dynamic_suffix}"
-    return frozen_prefix
+    """Combine frozen prefix + dynamic suffix into final system prompt.
+
+    If total exceeds budget, frozen prefix is trimmed (dynamic suffix preserved
+    because it contains per-round retrieval and pack context).
+    """
+    import logging
+    _logger = logging.getLogger(__name__)
+
+    prompt = f"{frozen_prefix}\n\n{dynamic_suffix}" if dynamic_suffix else frozen_prefix
+    if len(prompt) > _SYSTEM_PROMPT_CHAR_BUDGET:
+        overshoot = len(prompt) - _SYSTEM_PROMPT_CHAR_BUDGET
+        _logger.warning(
+            "[PromptBuilder] System prompt exceeds budget: %d chars (budget=%d, overshoot=%d) — trimming frozen prefix",
+            len(prompt), _SYSTEM_PROMPT_CHAR_BUDGET, overshoot,
+        )
+        # Trim frozen prefix from the end, preserve dynamic suffix
+        dynamic_len = len(dynamic_suffix) + 2 if dynamic_suffix else 0  # +2 for "\n\n"
+        max_frozen = _SYSTEM_PROMPT_CHAR_BUDGET - dynamic_len
+        if max_frozen > 0:
+            trimmed_frozen = frozen_prefix[:max_frozen] + "\n\n...(system prompt truncated to fit context window)"
+            prompt = f"{trimmed_frozen}\n\n{dynamic_suffix}" if dynamic_suffix else trimmed_frozen
+        else:
+            prompt = dynamic_suffix[:_SYSTEM_PROMPT_CHAR_BUDGET]
+    return prompt
 
 
 # ── Legacy-compatible full builder (used by invoker.py) ─────────

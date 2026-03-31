@@ -225,7 +225,9 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
                     default_min_poll = tenant_obj.min_poll_interval_floor or 5
                     default_webhook_rate = tenant_obj.max_webhook_rate_ceiling or 5
 
-            # Create the agent
+            # Create the agent — set last_heartbeat_at to now so the first
+            # heartbeat fires after a full interval, giving MCP/workspace init time.
+            from datetime import datetime as _dt, timezone as _tz
             agent = Agent(
                 name=name,
                 role_description=role_description,
@@ -244,6 +246,7 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
                 heartbeat_enabled=heartbeat_enabled,
                 heartbeat_interval_minutes=heartbeat_interval,
                 heartbeat_active_hours=heartbeat_active_hours,
+                last_heartbeat_at=_dt.now(_tz.utc),
             )
             db.add(agent)
             await db.flush()

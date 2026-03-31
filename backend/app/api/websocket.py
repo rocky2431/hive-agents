@@ -339,7 +339,7 @@ async def websocket_chat(
                 conversation.append({
                     "role": "tool",
                     "tool_call_id": tc_id,
-                    "content": str(tc_result)[:500],
+                    "content": str(tc_result)[:2000],
                 })
             except Exception:
                 continue  # Skip malformed tool_call records
@@ -483,7 +483,7 @@ async def websocket_chat(
                                             "name": data.get("name", ""),
                                             "args": data.get("args"),
                                             "status": "done",
-                                            "result": (data.get("result") or "")[:500],
+                                            "result": (data.get("result") or "")[:2000],
                                             "reasoning_content": data.get("reasoning_content"),
                                         }),
                                         conversation_id=conv_id,

@@ -103,8 +103,16 @@ async def _maybe_await(value: Any) -> Any:
     return value
 
 
-def _build_persisted_memory_messages(request: InvocationRequest, final_content: str) -> list[dict]:
-    base_messages = list(request.memory_messages or request.messages)
+def _build_persisted_memory_messages(
+    request: InvocationRequest,
+    final_content: str,
+    api_messages: list[LLMMessage] | None = None,
+) -> list[dict]:
+    # Prefer kernel's api_messages (includes tool calls/results) over request.memory_messages
+    if api_messages and len(api_messages) > 1:
+        base_messages = _llm_messages_to_dicts(api_messages[1:])  # Skip system prompt
+    else:
+        base_messages = list(request.memory_messages or request.messages)
     if final_content and not final_content.startswith("[LLM") and not final_content.startswith("[Error]"):
         base_messages.append({"role": "assistant", "content": final_content})
     return base_messages
@@ -352,6 +360,7 @@ class AgentKernel:
         request: InvocationRequest,
         runtime_config: RuntimeConfig,
         final_content: str,
+        api_messages: list[LLMMessage] | None = None,
     ) -> None:
         """Best-effort memory persistence on abnormal exit paths."""
         if not request.agent_id or not runtime_config.tenant_id:
@@ -362,7 +371,7 @@ class AgentKernel:
                     agent_id=request.agent_id,
                     session_id=request.memory_session_id,
                     tenant_id=runtime_config.tenant_id,
-                    messages=_build_persisted_memory_messages(request, final_content),
+                    messages=_build_persisted_memory_messages(request, final_content, api_messages),
                 )
             )
         except Exception as exc:
@@ -452,12 +461,17 @@ class AgentKernel:
                     try:
                         from app.config import get_settings as _gs
                         from pathlib import Path as _P
-                        _agent_dir = _P(_gs().AGENT_DATA_DIR) / str(request.agent_id)
-                        _agent_dir.mkdir(parents=True, exist_ok=True)
-                        _compaction_file = _agent_dir / "workspace" / "compaction_summary.md"
-                        _compaction_file.parent.mkdir(parents=True, exist_ok=True)
                         _header = "# Session Compaction Summary (auto-saved)\n\n"
-                        _compaction_file.write_text(_header + data["summary"] + "\n", encoding="utf-8")
+                        _content = _header + data["summary"] + "\n"
+                        # Write to both workspace roots so heartbeat can find it
+                        for _root in [
+                            _P(_gs().AGENT_DATA_DIR) / str(request.agent_id),
+                            _P("/tmp/hive_workspaces") / str(request.agent_id),
+                        ]:
+                            if _root.exists():
+                                _cfile = _root / "workspace" / "compaction_summary.md"
+                                _cfile.parent.mkdir(parents=True, exist_ok=True)
+                                _cfile.write_text(_content, encoding="utf-8")
                     except Exception as _exc:
                         logger.warning("[Kernel] Auto-save compaction summary failed: %s", _exc)
 
@@ -516,7 +530,7 @@ class AgentKernel:
                     if request.cancel_event and request.cancel_event.is_set():
                         if request.agent_id and accumulated_tokens > 0:
                             await _maybe_await(self._deps.record_token_usage(request.agent_id, accumulated_tokens))
-                        await self._persist_before_exit(request, runtime_config, "*[Generation stopped]*")
+                        await self._persist_before_exit(request, runtime_config, "*[Generation stopped]*", api_messages)
                         return _build_cancelled_result(
                             streamed_chunks,
                             streamed_thinking,
@@ -573,7 +587,7 @@ class AgentKernel:
                         except _KernelCancelledError:
                             if request.agent_id and accumulated_tokens > 0:
                                 await _maybe_await(self._deps.record_token_usage(request.agent_id, accumulated_tokens))
-                            await self._persist_before_exit(request, runtime_config, "*[Generation stopped]*")
+                            await self._persist_before_exit(request, runtime_config, "*[Generation stopped]*", api_messages)
                             return _build_cancelled_result(
                                 streamed_chunks,
                                 streamed_thinking,
@@ -605,7 +619,7 @@ class AgentKernel:
                                 continue
                             if request.agent_id and accumulated_tokens > 0:
                                 await _maybe_await(self._deps.record_token_usage(request.agent_id, accumulated_tokens))
-                            await self._persist_before_exit(request, runtime_config, f"[LLM Error] {exc}")
+                            await self._persist_before_exit(request, runtime_config, f"[LLM Error] {exc}", api_messages)
                             return _build_error_result(f"[LLM Error] {exc}", tokens_used=accumulated_tokens)
                         except Exception as exc:
                             logger.error(
@@ -633,7 +647,7 @@ class AgentKernel:
                             if request.agent_id and accumulated_tokens > 0:
                                 await _maybe_await(self._deps.record_token_usage(request.agent_id, accumulated_tokens))
                             err_msg = f"[LLM call error] {type(exc).__name__}: {str(exc)[:200]}"
-                            await self._persist_before_exit(request, runtime_config, err_msg)
+                            await self._persist_before_exit(request, runtime_config, err_msg, api_messages)
                             return _build_error_result(
                                 err_msg,
                                 tokens_used=accumulated_tokens,
@@ -657,7 +671,7 @@ class AgentKernel:
                                         agent_id=request.agent_id,
                                         session_id=request.memory_session_id,
                                         tenant_id=runtime_config.tenant_id,
-                                        messages=_build_persisted_memory_messages(request, final_content),
+                                        messages=_build_persisted_memory_messages(request, final_content, api_messages),
                                     )
                                 )
                             except Exception as exc:
@@ -712,7 +726,7 @@ class AgentKernel:
                         if request.cancel_event and request.cancel_event.is_set():
                             if request.agent_id and accumulated_tokens > 0:
                                 await _maybe_await(self._deps.record_token_usage(request.agent_id, accumulated_tokens))
-                            await self._persist_before_exit(request, runtime_config, "*[Generation stopped]*")
+                            await self._persist_before_exit(request, runtime_config, "*[Generation stopped]*", api_messages)
                             return _build_cancelled_result(
                                 streamed_chunks,
                                 streamed_thinking,
@@ -770,7 +784,7 @@ class AgentKernel:
                             if request.cancel_event and request.cancel_event.is_set():
                                 if request.agent_id and accumulated_tokens > 0:
                                     await _maybe_await(self._deps.record_token_usage(request.agent_id, accumulated_tokens))
-                                await self._persist_before_exit(request, runtime_config, "*[Generation stopped]*")
+                                await self._persist_before_exit(request, runtime_config, "*[Generation stopped]*", api_messages)
                                 return _build_cancelled_result(
                                     streamed_chunks,
                                     streamed_thinking,
@@ -887,7 +901,7 @@ class AgentKernel:
 
                 if request.agent_id and accumulated_tokens > 0:
                     await _maybe_await(self._deps.record_token_usage(request.agent_id, accumulated_tokens))
-                await self._persist_before_exit(request, runtime_config, "[Error] Too many tool call rounds")
+                await self._persist_before_exit(request, runtime_config, "[Error] Too many tool call rounds", api_messages)
                 return _build_error_result(
                     "[Error] Too many tool call rounds",
                     tokens_used=accumulated_tokens,

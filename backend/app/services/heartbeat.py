@@ -345,6 +345,21 @@ def _build_heartbeat_tool_executor(agent_id: uuid.UUID, creator_id: uuid.UUID):
     return _executor
 
 
+async def _touch_last_heartbeat(agent_id: uuid.UUID) -> None:
+    """Update last_heartbeat_at even on early return to prevent infinite re-triggering."""
+    try:
+        from app.database import async_session as _async_session
+        from app.models.agent import Agent as _Agent
+        async with _async_session() as _db:
+            _result = await _db.execute(select(_Agent).where(_Agent.id == agent_id))
+            _agent = _result.scalar_one_or_none()
+            if _agent:
+                _agent.last_heartbeat_at = datetime.now(timezone.utc)
+                await _db.commit()
+    except Exception as _exc:
+        logger.debug("[Heartbeat] Failed to touch last_heartbeat_at for %s: %s", agent_id, _exc)
+
+
 async def _execute_heartbeat(agent_id: uuid.UUID):
     """Execute a single heartbeat for an agent.
 
@@ -366,6 +381,7 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
             agent = result.scalar_one_or_none()
             if not agent:
                 logger.warning("[Heartbeat] Agent %s not found in DB — skipping", agent_id)
+                await _touch_last_heartbeat(agent_id)
                 return
 
             # Set execution identity — autonomous heartbeat action
@@ -375,6 +391,7 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
             model_id = agent.primary_model_id or agent.fallback_model_id
             if not model_id:
                 logger.warning("[Heartbeat] Agent %s (%s) has no model configured — skipping", agent.name, agent_id)
+                await _touch_last_heartbeat(agent_id)
                 return
 
             model_result = await db.execute(
@@ -383,6 +400,7 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
             model = model_result.scalar_one_or_none()
             if not model:
                 logger.warning("[Heartbeat] Model %s for agent %s (%s) not found — skipping", model_id, agent.name, agent_id)
+                await _touch_last_heartbeat(agent_id)
                 return
 
             # Fetch recent activity for evolution context
@@ -391,9 +409,11 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
                 recent_result = await db.execute(
                     select(AgentActivityLog)
                     .where(AgentActivityLog.agent_id == agent_id)
-                    .where(AgentActivityLog.action_type.in_(
-                        ["chat_reply", "tool_call", "task_created", "task_updated", "error", "heartbeat"]
-                    ))
+                    .where(AgentActivityLog.action_type.in_([
+                        "chat_reply", "tool_call", "task_created", "task_updated",
+                        "error", "heartbeat", "web_msg_sent", "feishu_msg_sent",
+                        "agent_msg_sent", "file_written", "schedule_run", "plaza_post",
+                    ]))
                     .order_by(AgentActivityLog.created_at.desc())
                     .limit(50)
                 )

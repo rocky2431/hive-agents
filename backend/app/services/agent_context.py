@@ -119,8 +119,10 @@ async def build_agent_context(agent_id: uuid.UUID, agent_name: str, role_descrip
     if memory.startswith("# "):
         memory = "\n".join(memory.split("\n")[1:]).strip()
 
-    # --- Skills index (progressive disclosure) ---
+    # --- Skills index (progressive disclosure, capped to prevent prompt overflow) ---
     skills_text = _load_skills_index(agent_id)
+    if len(skills_text) > 4000:
+        skills_text = skills_text[:4000] + "\n\n...(skill catalog truncated — use `load_skill` to see full details)"
 
     # --- Relationships ---
     relationships = _read_file_safe(data_ws / "relationships.md", 2000)
