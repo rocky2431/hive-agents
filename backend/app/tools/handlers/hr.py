@@ -306,10 +306,26 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
                             if isinstance(v, str) and v.count(" ") >= 3:
                                 raw_config = {"expr": v}
                                 break
-                    # Skip cron triggers with no expr — prevents every-minute storm
+                    # Infer cron expr from trigger name if LLM omitted it
                     if trig_type == "cron" and not raw_config.get("expr"):
-                        logger.warning("Skipping cron trigger '%s' — no expr in config", trig.get("name"))
-                        continue
+                        trig_name = (trig.get("name") or "").lower()
+                        inferred = None
+                        if "every_2h" in trig_name or "2h" in trig_name:
+                            inferred = "0 */2 * * *"
+                        elif "every_4h" in trig_name or "4h" in trig_name:
+                            inferred = "0 */4 * * *"
+                        elif "hourly" in trig_name or "every_hour" in trig_name:
+                            inferred = "0 * * * *"
+                        elif "weekly" in trig_name:
+                            inferred = "0 9 * * 1"
+                        elif "daily" in trig_name:
+                            inferred = "0 9 * * *"
+                        if inferred:
+                            raw_config = {"expr": inferred}
+                            logger.info("Inferred cron expr '%s' for trigger '%s' from name", inferred, trig_name)
+                        else:
+                            logger.warning("Skipping cron trigger '%s' — no expr in config and cannot infer", trig.get("name"))
+                            continue
                     db.add(AgentTrigger(
                         agent_id=agent.id,
                         name=trig.get("name", "task"),
