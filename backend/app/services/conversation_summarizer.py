@@ -174,7 +174,7 @@ async def _llm_summarize(messages: list[dict], model_config: dict) -> str | None
 
         if role == "tool":
             if isinstance(content, str) and content.strip():
-                conversation_text.append(f"tool_result: {content[:300]}")
+                conversation_text.append(f"tool_result: {content[:1000]}")
             continue
 
         if not isinstance(content, str) or not content.strip():
