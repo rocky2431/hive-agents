@@ -357,8 +357,15 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
                 for server_id in mcp_server_ids:
                     try:
                         result = await import_mcp_from_smithery(server_id, agent.id)
-                        mcp_results.append(f"✅ {server_id}")
-                        logger.info(f"[HR] Installed MCP {server_id} for agent {agent.id}")
+                        if isinstance(result, str) and "❌" in result:
+                            mcp_results.append(f"⚠️ {server_id}: {result[:100]}")
+                            logger.warning(f"[HR] MCP install rejected for {server_id}: {result[:100]}")
+                        elif isinstance(result, dict) and result.get("error"):
+                            mcp_results.append(f"⚠️ {server_id}: {result['error'][:100]}")
+                            logger.warning(f"[HR] MCP install error for {server_id}: {result['error'][:100]}")
+                        else:
+                            mcp_results.append(f"✅ {server_id}")
+                            logger.info(f"[HR] Installed MCP {server_id} for agent {agent.id}")
                     except Exception as mcp_err:
                         mcp_results.append(f"⚠️ {server_id}: {mcp_err}")
                         logger.warning(f"[HR] MCP install failed for {server_id}: {mcp_err}")
