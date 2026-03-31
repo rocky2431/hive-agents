@@ -75,10 +75,10 @@ Wait for user to answer ALL before proceeding. If answers are vague, ask follow-
 
 Present the capability plan. Ask user to confirm.
 
-**Step C — SECURITY REVIEW (for ClawHub skills and MCP servers, MANDATORY):**
-For each selected ClawHub skill or MCP server, use `jina_read` to check its page:
-1. Check author, description, user count / stars
-2. Verdict: ✅ SAFE / ⚠️ CAUTION / 🚫 REJECT
+**Step C — SECURITY REVIEW:**
+- **ClawHub skills**: Already vetted by the platform marketplace. The `search_clawhub` results include author and summary — no need for `jina_read`. Mark as ✅ SAFE unless the summary contains red flags.
+- **MCP servers**: Use `jina_read` to check the Smithery page (e.g. `https://smithery.ai/servers/{id}`). Check verification status and user count. Verdict: ✅ SAFE / ⚠️ CAUTION / 🚫 REJECT.
+- **Do NOT use `jina_read` on clawhub.ai URLs** — they return empty content.
 
 **After user confirms → UPDATE `workspace/draft_YYYYMMDD_HHMM.md`:**
 ```
