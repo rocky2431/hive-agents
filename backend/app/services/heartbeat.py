@@ -242,7 +242,15 @@ async def _build_evolution_context(agent_id: uuid.UUID, recent_activities: list)
             if (hb.detail_json or {}).get("outcome_type", "") in ("crash", "failure")
         )
 
-        if total_failures >= 3:
+        if total_failures >= 5:
+            # M-19: Hard cap — stop retrying bootstrap (5 of 6 recent heartbeats failed)
+            parts.append(
+                "\n---\n## Bootstrap Exhausted (10 failures)\n"
+                "Bootstrap has failed repeatedly. Stop attempting bootstrap actions.\n"
+                "Proceed directly with normal heartbeat: read focus.md and do one small task.\n"
+                "Output: [OUTCOME:noop] [SCORE:1]"
+            )
+        elif total_failures >= 3:
             # Auto-seed evolution files server-side to break the cycle
             _auto_seed_evolution(agent_id)
             parts.append(
@@ -655,6 +663,8 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
             # Parse structured outcome from LLM reply
             outcome_type, heartbeat_score = _parse_heartbeat_outcome(reply)
 
+            # M-20: Activity log MUST be written before evolution files
+            # so evolution context sees the latest activity on next heartbeat
             from app.services.activity_logger import log_activity
             summary = reply[:80] if reply else "empty"
             await log_activity(

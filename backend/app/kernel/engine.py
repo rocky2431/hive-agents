@@ -241,7 +241,7 @@ def _maybe_evict_tool_result(
     tool_name: str,
     tool_call_id: str,
     result: str,
-    eviction_dir: "Path | None" = None,
+    eviction_dir: Any = None,
 ) -> str:
     """If tool result exceeds threshold, save full output to file and truncate inline."""
     from pathlib import Path as _Path  # deferred to avoid top-level import in kernel
@@ -415,6 +415,9 @@ class AgentKernel:
                 _cache_valid = _cached_mem_hash == _mem_hash
                 if not _cache_valid:
                     logger.info("[Kernel] Prompt cache invalidated — memory context changed")
+                    # Clear active_packs to prevent stale pack contamination (H-05)
+                    if session_ctx:
+                        session_ctx.active_packs.clear()
 
             if _cache_valid and session_ctx and session_ctx.prompt_prefix:
                 # Session has a valid frozen prefix — only rebuild dynamic suffix
@@ -455,6 +458,7 @@ class AgentKernel:
             collected_parts: list[dict[str, Any]] = []
             streamed_chunks: list[str] = []
             streamed_thinking: list[str] = []
+            _callback_failure_count: int = 0
 
             async def _emit_event(event: dict[str, Any]) -> None:
                 if request.on_event:
@@ -489,20 +493,28 @@ class AgentKernel:
                         logger.warning("[Kernel] Auto-save compaction summary failed: %s", _exc)
 
             async def _emit_chunk(text: str) -> None:
+                nonlocal _callback_failure_count
                 streamed_chunks.append(text)
                 if request.on_chunk:
                     try:
                         await _maybe_await(request.on_chunk(text))
                     except Exception as _cb_exc:
-                        logger.warning("[Kernel] on_chunk callback failed: %s", _cb_exc)
+                        _callback_failure_count += 1
+                        logger.warning("[Kernel] on_chunk callback failed (%d): %s", _callback_failure_count, _cb_exc)
+                        if _callback_failure_count == 3:
+                            logger.error("[Kernel] Multiple callback failures (%d) — client may be disconnected", _callback_failure_count)
 
             async def _emit_thinking(text: str) -> None:
+                nonlocal _callback_failure_count
                 streamed_thinking.append(text)
                 if request.on_thinking:
                     try:
                         await _maybe_await(request.on_thinking(text))
                     except Exception as _cb_exc:
-                        logger.warning("[Kernel] on_thinking callback failed: %s", _cb_exc)
+                        _callback_failure_count += 1
+                        logger.warning("[Kernel] on_thinking callback failed (%d): %s", _callback_failure_count, _cb_exc)
+                        if _callback_failure_count == 3:
+                            logger.error("[Kernel] Multiple callback failures (%d) — client may be disconnected", _callback_failure_count)
 
             messages = await _maybe_await(
                 self._deps.maybe_compress_messages(
@@ -542,6 +554,8 @@ class AgentKernel:
                 getattr(active_model, "max_output_tokens", None),
             )
             accumulated_tokens = 0
+            # full_toolset tracks expanded tools after pack activation.
+            # Intentionally persists across rounds — packs stay active once loaded.
             full_toolset = None
 
             try:
@@ -694,7 +708,7 @@ class AgentKernel:
                                     )
                                 )
                             except Exception as exc:
-                                logger.warning(
+                                logger.error(
                                     "[Kernel] Failed to persist memory for agent %s: %s", request.agent_id, exc
                                 )
                         if request.agent_id and accumulated_tokens > 0:
@@ -806,6 +820,9 @@ class AgentKernel:
                                     await _maybe_await(request.on_tool_call(done_payload))
                                 except Exception as _cb_exc:
                                     logger.warning("[Kernel] on_tool_call(done) callback failed: %s", _cb_exc)
+                                    _callback_failure_count += 1
+                                    if _callback_failure_count == 3:
+                                        logger.error("[Kernel] Multiple callback failures (%d) — client may be disconnected", _callback_failure_count)
                             collected_parts.append(build_tool_call_event(done_payload)["part"])
                             api_messages.append(
                                 LLMMessage(
@@ -839,6 +856,9 @@ class AgentKernel:
                                     await _maybe_await(request.on_tool_call(running_payload))
                                 except Exception as _cb_exc:
                                     logger.warning("[Kernel] on_tool_call(running) callback failed: %s", _cb_exc)
+                                    _callback_failure_count += 1
+                                    if _callback_failure_count == 3:
+                                        logger.error("[Kernel] Multiple callback failures (%d) — client may be disconnected", _callback_failure_count)
 
                             result = await _maybe_await(
                                 self._deps.execute_tool(tool_name, args, request, _emit_event)
@@ -906,6 +926,9 @@ class AgentKernel:
                                     await _maybe_await(request.on_tool_call(done_payload))
                                 except Exception as _cb_exc:
                                     logger.warning("[Kernel] on_tool_call(done) callback failed: %s", _cb_exc)
+                                    _callback_failure_count += 1
+                                    if _callback_failure_count == 3:
+                                        logger.error("[Kernel] Multiple callback failures (%d) — client may be disconnected", _callback_failure_count)
                             collected_parts.append(build_tool_call_event(done_payload)["part"])
 
                             api_messages.append(
@@ -926,6 +949,9 @@ class AgentKernel:
                                 tokens_used=accumulated_tokens, final_tools=tools_for_llm,
                                 collected_parts=collected_parts,
                             )
+                        # Note: system prompt tokens are NOT included in this compression
+                        # because compress_threshold is relative to context_limit which
+                        # already reserves space for the prompt via compute_history_limit.
                         conv_dicts = _llm_messages_to_dicts(api_messages[1:])
                         compressed = await _maybe_await(
                             self._deps.maybe_compress_messages(
@@ -942,7 +968,8 @@ class AgentKernel:
                         )
                         if len(compressed) < len(conv_dicts):
                             api_messages = [api_messages[0]] + _dicts_to_llm_messages(compressed)
-                            collected_parts.clear()
+                            # Preserve pre-compaction parts so clients get full event history (C-02)
+                            # Mark them as pre-compaction to avoid duplicate persistence
                             logger.info(
                                 "[Kernel] Mid-loop compaction: %d → %d messages (round %d)",
                                 len(conv_dicts) + 1,

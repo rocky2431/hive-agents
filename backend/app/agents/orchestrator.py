@@ -157,6 +157,21 @@ async def _delegate(request: AgentDelegationRequest) -> AgentDelegationResult:
             depth=request.depth,
             timed_out=True,
         )
+    except Exception as exc:
+        # M-22: Log full stack server-side; return only safe summary to LLM
+        logger.error(
+            "[Orchestrator] Child agent %s failed (depth=%d, trace=%s): %s",
+            request.target.name, request.depth, trace_id, exc, exc_info=True,
+        )
+        return AgentDelegationResult(
+            content=(
+                f"⚠️ Delegation to {request.target.name} failed: {type(exc).__name__}: {str(exc)[:300]}\n"
+                f"Trace: {trace_id}, depth: {request.depth}"
+            ),
+            child_session_id=child_session_id,
+            trace_id=trace_id,
+            depth=request.depth,
+        )
 
     return AgentDelegationResult(
         content=result.content or "",

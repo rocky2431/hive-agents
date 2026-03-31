@@ -266,7 +266,24 @@ class PersistentMemoryStore:
     def _write_legacy_json(self, agent_id: uuid.UUID, facts: list[dict]) -> None:
         memory_file = self._legacy_json_path(agent_id)
         memory_file.parent.mkdir(parents=True, exist_ok=True)
-        memory_file.write_text(json.dumps(facts, ensure_ascii=False, indent=2), encoding="utf-8")
+        # Atomic write: write to temp file then rename to prevent corruption on crash
+        import os
+        import tempfile
+        tmp_fd, tmp_path = tempfile.mkstemp(dir=str(memory_file.parent), suffix=".tmp")
+        fd_closed = False
+        try:
+            os.write(tmp_fd, json.dumps(facts, ensure_ascii=False, indent=2).encode("utf-8"))
+            os.close(tmp_fd)
+            fd_closed = True
+            os.replace(tmp_path, str(memory_file))
+        except BaseException:
+            if not fd_closed:
+                os.close(tmp_fd)
+            try:
+                os.unlink(tmp_path)
+            except OSError as unlink_err:
+                logger.warning("[MemoryStore] Failed to clean up temp file %s: %s", tmp_path, unlink_err)
+            raise
 
 
 class FileBackedMemoryStore:

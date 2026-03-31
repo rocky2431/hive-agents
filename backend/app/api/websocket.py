@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-import logging
 import os
 import uuid
 
@@ -15,14 +14,11 @@ from app.core.security import decode_access_token
 from app.core.permissions import check_agent_access, is_agent_expired
 from app.database import async_session
 from app.kernel.contracts import ExecutionIdentityRef
-from app.models.agent import Agent
 from app.models.audit import ChatMessage
 from app.models.llm import LLMModel
 from app.runtime.invoker import AgentInvocationRequest, invoke_agent
 from app.runtime.session import SessionContext
 from app.models.user import User
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["websocket"])
 
@@ -34,7 +30,7 @@ class ConnectionManager:
         # agent_id_str -> list of (WebSocket, session_id_str | None)
         self.active_connections: dict[str, list[tuple]] = {}
 
-    async def connect(self, agent_id: str, websocket: WebSocket, session_id: str = None):
+    async def connect(self, agent_id: str, websocket: WebSocket, session_id: str | None = None):
         await websocket.accept()
         if agent_id not in self.active_connections:
             self.active_connections[agent_id] = []
@@ -48,8 +44,16 @@ class ConnectionManager:
 
     async def send_message(self, agent_id: str, message: dict):
         if agent_id in self.active_connections:
+            dead = []
             for ws, _sid in self.active_connections[agent_id]:
-                await ws.send_json(message)
+                try:
+                    await ws.send_json(message)
+                except Exception:
+                    dead.append((ws, _sid))
+            for d in dead:
+                self.active_connections[agent_id] = [
+                    c for c in self.active_connections[agent_id] if c != d
+                ]
 
     def get_active_session_ids(self, agent_id: str) -> list[str]:
         """Return distinct session IDs for all active WS connections of an agent."""
@@ -76,11 +80,16 @@ async def get_chat_history(
     """Return web chat message history for this user + agent."""
     from app.services.chat_message_parts import serialize_chat_message
 
+    # check_agent_access already verifies tenant ownership (H-17)
     await check_agent_access(db, current_user, agent_id)
     conv_id = f"web_{current_user.id}"
     result = await db.execute(
         select(ChatMessage)
-        .where(ChatMessage.agent_id == agent_id, ChatMessage.conversation_id == conv_id)
+        .where(
+            ChatMessage.agent_id == agent_id,
+            ChatMessage.conversation_id == conv_id,
+            ChatMessage.user_id == current_user.id,
+        )
         .order_by(ChatMessage.created_at.asc())
         .limit(200)
     )
@@ -378,7 +387,7 @@ async def websocket_chat(
             if not content:
                 continue
 
-            # ── Quota checks ──
+            # ── Quota checks (M-14: intentionally before message save) ──
             try:
                 from app.services.quota_guard import check_user_token_quota, QuotaExceeded
                 await check_user_token_quota(user_id)
@@ -459,6 +468,8 @@ async def websocket_chat(
 
             # Track thinking content for storage
             thinking_content: list[str] = []
+            # Accumulate streamed chunks for partial-response save on disconnect (H-16)
+            streamed_chunks: list[str] = []
 
             # Call LLM with streaming
             if llm_model:
@@ -469,6 +480,7 @@ async def websocket_chat(
                         """Send each chunk to client in real-time."""
                         from app.services.chat_message_parts import build_chunk_event
 
+                        streamed_chunks.append(text)
                         await websocket.send_json(build_chunk_event(text))
 
                     async def tool_call_to_ws(data: dict):
@@ -480,6 +492,9 @@ async def websocket_chat(
                         if data.get("status") == "done":
                             try:
                                 import json as _json_tc
+                                raw_result = data.get("result") or ""
+                                if len(str(raw_result)) > 2000:
+                                    logger.info("[WS] Tool result truncated on save: %d->2000 chars (tool=%s)", len(str(raw_result)), data.get("name", "?"))
                                 async with async_session() as _tc_db:
                                     tc_msg = ChatMessage(
                                         agent_id=agent_id,
@@ -489,7 +504,7 @@ async def websocket_chat(
                                             "name": data.get("name", ""),
                                             "args": data.get("args"),
                                             "status": "done",
-                                            "result": (data.get("result") or "")[:2000],
+                                            "result": str(raw_result)[:2000],
                                             "reasoning_content": data.get("reasoning_content"),
                                         }),
                                         conversation_id=conv_id,
@@ -584,6 +599,10 @@ async def websocket_chat(
                                 llm_task.cancel()
                                 assistant_response = None
                                 logger.info("[WS] Kernel cleanup timed out, force cancelled")
+                            # Save partial streamed content even if kernel didn't finish (H-16)
+                            if not assistant_response and streamed_chunks:
+                                assistant_response = "".join(streamed_chunks)
+                                logger.info("[WS] Saving partial response (%d chunks) after disconnect", len(streamed_chunks))
                             # Best-effort save of partial response
                             if assistant_response:
                                 try:

@@ -6,7 +6,6 @@ returning a unified list of MemoryItem objects for the assembler.
 
 from __future__ import annotations
 
-import json
 import logging
 import uuid
 from datetime import UTC, datetime
@@ -179,7 +178,7 @@ class MemoryRetriever:
         try:
             facts = self._persistent_store.load_semantic_facts(agent_id)
         except Exception as exc:
-            logger.debug("Failed to read semantic store for agent %s: %s", agent_id, exc)
+            logger.warning("Failed to read semantic store for agent %s: %s", agent_id, exc)
             return []
 
         if not isinstance(facts, list) or not facts:
@@ -244,7 +243,7 @@ class MemoryRetriever:
             return items
 
         except Exception as exc:
-            logger.debug("External retrieval failed (non-fatal): %s", exc)
+            logger.warning("External retrieval failed: %s", exc)
             return []
 
 

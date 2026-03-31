@@ -602,10 +602,14 @@ def _merge_memory_facts(
     new_facts: list[dict],
     *,
     max_facts: int = 50,
+    expiry_days: int = 180,
+    expiry_score_threshold: float = 0.3,
 ) -> list[dict]:
-    from datetime import datetime, timezone
+    from datetime import datetime, timezone, timedelta
 
-    timestamp = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(timezone.utc)
+    timestamp = now.isoformat()
+    cutoff = now - timedelta(days=expiry_days)
     merged: list[dict] = []
     identities: dict[str, int] = {}
 
@@ -613,6 +617,22 @@ def _merge_memory_facts(
         fact = _sanitize_fact(raw_fact, timestamp)
         if not fact:
             continue
+
+        # Expire stale low-value facts: older than expiry_days AND low relevance score
+        fact_ts = fact.get("timestamp")
+        if fact_ts and isinstance(fact_ts, str):
+            try:
+                ts_str = fact_ts.strip()
+                if ts_str.endswith("Z"):
+                    ts_str = ts_str[:-1] + "+00:00"
+                fact_dt = datetime.fromisoformat(ts_str)
+                if fact_dt.tzinfo is None:
+                    fact_dt = fact_dt.replace(tzinfo=timezone.utc)
+                fact_score = float(fact.get("score", 1.0))
+                if fact_dt < cutoff and fact_score < expiry_score_threshold:
+                    continue
+            except (ValueError, TypeError) as ts_err:
+                logger.debug("Unparseable fact timestamp %r, keeping fact: %s", fact_ts, ts_err)
 
         identity = _fact_identity(fact)
         if not identity:

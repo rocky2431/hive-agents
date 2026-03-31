@@ -489,14 +489,30 @@ class OpenAICompatibleClient(LLMClient):
 
                 break  # Success
 
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 429:
+                    if attempt < max_retries - 1:
+                        try:
+                            retry_after = int(e.response.headers.get("retry-after", (attempt + 1) * 2))
+                        except (ValueError, TypeError):
+                            retry_after = (attempt + 1) * 2
+                        wait = min(retry_after, 30)
+                        logger.warning(f"Rate limited (429), waiting {wait}s before retry...")
+                        await asyncio.sleep(wait)
+                        tag_buffer = ""
+                    else:
+                        raise LLMError(f"Rate limited after {max_retries} attempts: {e}")
+                else:
+                    raise LLMError(f"HTTP {e.response.status_code}: {e.response.text[:200]}")
             except (httpx.ConnectError, httpx.ReadError, httpx.ConnectTimeout) as e:
                 if attempt < max_retries - 1:
                     wait = (attempt + 1) * 1
                     logger.warning(f"Stream attempt {attempt + 1} failed ({type(e).__name__}), retrying in {wait}s...")
                     await asyncio.sleep(wait)
                     # Preserve already-streamed content for client consistency.
-                    # Only reset parsing state, not accumulated content.
-                    in_think = False
+                    # Only reset partial tag buffer, not accumulated content.
+                    # Preserve in_think state across retries to avoid leaking
+                    # think content into regular output (H-13)
                     tag_buffer = ""
                 else:
                     raise LLMError(f"Connection failed after {max_retries} attempts: {e}")
@@ -796,6 +812,7 @@ class OpenAIResponsesClient(LLMClient):
 
         Minimal implementation: fallback to non-streaming and forward final text.
         """
+        logger.info("[ResponsesAPI] Streaming not natively supported — using single-chunk delivery")
         response = await self.complete(
             messages=messages,
             tools=tools,
@@ -1188,6 +1205,7 @@ class GeminiClient(LLMClient):
     ) -> LLMResponse:
         """Streaming completion using Gemini SSE endpoint."""
         if self._is_openai_compatible_base():
+            logger.info("[Gemini] Using OpenAI-compatible endpoint for model %s (base_url override detected)", self.model)
             fallback = await self._get_openai_fallback_client()
             return await fallback.stream(
                 messages=messages,
@@ -1330,6 +1348,17 @@ class AnthropicClient(LLMClient):
             "anthropic-version": self.API_VERSION,
         }
 
+    def _get_anthropic_max_tokens(self) -> int:
+        """Model-aware max_tokens default for Anthropic models."""
+        model_lower = (self.model or "").lower()
+        if "opus" in model_lower:
+            return 16384
+        if "sonnet" in model_lower:
+            return 16384
+        if "haiku" in model_lower:
+            return 8192
+        return 8192
+
     def _build_payload(
         self,
         messages: list[LLMMessage],
@@ -1354,7 +1383,7 @@ class AnthropicClient(LLMClient):
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": anthropic_messages,
-            "max_tokens": max_tokens or 8192,
+            "max_tokens": max_tokens or self._get_anthropic_max_tokens(),
             "temperature": temperature,
             "stream": stream,
         }

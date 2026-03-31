@@ -71,6 +71,15 @@ class ApprovalService:
         if agent and agent.creator_id != user.id and user.role != "platform_admin":
             raise ValueError("Only the agent creator or platform admin can resolve approvals")
 
+        # M-17: Auto-reject approvals older than 7 days (AFTER authorization check)
+        from datetime import timedelta
+        if approval.created_at and (datetime.now(timezone.utc) - approval.created_at) > timedelta(days=7):
+            approval.status = "rejected"
+            approval.resolved_at = datetime.now(timezone.utc)
+            logger.info("Approval %s auto-rejected (older than 7 days)", approval.id)
+            await db.flush()
+            return approval
+
         approval.status = "approved" if action == "approve" else "rejected"
         approval.resolved_at = datetime.now(timezone.utc)
         approval.resolved_by = user.id
@@ -107,7 +116,11 @@ class ApprovalService:
             execution_result = await self._execute_approved_action(
                 approval.agent_id, approval.action_type, approval.details
             )
-            logger.info("Post-approval execution for %s: %s", approval.action_type, execution_result)
+            execution_status = "success" if execution_result and "failed" not in str(execution_result).lower() else "failed"
+            logger.info(
+                "Post-approval execution for %s: status=%s result=%s",
+                approval.action_type, execution_status, str(execution_result)[:200],
+            )
 
         if agent:
             from app.services.notification_service import send_notification
@@ -140,8 +153,8 @@ class ApprovalService:
                             link=f"/agents/{agent.id}#activityLog",
                             ref_id=approval.id,
                         )
-                except (ValueError, AttributeError):
-                    pass
+                except (ValueError, AttributeError) as notify_err:
+                    logger.debug("Could not notify requester %s: %s", requested_by, notify_err)
 
         await db.flush()
         return approval

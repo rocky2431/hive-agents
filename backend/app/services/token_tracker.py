@@ -10,8 +10,8 @@ from loguru import logger
 
 
 def estimate_tokens_from_chars(total_chars: int) -> int:
-    """Rough token estimate when real usage is unavailable. ~3 chars per token."""
-    return max(total_chars // 3, 1)
+    """Rough token estimate when real usage is unavailable. ~3.5 chars per token."""
+    return max(int(total_chars / 3.5), 1)
 
 
 def extract_usage_tokens(usage: dict | None) -> int | None:

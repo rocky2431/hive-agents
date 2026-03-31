@@ -197,6 +197,9 @@ async def _run_governance_inner(
         try:
             tenant_uuid = uuid.UUID(context.tenant_id)
             cap_result = await _maybe_await(deps.check_capability(tenant_uuid, context.agent_id, context.tool_name))
+            if cap_result is not None and not hasattr(cap_result, "denied"):
+                logger.warning("[Governance] Unexpected capability result type: %s — blocking (fail-closed)", type(cap_result))
+                return f"🔒 Tool '{context.tool_name}' blocked — capability check returned unexpected format."
             if getattr(cap_result, "denied", False):
                 message = f"🚫 Capability denied: {cap_result.reason}"
                 await _maybe_await(
@@ -286,7 +289,7 @@ async def _run_governance_inner(
             return message
         except Exception as exc:
             logger.error("[Approval] Request failed — blocking as safety measure: %s", exc)
-            message = f"⚠️ Approval request failed ({exc}). Operation blocked for safety. Please retry or contact admin."
+            message = f"⚠️ Approval request failed ({exc}). This may be a transient error — please retry the tool call."
             await _emit_event(
                 event_callback,
                 {

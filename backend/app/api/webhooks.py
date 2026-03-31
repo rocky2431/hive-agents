@@ -108,11 +108,13 @@ async def receive_webhook(token: str, request: Request):
                 payload_obj = json.loads(payload_str)
                 payload_str = json.dumps(payload_obj, ensure_ascii=False, indent=2)
             except json.JSONDecodeError:
-                pass  # Keep as raw string
+                logger.debug("Webhook payload is not valid JSON for trigger token %s..., keeping as raw string", token[:8])
         except Exception:
             payload_str = repr(body[:2000])
 
         # Store payload and set pending flag
+        if len(payload_str) > 8000:
+            logger.warning("Webhook payload truncated for trigger %s: %d->8000 chars", target.name, len(payload_str))
         new_config = {**cfg, "_webhook_pending": True, "_webhook_payload": payload_str[:8000]}
         from sqlalchemy import update
         await db.execute(

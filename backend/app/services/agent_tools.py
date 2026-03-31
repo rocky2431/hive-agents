@@ -13,6 +13,7 @@ The agent reads/writes these files directly. No per-concept tools needed.
 """
 
 import logging
+import threading
 import uuid
 from contextvars import ContextVar
 from pathlib import Path
@@ -52,6 +53,7 @@ _TOOL_EXECUTION_REGISTRY = ToolExecutionRegistry()
 _TOOL_EXECUTION_REGISTRY_INITIALIZED = False
 _TOOL_RUNTIME_SERVICE: ToolRuntimeService | None = None
 _COLLECTED_TOOLS = None  # Lazy-initialized by _ensure_tool_execution_registry
+_REGISTRY_LOCK = threading.Lock()  # M-09: protect concurrent registry init
 
 
 def _get_collected_tools():
@@ -74,12 +76,16 @@ def _ensure_tool_execution_registry() -> None:
     if _TOOL_EXECUTION_REGISTRY_INITIALIZED:
         return
 
-    # Register @tool-decorated handlers (from tools/handlers/)
-    collected = _get_collected_tools()
-    for name, executor in collected.exec_registry._executors.items():
-        _TOOL_EXECUTION_REGISTRY.register(name, executor)
+    with _REGISTRY_LOCK:
+        if _TOOL_EXECUTION_REGISTRY_INITIALIZED:
+            return
 
-    _TOOL_EXECUTION_REGISTRY_INITIALIZED = True
+        # Register @tool-decorated handlers (from tools/handlers/)
+        collected = _get_collected_tools()
+        for name, executor in collected.exec_registry._executors.items():
+            _TOOL_EXECUTION_REGISTRY.register(name, executor)
+
+        _TOOL_EXECUTION_REGISTRY_INITIALIZED = True
 
 
 def _get_tool_runtime_service() -> ToolRuntimeService:

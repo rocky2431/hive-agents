@@ -15,6 +15,7 @@ import ipaddress
 import json as _json
 import uuid
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 from urllib.parse import urlparse
 
 from croniter import croniter
@@ -36,6 +37,52 @@ _last_invoke: dict[uuid.UUID, datetime] = {}
 
 # Track fire timestamps per agent for hourly rate limiting
 _fire_history: dict[uuid.UUID, list[datetime]] = {}
+
+# M-16: Persist dedup state to survive process restarts
+# Use AGENT_DATA_DIR if available, otherwise a restricted temp path
+def _get_dedup_path() -> Path:
+    try:
+        from app.config import get_settings
+        return Path(get_settings().AGENT_DATA_DIR) / ".trigger_dedup.json"
+    except Exception:
+        return Path("/tmp/.hive_trigger_dedup.json")
+
+_DEDUP_FILE = _get_dedup_path()
+
+
+def _load_dedup_state() -> None:
+    global _last_invoke
+    try:
+        if _DEDUP_FILE.exists():
+            data = _json.loads(_DEDUP_FILE.read_text())
+            _last_invoke = {uuid.UUID(k): datetime.fromisoformat(v) for k, v in data.items()}
+    except Exception as exc:
+        logger.debug("[TriggerDaemon] Failed to load dedup state: %s", exc)
+
+
+def _save_dedup_state() -> None:
+    import os
+    import tempfile
+    try:
+        data = {str(k): v.isoformat() for k, v in _last_invoke.items()}
+        _DEDUP_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp_fd, tmp_path = tempfile.mkstemp(dir=str(_DEDUP_FILE.parent), suffix=".tmp")
+        fd_closed = False
+        try:
+            os.write(tmp_fd, _json.dumps(data).encode("utf-8"))
+            os.close(tmp_fd)
+            fd_closed = True
+            os.replace(tmp_path, str(_DEDUP_FILE))
+        except BaseException:
+            if not fd_closed:
+                os.close(tmp_fd)
+            try:
+                os.unlink(tmp_path)
+            except OSError as _unlink_err:
+                logger.debug("[TriggerDaemon] Failed to clean up temp dedup file: %s", _unlink_err)
+            raise
+    except Exception as exc:
+        logger.debug("[TriggerDaemon] Failed to save dedup state: %s", exc)
 
 # Webhook rate limiter: token -> list of timestamps
 _webhook_hits: dict[str, list[float]] = {}
@@ -643,11 +690,13 @@ async def _tick():
 
 async def start_trigger_daemon():
     """Start the background trigger daemon loop. Called from FastAPI startup."""
+    _load_dedup_state()
     logger.info("⚡ Trigger Daemon started (15s tick, heartbeat every ~60s)")
     _heartbeat_counter = 0
     while True:
         try:
             await _tick()
+            _save_dedup_state()
         except Exception as e:
             logger.error(f"Trigger Daemon error: {e}")
             import traceback
