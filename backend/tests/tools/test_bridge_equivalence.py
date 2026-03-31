@@ -30,6 +30,8 @@ def test_combined_openai_tools_matches_canonical_surface():
         "glob_search",
         "grep_search",
         "import_mcp_server",
+        "list_mcp_resources",
+        "read_mcp_resource",
         "jina_read",
         "jina_search",
         "list_files",
@@ -76,6 +78,7 @@ def test_governance_sets_include_canonical_metadata_without_runtime_init():
     assert "web_search" in SAFE_TOOLS
     assert "send_feishu_message" in SENSITIVE_TOOLS
     assert "delete_file" in SENSITIVE_TOOLS
+    assert "create_digital_employee" in SENSITIVE_TOOLS
 
 
 def test_read_only_and_parallel_safe_sets_include_canonical_metadata_without_runtime_init():

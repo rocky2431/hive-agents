@@ -36,5 +36,8 @@ async def adapt_and_call(
             raise ValueError(f"Unknown adapter type: {meta.adapter!r} for tool {meta.name!r}")
 
     if inspect.isawaitable(result):
-        return await result
+        result = await result
+    # Enforce str return type — tools must return strings for LLM consumption
+    if not isinstance(result, str):
+        return str(result) if result is not None else "[Tool returned no output]"
     return result

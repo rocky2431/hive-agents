@@ -102,7 +102,7 @@ logger = logging.getLogger(__name__)
     category="hr",
     display_name="Create Digital Employee",
     icon="\U0001f464",
-    governance="",
+    governance="sensitive",
     adapter="request",
 ))
 async def create_digital_employee(request: ToolExecutionRequest) -> str:
@@ -142,7 +142,12 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
     permission_scope = args.get("permission_scope", "company")
 
     # Heartbeat config (self-awareness cycle) — LLM may pass strings for numeric fields
-    heartbeat_enabled = args.get("heartbeat_enabled", True)
+    _hb_raw = args.get("heartbeat_enabled", True)
+    # Validate boolean type — LLM may pass string "false" which is truthy in Python
+    if isinstance(_hb_raw, str):
+        heartbeat_enabled = _hb_raw.lower() not in ("false", "no", "0", "off", "disabled")
+    else:
+        heartbeat_enabled = bool(_hb_raw) if _hb_raw is not None else True
     try:
         heartbeat_interval = int(args.get("heartbeat_interval_minutes", 120))
     except (ValueError, TypeError):
@@ -211,6 +216,11 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
                 default_model = model_result.scalar_one_or_none()
                 if default_model:
                     primary_model_id = default_model.id
+            if not primary_model_id:
+                return (
+                    f"❌ Cannot create agent '{name}': no LLM model configured for this tenant. "
+                    "Please add at least one enabled LLM model in Enterprise Settings → LLM Pool."
+                )
 
             # Resolve tenant defaults
             default_max_triggers = 20
@@ -376,8 +386,16 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
                     file_path.write_text(sf.content)
 
             # Start container
-            await agent_manager.start_container(db, agent)
+            try:
+                await agent_manager.start_container(db, agent)
+            except Exception as _container_exc:
+                logger.warning("[HR] Container start failed (non-fatal): %s", _container_exc)
             await db.flush()
+
+            # Transition from "creating" → "idle" so heartbeat can pick up this agent
+            if agent.status == "creating":
+                agent.status = "idle"
+                await db.flush()
 
             # Audit
             try:
@@ -389,8 +407,8 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
                     action="create_agent", resource_type="agent", resource_id=agent.id,
                     details={"name": agent.name, "created_via": "hr_agent"},
                 )
-            except Exception:
-                logger.warning("Audit write failed for hr agent.created", exc_info=True)
+            except Exception as _audit_exc:
+                logger.warning("Audit write failed for hr agent.created: %s", _audit_exc)
 
             await db.commit()
 

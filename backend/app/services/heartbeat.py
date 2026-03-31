@@ -119,11 +119,12 @@ def _parse_heartbeat_outcome(reply: str | None) -> tuple[str, int | None]:
         outcome = outcome_match.group(1).lower()
     else:
         # Fallback heuristics — only when structured tags are absent
-        is_ok = "HEARTBEAT_OK" in reply.upper().replace(" ", "_")
-        if is_ok:
-            outcome = "noop"
-        else:
+        # Default to noop (not action_taken) to avoid inflating success rate
+        is_action = any(kw in reply.upper() for kw in ("WROTE", "CREATED", "UPDATED", "POSTED", "SENT", "FIXED"))
+        if is_action:
             outcome = "action_taken"
+        else:
+            outcome = "noop"
 
     score = int(score_match.group(1)) if score_match else None
     if score is not None:
@@ -276,6 +277,90 @@ async def _build_evolution_context(agent_id: uuid.UUID, recent_activities: list)
             )
 
     return "\n\n".join(parts) if parts else ""
+
+
+def _update_evolution_files(
+    agent_id: uuid.UUID,
+    outcome_type: str,
+    score: int | None,
+    summary: str,
+) -> None:
+    """Server-side writeback: update scorecard counters and append lineage entry.
+
+    This closes the evolution feedback loop — the agent can see its real
+    performance history on subsequent heartbeats instead of frozen seed values.
+    """
+    from pathlib import Path
+
+    from app.config import get_settings
+
+    settings = get_settings()
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d-%H:%M")
+
+    for ws_root in [
+        Path("/tmp/hive_workspaces") / str(agent_id),
+        Path(settings.AGENT_DATA_DIR) / str(agent_id),
+    ]:
+        evo_dir = ws_root / "evolution"
+        if not ws_root.exists():
+            continue
+        evo_dir.mkdir(parents=True, exist_ok=True)
+
+        # ── Update scorecard counters ──
+        scorecard_path = evo_dir / "scorecard.md"
+        try:
+            sc_text = scorecard_path.read_text(encoding="utf-8", errors="replace") if scorecard_path.exists() else ""
+            # Parse existing counters
+            counters = {
+                "total_heartbeats": 0,
+                "useful_heartbeats": 0,
+                "failed_attempts": 0,
+                "blocked_approaches": 0,
+                "skills_created": 0,
+                "strategies_evolved": 0,
+            }
+            for key in counters:
+                match = re.search(rf"- {key}:\s*(\d+)", sc_text)
+                if match:
+                    counters[key] = int(match.group(1))
+
+            counters["total_heartbeats"] += 1
+            if outcome_type == "action_taken" and (score is None or score >= 5):
+                counters["useful_heartbeats"] += 1
+            elif outcome_type in ("failure", "crash"):
+                counters["failed_attempts"] += 1
+
+            # Compute recent trend
+            useful_rate = (
+                round(counters["useful_heartbeats"] / counters["total_heartbeats"] * 100)
+                if counters["total_heartbeats"] > 0
+                else 0
+            )
+            trend = f"Useful rate: {useful_rate}% ({counters['useful_heartbeats']}/{counters['total_heartbeats']})"
+
+            scorecard_path.write_text(
+                "# Evolution Scorecard\n\n## Metrics\n"
+                + "".join(f"- {k}: {v}\n" for k, v in counters.items())
+                + f"\n## Recent Trend\n{trend}\n"
+                + f"Last updated: {now}\n",
+                encoding="utf-8",
+            )
+        except Exception as exc:
+            logger.debug("[Heartbeat] Failed to update scorecard for %s: %s", agent_id, exc)
+
+        # ── Append lineage entry ──
+        lineage_path = evo_dir / "lineage.md"
+        try:
+            existing = lineage_path.read_text(encoding="utf-8", errors="replace") if lineage_path.exists() else ""
+            if "(no entries yet)" in existing:
+                existing = "# Evolution Lineage\n\n"
+            score_str = f", score={score}" if score is not None else ""
+            entry = f"### HB-{now}\n- Outcome: {outcome_type}{score_str}\n- Summary: {summary}\n\n"
+            lineage_path.write_text(existing.rstrip() + "\n\n" + entry, encoding="utf-8")
+        except Exception as exc:
+            logger.debug("[Heartbeat] Failed to update lineage for %s: %s", agent_id, exc)
+
+    logger.info("[Heartbeat] Evolution files updated for agent %s: %s", agent_id, outcome_type)
 
 
 def _auto_seed_evolution(agent_id: uuid.UUID) -> None:
@@ -544,6 +629,12 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
                     a.last_heartbeat_at = datetime.now(timezone.utc)
                     await db3.commit()
 
+            # Server-side evolution file writeback — closes the feedback loop (C1+C2 fix)
+            try:
+                _update_evolution_files(agent_id, outcome_type, heartbeat_score, summary)
+            except Exception as _evo_err:
+                logger.warning("[Heartbeat] Evolution writeback failed for %s: %s", agent_id, _evo_err)
+
             score_str = f" score={heartbeat_score}" if heartbeat_score is not None else ""
             logger.info(f"💓 Heartbeat for {agent.name}: {outcome_type}{score_str} — {summary}")
 
@@ -572,8 +663,11 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
             )
         except Exception as log_err:
             logger.debug(f"Failed to log heartbeat crash to activity: {log_err}")
-        # NOTE: crash is already logged to activity_log above.
-        # Evolution files are NOT updated server-side to avoid double-write.
+        # Update evolution files on crash too — closes the feedback loop
+        try:
+            _update_evolution_files(agent_id, "crash", None, f"crash: {str(e)[:60]}")
+        except Exception as _evo_crash_err:
+            logger.debug("[Heartbeat] Evolution writeback on crash failed: %s", _evo_crash_err)
 
 
 async def _heartbeat_tick():

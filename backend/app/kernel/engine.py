@@ -406,9 +406,18 @@ class AgentKernel:
             from app.runtime.prompt_builder import assemble_runtime_prompt, build_dynamic_prompt_suffix
 
             session_ctx = request.session_context
+            # Prompt cache: reuse frozen prefix if available AND still valid.
+            # Rebuild if memory context changed (hash-based invalidation).
+            _cache_valid = False
             if session_ctx and session_ctx.prompt_prefix:
-                # Session already has a frozen prefix — only rebuild dynamic suffix
+                _mem_hash = hashlib.sha256(resolved_memory_context.encode("utf-8")).hexdigest()[:16]
+                _cached_mem_hash = getattr(session_ctx, "_memory_hash", None)
+                _cache_valid = _cached_mem_hash == _mem_hash
+                if not _cache_valid:
+                    logger.info("[Kernel] Prompt cache invalidated — memory context changed")
 
+            if _cache_valid and session_ctx and session_ctx.prompt_prefix:
+                # Session has a valid frozen prefix — only rebuild dynamic suffix
                 dynamic_suffix = build_dynamic_prompt_suffix(
                     active_packs=session_ctx.active_packs if session_ctx else [],
                     retrieval_context=resolved_retrieval_context,
@@ -428,6 +437,7 @@ class AgentKernel:
                 if session_ctx is not None:
                     session_ctx.prompt_prefix = prompt_prefix
                     session_ctx.prompt_fingerprint = _fingerprint_prompt(prompt_prefix)
+                    session_ctx._memory_hash = hashlib.sha256(resolved_memory_context.encode("utf-8")).hexdigest()[:16]
                 dynamic_suffix = build_dynamic_prompt_suffix(
                     active_packs=session_ctx.active_packs if session_ctx else [],
                     retrieval_context=resolved_retrieval_context,
@@ -448,7 +458,10 @@ class AgentKernel:
 
             async def _emit_event(event: dict[str, Any]) -> None:
                 if request.on_event:
-                    await _maybe_await(request.on_event(event))
+                    try:
+                        await _maybe_await(request.on_event(event))
+                    except Exception as _cb_exc:
+                        logger.warning("[Kernel] on_event callback failed: %s", _cb_exc)
                 part = _event_to_part(event)
                 if part:
                     collected_parts.append(part)
@@ -478,12 +491,18 @@ class AgentKernel:
             async def _emit_chunk(text: str) -> None:
                 streamed_chunks.append(text)
                 if request.on_chunk:
-                    await _maybe_await(request.on_chunk(text))
+                    try:
+                        await _maybe_await(request.on_chunk(text))
+                    except Exception as _cb_exc:
+                        logger.warning("[Kernel] on_chunk callback failed: %s", _cb_exc)
 
             async def _emit_thinking(text: str) -> None:
                 streamed_thinking.append(text)
                 if request.on_thinking:
-                    await _maybe_await(request.on_thinking(text))
+                    try:
+                        await _maybe_await(request.on_thinking(text))
+                    except Exception as _cb_exc:
+                        logger.warning("[Kernel] on_thinking callback failed: %s", _cb_exc)
 
             messages = await _maybe_await(
                 self._deps.maybe_compress_messages(
@@ -718,6 +737,10 @@ class AgentKernel:
                         try:
                             args = json.loads(raw_args) if raw_args else {}
                         except json.JSONDecodeError:
+                            logger.warning(
+                                "[Kernel] Malformed tool arguments: tool=%s, raw=%s",
+                                tool_name, (raw_args or "")[:200],
+                            )
                             args = {}
                         parsed_tool_calls.append((tc, tool_name, args))
 
@@ -744,7 +767,10 @@ class AgentKernel:
                                 "reasoning_content": full_reasoning_content,
                             }
                             if request.on_tool_call:
-                                await _maybe_await(request.on_tool_call(running_payload))
+                                try:
+                                    await _maybe_await(request.on_tool_call(running_payload))
+                                except Exception as _cb_exc:
+                                    logger.warning("[Kernel] on_tool_call(running) callback failed: %s", _cb_exc)
 
                         # 2. Execute all tools concurrently via asyncio.gather
                         sem = asyncio.Semaphore(_PARALLEL_SEMAPHORE_LIMIT)
@@ -756,8 +782,15 @@ class AgentKernel:
                                 )
 
                         results = await asyncio.gather(
-                            *[_run_tool(t_name, t_args) for _, t_name, t_args in parsed_tool_calls]
+                            *[_run_tool(t_name, t_args) for _, t_name, t_args in parsed_tool_calls],
+                            return_exceptions=True,
                         )
+                        # Convert exceptions to error strings
+                        for _i, _r in enumerate(results):
+                            if isinstance(_r, BaseException):
+                                _tn = parsed_tool_calls[_i][1]
+                                logger.warning("[Kernel] Parallel tool %s failed: %s", _tn, _r)
+                                results[_i] = f"[Tool execution error] {type(_r).__name__}: {str(_r)[:200]}"
 
                         # 3. Emit "done" events and append tool results in original order
                         for (tc, tool_name, args), result in zip(parsed_tool_calls, results):
@@ -769,7 +802,10 @@ class AgentKernel:
                                 "reasoning_content": full_reasoning_content,
                             }
                             if request.on_tool_call:
-                                await _maybe_await(request.on_tool_call(done_payload))
+                                try:
+                                    await _maybe_await(request.on_tool_call(done_payload))
+                                except Exception as _cb_exc:
+                                    logger.warning("[Kernel] on_tool_call(done) callback failed: %s", _cb_exc)
                             collected_parts.append(build_tool_call_event(done_payload)["part"])
                             api_messages.append(
                                 LLMMessage(
@@ -799,13 +835,16 @@ class AgentKernel:
                                 "reasoning_content": full_reasoning_content,
                             }
                             if request.on_tool_call:
-                                await _maybe_await(request.on_tool_call(running_payload))
+                                try:
+                                    await _maybe_await(request.on_tool_call(running_payload))
+                                except Exception as _cb_exc:
+                                    logger.warning("[Kernel] on_tool_call(running) callback failed: %s", _cb_exc)
 
                             result = await _maybe_await(
                                 self._deps.execute_tool(tool_name, args, request, _emit_event)
                             )
 
-                            if request.expand_tools and request.agent_id and full_toolset is None:
+                            if request.expand_tools and request.agent_id:
                                 if _should_expand_tools(tool_name, args):
                                     expansion_payload: ToolExpansionResult | list[dict] | None = None
                                     if self._deps.resolve_tool_expansion:
@@ -863,7 +902,10 @@ class AgentKernel:
                                 "reasoning_content": full_reasoning_content,
                             }
                             if request.on_tool_call:
-                                await _maybe_await(request.on_tool_call(done_payload))
+                                try:
+                                    await _maybe_await(request.on_tool_call(done_payload))
+                                except Exception as _cb_exc:
+                                    logger.warning("[Kernel] on_tool_call(done) callback failed: %s", _cb_exc)
                             collected_parts.append(build_tool_call_event(done_payload)["part"])
 
                             api_messages.append(
@@ -892,6 +934,8 @@ class AgentKernel:
                         )
                         if len(compressed) < len(conv_dicts):
                             api_messages = [api_messages[0]] + _dicts_to_llm_messages(compressed)
+                            # Reset collected_parts to avoid duplicates after compaction
+                            collected_parts.clear()
                             logger.info(
                                 "[Kernel] Mid-loop compaction: %d → %d messages (round %d)",
                                 len(conv_dicts) + 1,

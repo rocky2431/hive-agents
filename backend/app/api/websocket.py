@@ -451,8 +451,8 @@ async def websocket_chat(
                 content, re.IGNORECASE
             )
 
-            # Track thinking content for storage (initialize before condition)
-            thinking_content = []
+            # Track thinking content for storage
+            thinking_content: list[str] = []
 
             # Call LLM with streaming
             if llm_model:
@@ -492,9 +492,6 @@ async def websocket_chat(
                                     await _tc_db.commit()
                             except Exception as _tc_err:
                                 logger.warning(f"[WS] Failed to save tool_call: {_tc_err}")
-                    
-                    # Track thinking content for storage
-                    thinking_content = []
                     
                     async def thinking_to_ws(text: str):
                         """Send thinking chunks to client for collapsible display."""
@@ -573,7 +570,28 @@ async def websocket_chat(
                             continue
                         except WebSocketDisconnect:
                             cancel_event.set()
-                            llm_task.cancel()
+                            # Give kernel time to persist before cancelling
+                            try:
+                                assistant_response = await asyncio.wait_for(llm_task, timeout=3.0)
+                                logger.info("[WS] Kernel finished gracefully after disconnect")
+                            except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+                                llm_task.cancel()
+                                assistant_response = None
+                                logger.info("[WS] Kernel cleanup timed out, force cancelled")
+                            # Best-effort save of partial response
+                            if assistant_response:
+                                try:
+                                    async with async_session() as _dc_db:
+                                        _dc_msg = ChatMessage(
+                                            agent_id=agent_id, user_id=user_id,
+                                            role="assistant", content=assistant_response,
+                                            thinking="".join(thinking_content) if thinking_content else None,
+                                            conversation_id=conv_id,
+                                        )
+                                        _dc_db.add(_dc_msg)
+                                        await _dc_db.commit()
+                                except Exception as _dc_err:
+                                    logger.debug("[WS] Partial save on disconnect failed: %s", _dc_err)
                             raise
 
                     assistant_response = await llm_task
@@ -598,7 +616,12 @@ async def websocket_chat(
                     logger.error(f"[WS] LLM error: {e}")
                     import traceback
                     traceback.print_exc()
-                    assistant_response = f"[LLM call error] {str(e)[:200]}"
+                    # Sanitize error — strip potential secrets
+                    _err_str = str(e)[:200]
+                    if any(k in _err_str.lower() for k in ("api_key", "sk-", "secret", "password", "token=")):
+                        assistant_response = "[LLM call error] An internal error occurred. Please try again."
+                    else:
+                        assistant_response = f"[LLM call error] {type(e).__name__}: {_err_str}"
             else:
                 assistant_response = f"⚠️ {agent_name} has no LLM model configured. Please select a model in the agent's Settings tab."
 

@@ -66,8 +66,17 @@ class ToolRuntimeService:
         if governance_block:
             return governance_block
 
-        _long_running_tools = {"execute_code", "create_digital_employee"}
-        timeout_seconds = 120.0 if tool_name in _long_running_tools else 30.0
+        _TOOL_TIMEOUTS: dict[str, float] = {
+            "execute_code": 120.0,
+            "create_digital_employee": 120.0,
+            "jina_read": 60.0,
+            "web_search": 60.0,
+            "read_document": 60.0,
+            "send_feishu_message": 45.0,
+            "feishu_doc_read": 45.0,
+            "feishu_wiki_read": 45.0,
+        }
+        timeout_seconds = _TOOL_TIMEOUTS.get(tool_name, 30.0)
         try:
             result = await asyncio.wait_for(
                 self.execute_with_context(tool_name, arguments, runtime_context),

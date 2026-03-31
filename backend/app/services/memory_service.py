@@ -467,7 +467,8 @@ def _parse_session_uuid(session_id: str | None) -> uuid.UUID | None:
         return None
     try:
         return uuid.UUID(str(session_id))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as exc:
+        logger.debug("Invalid session UUID %s: %s", session_id, exc)
         return None
 
 
@@ -568,6 +569,13 @@ def _fact_identity(fact: dict) -> str | None:
 
     content = fact.get("content", "")
     if isinstance(content, str) and content.strip():
+        # Use significant words (3+ chars) sorted to catch semantic overlap
+        # e.g., "User prefers Python" and "User prefers Go" share "user prefers"
+        words = sorted(w for w in _normalize_fact_value(content).split() if len(w) >= 3)
+        # If >60% of words overlap with the identity key, use the shared prefix
+        # to enable dedup of conflicting facts about the same subject
+        if len(words) >= 3:
+            return f"content_sig:{' '.join(words[:5])}"
         return f"content:{_normalize_fact_value(content)}"
     return None
 

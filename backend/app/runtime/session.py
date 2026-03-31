@@ -16,3 +16,5 @@ class SessionContext:
     # Prompt cache: frozen prefix reused within the same session
     prompt_prefix: str | None = None
     prompt_fingerprint: str | None = None
+    # Memory hash for cache invalidation — rebuilt when memory context changes
+    _memory_hash: str | None = None

@@ -150,26 +150,26 @@ async def run_tool_governance(
             )
             return message
     except Exception as exc:
+        # Fail-closed: block ALL tools when security zone check fails, not just sensitive ones
         logger.warning(
-            "Security zone check failed for agent %s — blocking sensitive tool %s: %s",
+            "Security zone check failed for agent %s — blocking tool %s (fail-closed): %s",
             context.agent_id,
             context.tool_name,
             exc,
         )
-        if context.tool_name in SENSITIVE_TOOLS:
-            message = (
-                f"🔒 Tool '{context.tool_name}' blocked — security zone check failed. Please retry or contact admin."
-            )
-            await _emit_event(
-                event_callback,
-                {
-                    "type": "permission",
-                    "tool_name": context.tool_name,
-                    "status": "blocked",
-                    "message": message,
-                },
-            )
-            return message
+        message = (
+            f"🔒 Tool '{context.tool_name}' blocked — security zone check unavailable. Please retry or contact admin."
+        )
+        await _emit_event(
+            event_callback,
+            {
+                "type": "permission",
+                "tool_name": context.tool_name,
+                "status": "blocked",
+                "message": message,
+            },
+        )
+        return message
 
     if context.tenant_id:
         try:
@@ -219,8 +219,19 @@ async def run_tool_governance(
                 getattr(cap_result, "capability", None) if getattr(cap_result, "escalate_to_l3", False) else None
             )
         except Exception as exc:
-            _escalated_capability = None
-            logger.warning("Capability gate check failed for tool %s: %s", context.tool_name, exc)
+            # Fail-closed: block tool when capability gate is unavailable
+            logger.warning("Capability gate check failed for tool %s (fail-closed): %s", context.tool_name, exc)
+            message = f"🔒 Tool '{context.tool_name}' blocked — capability check unavailable. Please retry."
+            await _emit_event(
+                event_callback,
+                {
+                    "type": "permission",
+                    "tool_name": context.tool_name,
+                    "status": "blocked",
+                    "message": message,
+                },
+            )
+            return message
     else:
         _escalated_capability = None
 

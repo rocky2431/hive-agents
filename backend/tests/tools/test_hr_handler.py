@@ -55,6 +55,6 @@ def test_hr_tool_meta_has_correct_attributes():
     from app.tools.decorator import get_all_registered_tools
     all_metas = get_all_registered_tools()
     meta, _fn = all_metas["create_digital_employee"]
-    assert meta.governance == ""  # no governance gate — HR agent is standard zone
+    assert meta.governance == "sensitive"  # agent creation requires governance approval
     assert meta.category == "hr"
     assert meta.adapter == "request"

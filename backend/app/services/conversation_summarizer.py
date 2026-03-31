@@ -4,12 +4,24 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Rough chars-per-token estimate (conservative for CJK)
-CHARS_PER_TOKEN = 3.3
+# Provider-specific chars-per-token estimates (tuned for mixed CJK/English)
+_CHARS_PER_TOKEN_BY_PROVIDER: dict[str, float] = {
+    "anthropic": 3.5,
+    "openai": 4.0,
+    "azure_openai": 4.0,
+    "deepseek": 3.3,
+    "qwen": 3.3,
+    "gemini": 3.8,
+}
+CHARS_PER_TOKEN = 3.5  # default fallback
 
 
-def estimate_tokens(messages: list[dict]) -> int:
-    """Estimate total tokens across all messages."""
+def estimate_tokens(messages: list[dict], *, provider: str = "") -> int:
+    """Estimate total tokens across all messages.
+
+    Uses provider-specific chars-per-token ratios for better accuracy.
+    """
+    cpt = _CHARS_PER_TOKEN_BY_PROVIDER.get(provider.lower(), CHARS_PER_TOKEN) if provider else CHARS_PER_TOKEN
     total_chars = 0
     for msg in messages:
         content = msg.get("content")
@@ -20,10 +32,12 @@ def estimate_tokens(messages: list[dict]) -> int:
             for part in content:
                 if isinstance(part, dict) and part.get("type") == "text":
                     total_chars += len(part.get("text", ""))
-        # Tool calls add some overhead
+        # Tool calls: estimate actual JSON arg size instead of flat 200
         if msg.get("tool_calls"):
-            total_chars += 200 * len(msg["tool_calls"])
-    return int(total_chars / CHARS_PER_TOKEN)
+            for tc in msg["tool_calls"]:
+                fn = tc.get("function", {})
+                total_chars += len(fn.get("name", "")) + len(fn.get("arguments", "")) + 50
+    return int(total_chars / cpt)
 
 
 async def summarize_conversation(

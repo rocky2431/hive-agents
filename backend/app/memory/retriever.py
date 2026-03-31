@@ -35,6 +35,7 @@ def _parse_timestamp(value: str | None) -> datetime | None:
     try:
         dt = datetime.fromisoformat(normalized)
     except ValueError:
+        logger.debug("Unparseable timestamp: %s", value)
         return None
     if dt.tzinfo is None:
         return dt.replace(tzinfo=UTC)
@@ -56,7 +57,9 @@ def _score_semantic_item(content: str, query: str, timestamp: str | None) -> flo
     recency = _score_recency(timestamp)
     if query:
         return lexical * 0.85 + recency * 0.15
-    return recency
+    # Without query (session start): baseline 0.5 + recency bonus so all semantic
+    # facts surface with reasonable scores instead of pure recency ordering.
+    return 0.5 + recency * 0.3
 
 
 class MemoryRetriever:
@@ -249,5 +252,6 @@ def _parse_session_uuid(session_id: str | None) -> uuid.UUID | None:
         return None
     try:
         return uuid.UUID(str(session_id))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as exc:
+        logger.debug("Invalid session UUID %s: %s", session_id, exc)
         return None
