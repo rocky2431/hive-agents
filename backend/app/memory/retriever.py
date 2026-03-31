@@ -136,28 +136,30 @@ class MemoryRetriever:
                             )
                         )
 
-                # Previous session summary (if no current summary found)
-                if not items:
-                    query = (
-                        select(ChatSession.summary, ChatSession.id)
-                        .where(
-                            (ChatSession.agent_id == agent_id) | (ChatSession.peer_agent_id == agent_id),
-                            ChatSession.summary.isnot(None),
-                        )
-                        .order_by(ChatSession.last_message_at.desc(), ChatSession.created_at.desc())
-                        .limit(1)
+                # Previous session summaries — load up to 3 for continuity
+                prev_query = (
+                    select(ChatSession.summary, ChatSession.id, ChatSession.last_message_at)
+                    .where(
+                        (ChatSession.agent_id == agent_id) | (ChatSession.peer_agent_id == agent_id),
+                        ChatSession.summary.isnot(None),
                     )
-                    if session_uuid:
-                        query = query.where(ChatSession.id != session_uuid)
-                    result = await db.execute(query)
-                    row = result.first()
-                    if row and row[0]:
+                    .order_by(ChatSession.last_message_at.desc(), ChatSession.created_at.desc())
+                    .limit(3)
+                )
+                if session_uuid:
+                    prev_query = prev_query.where(ChatSession.id != session_uuid)
+                result = await db.execute(prev_query)
+                rows = result.all()
+                for i, row in enumerate(rows):
+                    if row[0]:
+                        # Score decays: 0.8 → 0.6 → 0.4 for older sessions
+                        score = max(0.8 - i * 0.2, 0.3)
                         items.append(
                             MemoryItem(
                                 kind=MemoryKind.EPISODIC,
                                 content=row[0],
-                                score=0.8,
-                                source="previous_session",
+                                score=score,
+                                source=f"previous_session_{i + 1}",
                                 metadata={"session_id": str(row[1])},
                             )
                         )

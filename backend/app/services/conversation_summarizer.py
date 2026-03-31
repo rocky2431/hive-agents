@@ -84,8 +84,30 @@ async def summarize_conversation(
     return [summary_msg] + recent_messages
 
 
+def _extract_tool_summary(messages: list[dict]) -> str:
+    """Extract a compact summary of tool calls from messages."""
+    tool_entries: list[str] = []
+    for msg in messages:
+        # Assistant messages with tool_calls
+        if msg.get("tool_calls"):
+            for tc in msg["tool_calls"]:
+                fn = tc.get("function", {})
+                name = fn.get("name", "unknown")
+                tool_entries.append(f"called {name}")
+        # Tool result messages
+        if msg.get("role") == "tool":
+            content = msg.get("content", "")
+            if isinstance(content, str) and content.strip():
+                preview = content[:200].replace("\n", " ")
+                tool_entries.append(f"  → {preview}")
+    if not tool_entries:
+        return ""
+    # Keep last 15 tool interactions to stay compact
+    return "\n".join(tool_entries[-15:])
+
+
 def _extract_summary(messages: list[dict]) -> str:
-    """Extract structured summary without LLM — keep user requests and assistant conclusions."""
+    """Extract structured summary without LLM — keep user requests, tool actions, and assistant conclusions."""
     user_asks: list[str] = []
     assistant_answers: list[str] = []
     for msg in messages:
@@ -106,6 +128,11 @@ def _extract_summary(messages: list[dict]) -> str:
     if len(user_asks) > 1:
         earlier = "; ".join(u[:80] for u in user_asks[-4:-1])
         lines.append(f"**Key Decisions:** {earlier}")
+
+    tool_summary = _extract_tool_summary(messages)
+    if tool_summary:
+        lines.append(f"**Tools Used:**\n{tool_summary}")
+
     if assistant_answers:
         last_answer = assistant_answers[-1][:200]
         lines.append(f"**Important Context:** {last_answer}")
@@ -117,19 +144,31 @@ async def _llm_summarize(messages: list[dict], model_config: dict) -> str | None
     from app.services.llm_client import LLMMessage, create_llm_client
 
     # Build a condensed version of the conversation for the summarizer
+    # Include tool calls and results alongside user/assistant messages
     conversation_text = []
     for msg in messages:
         role = msg.get("role", "")
         content = msg.get("content", "")
+
+        if msg.get("tool_calls"):
+            tool_names = [tc.get("function", {}).get("name", "?") for tc in msg["tool_calls"]]
+            conversation_text.append(f"assistant: [called tools: {', '.join(tool_names)}]")
+            continue
+
+        if role == "tool":
+            if isinstance(content, str) and content.strip():
+                conversation_text.append(f"tool_result: {content[:300]}")
+            continue
+
         if not isinstance(content, str) or not content.strip():
             continue
-        if role in ("user", "assistant") and "tool_calls" not in msg:
+        if role in ("user", "assistant"):
             conversation_text.append(f"{role}: {content[:500]}")
 
     if not conversation_text:
         return None
 
-    text = "\n".join(conversation_text[-20:])  # At most 20 messages
+    text = "\n".join(conversation_text[-30:])  # At most 30 messages (increased for tool pairs)
 
     client = create_llm_client(**model_config)
     try:
@@ -141,6 +180,7 @@ async def _llm_summarize(messages: list[dict], model_config: dict) -> str | None
                         "Summarize this conversation into a structured snapshot. "
                         "Use EXACTLY this format (keep headers, fill in content, omit empty sections):\n\n"
                         "**Current Task:** [what was being worked on]\n"
+                        "**Tools Used:** [which tools were called and key results]\n"
                         "**Key Decisions:** [decisions made, preferences expressed]\n"
                         "**Files/Resources:** [file paths, URLs, IDs mentioned]\n"
                         "**Pending:** [incomplete items, next steps]\n"

@@ -82,8 +82,8 @@ def _read_file(ws: Path, rel_path: str, tenant_id: str | None = None) -> str:
 
     try:
         content = file_path.read_text(encoding="utf-8", errors="replace")
-        if len(content) > 6000:
-            content = content[:6000] + f"\n\n...[truncated, {len(content)} chars total]"
+        if len(content) > 16000:
+            content = content[:16000] + f"\n\n...[truncated, {len(content)} chars total]"
         return content
     except Exception as e:
         return f"Read failed: {e}"

@@ -161,18 +161,28 @@ async def _build_evolution_context(agent_id: uuid.UUID, recent_activities: list)
                 except Exception as e:
                     logger.debug(f"Failed to read evolution file {fpath}: {e}")
 
-        # Only read lineage tail (last 5 entries to save tokens)
+        # Read lineage tail — keep enough history for long-term pattern recognition
         lineage_path = ws_root / "evolution" / "lineage.md"
         if lineage_path.exists():
             try:
                 full = lineage_path.read_text(encoding="utf-8", errors="replace").strip()
                 lines = full.split("\n")
-                if len(lines) > 35:
-                    parts.append("\n".join(lines[:3] + ["...(earlier entries omitted)..."] + lines[-30:]))
+                if len(lines) > 80:
+                    parts.append("\n".join(lines[:5] + ["...(earlier entries omitted)..."] + lines[-70:]))
                 else:
                     parts.append(full)
             except Exception as e:
                 logger.debug(f"Failed to read evolution lineage: {e}")
+
+        # Read compaction summary — context the agent lost during mid-loop compression
+        compaction_path = ws_root / "workspace" / "compaction_summary.md"
+        if compaction_path.exists():
+            try:
+                compaction = compaction_path.read_text(encoding="utf-8", errors="replace").strip()
+                if compaction:
+                    parts.append(f"\n---\n## Last Session Compaction Summary\n{compaction[:2000]}")
+            except Exception as e:
+                logger.debug(f"Failed to read compaction summary: {e}")
 
         if parts:
             break  # Found workspace, don't check fallback path
@@ -230,20 +240,84 @@ async def _build_evolution_context(agent_id: uuid.UUID, recent_activities: list)
     is_cold_start = len(non_heartbeat_activities) < 3
 
     if is_cold_start:
-        parts.append(
-            "\n---\n## Bootstrap Mode (first heartbeats)\n"
-            "You have very little activity history. This is normal for a new agent.\n"
-            "Instead of the normal heartbeat protocol, do these bootstrapping steps:\n"
-            "1. **Read soul.md** — understand your identity and role\n"
-            "2. **Read focus.md** — check if initial tasks were set during creation\n"
-            "3. **List and read your skills/** — understand your capabilities\n"
-            "4. **If focus.md is empty**: write an initial focus based on your role from soul.md\n"
-            "5. **Write to evolution/lineage.md** with your bootstrap observations\n"
-            "6. Output: [OUTCOME:action_taken] [SCORE:3]\n\n"
-            "After bootstrapping, future heartbeats will follow the normal 4-phase protocol."
-        )
+        # Detect repeated bootstrap failures — prevent infinite loop
+        recent_heartbeats = [a for a in recent_activities if a.action_type == "heartbeat"]
+        consecutive_failures = 0
+        for hb in recent_heartbeats:
+            outcome = (hb.detail_json or {}).get("outcome_type", "")
+            if outcome in ("crash", "failure"):
+                consecutive_failures += 1
+            else:
+                break  # Stop counting at first non-failure
+
+        if consecutive_failures >= 3:
+            # Auto-seed evolution files server-side to break the cycle
+            _auto_seed_evolution(agent_id)
+            parts.append(
+                "\n---\n## Bootstrap Recovery (auto-seeded)\n"
+                "Your previous bootstrap attempts failed. Evolution files have been\n"
+                "auto-seeded with initial values. Skip bootstrapping and proceed with\n"
+                "the normal 4-phase heartbeat protocol.\n"
+                "Focus on ONE simple action: read focus.md and do something small.\n"
+                "Output: [OUTCOME:action_taken] [SCORE:3]"
+            )
+        else:
+            parts.append(
+                "\n---\n## Bootstrap Mode (first heartbeats)\n"
+                "You have very little activity history. This is normal for a new agent.\n"
+                "Instead of the normal heartbeat protocol, do these bootstrapping steps:\n"
+                "1. **Read soul.md** — understand your identity and role\n"
+                "2. **Read focus.md** — check if initial tasks were set during creation\n"
+                "3. **List and read your skills/** — understand your capabilities\n"
+                "4. **If focus.md is empty**: write an initial focus based on your role from soul.md\n"
+                "5. **Write to evolution/lineage.md** with your bootstrap observations\n"
+                "6. Output: [OUTCOME:action_taken] [SCORE:3]\n\n"
+                "After bootstrapping, future heartbeats will follow the normal 4-phase protocol."
+            )
 
     return "\n\n".join(parts) if parts else ""
+
+
+def _auto_seed_evolution(agent_id: uuid.UUID) -> None:
+    """Server-side emergency seed: write minimal evolution files to break bootstrap loop."""
+    from pathlib import Path
+
+    from app.config import get_settings
+
+    settings = get_settings()
+    for ws_root in [
+        Path("/tmp/hive_workspaces") / str(agent_id),
+        Path(settings.AGENT_DATA_DIR) / str(agent_id),
+    ]:
+        evo_dir = ws_root / "evolution"
+        if ws_root.exists():
+            evo_dir.mkdir(parents=True, exist_ok=True)
+            now = datetime.now(timezone.utc).strftime("%Y-%m-%d-%H:%M")
+            # Seed scorecard with initial counters
+            scorecard = evo_dir / "scorecard.md"
+            if not scorecard.exists() or "(updated each heartbeat)" in scorecard.read_text(encoding="utf-8", errors="replace"):
+                scorecard.write_text(
+                    "# Evolution Scorecard\n\n## Metrics\n"
+                    "- total_heartbeats: 3\n- useful_heartbeats: 0\n"
+                    "- failed_attempts: 3\n- blocked_approaches: 0\n"
+                    "- skills_created: 0\n- strategies_evolved: 0\n\n"
+                    "## Recent Trend\nBootstrap failures detected — auto-seeded.\n",
+                    encoding="utf-8",
+                )
+            # Seed lineage with recovery record
+            lineage = evo_dir / "lineage.md"
+            lineage_content = lineage.read_text(encoding="utf-8", errors="replace") if lineage.exists() else ""
+            if "(no entries yet)" in lineage_content or not lineage_content.strip():
+                lineage.write_text(
+                    "# Evolution Lineage\n\n"
+                    f"### HB-{now} [auto-seed]\n"
+                    "- Outcome: recovery\n"
+                    "- Summary: 3 bootstrap failures detected, evolution files auto-seeded by server\n",
+                    encoding="utf-8",
+                )
+            logger.info("[Heartbeat] Auto-seeded evolution files for agent %s after 3 bootstrap failures", agent_id)
+            return
+    logger.warning("[Heartbeat] Cannot auto-seed evolution: no workspace found for agent %s", agent_id)
 
 
 
