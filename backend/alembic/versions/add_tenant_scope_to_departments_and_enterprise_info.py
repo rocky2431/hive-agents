@@ -102,11 +102,13 @@ def upgrade() -> None:
     )
 
     op.execute("ALTER TABLE enterprise_info DROP CONSTRAINT IF EXISTS enterprise_info_info_type_key")
-    op.create_unique_constraint(
-        "uq_enterprise_info_tenant_info_type",
-        "enterprise_info",
-        ["tenant_id", "info_type"],
-    )
+    op.execute("""
+        DO $$ BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_enterprise_info_tenant_info_type') THEN
+                ALTER TABLE enterprise_info ADD CONSTRAINT uq_enterprise_info_tenant_info_type UNIQUE (tenant_id, info_type);
+            END IF;
+        END $$
+    """)
 
 
 def downgrade() -> None:
