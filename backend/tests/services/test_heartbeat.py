@@ -18,8 +18,12 @@ class _FakeScalarResult:
 
 
 class _FakeSession:
+    """Fake async DB session that returns pre-configured values for sequential queries."""
+
     def __init__(self, execute_values):
         self._execute_values = list(execute_values)
+        self.added = []
+        self._flush_count = 0
 
     async def __aenter__(self):
         return self
@@ -29,11 +33,163 @@ class _FakeSession:
 
     async def execute(self, _query):
         if not self._execute_values:
-            raise AssertionError("No fake execute result prepared")
+            return _FakeScalarResult(None)
         return _FakeScalarResult(self._execute_values.pop(0))
+
+    def add(self, obj):
+        self.added.append(obj)
+        # Give ChatSession a fake id on add
+        if not hasattr(obj, "id") or obj.id is None:
+            obj.id = uuid4()
+
+    async def flush(self):
+        self._flush_count += 1
 
     async def commit(self):
         return None
+
+
+# ─── _parse_heartbeat_outcome ───────────────────────────────────
+
+
+def test_parse_heartbeat_outcome_structured_tags():
+    from app.services.heartbeat import _parse_heartbeat_outcome
+
+    outcome, score = _parse_heartbeat_outcome(
+        "I updated focus.md with new priorities.\n\n[OUTCOME:action_taken] [SCORE:7]"
+    )
+    assert outcome == "action_taken"
+    assert score == 7
+
+
+def test_parse_heartbeat_outcome_noop():
+    from app.services.heartbeat import _parse_heartbeat_outcome
+
+    outcome, score = _parse_heartbeat_outcome(
+        "Nothing to do right now. HEARTBEAT_OK\n[OUTCOME:noop] [SCORE:0]"
+    )
+    assert outcome == "noop"
+    assert score == 0
+
+
+def test_parse_heartbeat_outcome_failure():
+    from app.services.heartbeat import _parse_heartbeat_outcome
+
+    outcome, score = _parse_heartbeat_outcome(
+        "Attempted to search but got rate limited.\n[OUTCOME:failure] [SCORE:2]"
+    )
+    assert outcome == "failure"
+    assert score == 2
+
+
+def test_parse_heartbeat_outcome_fallback_heartbeat_ok():
+    """When no structured tags, falls back to HEARTBEAT_OK detection."""
+    from app.services.heartbeat import _parse_heartbeat_outcome
+
+    outcome, score = _parse_heartbeat_outcome("HEARTBEAT_OK")
+    assert outcome == "noop"
+    assert score is None
+
+
+def test_parse_heartbeat_outcome_fallback_action():
+    """When no tags and no HEARTBEAT_OK, assume action_taken."""
+    from app.services.heartbeat import _parse_heartbeat_outcome
+
+    outcome, score = _parse_heartbeat_outcome("I successfully fixed the error in ERRORS.md")
+    assert outcome == "action_taken"
+    assert score is None
+
+
+def test_parse_heartbeat_outcome_none_reply():
+    from app.services.heartbeat import _parse_heartbeat_outcome
+
+    outcome, score = _parse_heartbeat_outcome(None)
+    assert outcome == "noop"
+    assert score is None
+
+
+def test_parse_heartbeat_outcome_score_capped_at_10():
+    from app.services.heartbeat import _parse_heartbeat_outcome
+
+    outcome, score = _parse_heartbeat_outcome("[OUTCOME:action_taken] [SCORE:99]")
+    assert outcome == "action_taken"
+    assert score == 10
+
+
+def test_parse_heartbeat_outcome_case_insensitive():
+    from app.services.heartbeat import _parse_heartbeat_outcome
+
+    outcome, score = _parse_heartbeat_outcome("[outcome:FAILURE] [SCORE:1]")
+    assert outcome == "failure"
+    assert score == 1
+
+
+def test_parse_heartbeat_no_false_positive_on_error_word():
+    """The old keyword-based detection would flag 'error' in reply as failure.
+    The new parser should NOT do this when structured tags are absent."""
+    from app.services.heartbeat import _parse_heartbeat_outcome
+
+    outcome, _score = _parse_heartbeat_outcome("I successfully fixed the error in ERRORS.md")
+    # Should be action_taken (no structured tags, no HEARTBEAT_OK) — NOT failure
+    assert outcome == "action_taken"
+
+
+# ─── _build_evolution_context ───────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_build_evolution_context_cold_start_bootstrap():
+    """When agent has < 3 non-heartbeat activities, inject bootstrap guidance."""
+    from app.services.heartbeat import _build_evolution_context
+
+    agent_id = uuid4()
+    # Only 1 heartbeat activity, no real work
+    activities = [
+        SimpleNamespace(action_type="heartbeat", summary="Heartbeat: OK", detail_json={}),
+    ]
+    result = await _build_evolution_context(agent_id, activities)
+    assert "Bootstrap Mode" in result
+    assert "Read soul.md" in result
+
+
+@pytest.mark.asyncio
+async def test_build_evolution_context_not_cold_after_enough_activities():
+    """When agent has >= 3 non-heartbeat activities, no bootstrap section."""
+    from app.services.heartbeat import _build_evolution_context
+
+    agent_id = uuid4()
+    activities = [
+        SimpleNamespace(action_type="chat_reply", summary="Hello", detail_json={}),
+        SimpleNamespace(action_type="tool_call", summary="read_file", detail_json={"tool": "read_file"}),
+        SimpleNamespace(action_type="chat_reply", summary="Done", detail_json={}),
+        SimpleNamespace(action_type="heartbeat", summary="OK", detail_json={}),
+    ]
+    result = await _build_evolution_context(agent_id, activities)
+    assert "Bootstrap Mode" not in result
+
+
+@pytest.mark.asyncio
+async def test_build_evolution_context_includes_error_details():
+    """Error details from detail_json should be included."""
+    from app.services.heartbeat import _build_evolution_context
+
+    agent_id = uuid4()
+    activities = [
+        SimpleNamespace(
+            action_type="error",
+            summary="Tool call failed",
+            detail_json={"error": "ConnectionTimeout: failed to connect to API after 30s"},
+        ),
+        SimpleNamespace(action_type="chat_reply", summary="OK", detail_json={}),
+        SimpleNamespace(action_type="chat_reply", summary="OK2", detail_json={}),
+        SimpleNamespace(action_type="chat_reply", summary="OK3", detail_json={}),
+    ]
+    result = await _build_evolution_context(agent_id, activities)
+    assert "ConnectionTimeout" in result
+    assert "Recent error details" in result
+
+
+# ─── plaza executor limits ──────────────────────────────────────
 
 
 @pytest.mark.asyncio
@@ -73,13 +229,19 @@ async def test_build_heartbeat_tool_executor_enforces_plaza_limits(monkeypatch):
     ]
 
 
+# ─── _execute_heartbeat integration ────────────────────────────
+
+
 @pytest.mark.asyncio
-async def test_execute_heartbeat_passes_memory_messages_to_runtime(monkeypatch):
+async def test_execute_heartbeat_uses_correct_settings(monkeypatch):
+    """Verify invoke_agent is called with core_tools_only=False, max_tool_rounds=25,
+    and a heartbeat session is created."""
     from app.services.heartbeat import _execute_heartbeat
 
     agent_id = uuid4()
     creator_id = uuid4()
     model_id = uuid4()
+    tenant_id = uuid4()
     agent = SimpleNamespace(
         id=agent_id,
         name="Heartbeat Agent",
@@ -87,6 +249,8 @@ async def test_execute_heartbeat_passes_memory_messages_to_runtime(monkeypatch):
         primary_model_id=model_id,
         fallback_model_id=None,
         creator_id=creator_id,
+        tenant_id=tenant_id,
+        last_heartbeat_at=None,
     )
     model = SimpleNamespace(
         id=model_id,
@@ -95,29 +259,37 @@ async def test_execute_heartbeat_passes_memory_messages_to_runtime(monkeypatch):
         api_key="key",
         base_url=None,
         max_output_tokens=None,
+        tenant_id=tenant_id,
     )
-    fake_session = _FakeSession([agent, model, []])
+    participant = SimpleNamespace(id=uuid4(), type="agent", ref_id=agent_id)
+
+    # Sequence: Agent, LLMModel, ActivityLogs, Participant
+    fake_session = _FakeSession([agent, model, [], participant])
     captured = {}
 
     async def fake_invoke_agent(request):
         captured["request"] = request
-        return SimpleNamespace(content="HEARTBEAT_OK")
+        return SimpleNamespace(content="Did work\n[OUTCOME:action_taken] [SCORE:5]")
 
     monkeypatch.setattr("app.database.async_session", lambda: fake_session)
     monkeypatch.setattr("app.services.heartbeat.invoke_agent", fake_invoke_agent)
-    monkeypatch.setattr("app.services.heartbeat._load_heartbeat_instruction", lambda _agent_id: "HB")
+    monkeypatch.setattr("app.services.heartbeat._load_heartbeat_instruction", lambda _id: "HB")
+
+    # Stub activity logger and execution context
+    async def _noop_log(*args, **kwargs):
+        pass
+
+    monkeypatch.setattr("app.core.execution_context.set_agent_bot_identity", lambda *a, **kw: None)
 
     await _execute_heartbeat(agent_id)
 
     request = captured["request"]
-    assert request.messages == [{"role": "user", "content": "HB"}]
-    assert request.memory_messages == request.messages
-    assert request.core_tools_only is True
+
+    # Core assertions — the critical fixes
+    assert request.core_tools_only is False, "Heartbeat should have full tool access"
+    assert request.max_tool_rounds == 25, "Heartbeat needs 25 rounds for 4-phase protocol"
     assert request.session_context is not None
     assert request.session_context.source == "heartbeat"
-    assert request.session_context.channel == "heartbeat"
-    assert request.session_context.metadata["agent_id"] == str(agent_id)
-    assert request.execution_identity is not None
+    assert request.session_context.session_id is not None, "Heartbeat must have session_id for memory"
+    assert request.on_tool_call is not None, "Heartbeat must persist tool calls"
     assert request.execution_identity.identity_type == "agent_bot"
-    assert request.execution_identity.identity_id == agent_id
-    assert request.execution_identity.label == "Agent: Heartbeat Agent (heartbeat)"

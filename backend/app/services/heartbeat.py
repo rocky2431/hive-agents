@@ -100,6 +100,38 @@ def _load_heartbeat_instruction(agent_id: uuid.UUID) -> str:
 
 
 
+def _parse_heartbeat_outcome(reply: str | None) -> tuple[str, int | None]:
+    """Parse structured outcome from heartbeat reply.
+
+    Expects LLM to output [OUTCOME:noop|action_taken|failure] [SCORE:0-10].
+    Falls back to heuristics if structured tags are missing.
+
+    Returns (outcome_type, score).
+    """
+    if not reply:
+        return "noop", None
+
+    # Try structured tag first: [OUTCOME:action_taken]
+    outcome_match = re.search(r"\[OUTCOME:\s*(noop|action_taken|failure)\s*\]", reply, re.IGNORECASE)
+    score_match = re.search(r"\[SCORE:\s*(\d+)\s*\]", reply)
+
+    if outcome_match:
+        outcome = outcome_match.group(1).lower()
+    else:
+        # Fallback heuristics — only when structured tags are absent
+        is_ok = "HEARTBEAT_OK" in reply.upper().replace(" ", "_")
+        if is_ok:
+            outcome = "noop"
+        else:
+            outcome = "action_taken"
+
+    score = int(score_match.group(1)) if score_match else None
+    if score is not None:
+        score = min(score, 10)
+
+    return outcome, score
+
+
 async def _build_evolution_context(agent_id: uuid.UUID, recent_activities: list) -> str:
     """Build structured evolution context from activity logs and workspace evolution files.
 
@@ -169,6 +201,15 @@ async def _build_evolution_context(agent_id: uuid.UUID, recent_activities: list)
                     tool_names.append(tool_name)
         top_tools = [f"  - {name} (x{count})" for name, count in Counter(tool_names).most_common(5)]
 
+        # Include error details (not just summaries) for learning
+        error_details = []
+        for a in recent_activities:
+            if a.action_type == "error" and a.detail_json:
+                detail = a.detail_json.get("error", "") or a.detail_json.get("message", "")
+                if detail:
+                    error_details.append(f"  - {str(detail)[:300]}")
+        error_details = error_details[:5]  # Top 5 most recent errors
+
         pattern_section = (
             f"\n---\n## Activity Pattern Analysis (auto-computed, last {total} activities)\n"
             f"- Errors: {error_count} ({error_count * 100 // max(total, 1)}%)\n"
@@ -177,84 +218,35 @@ async def _build_evolution_context(agent_id: uuid.UUID, recent_activities: list)
         )
         if repeated_errors:
             pattern_section += "- **Repeated failures** (MUST NOT retry these approaches):\n" + "\n".join(repeated_errors) + "\n"
+        if error_details:
+            pattern_section += "- **Recent error details** (learn from these):\n" + "\n".join(error_details) + "\n"
         if top_tools:
             pattern_section += "- Top tools used:\n" + "\n".join(top_tools) + "\n"
 
         parts.append(pattern_section)
 
+    # 3. Cold start bootstrap — guide new agents through first heartbeats
+    non_heartbeat_activities = [a for a in recent_activities if a.action_type != "heartbeat"]
+    is_cold_start = len(non_heartbeat_activities) < 3
+
+    if is_cold_start:
+        parts.append(
+            "\n---\n## Bootstrap Mode (first heartbeats)\n"
+            "You have very little activity history. This is normal for a new agent.\n"
+            "Instead of the normal heartbeat protocol, do these bootstrapping steps:\n"
+            "1. **Read soul.md** — understand your identity and role\n"
+            "2. **Read focus.md** — check if initial tasks were set during creation\n"
+            "3. **List and read your skills/** — understand your capabilities\n"
+            "4. **If focus.md is empty**: write an initial focus based on your role from soul.md\n"
+            "5. **Write to evolution/lineage.md** with your bootstrap observations\n"
+            "6. Output: [OUTCOME:action_taken] [SCORE:3]\n\n"
+            "After bootstrapping, future heartbeats will follow the normal 4-phase protocol."
+        )
+
     return "\n\n".join(parts) if parts else ""
 
 
-def _resolve_workspace_root(agent_id: uuid.UUID) -> Path | None:
-    """Find the first existing workspace root for an agent."""
-    from app.config import get_settings
-    settings = get_settings()
-    for ws_root in [
-        Path("/tmp/hive_workspaces") / str(agent_id),
-        Path(settings.AGENT_DATA_DIR) / str(agent_id),
-    ]:
-        if ws_root.exists():
-            return ws_root
-    return None
 
-
-def _update_evolution_files(
-    agent_id: uuid.UUID,
-    outcome_type: str,
-    summary: str,
-) -> None:
-    """Server-side evolution update after heartbeat. No LLM needed.
-
-    Appends to evolution/lineage.md and increments evolution/scorecard.md counters.
-    """
-    ws_root = _resolve_workspace_root(agent_id)
-    if ws_root is None:
-        return
-
-    evo_dir = ws_root / "evolution"
-    if not evo_dir.exists():
-        return
-
-    now = datetime.now(timezone.utc)
-    timestamp = now.strftime("%Y-%m-%d-%H:%M")
-
-    # --- Append to lineage.md ---
-    try:
-        lineage_path = evo_dir / "lineage.md"
-        existing = lineage_path.read_text(encoding="utf-8", errors="replace") if lineage_path.exists() else ""
-        existing = existing.replace("(no entries yet)", "").rstrip()
-        entry = (
-            f"\n\n### HB-{timestamp} [auto]\n"
-            f"- Outcome: {outcome_type}\n"
-            f"- Summary: {summary[:120]}\n"
-        )
-        lineage_path.write_text(existing + entry, encoding="utf-8")
-    except Exception as e:
-        logger.warning(f"Failed to update evolution/lineage.md for {agent_id}: {e}")
-
-    # --- Increment scorecard.md counters ---
-    try:
-        scorecard_path = evo_dir / "scorecard.md"
-        if not scorecard_path.exists():
-            return
-        content = scorecard_path.read_text(encoding="utf-8", errors="replace")
-
-        def _inc(text: str, key: str) -> str:
-            pattern = rf"(- {re.escape(key)}:\s*)(\d+)"
-            m = re.search(pattern, text)
-            if m:
-                return text[:m.start()] + m.group(1) + str(int(m.group(2)) + 1) + text[m.end():]
-            return text
-
-        content = _inc(content, "total_heartbeats")
-        if outcome_type == "action_taken":
-            content = _inc(content, "useful_heartbeats")
-        elif outcome_type in ("failure", "crash"):
-            content = _inc(content, "failed_attempts")
-
-        scorecard_path.write_text(content, encoding="utf-8")
-    except Exception as e:
-        logger.warning(f"Failed to update evolution/scorecard.md for {agent_id}: {e}")
 
 
 def _build_heartbeat_tool_executor(agent_id: uuid.UUID, creator_id: uuid.UUID):
@@ -280,11 +272,20 @@ def _build_heartbeat_tool_executor(agent_id: uuid.UUID, creator_id: uuid.UUID):
 
 
 async def _execute_heartbeat(agent_id: uuid.UUID):
-    """Execute a single heartbeat for an agent."""
+    """Execute a single heartbeat for an agent.
+
+    Creates a Reflection Session (like trigger_daemon) so tool calls and
+    the final reply are persisted and visible in the UI.
+    """
+    import json as _json
+
     try:
         from app.database import async_session
         from app.models.agent import Agent
+        from app.models.audit import ChatMessage
+        from app.models.chat_session import ChatSession
         from app.models.llm import LLMModel
+        from app.models.participant import Participant
 
         async with async_session() as db:
             result = await db.execute(select(Agent).where(Agent.id == agent_id))
@@ -319,7 +320,7 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
                     .order_by(AgentActivityLog.created_at.desc())
                     .limit(50)
                 )
-                recent_activities = recent_result.scalars().all()
+                recent_activities = list(recent_result.scalars().all())
                 evolution_context = await _build_evolution_context(agent_id, recent_activities)
             except Exception as e:
                 logger.warning(f"Failed to build evolution context for heartbeat: {e}")
@@ -329,6 +330,58 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
             if evolution_context:
                 heartbeat_instruction += "\n\n" + evolution_context
             runtime_messages = [{"role": "user", "content": heartbeat_instruction}]
+
+            # --- Create Reflection Session for observability ---
+            p_result = await db.execute(
+                select(Participant).where(Participant.type == "agent", Participant.ref_id == agent_id)
+            )
+            agent_participant = p_result.scalar_one_or_none()
+            agent_participant_id = agent_participant.id if agent_participant else None
+
+            session = ChatSession(
+                agent_id=agent_id,
+                user_id=agent.creator_id,
+                participant_id=agent_participant_id,
+                source_channel="heartbeat",
+                title=f"💓 心跳：{agent.name}"[:200],
+            )
+            db.add(session)
+            await db.flush()
+            session_id = session.id
+
+            # Save heartbeat instruction as first message
+            db.add(ChatMessage(
+                agent_id=agent_id,
+                conversation_id=str(session_id),
+                role="user",
+                content=heartbeat_instruction[:4000],
+                user_id=agent.creator_id,
+                participant_id=agent_participant_id,
+            ))
+            await db.commit()
+
+            # Tool call persistence callback
+            async def _on_tool_call(data: dict) -> None:
+                if data.get("status") != "done":
+                    return
+                try:
+                    async with async_session() as _tc_db:
+                        _tc_db.add(ChatMessage(
+                            agent_id=agent_id,
+                            conversation_id=str(session_id),
+                            role="tool_call",
+                            content=_json.dumps({
+                                "name": data["name"],
+                                "args": data.get("args"),
+                                "status": "done",
+                                "result": str(data.get("result", ""))[:2000],
+                            }, ensure_ascii=False, default=str),
+                            user_id=agent.creator_id,
+                            participant_id=agent_participant_id,
+                        ))
+                        await _tc_db.commit()
+                except Exception as tc_err:
+                    logger.debug(f"Failed to persist heartbeat tool call: {tc_err}")
 
             result = await invoke_agent(
                 AgentInvocationRequest(
@@ -347,42 +400,55 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
                     session_context=SessionContext(
                         source="heartbeat",
                         channel="heartbeat",
+                        session_id=str(session_id),
                         metadata={"agent_id": str(agent_id)},
                     ),
+                    on_tool_call=_on_tool_call,
                     tool_executor=_build_heartbeat_tool_executor(agent_id, agent.creator_id),
-                    core_tools_only=True,
-                    max_tool_rounds=15,
+                    core_tools_only=False,
+                    max_tool_rounds=25,
                 )
             )
             reply = result.content
 
-            # Always log heartbeat outcome — evolution system needs complete data
-            is_ok = "HEARTBEAT_OK" in reply.upper().replace(" ", "_") if reply else False
-            outcome_type = "noop" if is_ok else "action_taken"
-            if reply and any(kw in reply.lower() for kw in ["error", "failed", "cannot", "unable", "blocked"]):
-                outcome_type = "failure"
+            # Save assistant reply to Reflection Session
+            async with async_session() as db2:
+                db2.add(ChatMessage(
+                    agent_id=agent_id,
+                    conversation_id=str(session_id),
+                    role="assistant",
+                    content=reply or "",
+                    user_id=agent.creator_id,
+                    participant_id=agent_participant_id,
+                ))
+                await db2.commit()
+
+            # Parse structured outcome from LLM reply
+            outcome_type, heartbeat_score = _parse_heartbeat_outcome(reply)
 
             from app.services.activity_logger import log_activity
+            summary = reply[:80] if reply else "empty"
             await log_activity(
                 agent_id, "heartbeat",
-                f"Heartbeat: {'OK' if is_ok else (reply[:80] if reply else 'empty')}",
+                f"Heartbeat [{outcome_type}]: {summary}",
                 detail={
                     "reply": reply[:500] if reply else "",
                     "outcome_type": outcome_type,
+                    "score": heartbeat_score,
+                    "session_id": str(session_id),
                 },
             )
 
-            # Server-side evolution update (no LLM needed)
-            try:
-                _update_evolution_files(agent_id, outcome_type, reply[:80] if reply else "empty")
-            except Exception as evo_err:
-                logger.debug(f"Evolution update skipped: {evo_err}")
-
             # Update last_heartbeat_at
-            agent.last_heartbeat_at = datetime.now(timezone.utc)
-            await db.commit()
+            async with async_session() as db3:
+                a_result = await db3.execute(select(Agent).where(Agent.id == agent_id))
+                a = a_result.scalar_one_or_none()
+                if a:
+                    a.last_heartbeat_at = datetime.now(timezone.utc)
+                    await db3.commit()
 
-            logger.info(f"💓 Heartbeat for {agent.name}: {'OK' if is_ok else reply[:60] if reply else 'empty'}")
+            score_str = f" score={heartbeat_score}" if heartbeat_score is not None else ""
+            logger.info(f"💓 Heartbeat for {agent.name}: {outcome_type}{score_str} — {summary}")
 
     except Exception as e:
         logger.error(f"Heartbeat error for agent {agent_id}: {e}", exc_info=True)
@@ -409,11 +475,8 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
             )
         except Exception as log_err:
             logger.debug(f"Failed to log heartbeat crash to activity: {log_err}")
-        # Server-side evolution: record crash too
-        try:
-            _update_evolution_files(agent_id, "crash", str(e)[:80])
-        except Exception as evo_err:
-            logger.debug(f"Evolution crash update skipped: {evo_err}")
+        # NOTE: crash is already logged to activity_log above.
+        # Evolution files are NOT updated server-side to avoid double-write.
 
 
 async def _heartbeat_tick():

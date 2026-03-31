@@ -51,12 +51,20 @@ Do exactly ONE of these (pick the highest value):
    ```
    **Do NOT use `edit_file` for evolution files — use `read_file` then `write_file`.**
 
-3. **Update `evolution/scorecard.md`** — `read_file` first, then `write_file` with updated counters. Do NOT use `edit_file`.
+3. **Update `evolution/scorecard.md`** — `read_file` first, then `write_file` with updated counters (increment total_heartbeats, and useful_heartbeats if score >= 5, or failed_attempts if score <= 2).
 
 4. **If score <= 2 for 3 consecutive heartbeats**: add approach to blocklist.md.
 
+## Required Output Format
+
+At the END of your reply, you MUST include these structured tags:
+
+```
+[OUTCOME:noop|action_taken|failure] [SCORE:0-10]
+```
+
 ## Constraints
-- Maximum 15 tool rounds total.
+- Maximum 25 tool rounds total.
 - NEVER share user data in any public channel.
 - Stay focused on agent creation quality. Nothing else.
-- If nothing needs attention: reply HEARTBEAT_OK
+- If nothing needs attention: reply HEARTBEAT_OK then `[OUTCOME:noop] [SCORE:0]`

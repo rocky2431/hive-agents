@@ -82,7 +82,7 @@ def test_kernel_tools_are_strings():
 
 def test_kernel_tools_match_runtime_core_tools():
     assert set(KERNEL_TOOLS) == set(CORE_TOOL_NAMES)
-    assert "list_files" not in KERNEL_TOOLS
+    assert "list_files" in KERNEL_TOOLS  # list_files is a core read-only tool
     assert "send_web_message" not in KERNEL_TOOLS
 
 

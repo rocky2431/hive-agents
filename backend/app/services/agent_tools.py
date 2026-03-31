@@ -134,6 +134,7 @@ def _get_tool_runtime_service() -> ToolRuntimeService:
 # Minimal-by-default kernel tools. Everything else should be introduced
 # explicitly via skills, channel capabilities, or MCP-linked expansion.
 CORE_TOOL_NAMES = {
+    "list_files",
     "read_file",
     "write_file",
     "edit_file",

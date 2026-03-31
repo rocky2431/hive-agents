@@ -33,13 +33,15 @@ _MIDLOOP_COMPACT_CHECK_INTERVAL = 3
 _MIDLOOP_COMPACT_THRESHOLD = 0.85  # 85% of context window
 
 # Large tool result eviction: save to workspace file and keep truncated preview.
-_TOOL_RESULT_EVICTION_THRESHOLD = 4000  # chars
-_TOOL_RESULT_PREVIEW_LENGTH = 800  # chars to keep inline
+_TOOL_RESULT_EVICTION_THRESHOLD = 8000  # chars
+_TOOL_RESULT_PREVIEW_LENGTH = 2000  # chars to keep inline
 # Tools whose output should never be evicted (small, structural results).
 _EVICTION_EXEMPT_TOOLS = frozenset({
     "list_files", "read_file", "load_skill", "tool_search",
     "discover_resources", "list_triggers", "list_tasks", "get_task",
     "get_current_time", "check_async_task", "list_async_tasks",
+    # Content-critical tools — already have their own internal truncation.
+    "web_search", "jina_read", "read_document",
 })
 
 logger = logging.getLogger(__name__)
@@ -236,10 +238,22 @@ def _maybe_evict_tool_result(
     """If tool result exceeds threshold, save full output to file and truncate inline."""
     from pathlib import Path as _Path  # deferred to avoid top-level import in kernel
 
+    result_len = len(result)
+
     if tool_name in _EVICTION_EXEMPT_TOOLS:
+        if result_len > _TOOL_RESULT_EVICTION_THRESHOLD:
+            logger.info(
+                "[Kernel] Tool result kept (exempt): tool=%s, chars=%d, tool_call_id=%s",
+                tool_name, result_len, tool_call_id,
+            )
         return result
-    if len(result) <= _TOOL_RESULT_EVICTION_THRESHOLD:
+    if result_len <= _TOOL_RESULT_EVICTION_THRESHOLD:
         return result
+
+    logger.info(
+        "[Kernel] Tool result evicted: tool=%s, chars=%d, threshold=%d, tool_call_id=%s",
+        tool_name, result_len, _TOOL_RESULT_EVICTION_THRESHOLD, tool_call_id,
+    )
 
     # Write full result to workspace file if eviction_dir provided
     eviction_path = ""
@@ -318,8 +332,8 @@ async def _stream_with_cancel(
             stream_task.cancel()
             try:
                 await stream_task
-            except (asyncio.CancelledError, Exception):
-                pass
+            except (asyncio.CancelledError, Exception) as _cancel_exc:
+                logger.debug("Stream task cancelled during shutdown: %s", _cancel_exc)
             raise _KernelCancelledError
 
         return await stream_task
@@ -432,17 +446,20 @@ class AgentKernel:
 
             async def _emit_compaction_event(data: dict[str, Any]) -> None:
                 await _emit_event({"type": "session_compact", **data})
-                # System-level WAL: auto-save compaction summary to focus.md
+                # System-level WAL: save compaction summary WITHOUT overwriting focus.md.
+                # Write to a separate file so the agent's curated focus is preserved.
                 if request.agent_id and data.get("summary"):
                     try:
                         from app.config import get_settings as _gs
                         from pathlib import Path as _P
-                        _focus = _P(_gs().AGENT_DATA_DIR) / str(request.agent_id) / "focus.md"
-                        _focus.parent.mkdir(parents=True, exist_ok=True)
-                        _header = "# Focus (auto-saved on context compaction)\n\n"
-                        _focus.write_text(_header + data["summary"] + "\n", encoding="utf-8")
+                        _agent_dir = _P(_gs().AGENT_DATA_DIR) / str(request.agent_id)
+                        _agent_dir.mkdir(parents=True, exist_ok=True)
+                        _compaction_file = _agent_dir / "workspace" / "compaction_summary.md"
+                        _compaction_file.parent.mkdir(parents=True, exist_ok=True)
+                        _header = "# Session Compaction Summary (auto-saved)\n\n"
+                        _compaction_file.write_text(_header + data["summary"] + "\n", encoding="utf-8")
                     except Exception as _exc:
-                        logger.warning("[Kernel] Auto-save focus.md on compaction failed: %s", _exc)
+                        logger.warning("[Kernel] Auto-save compaction summary failed: %s", _exc)
 
             async def _emit_chunk(text: str) -> None:
                 streamed_chunks.append(text)

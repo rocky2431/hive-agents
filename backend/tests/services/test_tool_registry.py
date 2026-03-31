@@ -69,6 +69,7 @@ def test_minimal_kernel_tool_set_stays_small_and_explicit():
     from app.services.agent_tools import CORE_TOOL_NAMES
 
     assert CORE_TOOL_NAMES == {
+        "list_files",
         "read_file",
         "write_file",
         "edit_file",

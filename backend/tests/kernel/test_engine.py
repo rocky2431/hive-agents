@@ -579,21 +579,22 @@ def test_maybe_evict_tool_result_truncates_large_output():
 
     # Small result — returned unchanged
     small = "hello world"
-    assert _maybe_evict_tool_result("web_search", "call_1", small) == small
+    assert _maybe_evict_tool_result("run_code", "call_1", small) == small
 
     # Exempt tool — never evicted even if large
     large = "x" * 10000
     assert _maybe_evict_tool_result("read_file", "call_2", large) == large
     assert _maybe_evict_tool_result("list_files", "call_3", large) == large
+    assert _maybe_evict_tool_result("web_search", "call_exempt", large) == large
 
     # Non-exempt large result — truncated (no eviction_dir)
-    evicted = _maybe_evict_tool_result("web_search", "call_4", large)
+    evicted = _maybe_evict_tool_result("run_code", "call_4", large)
     assert len(evicted) < len(large)
     assert "truncated" in evicted
     assert "10000 chars" in evicted
     assert "call_4" in evicted
-    # Preview should be present (first 800 chars)
-    assert evicted.startswith("x" * 800)
+    # Preview should be present (first 2000 chars)
+    assert evicted.startswith("x" * 2000)
 
 
 def test_maybe_evict_writes_file_when_eviction_dir_provided(tmp_path):
@@ -602,7 +603,7 @@ def test_maybe_evict_writes_file_when_eviction_dir_provided(tmp_path):
     large = "RESULT_DATA\n" * 1000  # ~12000 chars
     eviction_dir = tmp_path / "tool_results"
 
-    evicted = _maybe_evict_tool_result("web_search", "call_99", large, eviction_dir=eviction_dir)
+    evicted = _maybe_evict_tool_result("run_code", "call_99", large, eviction_dir=eviction_dir)
 
     # File should exist with full content
     written_file = eviction_dir / "call_99.txt"
@@ -628,7 +629,7 @@ async def test_large_tool_result_evicted_in_kernel_loop():
     fake_client = _FakeClient([
         SimpleNamespace(
             content="",
-            tool_calls=[{"id": "c1", "function": {"name": "web_search", "arguments": '{"q":"test"}'}}],
+            tool_calls=[{"id": "c1", "function": {"name": "run_code", "arguments": '{"code":"test"}'}}],
             reasoning_content=None,
             usage={"total_tokens": 5},
         ),
@@ -651,7 +652,7 @@ async def test_large_tool_result_evicted_in_kernel_loop():
             build_system_prompt=lambda *_a, **_kw: "SYSTEM",
             resolve_memory_context=lambda *_a, **_kw: "",
             get_tools=lambda *_a, **_kw: [
-                {"type": "function", "function": {"name": "web_search", "description": "", "parameters": {"type": "object"}}}
+                {"type": "function", "function": {"name": "run_code", "description": "", "parameters": {"type": "object"}}}
             ],
             maybe_compress_messages=lambda messages, **kw: messages,
             create_client=lambda _m: fake_client,
