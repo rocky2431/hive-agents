@@ -48,6 +48,11 @@ logger = logging.getLogger(__name__)
                 "items": {"type": "string"},
                 "description": "Smithery MCP server IDs to install (e.g. ['LinkupPlatform/linkup-mcp-server']). Found via discover_resources.",
             },
+            "clawhub_slugs": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "ClawHub skill slugs to install (e.g. ['market-research-agent', 'competitor-analyst']). Found via web_search on clawhub.ai.",
+            },
             "permission_scope": {
                 "type": "string",
                 "enum": ["company", "self"],
@@ -118,6 +123,8 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
     skill_names = [s for s in (raw_skill_names if isinstance(raw_skill_names, list) else [])]
     raw_mcp = args.get("mcp_server_ids") or []
     mcp_server_ids = [s for s in (raw_mcp if isinstance(raw_mcp, list) else [])]
+    raw_clawhub = args.get("clawhub_slugs") or []
+    clawhub_slugs = [s for s in (raw_clawhub if isinstance(raw_clawhub, list) else []) if isinstance(s, str) and s.strip()]
     permission_scope = args.get("permission_scope", "company")
 
     # Heartbeat config (self-awareness cycle)
@@ -338,6 +345,45 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
                         mcp_results.append(f"⚠️ {server_id}: {mcp_err}")
                         logger.warning(f"[HR] MCP install failed for {server_id}: {mcp_err}")
 
+            # Install ClawHub skills (after commit, so agent exists on disk)
+            clawhub_results = []
+            if clawhub_slugs:
+                import httpx
+                from pathlib import Path as _Path
+                from app.api.skills import CLAWHUB_BASE, _fetch_github_directory, _get_github_token
+                from app.config import get_settings as _get_settings
+
+                agent_dir = _Path(_get_settings().AGENT_DATA_DIR) / str(agent.id)
+                ch_tenant = str(effective_tenant_id) if effective_tenant_id else None
+                ch_token = await _get_github_token(ch_tenant)
+                for slug in clawhub_slugs:
+                    try:
+                        async with httpx.AsyncClient(timeout=15) as client:
+                            resp = await client.get(f"{CLAWHUB_BASE}/v1/skills/{slug}")
+                            if resp.status_code != 200:
+                                clawhub_results.append(f"⚠️ {slug}: not found on ClawHub")
+                                continue
+                            meta = resp.json()
+                        handle = meta.get("owner", {}).get("handle", "").lower()
+                        if not handle:
+                            clawhub_results.append(f"⚠️ {slug}: no owner handle")
+                            continue
+                        github_path = f"skills/{handle}/{slug}"
+                        files = await _fetch_github_directory("openclaw", "skills", github_path, "main", ch_token)
+                        skill_dir = agent_dir / "skills" / slug
+                        skill_dir.mkdir(parents=True, exist_ok=True)
+                        for f in files:
+                            fp = (skill_dir / f["path"]).resolve()
+                            if not str(fp).startswith(str(agent_dir.resolve())):
+                                continue
+                            fp.parent.mkdir(parents=True, exist_ok=True)
+                            fp.write_text(f["content"], encoding="utf-8")
+                        clawhub_results.append(f"✅ {slug}")
+                        logger.info(f"[HR] Installed ClawHub skill {slug} for agent {agent.id}")
+                    except Exception as ch_err:
+                        clawhub_results.append(f"⚠️ {slug}: {ch_err}")
+                        logger.warning(f"[HR] ClawHub install failed for {slug}: {ch_err}")
+
             # Build response
             features = [f"name='{agent.name}'"]
             if heartbeat_enabled:
@@ -349,6 +395,8 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
                 features.append(f"extra_skills={skill_names}")
             if mcp_results:
                 features.append(f"mcp={mcp_results}")
+            if clawhub_results:
+                features.append(f"clawhub={clawhub_results}")
 
             return (
                 f"Successfully created digital employee '{agent.name}' (ID: {agent.id}). "

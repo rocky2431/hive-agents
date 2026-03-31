@@ -41,25 +41,28 @@ Wait for user to answer ALL before proceeding. If answers are vague, ask follow-
 **Step B — AFTER user replies, match capabilities (do NOT install anything — agent doesn't exist yet):**
 
 1. `load_skill(name="create_employee")` — read the Platform Skill Catalog
-2. Match user needs to platform built-in skills:
-   - 飞书/文档/日历 → record `feishu-integration`
-   - 钉钉 → record `dingtalk-integration`
-   - Jira/Confluence → record `atlassian-rovo`
+2. Match user needs to **platform built-in skills** first:
+   - 飞书/文档/日历 → record `feishu-integration` to skill_names
+   - 钉钉 → record `dingtalk-integration` to skill_names
+   - Jira/Confluence → record `atlassian-rovo` to skill_names
    - 14 default skills (web research, document generation, triggers, etc.) are always auto-installed
-3. If user needs external integrations not covered by platform skills:
+3. For capabilities NOT covered by platform skills, search **ClawHub marketplace**:
+   - `web_search(query="site:clawhub.ai [role-relevant keywords]")` — find ClawHub skills
+   - Record useful ClawHub skill slugs (the URL path, e.g. `market-research-agent`)
+4. If user needs external tool integrations:
    - `discover_resources(query="[keywords in English]")` — search Smithery MCP marketplace
    - Record useful `mcp_server_ids`
 
-Present the capability plan: what's covered by defaults, what needs non-default skills, what needs MCP. Ask user to confirm.
+Present the capability plan: platform defaults → platform non-defaults → ClawHub skills → MCP tools. Ask user to confirm.
 
-**Step C — SECURITY REVIEW (for MCP servers only, MANDATORY):**
-For each selected MCP server, use `jina_read` to check its Smithery page:
-1. Check verification status, user count, description
+**Step C — SECURITY REVIEW (for ClawHub skills and MCP servers, MANDATORY):**
+For each selected ClawHub skill or MCP server, use `jina_read` to check its page:
+1. Check author, description, user count / stars
 2. Verdict: ✅ SAFE / ⚠️ CAUTION / 🚫 REJECT
 
-**IMPORTANT: Do NOT call create_digital_employee yet. Just record the selections and continue to Round 3.**
+**IMPORTANT: Do NOT call create_digital_employee yet. Just record all selections and continue to Round 3.**
 
-**Produces:** skill_names (list of non-default platform skill folder names), mcp_server_ids (list of Smithery server IDs)
+**Produces:** skill_names (platform non-defaults), clawhub_slugs (ClawHub skill slugs), mcp_server_ids (Smithery server IDs)
 
 ### Round 3: SCHEDULE (Timing & Triggers) — Ask 3-4 questions
 
