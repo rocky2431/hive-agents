@@ -66,7 +66,8 @@ class ToolRuntimeService:
         if governance_block:
             return governance_block
 
-        timeout_seconds = 60.0 if tool_name == "execute_code" else 30.0
+        _long_running_tools = {"execute_code", "create_digital_employee"}
+        timeout_seconds = 120.0 if tool_name in _long_running_tools else 30.0
         try:
             result = await asyncio.wait_for(
                 self.execute_with_context(tool_name, arguments, runtime_context),
