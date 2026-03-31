@@ -4,9 +4,40 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Set
 from collections import OrderedDict
-from typing import Iterable
+from typing import Any, Iterable
 
 from .types import ToolDefinition
+
+
+def sanitize_tool_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """Recursively sanitize a JSON schema for LLM provider compatibility.
+
+    Fixes: empty enum values (Gemini rejects), empty enum/anyOf/oneOf arrays,
+    collapses single-element anyOf/oneOf to inline.
+    """
+    if not isinstance(schema, dict):
+        return schema
+
+    result: dict[str, Any] = {}
+    for key, value in schema.items():
+        if key == "enum" and isinstance(value, list):
+            cleaned = [v for v in value if v != ""]
+            if cleaned:
+                result[key] = cleaned
+        elif key in ("anyOf", "oneOf", "allOf") and isinstance(value, list):
+            cleaned = [sanitize_tool_schema(v) for v in value if isinstance(v, dict)]
+            cleaned = [v for v in cleaned if v]
+            if len(cleaned) == 1:
+                result.update(cleaned[0])
+            elif cleaned:
+                result[key] = cleaned
+        elif key == "properties" and isinstance(value, dict):
+            result[key] = {k: sanitize_tool_schema(v) for k, v in value.items()}
+        elif key == "items" and isinstance(value, dict):
+            result[key] = sanitize_tool_schema(value)
+        else:
+            result[key] = value
+    return result
 
 
 _FILE_SYSTEM = {
@@ -155,5 +186,14 @@ class ToolRegistry:
 
     def to_openai_tools(self, names: list[str] | None = None) -> list[dict]:
         if names is None:
-            return [tool.to_openai_tool() for tool in self._tools.values()]
-        return [self._tools[name].to_openai_tool() for name in names if name in self._tools]
+            raw = [tool.to_openai_tool() for tool in self._tools.values()]
+        else:
+            raw = [self._tools[name].to_openai_tool() for name in names if name in self._tools]
+        # Return sanitized copies — do not mutate the stored raw_schema
+        result = []
+        for t in raw:
+            params = t.get("function", {}).get("parameters")
+            if isinstance(params, dict):
+                t = {**t, "function": {**t["function"], "parameters": sanitize_tool_schema(params)}}
+            result.append(t)
+        return result

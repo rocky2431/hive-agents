@@ -593,7 +593,7 @@ async def websocket_chat(
                                         _dc_db.add(_dc_msg)
                                         await _dc_db.commit()
                                 except Exception as _dc_err:
-                                    logger.debug("[WS] Partial save on disconnect failed: %s", _dc_err)
+                                    logger.debug(f"[WS] Partial save on disconnect failed: {_dc_err}")
                             raise
 
                     assistant_response = await llm_task
@@ -692,4 +692,4 @@ async def websocket_chat(
         try:
             await websocket.close(code=1011)
         except Exception as e:
-            logger.debug("Suppressed: %s", e)
+            logger.debug(f"Suppressed: {e}")
