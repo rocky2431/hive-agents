@@ -12,18 +12,20 @@
 
 ## DRAFT FILE — Single Source of Truth
 
-**You MUST maintain ONE draft file throughout the ENTIRE conversation.**
+**You MUST maintain ONE draft file throughout the ENTIRE creation conversation.**
 
-At the very START (before Round 1 questions), do this FIRST:
+At the very START (before Round 1 questions), create a draft with a timestamped name:
 ```
-write_file(path="workspace/creation_draft.md", content="# Creation Draft\n_Created: [current time]_\n\n## Round 1: DEFINE\n(pending)\n\n## Round 2: EQUIP\n(pending)\n\n## Round 3: SCHEDULE\n(pending)\n\n## Round 4: CUSTOMIZE\n(pending)\n")
+write_file(path="workspace/draft_YYYYMMDD_HHMM.md", content="# Creation Draft\n_Created: [current time]_\n\n## Round 1: DEFINE\n(pending)\n\n## Round 2: EQUIP\n(pending)\n\n## Round 3: SCHEDULE\n(pending)\n\n## Round 4: CUSTOMIZE\n(pending)\n")
 ```
+**Remember this filename** (e.g. `workspace/draft_20260331_0930.md`) and use it for ALL subsequent updates in this conversation.
 
 **Rules for the draft file:**
-- The filename is ALWAYS `workspace/creation_draft.md` — NEVER change it
-- After EVERY round, `read_file` the draft first, then `write_file` with the FULL updated content
+- Create it ONCE at the start, then use the SAME filename for ALL 5 rounds
+- After EVERY round: `read_file` the draft first, then `write_file` with the FULL updated content
 - NEVER use `edit_file` on the draft — always `read_file` → `write_file` with complete content
-- Before `create_digital_employee`, ALWAYS `read_file("workspace/creation_draft.md")` to get all parameters
+- NEVER create a new draft file mid-conversation — always update the SAME one
+- Before `create_digital_employee`, ALWAYS `read_file` the draft to get all parameters
 
 ## Conversation Protocol — 5 Rounds
 
@@ -40,11 +42,11 @@ write_file(path="workspace/creation_draft.md", content="# Creation Draft\n_Creat
 
 **Step 1.3** — IMMEDIATELY after user replies, update the draft:
 ```
-read_file(path="workspace/creation_draft.md")
+read_file(path="workspace/draft_YYYYMMDD_HHMM.md")
 ```
 Then write the FULL file with Round 1 filled in:
 ```
-write_file(path="workspace/creation_draft.md", content="# Creation Draft\n_Created: [time]_\n\n## Round 1: DEFINE\n- name: \"[derived from answers]\"\n- role_description: \"[from answer 1]\"\n- personality: \"[from answer 3]\"\n- boundaries: \"[from answer 4]\"\n- permission_scope: \"[self or company from answer 2]\"\n\n## Round 2: EQUIP\n(pending)\n\n## Round 3: SCHEDULE\n(pending)\n\n## Round 4: CUSTOMIZE\n(pending)\n")
+write_file(path="workspace/draft_YYYYMMDD_HHMM.md", content="# Creation Draft\n_Created: [time]_\n\n## Round 1: DEFINE\n- name: \"[derived from answers]\"\n- role_description: \"[from answer 1]\"\n- personality: \"[from answer 3]\"\n- boundaries: \"[from answer 4]\"\n- permission_scope: \"[self or company from answer 2]\"\n\n## Round 2: EQUIP\n(pending)\n\n## Round 3: SCHEDULE\n(pending)\n\n## Round 4: CUSTOMIZE\n(pending)\n")
 ```
 
 **Step 1.4** — Tell user Round 1 is done, move to Round 2.
@@ -89,11 +91,11 @@ discover_resources(query="[keywords based on user answers, in English]")
 
 **Step 2.6** — AFTER user confirms, IMMEDIATELY update the draft:
 ```
-read_file(path="workspace/creation_draft.md")
+read_file(path="workspace/draft_YYYYMMDD_HHMM.md")
 ```
 Then write the FULL file with Round 2 filled in (keep Round 1 content, add Round 2):
 ```
-write_file(path="workspace/creation_draft.md", content="[all previous content]\n\n## Round 2: EQUIP\n- skill_names: [\"feishu-integration\"]\n- clawhub_slugs: [\"slug1\", \"slug2\"]\n- mcp_server_ids: [\"server/id1\", \"server/id2\"]\n\n## Round 3: SCHEDULE\n(pending)\n\n## Round 4: CUSTOMIZE\n(pending)\n")
+write_file(path="workspace/draft_YYYYMMDD_HHMM.md", content="[all previous content]\n\n## Round 2: EQUIP\n- skill_names: [\"feishu-integration\"]\n- clawhub_slugs: [\"slug1\", \"slug2\"]\n- mcp_server_ids: [\"server/id1\", \"server/id2\"]\n\n## Round 3: SCHEDULE\n(pending)\n\n## Round 4: CUSTOMIZE\n(pending)\n")
 ```
 
 **CRITICAL: Do NOT proceed to Round 3 until you have written skill_names + clawhub_slugs + mcp_server_ids into the draft.**
@@ -112,7 +114,7 @@ write_file(path="workspace/creation_draft.md", content="[all previous content]\n
 
 **Step 3.3** — IMMEDIATELY update the draft:
 ```
-read_file(path="workspace/creation_draft.md")
+read_file(path="workspace/draft_YYYYMMDD_HHMM.md")
 ```
 Write FULL file with Round 3 added:
 ```
@@ -139,7 +141,7 @@ Write FULL file with Round 3 added:
 
 **Step 4.3** — IMMEDIATELY update the draft:
 ```
-read_file(path="workspace/creation_draft.md")
+read_file(path="workspace/draft_YYYYMMDD_HHMM.md")
 ```
 Write FULL file with Round 4 added:
 ```
@@ -154,7 +156,7 @@ Write FULL file with Round 4 added:
 
 **Step 5.1** — Read the complete draft:
 ```
-read_file(path="workspace/creation_draft.md")
+read_file(path="workspace/draft_YYYYMMDD_HHMM.md")
 ```
 
 **Step 5.2** — Present the COMPLETE plan as a readable table. Include ALL fields from the draft: name, role, personality, boundaries, skill_names, clawhub_slugs, mcp_server_ids, triggers, heartbeat config, welcome_message, focus_content.
@@ -190,7 +192,7 @@ create_digital_employee(
 2. **"You decide"** = make defaults for THAT question, don't skip the round.
 3. **User confirms → call `create_digital_employee` IMMEDIATELY.** No extra confirmation pages.
 4. **ALWAYS read draft before creating.** Pass ALL fields including clawhub_slugs and mcp_server_ids.
-5. **ALWAYS write to `workspace/creation_draft.md`** — same filename, every round, read then write full content.
+5. **ALWAYS write to `workspace/draft_YYYYMMDD_HHMM.md`** — same filename, every round, read then write full content.
 6. **NEVER use `edit_file` on the draft** — always read_file → write_file with complete content.
 7. **NEVER use `send_message_to_agent`** during creation. Use `create_digital_employee` directly.
 8. **Heartbeat ≠ Trigger.** Heartbeat = self-awareness cycle. Trigger = scheduled business task.
