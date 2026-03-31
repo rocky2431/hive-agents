@@ -210,3 +210,64 @@ async def jina_read(arguments: dict) -> str:
 async def discover_resources(arguments: dict) -> str:
     from app.services.agent_tool_domains.web_mcp import _discover_resources
     return await _discover_resources(arguments)
+
+
+# ── search_clawhub ──────────────────────────────────────────────────
+
+@tool(ToolMeta(
+    name="search_clawhub",
+    description=(
+        "Search the ClawHub skill marketplace for agent skills. Returns skill slugs "
+        "that can be passed to create_digital_employee's clawhub_slugs parameter. "
+        "Use this in Round 2 to find skills for the agent being created."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "Search keywords in English, e.g. 'market research', 'web3 crypto', 'competitor analysis'",
+            },
+        },
+        "required": ["query"],
+    },
+    category="search",
+    display_name="Search ClawHub",
+    icon="\U0001f3aa",
+    read_only=True,
+    parallel_safe=True,
+    governance="safe",
+    adapter="args_only",
+))
+async def search_clawhub(arguments: dict) -> str:
+    import httpx
+
+    query = arguments.get("query", "").strip()
+    if not query:
+        return "❌ Please provide search keywords"
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.get(
+                "https://clawhub.ai/api/search",
+                params={"q": query},
+            )
+            if resp.status_code != 200:
+                return f"❌ ClawHub search failed: HTTP {resp.status_code}"
+            data = resp.json()
+
+        results = data.get("results", [])
+        if not results:
+            return f'🔍 No ClawHub skills found for "{query}"'
+
+        lines = [f'🔍 ClawHub skills for "{query}" ({len(results)} results):\n']
+        for r in results[:8]:
+            slug = r.get("slug", "?")
+            name = r.get("displayName", slug)
+            summary = r.get("summary", "")[:100]
+            lines.append(f"**{name}** (slug: `{slug}`)\n{summary}\n")
+
+        lines.append("\n💡 Pass the `slug` values to `create_digital_employee(clawhub_slugs=[...])` to install.")
+        return "\n".join(lines)
+    except Exception as e:
+        return f"❌ ClawHub search error: {str(e)[:200]}"

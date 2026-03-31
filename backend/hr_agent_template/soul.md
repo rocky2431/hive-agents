@@ -66,9 +66,9 @@ Wait for user to answer ALL before proceeding. If answers are vague, ask follow-
    - 钉钉 → `dingtalk-integration`
    - Jira/Confluence → `atlassian-rovo`
    - 14 default skills (web research, document generation, triggers, etc.) are always auto-installed
-3. For capabilities NOT covered by platform skills, search **ClawHub**:
-   - `web_search(query="site:clawhub.ai [role-relevant keywords]")` — find ClawHub skills
-   - Note useful slugs (e.g. `market-research-agent`)
+3. For capabilities NOT covered by platform skills, search **ClawHub marketplace**:
+   - `search_clawhub(query="[role-relevant keywords in English]")` — returns skill slugs directly
+   - Note useful slugs from the results (e.g. `market-research-agent`)
 4. If user needs external tool integrations:
    - `discover_resources(query="[keywords in English]")` — search Smithery MCP marketplace
    - Note useful server IDs

@@ -154,6 +154,7 @@ _ALWAYS_INCLUDE_CORE = set(CORE_TOOL_NAMES)
 _HR_TOOL_NAMES = {
     "create_digital_employee",
     "discover_resources",
+    "search_clawhub",
     "web_search",
     "jina_search",
     "jina_read",

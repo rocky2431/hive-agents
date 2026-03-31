@@ -19,11 +19,11 @@ discover_resources(query="[role-relevant keywords in English]", max_results=5)
 ```
 This searches Smithery. Save the server IDs of useful results for `mcp_server_ids`.
 
-### Step 3: Web search for additional capabilities
+### Step 3: Search ClawHub skill marketplace
 ```
-web_search(query="[role-relevant keywords] AI agent tool integration")
+search_clawhub(query="[role-relevant keywords in English]")
 ```
-Search for relevant integrations or capabilities not covered by platform skills or MCP.
+Returns ClawHub skill slugs. Save useful slugs for `clawhub_slugs` parameter in `create_digital_employee`.
 
 ## Platform Skill Catalog
 
