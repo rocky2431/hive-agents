@@ -321,12 +321,13 @@ async def get_agent_tools_for_llm(
         logger.error(f"[Tools] DB load failed, using fallback: {e}")
 
     # Fallback to the collected tool surface when DB is unavailable.
+    # Route through ToolRegistry to ensure schemas are sanitized (Gemini compatibility).
     fallback = get_combined_openai_tools()
     if core_only:
         fallback = [t for t in fallback if t["function"]["name"] in CORE_TOOL_NAMES]
     elif requested_set:
         fallback = [t for t in fallback if t["function"]["name"] in requested_set]
-    return fallback
+    return ToolRegistry.from_openai_tools(fallback).to_openai_tools()
 
 
 # ─── Tool Executors ─────────────────────────────────────────────
