@@ -353,10 +353,13 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
             logger.info(f"[HR] Post-commit install phase: mcp={mcp_server_ids}, clawhub={clawhub_slugs}")
             mcp_results = []
             if mcp_server_ids:
-                from app.services.resource_discovery import import_mcp_from_smithery
+                from app.services.resource_discovery import import_mcp_from_smithery, _get_smithery_api_key
+                # Pre-fetch API key from global config (not from the new agent which has empty config)
+                _smithery_key = await _get_smithery_api_key(None)
                 for server_id in mcp_server_ids:
                     try:
-                        result = await import_mcp_from_smithery(server_id, agent.id)
+                        _mcp_config = {"smithery_api_key": _smithery_key} if _smithery_key else None
+                        result = await import_mcp_from_smithery(server_id, agent.id, config=_mcp_config)
                         if isinstance(result, str) and "❌" in result:
                             mcp_results.append(f"⚠️ {server_id}: {result[:100]}")
                             logger.warning(f"[HR] MCP install rejected for {server_id}: {result[:100]}")

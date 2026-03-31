@@ -308,7 +308,8 @@ async def get_agent_tools_for_llm(
                     if t["function"]["name"] not in db_tool_names:
                         result.append(t)
                 if core_only:
-                    result = [t for t in result if t["function"]["name"] in CORE_TOOL_NAMES]
+                    keep = CORE_TOOL_NAMES | (_HR_TOOL_NAMES if is_system_agent else set())
+                    result = [t for t in result if t["function"]["name"] in keep]
                 elif requested_set:
                     result = [t for t in result if t["function"]["name"] in requested_set]
                 return ToolRegistry.from_openai_tools(result).to_openai_tools()
