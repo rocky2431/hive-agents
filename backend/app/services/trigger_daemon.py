@@ -90,7 +90,10 @@ async def _evaluate_trigger(trigger: AgentTrigger, now: datetime) -> bool:
     t = trigger.type
 
     if t == "cron":
-        expr = cfg.get("expr", "* * * * *")
+        expr = cfg.get("expr")
+        if not expr:
+            logger.warning(f"Cron trigger '{trigger.name}' has no expr in config — skipping")
+            return False
         base = trigger.last_fired_at or trigger.created_at
         try:
             # Resolve timezone: trigger config → agent → tenant → UTC
@@ -353,6 +356,8 @@ async def _check_new_agent_messages(trigger: AgentTrigger) -> bool:
     except Exception as e:
         logger.warning(f"on_message check failed for trigger {trigger.name}: {e}")
         return False
+
+    return False
 
 
 # ── Agent Invocation ────────────────────────────────────────────────

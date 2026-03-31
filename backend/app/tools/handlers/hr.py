@@ -285,6 +285,7 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
                 from app.models.trigger import AgentTrigger
                 for trig in triggers:
                     raw_config = trig.get("config", {})
+                    trig_type = trig.get("type", "cron")
                     # LLM may pass config as cron string instead of {"expr": "..."}
                     if isinstance(raw_config, str):
                         raw_config = {"expr": raw_config}
@@ -294,10 +295,14 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
                             if isinstance(v, str) and v.count(" ") >= 3:
                                 raw_config = {"expr": v}
                                 break
+                    # Skip cron triggers with no expr — prevents every-minute storm
+                    if trig_type == "cron" and not raw_config.get("expr"):
+                        logger.warning("Skipping cron trigger '%s' — no expr in config", trig.get("name"))
+                        continue
                     db.add(AgentTrigger(
                         agent_id=agent.id,
                         name=trig.get("name", "task"),
-                        type=trig.get("type", "cron"),
+                        type=trig_type,
                         config=raw_config,
                         reason=trig.get("reason", ""),
                     ))
