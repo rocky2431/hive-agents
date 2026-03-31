@@ -284,11 +284,21 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
             if triggers:
                 from app.models.trigger import AgentTrigger
                 for trig in triggers:
+                    raw_config = trig.get("config", {})
+                    # LLM may pass config as cron string instead of {"expr": "..."}
+                    if isinstance(raw_config, str):
+                        raw_config = {"expr": raw_config}
+                    elif isinstance(raw_config, dict) and "expr" not in raw_config and "minutes" not in raw_config:
+                        # Try to find cron-like value in the dict
+                        for v in raw_config.values():
+                            if isinstance(v, str) and v.count(" ") >= 3:
+                                raw_config = {"expr": v}
+                                break
                     db.add(AgentTrigger(
                         agent_id=agent.id,
                         name=trig.get("name", "task"),
                         type=trig.get("type", "cron"),
-                        config=trig.get("config", {}),
+                        config=raw_config,
                         reason=trig.get("reason", ""),
                     ))
                 await db.flush()
