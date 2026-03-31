@@ -26,12 +26,16 @@ from app.models.trigger import AgentTrigger
 from app.models.agent import Agent
 
 TICK_INTERVAL = 15  # seconds
-DEDUP_WINDOW = 30   # seconds — same agent won't be invoked twice within this window
+DEDUP_WINDOW = 120  # seconds — same agent won't be invoked twice within this window
 MAX_AGENT_CHAIN_DEPTH = 5  # A→B→A→B→A max depth before stopping
 MIN_POLL_INTERVAL_MINUTES = 5  # minimum poll interval to prevent abuse
+MAX_FIRES_PER_HOUR = 6   # hard cap: ~10 min minimum interval between fires
 
 # Track last invocation time per agent to enforce dedup window
 _last_invoke: dict[uuid.UUID, datetime] = {}
+
+# Track fire timestamps per agent for hourly rate limiting
+_fire_history: dict[uuid.UUID, list[datetime]] = {}
 
 # Webhook rate limiter: token -> list of timestamps
 _webhook_hits: dict[str, list[float]] = {}
@@ -650,11 +654,25 @@ async def _tick():
         except Exception as e:
             logger.warning(f"Error evaluating trigger {trigger.name}: {e}")
 
-    # Invoke each agent (with dedup window)
+    # Invoke each agent (with dedup window + hourly rate limit)
     for agent_id, agent_triggers in fired_by_agent.items():
         last = _last_invoke.get(agent_id)
         if last and (now - last).total_seconds() < DEDUP_WINDOW:
             continue  # Skip — invoked too recently
+
+        # Hourly rate limit — hard cap to prevent runaway cost
+        hour_ago = now - timedelta(hours=1)
+        history = _fire_history.get(agent_id, [])
+        history = [t for t in history if t > hour_ago]  # prune old entries
+        if len(history) >= MAX_FIRES_PER_HOUR:
+            logger.warning(
+                "Agent %s hit hourly rate limit (%d fires/hour) — skipping",
+                agent_id, MAX_FIRES_PER_HOUR,
+            )
+            _fire_history[agent_id] = history
+            continue
+        history.append(now)
+        _fire_history[agent_id] = history
         _last_invoke[agent_id] = now
 
         # ── Immediately update trigger state BEFORE launching async task ──
