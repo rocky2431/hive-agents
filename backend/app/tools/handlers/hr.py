@@ -127,9 +127,12 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
     clawhub_slugs = [s for s in (raw_clawhub if isinstance(raw_clawhub, list) else []) if isinstance(s, str) and s.strip()]
     permission_scope = args.get("permission_scope", "company")
 
-    # Heartbeat config (self-awareness cycle)
+    # Heartbeat config (self-awareness cycle) — LLM may pass strings for numeric fields
     heartbeat_enabled = args.get("heartbeat_enabled", True)
-    heartbeat_interval = args.get("heartbeat_interval_minutes", 120)
+    try:
+        heartbeat_interval = int(args.get("heartbeat_interval_minutes", 120))
+    except (ValueError, TypeError):
+        heartbeat_interval = 120
     raw_hours = str(args.get("heartbeat_active_hours", "09:00-18:00"))
     # Normalize common LLM responses: "24/7" → "00:00-23:59", strip whitespace
     if "24" in raw_hours and "7" in raw_hours:
