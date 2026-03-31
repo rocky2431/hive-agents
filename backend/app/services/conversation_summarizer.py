@@ -205,7 +205,7 @@ async def _llm_summarize(messages: list[dict], model_config: dict) -> str | None
                 ),
                 LLMMessage(role="user", content=text),
             ],
-            max_tokens=500,
+            max_tokens=1000,
             temperature=0.3,
         )
         return response.content

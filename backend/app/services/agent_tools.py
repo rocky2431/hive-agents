@@ -112,7 +112,8 @@ def _get_tool_runtime_service() -> ToolRuntimeService:
             return await _send_feishu_message(context.agent_id, arguments)
         if tool_name == "send_message_to_agent":
             return await _send_message_to_agent(context.agent_id, arguments)
-        return f"Tool {tool_name} does not support post-approval execution"
+        # Fallback: try MCP passthrough for unrecognized tools
+        return await _execute_mcp_tool(tool_name, arguments, agent_id=context.agent_id)
 
     async def _log_activity(*args, **kwargs) -> None:
         from app.services.activity_logger import log_activity

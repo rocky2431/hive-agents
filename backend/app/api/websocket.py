@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import os
 import uuid
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
@@ -358,9 +359,10 @@ async def websocket_chat(
             logger.info(f"[WS] Waiting for message from {agent_name}...")
             import asyncio as _aio_idle
             try:
-                data = await _aio_idle.wait_for(websocket.receive_json(), timeout=300)  # 5 min idle
+                _idle_timeout = int(os.environ.get("WS_IDLE_TIMEOUT_SECONDS", "300"))
+                data = await _aio_idle.wait_for(websocket.receive_json(), timeout=_idle_timeout)
             except _aio_idle.TimeoutError:
-                logger.info(f"[WS] Idle timeout (5 min) for {agent_name}, closing")
+                logger.info(f"[WS] Idle timeout ({_idle_timeout}s) for {agent_name}, closing")
                 await websocket.send_json({"type": "info", "content": "Connection closed due to inactivity. Reconnect to continue."})
                 await websocket.close(code=1000)
                 return

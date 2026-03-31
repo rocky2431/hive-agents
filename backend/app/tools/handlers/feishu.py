@@ -2,9 +2,28 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 
 from app.tools.decorator import ToolMeta, tool
+
+logger = logging.getLogger(__name__)
+
+_FEISHU_NOT_CONFIGURED_MSG = (
+    "❌ Feishu/Lark is not configured for this agent. "
+    "Ask your admin to set up Feishu App credentials in Enterprise Settings → Channels."
+)
+
+
+async def _check_feishu_configured(agent_id: uuid.UUID) -> bool:
+    """Quick pre-check: does this agent's tenant have Feishu credentials?"""
+    try:
+        from app.services.feishu_service import get_feishu_tenant_token
+        token = await get_feishu_tenant_token(agent_id)
+        return bool(token)
+    except Exception as exc:
+        logger.debug("[Feishu] Auth precheck failed for agent %s: %s", agent_id, exc)
+        return False
 
 
 # -- feishu_wiki_list ---------------------------------------------------------
@@ -39,6 +58,8 @@ from app.tools.decorator import ToolMeta, tool
     adapter="agent_args",
 ))
 async def feishu_wiki_list(agent_id: uuid.UUID, arguments: dict) -> str:
+    if not await _check_feishu_configured(agent_id):
+        return _FEISHU_NOT_CONFIGURED_MSG
     from app.services.agent_tools import _feishu_wiki_list
     return await _feishu_wiki_list(agent_id, arguments)
 

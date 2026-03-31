@@ -166,9 +166,12 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
         try:
             import json as _json
             raw_triggers = _json.loads(raw_triggers)
-        except (ValueError, TypeError):
+        except (ValueError, TypeError) as _trig_err:
+            logger.warning("[HR] Failed to parse triggers JSON: %s — raw: %s", _trig_err, str(raw_triggers)[:100])
             raw_triggers = []
     triggers = [t for t in raw_triggers if isinstance(t, dict)]
+    if raw_triggers and not triggers:
+        logger.warning("[HR] All %d triggers dropped (not dict): %s", len(raw_triggers), str(raw_triggers)[:200])
     # New customization params
     welcome_message = args.get("welcome_message", "")
     focus_content = args.get("focus_content", "")

@@ -95,13 +95,14 @@ class MemoryRetriever:
 
     def _retrieve_working(self, agent_id: uuid.UUID) -> list[MemoryItem]:
         focus_file = self.data_root / str(agent_id) / "focus.md"
-        if not focus_file.exists():
-            return []
+        # Atomic read: skip exists() check to avoid TOCTOU race — just try to read
         try:
             content = focus_file.read_text(encoding="utf-8").strip()
             if not content:
                 return []
             return [MemoryItem(kind=MemoryKind.WORKING, content=content, score=1.0, source="focus.md")]
+        except FileNotFoundError:
+            return []
         except OSError:
             logger.debug("Failed to read focus.md for agent %s", agent_id)
             return []

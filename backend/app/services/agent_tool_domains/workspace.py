@@ -233,8 +233,10 @@ async def _read_document(ws: Path, rel_path: str, max_chars: int = 8000, tenant_
 
 _WRITE_PROTECTED = {
     "tasks.json": "tasks.json is read-only. Use manage_tasks tool to manage tasks.",
-    "soul.md": "soul.md is your identity file and cannot be overwritten by tools. Ask your creator to edit it via the platform UI.",
 }
+
+# soul.md is append-only: heartbeat can add evolution notes but not overwrite identity
+_APPEND_ONLY = {"soul.md"}
 
 
 def _write_file(ws: Path, rel_path: str, content: str) -> str:
@@ -244,6 +246,21 @@ def _write_file(ws: Path, rel_path: str, content: str) -> str:
     _blocked = _WRITE_PROTECTED.get(rel_path.strip("/"))
     if _blocked:
         return _blocked
+
+    # soul.md is append-only: new content is appended under an evolution section
+    if rel_path.strip("/") in _APPEND_ONLY:
+        target = ws / rel_path.strip("/")
+        if target.exists():
+            existing = target.read_text(encoding="utf-8", errors="replace")
+            if content.strip() in existing:
+                return f"✅ {rel_path} already contains this content."
+            separator = "\n\n---\n## Evolution Notes (heartbeat-appended)\n\n"
+            if separator.rstrip() in existing:
+                target.write_text(existing.rstrip() + "\n\n" + content.strip() + "\n", encoding="utf-8")
+            else:
+                target.write_text(existing.rstrip() + separator + content.strip() + "\n", encoding="utf-8")
+            return f"✅ Appended evolution notes to {rel_path} (identity section preserved)."
+        # If file doesn't exist yet, fall through to normal write
 
     file_path = (ws / rel_path).resolve()
     if not str(file_path).startswith(str(ws.resolve())):

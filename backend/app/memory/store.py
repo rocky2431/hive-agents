@@ -85,7 +85,8 @@ class PersistentMemoryStore:
                     payload = json.loads(metadata_json)
                     if isinstance(payload, dict):
                         fact.update(payload)
-                except json.JSONDecodeError:
+                except json.JSONDecodeError as _jde2:
+                    logger.debug("[MemoryStore] Malformed metadata in search result: %s", _jde2)
                     fact["metadata_json"] = metadata_json
             facts.append(fact)
         return facts
@@ -110,7 +111,25 @@ class PersistentMemoryStore:
     def _connect(self, agent_id: uuid.UUID) -> sqlite3.Connection:
         memory_dir = self._memory_dir(agent_id)
         memory_dir.mkdir(parents=True, exist_ok=True)
-        return sqlite3.connect(self._db_path(agent_id))
+        db_path = self._db_path(agent_id)
+        try:
+            conn = sqlite3.connect(db_path)
+            # Quick integrity check — detect corruption early
+            conn.execute("PRAGMA integrity_check").fetchone()
+            return conn
+        except sqlite3.DatabaseError as exc:
+            logger.warning("[MemoryStore] SQLite corrupted for agent %s, recovering: %s", agent_id, exc)
+            # Backup corrupted file and recreate
+            corrupted = db_path.with_suffix(".sqlite3.corrupted")
+            try:
+                import shutil
+                shutil.move(str(db_path), str(corrupted))
+                logger.info("[MemoryStore] Corrupted DB backed up to %s", corrupted)
+            except OSError as mv_err:
+                logger.warning("[MemoryStore] Failed to backup corrupted DB: %s", mv_err)
+                db_path.unlink(missing_ok=True)
+            # Recreate fresh connection — legacy JSON will be re-imported
+            return sqlite3.connect(db_path)
 
     def search_facts(self, agent_id: uuid.UUID, query: str, *, limit: int = 5) -> list[dict]:
         """Full-text search over semantic facts using FTS5. Falls back to LIKE if FTS unavailable."""
@@ -161,8 +180,8 @@ class PersistentMemoryStore:
                     payload = json.loads(metadata_json)
                     if isinstance(payload, dict):
                         fact.update(payload)
-                except json.JSONDecodeError:
-                    pass
+                except json.JSONDecodeError as _jde:
+                    logger.debug("[MemoryStore] Malformed metadata_json: %s", _jde)
             facts.append(fact)
         return facts
 
@@ -197,7 +216,8 @@ class PersistentMemoryStore:
 
         try:
             facts = json.loads(memory_file.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, OSError) as _legacy_err:
+            logger.debug("[MemoryStore] Legacy JSON import failed: %s", _legacy_err)
             return
         if not isinstance(facts, list):
             return

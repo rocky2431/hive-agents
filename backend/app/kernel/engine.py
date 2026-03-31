@@ -918,6 +918,14 @@ class AgentKernel:
 
                     # ── Mid-loop context compaction ──────────────────────────
                     if (round_i + 1) % _MIDLOOP_COMPACT_CHECK_INTERVAL == 0 and len(api_messages) > 6:
+                        # Cancel check before potentially slow compression
+                        if request.cancel_event and request.cancel_event.is_set():
+                            await self._persist_before_exit(request, runtime_config, "*[Generation stopped]*", api_messages)
+                            return _build_cancelled_result(
+                                streamed_chunks, streamed_thinking,
+                                tokens_used=accumulated_tokens, final_tools=tools_for_llm,
+                                collected_parts=collected_parts,
+                            )
                         conv_dicts = _llm_messages_to_dicts(api_messages[1:])
                         compressed = await _maybe_await(
                             self._deps.maybe_compress_messages(
@@ -934,13 +942,17 @@ class AgentKernel:
                         )
                         if len(compressed) < len(conv_dicts):
                             api_messages = [api_messages[0]] + _dicts_to_llm_messages(compressed)
-                            # Reset collected_parts to avoid duplicates after compaction
                             collected_parts.clear()
                             logger.info(
                                 "[Kernel] Mid-loop compaction: %d → %d messages (round %d)",
                                 len(conv_dicts) + 1,
                                 len(api_messages),
                                 round_i + 1,
+                            )
+                            # Persist compacted state so recovery doesn't lose progress
+                            await self._persist_before_exit(
+                                request, runtime_config,
+                                "[checkpoint] mid-loop compaction", api_messages,
                             )
 
                 if request.agent_id and accumulated_tokens > 0:

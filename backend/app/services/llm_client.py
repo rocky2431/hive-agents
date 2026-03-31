@@ -1846,8 +1846,8 @@ def get_max_tokens(provider: str, model: str | None = None, max_output_tokens: i
     if spec:
         return spec.default_max_tokens
 
-    # Provider default, falling back to safe 4096
-    return MAX_TOKENS_BY_PROVIDER.get(normalize_provider(provider), 4096)
+    # Provider default — 8192 is safe for all modern models (4096 was too restrictive)
+    return MAX_TOKENS_BY_PROVIDER.get(normalize_provider(provider), 8192)
 
 
 def create_llm_client(

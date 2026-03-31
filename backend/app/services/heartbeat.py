@@ -140,18 +140,12 @@ async def _build_evolution_context(agent_id: uuid.UUID, recent_activities: list)
     giving the agent pre-computed metrics instead of raw activity logs.
     """
     from collections import Counter
-    from pathlib import Path
 
-    from app.config import get_settings
-
-    settings = get_settings()
     parts: list[str] = []
 
-    # 1. Read evolution files from workspace
-    for ws_root in [
-        Path("/tmp/hive_workspaces") / str(agent_id),
-        Path(settings.AGENT_DATA_DIR) / str(agent_id),
-    ]:
+    # 1. Read evolution files from canonical workspace (H7: single source of truth)
+    ws_root = _get_canonical_workspace(agent_id)
+    if ws_root:
         for filename in ["evolution/scorecard.md", "evolution/blocklist.md"]:
             fpath = ws_root / filename
             if fpath.exists():
@@ -185,8 +179,7 @@ async def _build_evolution_context(agent_id: uuid.UUID, recent_activities: list)
             except Exception as e:
                 logger.debug(f"Failed to read compaction summary: {e}")
 
-        if parts:
-            break  # Found workspace, don't check fallback path
+        # No fallback needed — _get_canonical_workspace already resolved the right path
 
     # 2. Compute pattern summary from activity logs
     if recent_activities:
@@ -241,17 +234,15 @@ async def _build_evolution_context(agent_id: uuid.UUID, recent_activities: list)
     is_cold_start = len(non_heartbeat_activities) < 3
 
     if is_cold_start:
-        # Detect repeated bootstrap failures — prevent infinite loop
+        # Detect repeated bootstrap failures — use sliding window (not consecutive-only)
+        # to catch intermittent failure patterns like [ok, fail, ok, fail, fail]
         recent_heartbeats = [a for a in recent_activities if a.action_type == "heartbeat"]
-        consecutive_failures = 0
-        for hb in recent_heartbeats:
-            outcome = (hb.detail_json or {}).get("outcome_type", "")
-            if outcome in ("crash", "failure"):
-                consecutive_failures += 1
-            else:
-                break  # Stop counting at first non-failure
+        total_failures = sum(
+            1 for hb in recent_heartbeats[:6]
+            if (hb.detail_json or {}).get("outcome_type", "") in ("crash", "failure")
+        )
 
-        if consecutive_failures >= 3:
+        if total_failures >= 3:
             # Auto-seed evolution files server-side to break the cycle
             _auto_seed_evolution(agent_id)
             parts.append(
@@ -403,6 +394,70 @@ def _auto_seed_evolution(agent_id: uuid.UUID) -> None:
             logger.info("[Heartbeat] Auto-seeded evolution files for agent %s after 3 bootstrap failures", agent_id)
             return
     logger.warning("[Heartbeat] Cannot auto-seed evolution: no workspace found for agent %s", agent_id)
+
+
+def _validate_bootstrap_completion(agent_id: uuid.UUID) -> None:
+    """Server-side validation that bootstrap produced expected files."""
+    from pathlib import Path
+
+    from app.config import get_settings
+
+    settings = get_settings()
+    for ws_root in [
+        Path("/tmp/hive_workspaces") / str(agent_id),
+        Path(settings.AGENT_DATA_DIR) / str(agent_id),
+    ]:
+        if not ws_root.exists():
+            continue
+        missing = []
+        for required in ["focus.md", "evolution/lineage.md", "evolution/scorecard.md"]:
+            fpath = ws_root / required
+            if not fpath.exists() or fpath.stat().st_size < 10:
+                missing.append(required)
+        if missing:
+            logger.info(
+                "[Heartbeat] Bootstrap incomplete for %s: missing %s — auto-seeding",
+                agent_id, ", ".join(missing),
+            )
+            _auto_seed_evolution(agent_id)
+            # Seed focus.md if missing
+            focus = ws_root / "focus.md"
+            if not focus.exists() or focus.stat().st_size < 10:
+                focus.write_text("# Focus\n\nBootstrap in progress — awaiting first heartbeat action.\n", encoding="utf-8")
+        return
+
+
+def _get_canonical_workspace(agent_id: uuid.UUID) -> "Path | None":
+    """Return the single canonical workspace path for an agent.
+
+    Priority: AGENT_DATA_DIR (persistent) > /tmp (ephemeral).
+    Syncs from /tmp → AGENT_DATA_DIR if /tmp has newer files.
+    """
+    from pathlib import Path
+
+    from app.config import get_settings
+
+    settings = get_settings()
+    persistent = Path(settings.AGENT_DATA_DIR) / str(agent_id)
+    ephemeral = Path("/tmp/hive_workspaces") / str(agent_id)
+
+    # If persistent exists, it's canonical
+    if persistent.exists():
+        # Sync evolution files from ephemeral if they're newer
+        if ephemeral.exists():
+            for rel in ["evolution/scorecard.md", "evolution/lineage.md", "evolution/blocklist.md"]:
+                eph_file = ephemeral / rel
+                per_file = persistent / rel
+                if eph_file.exists():
+                    if not per_file.exists() or eph_file.stat().st_mtime > per_file.stat().st_mtime:
+                        per_file.parent.mkdir(parents=True, exist_ok=True)
+                        per_file.write_text(eph_file.read_text(encoding="utf-8", errors="replace"), encoding="utf-8")
+        return persistent
+
+    if ephemeral.exists():
+        return ephemeral
+
+    return None
 
 
 
@@ -629,11 +684,15 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
                     a.last_heartbeat_at = datetime.now(timezone.utc)
                     await db3.commit()
 
-            # Server-side evolution file writeback — closes the feedback loop (C1+C2 fix)
+            # Server-side evolution file writeback — closes the feedback loop
             try:
                 _update_evolution_files(agent_id, outcome_type, heartbeat_score, summary)
             except Exception as _evo_err:
                 logger.warning("[Heartbeat] Evolution writeback failed for %s: %s", agent_id, _evo_err)
+
+            # Bootstrap validation: if agent was in bootstrap mode, verify key files exist
+            if outcome_type == "action_taken":
+                _validate_bootstrap_completion(agent_id)
 
             score_str = f" score={heartbeat_score}" if heartbeat_score is not None else ""
             logger.info(f"💓 Heartbeat for {agent.name}: {outcome_type}{score_str} — {summary}")

@@ -265,9 +265,12 @@ def build_active_packs_event(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_done_event(content: str, thinking: str | None = None) -> dict[str, Any]:
+    parts = _build_text_parts(content, thinking)
     return {
         "type": "done",
         "role": "assistant",
         "content": content,
-        "parts": _build_text_parts(content, thinking),
+        "parts": parts,
+        # Also include singular "part" for schema consistency with chunk/tool_call events
+        "part": parts[0] if parts else {"type": "text", "text": content},
     }

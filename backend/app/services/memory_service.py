@@ -104,18 +104,31 @@ def compute_history_limit(
     provider: str,
     model_name: str,
     max_input_tokens_override: int | None = None,
+    *,
+    system_prompt_tokens: int = 0,
+    tool_definitions_tokens: int = 0,
 ) -> int:
     """Compute how many history messages to load from DB based on model context window.
 
-    The goal is to load enough history to utilize the model's capacity while keeping
-    DB queries efficient. The compression layer (maybe_compress_messages) will handle
-    the actual token budget — this function just sets a reasonable upper bound.
+    Dynamic budget allocation: subtracts known token consumers (system prompt,
+    tool definitions, generation headroom) before allocating to history.
 
-    Allocation: ~50% of context window for history, rest for system prompt + tools + generation.
-    Average message estimated at ~300 tokens (mix of short user msgs and longer assistant/tool msgs).
+    If system_prompt_tokens and tool_definitions_tokens are provided, uses real
+    values; otherwise falls back to conservative estimates.
     """
     context_limit = _get_input_context_limit(provider, model_name, max_input_tokens_override)
-    history_token_budget = int(context_limit * 0.50)
+
+    # Reserve tokens for known consumers
+    # System prompt: use real value or estimate ~3000 tokens
+    prompt_reserve = system_prompt_tokens if system_prompt_tokens > 0 else 3000
+    # Tool definitions: use real value or estimate ~1500 tokens (15 tools × ~100 tokens each)
+    tools_reserve = tool_definitions_tokens if tool_definitions_tokens > 0 else 1500
+    # Generation headroom: ~8K tokens for model output
+    generation_reserve = 8000
+
+    total_reserved = prompt_reserve + tools_reserve + generation_reserve
+    history_token_budget = max(context_limit - total_reserved, context_limit // 4)
+
     avg_tokens_per_message = 300
     computed = history_token_budget // avg_tokens_per_message
     # Clamp: at least 20 (usable minimum), at most 500 (DB performance guard)
@@ -447,19 +460,20 @@ async def _extract_facts_with_llm(messages: list[dict], model_config: dict) -> l
 
 
 def _extract_facts_simple(messages: list[dict]) -> list[dict]:
-    """Simple fact extraction without LLM — pull key user statements."""
+    """Simple fact extraction without LLM — pull key user AND assistant statements."""
     facts = []
     for msg in messages:
-        if msg.get("role") != "user":
+        role = msg.get("role", "")
+        if role not in ("user", "assistant"):
             continue
         content = msg.get("content", "")
         if not isinstance(content, str):
             continue
-        # Keep substantive user messages (not short greetings)
-        if len(content) > 30 and len(content) < 500:
-            facts.append({"content": content[:200], "source": "user_message"})
+        # Keep substantive messages (not short greetings or error markers)
+        if len(content) > 30 and len(content) < 500 and not content.startswith("["):
+            facts.append({"content": content[:200], "source": f"{role}_message"})
 
-    return facts[-3:]  # Keep at most 3
+    return facts[-5:]  # Keep at most 5 (increased from 3)
 
 
 def _parse_session_uuid(session_id: str | None) -> uuid.UUID | None:
@@ -517,6 +531,9 @@ async def _save_session_summary(session_id: str, summary: str) -> None:
         session = result.scalar_one_or_none()
         if session:
             session.summary = summary
+            # Update last_message_at so episodic retriever ranks this session correctly
+            from datetime import datetime, timezone
+            session.last_message_at = datetime.now(timezone.utc)
             await db.commit()
             logger.info("Session summary saved for %s", session_id)
 
@@ -617,19 +634,39 @@ def _merge_memory_facts(
 def _safe_split(old: list[dict], recent: list[dict]) -> tuple[list[dict], list[dict]]:
     """Ensure tool_call/tool_result pairs aren't split between old and recent.
 
-    If the first message in 'recent' is a tool result, move it back into 'old'.
+    Handles three boundary cases:
+    1. recent starts with tool results → move them to old (keep with their call)
+    2. old ends with tool_calls but results are in recent → move call to recent
+    3. old ends with tool_calls and no results anywhere → move call to recent
+
     Returns (old, recent) — same order as parameters.
     """
     if not recent or not old:
         return old, recent
 
-    # If recent starts with a tool result, pull it into old
+    # Case 1: recent starts with tool results → pull them into old
     while recent and recent[0].get("role") == "tool":
         old.append(recent.pop(0))
 
-    # If old ends with an assistant message with tool_calls but no tool result follows,
-    # move it to recent so the pair stays together
-    if old and old[-1].get("tool_calls") and recent and recent[0].get("role") != "tool":
-        recent.insert(0, old.pop())
+    # Case 2+3: old ends with assistant+tool_calls but tool results are now
+    # in recent or missing entirely → move the whole call into recent
+    if old and old[-1].get("tool_calls"):
+        # Count how many tool results should follow this call
+        expected = len(old[-1].get("tool_calls", []))
+        # Count trailing tool results already in old after the call
+        trailing_tools = 0
+        for i in range(len(old) - 1, -1, -1):
+            if old[i].get("role") == "tool":
+                trailing_tools += 1
+            else:
+                break
+        if trailing_tools < expected:
+            # Not all results present → move call (and any trailing results) to recent
+            orphan = old.pop()  # assistant with tool_calls
+            # Also move any trailing tool results that belong to this call
+            moved_tools = []
+            while old and old[-1].get("role") == "tool":
+                moved_tools.insert(0, old.pop())
+            recent = [orphan] + moved_tools + recent
 
     return old, recent

@@ -20,8 +20,10 @@ from app.services.knowledge_inject import fetch_relevant_knowledge
 BuildAgentContextFn = Callable[[uuid.UUID | None, str, str, str | None], Awaitable[str]]
 KnowledgeLookupFn = Callable[[str, uuid.UUID | None], Awaitable[str] | str]
 
-_ACTIVE_PACKS_CHAR_BUDGET = 1200
-_RETRIEVAL_CHAR_BUDGET = 2400
+# Budgets as proportions of total system prompt budget (coordinated allocation)
+# Total: 60K chars → packs ~3%, retrieval ~5%, agent context ~72%, memory ~20%
+_ACTIVE_PACKS_CHAR_BUDGET = 2000   # ~3% of 60K
+_RETRIEVAL_CHAR_BUDGET = 3000      # ~5% of 60K
 
 
 async def _maybe_await(value):

@@ -135,6 +135,7 @@ def test_stream_event_builders_include_structured_parts():
             {"type": "reasoning", "text": "step by step"},
             {"type": "text", "text": "final answer"},
         ],
+        "part": {"type": "reasoning", "text": "step by step"},
     }
     assert build_permission_event({
         "tool_name": "write_file",
