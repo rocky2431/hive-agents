@@ -188,18 +188,29 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
 
             effective_tenant_id = uuid.UUID(tenant_id) if tenant_id else user.tenant_id
 
-            # Resolve default model for this tenant
+            # Resolve default model for this tenant (TenantSetting → fallback to first enabled)
             primary_model_id = None
             from app.models.llm import LLMModel
-            model_result = await db.execute(
-                select(LLMModel)
-                .where(LLMModel.tenant_id == effective_tenant_id, LLMModel.enabled.is_(True))
-                .order_by(LLMModel.created_at)
-                .limit(1)
+            from app.models.tenant_setting import TenantSetting
+            ts_r = await db.execute(
+                select(TenantSetting.value).where(
+                    TenantSetting.tenant_id == effective_tenant_id,
+                    TenantSetting.key == "default_model_id",
+                )
             )
-            default_model = model_result.scalar_one_or_none()
-            if default_model:
-                primary_model_id = default_model.id
+            ts_val = ts_r.scalar_one_or_none()
+            if isinstance(ts_val, dict) and ts_val.get("model_id"):
+                primary_model_id = uuid.UUID(ts_val["model_id"])
+            if not primary_model_id:
+                model_result = await db.execute(
+                    select(LLMModel)
+                    .where(LLMModel.tenant_id == effective_tenant_id, LLMModel.enabled.is_(True))
+                    .order_by(LLMModel.created_at)
+                    .limit(1)
+                )
+                default_model = model_result.scalar_one_or_none()
+                if default_model:
+                    primary_model_id = default_model.id
 
             # Resolve tenant defaults
             default_max_triggers = 20

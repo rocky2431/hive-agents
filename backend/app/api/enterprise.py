@@ -103,14 +103,28 @@ async def test_llm_model(
         return {"success": False, "latency_ms": latency_ms, "error": str(e)[:500]}
 
 
-@router.get("/llm-models", response_model=list[LLMModelOut])
+@router.get("/llm-models")
 async def list_llm_models(
     tenant_id: str | None = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """List LLM models scoped to the selected tenant."""
+    """List LLM models scoped to the selected tenant, with is_default flag."""
     target_tenant_id = resolve_tenant_scope(current_user, tenant_id)
+
+    # Get default model ID from TenantSetting
+    from app.models.tenant_setting import TenantSetting
+    default_model_id = None
+    ts_result = await db.execute(
+        select(TenantSetting.value).where(
+            TenantSetting.tenant_id == target_tenant_id,
+            TenantSetting.key == "default_model_id",
+        )
+    )
+    ts_val = ts_result.scalar_one_or_none()
+    if isinstance(ts_val, dict):
+        default_model_id = ts_val.get("model_id")
+
     query = (
         select(LLMModel)
         .where(LLMModel.tenant_id == target_tenant_id)
@@ -118,13 +132,57 @@ async def list_llm_models(
     )
     result = await db.execute(query)
     models = []
+    first_model_id = None
     for m in result.scalars().all():
         out = LLMModelOut.model_validate(m)
-        # Mask API key: show last 4 chars
         key = m.api_key_encrypted or ""
         out.api_key_masked = f"****{key[-4:]}" if len(key) > 4 else "****"
+        if first_model_id is None:
+            first_model_id = str(m.id)
         models.append(out)
+
+    # If no default set, first created model is default
+    effective_default = default_model_id or first_model_id
+    for out in models:
+        out.is_default = (str(out.id) == effective_default)
+
     return models
+
+
+@router.put("/llm-models/default")
+async def set_default_model(
+    data: dict,
+    tenant_id: str | None = None,
+    current_user: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Set the default LLM model for the tenant."""
+    target_tenant_id = resolve_tenant_scope(current_user, tenant_id)
+    model_id = data.get("model_id")
+    if not model_id:
+        raise HTTPException(status_code=400, detail="model_id required")
+
+    # Verify model exists and belongs to tenant
+    m = await db.execute(
+        select(LLMModel).where(LLMModel.id == model_id, LLMModel.tenant_id == target_tenant_id)
+    )
+    if not m.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Model not found")
+
+    from app.models.tenant_setting import TenantSetting
+    existing = await db.execute(
+        select(TenantSetting).where(
+            TenantSetting.tenant_id == target_tenant_id,
+            TenantSetting.key == "default_model_id",
+        )
+    )
+    ts = existing.scalar_one_or_none()
+    if ts:
+        ts.value = {"model_id": model_id}
+    else:
+        db.add(TenantSetting(tenant_id=target_tenant_id, key="default_model_id", value={"model_id": model_id}))
+    await db.commit()
+    return {"status": "ok", "default_model_id": model_id}
 
 
 @router.post("/llm-models", response_model=LLMModelOut, status_code=status.HTTP_201_CREATED)

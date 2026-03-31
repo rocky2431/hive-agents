@@ -277,6 +277,7 @@ class LLMModelOut(BaseModel):
     max_output_tokens: int | None = None
     max_input_tokens: int | None = None
     created_at: datetime
+    is_default: bool = False
 
     model_config = {"from_attributes": True}
 

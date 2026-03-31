@@ -7,6 +7,7 @@ export interface WorkspaceLlmModel {
   label: string;
   enabled: boolean;
   supports_vision?: boolean;
+  is_default?: boolean;
   base_url?: string;
   api_key_masked?: string;
   max_output_tokens?: number | null;
@@ -51,6 +52,7 @@ interface WorkspaceLlmSectionProps {
   onToggleModel: (id: string, enabled: boolean) => void;
   onEditModel: (model: WorkspaceLlmModel) => void;
   onDeleteModel: (id: string) => void;
+  onSetDefaultModel?: (id: string) => void;
 }
 
 export default function WorkspaceLlmSection({
@@ -69,6 +71,7 @@ export default function WorkspaceLlmSection({
   onToggleModel,
   onEditModel,
   onDeleteModel,
+  onSetDefaultModel,
 }: WorkspaceLlmSectionProps) {
   const { t } = useTranslation();
 
@@ -299,6 +302,11 @@ export default function WorkspaceLlmSection({
                     />
                   </button>
                   {model.supports_vision ? <span className="badge" style={{ background: 'rgba(99,102,241,0.15)', color: 'rgb(99,102,241)', fontSize: '10px' }}>Vision</span> : null}
+                  {model.is_default ? (
+                    <span className="badge" style={{ background: 'rgba(34,197,94,0.15)', color: 'rgb(34,197,94)', fontSize: '10px', fontWeight: 600 }}>{t('enterprise.llm.default', 'Default')}</span>
+                  ) : onSetDefaultModel ? (
+                    <button className="btn btn-ghost" onClick={() => onSetDefaultModel(model.id)} style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{t('enterprise.llm.setDefault', 'Set as Default')}</button>
+                  ) : null}
                   <button className="btn btn-ghost" onClick={() => onEditModel(model)} style={{ fontSize: '12px' }}>✏️ {t('enterprise.tools.edit')}</button>
                   <button className="btn btn-ghost" onClick={() => onDeleteModel(model.id)} style={{ color: 'var(--error)' }}>{t('common.delete')}</button>
                 </div>

@@ -106,6 +106,8 @@ export const enterpriseApi = {
   deleteLLMModel: (id: string, force = false) => del(`/enterprise/llm-models/${id}${force ? '?force=true' : ''}`),
   testLLM: (data: Record<string, unknown>) => post<LLMTestResult>('/enterprise/llm-test', data),
   getLLMProviders: () => get<LLMProviderSpec[]>('/enterprise/llm-providers'),
+  setDefaultModel: (modelId: string, tenantId?: string) =>
+    put<{ status: string }>(`/enterprise/llm-models/default${tenantId ? `?tenant_id=${tenantId}` : ''}`, { model_id: modelId }),
 
   /** Enterprise info */
   getInfo: () => get<EnterpriseInfo[]>('/enterprise/info'),

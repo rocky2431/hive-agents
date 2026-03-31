@@ -636,6 +636,10 @@ export default function EnterpriseSettings({ forcedTab, hideTabs = false }: Ente
                         onToggleModel={handleToggleModel}
                         onEditModel={handleEditModel}
                         onDeleteModel={handleDeleteModel}
+                        onSetDefaultModel={async (id: string) => {
+                            await enterpriseApi.setDefaultModel(id, selectedTenantId);
+                            qc.invalidateQueries({ queryKey: ['llm-models'] });
+                        }}
                     />
                 )}
 
