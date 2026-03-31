@@ -66,7 +66,9 @@ async def seed_builtin_tools():
                 if existing.config_schema != t.get("config_schema", {}):
                     existing.config_schema = t.get("config_schema", {})
                     updated_fields.append("config_schema")
-                if existing.config != t.get("config", {}):
+                # NEVER overwrite user-configured config (API keys etc.)
+                # Only initialize config if it's empty/null
+                if not existing.config and t.get("config"):
                     existing.config = t.get("config", {})
                     updated_fields.append("config")
                 if existing.is_default != t["is_default"]:
