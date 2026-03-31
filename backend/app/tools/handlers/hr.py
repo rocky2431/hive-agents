@@ -133,7 +133,7 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
                     if isinstance(parsed, list):
                         return parsed
                 except (ValueError, TypeError):
-                    pass
+                    logger.debug("[HR] Failed to parse JSON string array: %s", val[:50])
         return []
 
     skill_names = [s for s in _parse_list(args.get("skill_names")) if isinstance(s, str)]
@@ -386,10 +386,19 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
                     try:
                         async with httpx.AsyncClient(timeout=15) as client:
                             resp = await client.get(f"{CLAWHUB_BASE}/v1/skills/{slug}")
+                            if resp.status_code == 429:
+                                import asyncio as _asyncio
+                                await _asyncio.sleep(2)
+                                resp = await client.get(f"{CLAWHUB_BASE}/v1/skills/{slug}")
                             if resp.status_code != 200:
-                                clawhub_results.append(f"⚠️ {slug}: not found on ClawHub")
+                                clawhub_results.append(f"⚠️ {slug}: ClawHub HTTP {resp.status_code}")
+                                logger.warning(f"[HR] ClawHub API returned {resp.status_code} for {slug}")
                                 continue
-                            meta = resp.json()
+                            try:
+                                meta = resp.json()
+                            except Exception:
+                                clawhub_results.append(f"⚠️ {slug}: invalid ClawHub response")
+                                continue
                         handle = meta.get("owner", {}).get("handle", "").lower()
                         if not handle:
                             clawhub_results.append(f"⚠️ {slug}: no owner handle")
