@@ -18,6 +18,13 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    conn = op.get_bind()
+    table_exists = conn.execute(
+        sa.text("SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'refresh_tokens')")
+    ).scalar()
+    if table_exists:
+        return
+
     op.create_table(
         "refresh_tokens",
         sa.Column("id", UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
@@ -33,6 +40,13 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    conn = op.get_bind()
+    table_exists = conn.execute(
+        sa.text("SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'refresh_tokens')")
+    ).scalar()
+    if not table_exists:
+        return
+
     op.drop_index("ix_refresh_tokens_token_hash", table_name="refresh_tokens")
     op.drop_index("ix_refresh_tokens_user_id", table_name="refresh_tokens")
     op.drop_table("refresh_tokens")

@@ -14,6 +14,13 @@ depends_on = None
 
 
 def upgrade() -> None:
+    conn = op.get_bind()
+    table_exists = conn.execute(
+        sa.text("SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'feature_flags')")
+    ).scalar()
+    if table_exists:
+        return
+
     op.create_table(
         "feature_flags",
         sa.Column("id", UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
@@ -33,4 +40,11 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    conn = op.get_bind()
+    table_exists = conn.execute(
+        sa.text("SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'feature_flags')")
+    ).scalar()
+    if not table_exists:
+        return
+
     op.drop_table("feature_flags")

@@ -14,8 +14,12 @@ depends_on = None
 
 def upgrade():
     conn = op.get_bind()
-    if conn.dialect.has_table(conn, "agent_triggers"):
+    table_exists = conn.execute(
+        sa.text("SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'agent_triggers')")
+    ).scalar()
+    if table_exists:
         return
+
     op.create_table(
         "agent_triggers",
         sa.Column("id", UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
@@ -38,6 +42,10 @@ def upgrade():
 
 def downgrade():
     conn = op.get_bind()
-    if not conn.dialect.has_table(conn, "agent_triggers"):
+    table_exists = conn.execute(
+        sa.text("SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'agent_triggers')")
+    ).scalar()
+    if not table_exists:
         return
+
     op.drop_table("agent_triggers")

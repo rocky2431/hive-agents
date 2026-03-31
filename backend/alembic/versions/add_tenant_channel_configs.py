@@ -20,6 +20,13 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    conn = op.get_bind()
+    table_exists = conn.execute(
+        sa.text("SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'tenant_channel_configs')")
+    ).scalar()
+    if table_exists:
+        return
+
     op.create_table(
         "tenant_channel_configs",
         sa.Column("id", UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
@@ -39,5 +46,12 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    conn = op.get_bind()
+    table_exists = conn.execute(
+        sa.text("SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'tenant_channel_configs')")
+    ).scalar()
+    if not table_exists:
+        return
+
     op.drop_index("ix_tenant_channel_configs_tenant_id", table_name="tenant_channel_configs")
     op.drop_table("tenant_channel_configs")
