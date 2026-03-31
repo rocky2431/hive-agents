@@ -293,12 +293,14 @@ async def get_agent_tools_for_llm(
                     continue
 
                 # Build OpenAI function-calling format
+                # NOTE: sanitization happens once in ToolRegistry.to_openai_tools() downstream
+                raw_params = t.parameters_schema or {"type": "object", "properties": {}}
                 tool_def = {
                     "type": "function",
                     "function": {
                         "name": t.name,
                         "description": t.description,
-                        "parameters": t.parameters_schema or {"type": "object", "properties": {}},
+                        "parameters": raw_params,
                     },
                 }
                 result.append(tool_def)
