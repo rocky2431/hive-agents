@@ -632,6 +632,7 @@ async def _tick():
         all_triggers = result.scalars().all()
 
     if not all_triggers:
+        logger.debug("[TriggerDaemon] No enabled triggers — tick skipped")
         return
 
 

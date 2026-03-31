@@ -291,6 +291,7 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
             result = await db.execute(select(Agent).where(Agent.id == agent_id))
             agent = result.scalar_one_or_none()
             if not agent:
+                logger.warning("[Heartbeat] Agent %s not found in DB — skipping", agent_id)
                 return
 
             # Set execution identity — autonomous heartbeat action
@@ -299,6 +300,7 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
 
             model_id = agent.primary_model_id or agent.fallback_model_id
             if not model_id:
+                logger.warning("[Heartbeat] Agent %s (%s) has no model configured — skipping", agent.name, agent_id)
                 return
 
             model_result = await db.execute(
@@ -306,6 +308,7 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
             )
             model = model_result.scalar_one_or_none()
             if not model:
+                logger.warning("[Heartbeat] Model %s for agent %s (%s) not found — skipping", model_id, agent.name, agent_id)
                 return
 
             # Fetch recent activity for evolution context
@@ -524,6 +527,8 @@ async def _heartbeat_tick():
                 tenants_by_id = {t.id: t for t in t_result.scalars().all()}
 
             triggered = 0
+            skipped_hours = 0
+            skipped_interval = 0
             for agent in agents:
                 # Resolve timezone
                 tenant = tenants_by_id.get(agent.tenant_id)
@@ -531,11 +536,13 @@ async def _heartbeat_tick():
 
                 # Check active hours (in agent's timezone)
                 if not _is_in_active_hours(agent.heartbeat_active_hours or "09:00-18:00", tz_name):
+                    skipped_hours += 1
                     continue
 
                 # Check interval
                 interval = timedelta(minutes=agent.heartbeat_interval_minutes or 30)
                 if agent.last_heartbeat_at and (now - agent.last_heartbeat_at) < interval:
+                    skipped_interval += 1
                     continue
 
                 # Fire heartbeat
@@ -544,8 +551,10 @@ async def _heartbeat_tick():
                 asyncio.create_task(_execute_heartbeat(agent.id))
                 triggered += 1
 
-            if triggered:
-                await write_audit_log("heartbeat_tick", {"eligible_agents": len(agents), "triggered": triggered})
+            logger.info(
+                "[Heartbeat] tick: eligible=%d, triggered=%d, skipped_hours=%d, skipped_interval=%d",
+                len(agents), triggered, skipped_hours, skipped_interval,
+            )
 
     except Exception as e:
         logger.error(f"Heartbeat tick error: {e}", exc_info=True)

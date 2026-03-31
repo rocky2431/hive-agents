@@ -31,7 +31,7 @@ class Tenant(Base):
     min_heartbeat_interval_minutes: Mapped[int] = mapped_column(Integer, default=120)
 
     # Default timezone for all agents in this company (IANA format, e.g. "Asia/Shanghai")
-    timezone: Mapped[str] = mapped_column(String(50), default="UTC")
+    timezone: Mapped[str] = mapped_column(String(50), default="Asia/Shanghai")
 
     # Trigger limits — defaults for new agents & floor values
     default_max_triggers: Mapped[int] = mapped_column(Integer, default=20)
