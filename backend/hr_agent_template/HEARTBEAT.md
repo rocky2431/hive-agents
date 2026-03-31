@@ -39,7 +39,7 @@ Do exactly ONE of these (pick the highest value):
    - 7: Refined the creation protocol or fixed a creation error
    - 10: Made a measurable improvement to creation quality
 
-2. **Append to `evolution/lineage.md`**:
+2. **Append to `evolution/lineage.md`** — ALWAYS use `read_file` first, then `write_file` with full content + new entry appended:
    ```
    ### HB-{YYYY-MM-DD-HH:MM}
    - Strategy: {what I chose to improve}
@@ -49,8 +49,9 @@ Do exactly ONE of these (pick the highest value):
    - Learning: {insight about agent creation}
    - Next: {what should the next heartbeat focus on}
    ```
+   **Do NOT use `edit_file` for evolution files — use `read_file` then `write_file`.**
 
-3. **Update `evolution/scorecard.md`**: increment counters.
+3. **Update `evolution/scorecard.md`** — `read_file` first, then `write_file` with updated counters. Do NOT use `edit_file`.
 
 4. **If score <= 2 for 3 consecutive heartbeats**: add approach to blocklist.md.
 

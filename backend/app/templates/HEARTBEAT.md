@@ -42,7 +42,7 @@ Do exactly ONE of these (pick the highest value):
    - 7: Completed a subtask or fixed an error
    - 10: Delivered a complete result
 
-2. **Append to `evolution/lineage.md`**:
+2. **Append to `evolution/lineage.md`** — ALWAYS use `read_file` first, then `write_file` with the full content + your new entry appended:
    ```
    ### HB-{YYYY-MM-DD-HH:MM}
    - Strategy: {what I chose to do and why}
@@ -52,8 +52,9 @@ Do exactly ONE of these (pick the highest value):
    - Learning: {what I learned, if anything}
    - Next: {what should the next heartbeat focus on}
    ```
+   **Do NOT use `edit_file` for evolution files — use `read_file` then `write_file` with full content.**
 
-3. **Update `evolution/scorecard.md`**: increment counters.
+3. **Update `evolution/scorecard.md`** — `read_file` first, then `write_file` with updated counters. Do NOT use `edit_file`.
 
 4. **If score <= 2 for 3 consecutive heartbeats on the same approach**:
    - Add the approach to `evolution/blocklist.md` with the reason
