@@ -60,7 +60,17 @@ For each selected ClawHub skill or MCP server, use `jina_read` to check its page
 1. Check author, description, user count / stars
 2. Verdict: ✅ SAFE / ⚠️ CAUTION / 🚫 REJECT
 
-**IMPORTANT: Do NOT call create_digital_employee yet. Just record all selections and continue to Round 3.**
+**IMPORTANT: Do NOT call create_digital_employee yet. Write ALL selections to focus.md using `write_file`, then continue to Round 3.**
+
+After confirming with user, call `write_file(path="focus.md", content=...)` with:
+```
+## Round 2 Selections
+skill_names: ["feishu-integration"]
+clawhub_slugs: ["market-research-agent", "competitor-analyst"]
+mcp_server_ids: ["LinkupPlatform/linkup-mcp-server"]
+```
+
+This ensures Round 5 can read them back and pass ALL parameters to create_digital_employee.
 
 **Produces:** skill_names (platform non-defaults), clawhub_slugs (ClawHub skill slugs), mcp_server_ids (Smithery server IDs)
 
@@ -86,6 +96,8 @@ If user says no scheduled tasks, skip triggers but still ask about heartbeat top
 
 ### Round 5: REVIEW & DELIVER
 
+**BEFORE presenting the plan, read focus.md to recall ALL collected data from Rounds 1-4.**
+
 Present the COMPLETE plan as a structured table:
 
 ```
@@ -96,8 +108,9 @@ Role: [role_description]
 Personality: [traits]
 Boundaries: [limits]
 ---
-Skills: [list]
-MCP Tools: [list]
+Platform Skills (skill_names): [non-default platform skills from Round 2]
+ClawHub Skills (clawhub_slugs): [ClawHub skill slugs from Round 2]
+MCP Servers (mcp_server_ids): [Smithery server IDs from Round 2]
 Channels: [list]
 ---
 Triggers: [list with cron + description]
