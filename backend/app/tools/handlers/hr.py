@@ -119,12 +119,26 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
     role_description = args.get("role_description", "")
     personality = args.get("personality", "")
     boundaries = args.get("boundaries", "")
-    raw_skill_names = args.get("skill_names") or []
-    skill_names = [s for s in (raw_skill_names if isinstance(raw_skill_names, list) else [])]
-    raw_mcp = args.get("mcp_server_ids") or []
-    mcp_server_ids = [s for s in (raw_mcp if isinstance(raw_mcp, list) else [])]
-    raw_clawhub = args.get("clawhub_slugs") or []
-    clawhub_slugs = [s for s in (raw_clawhub if isinstance(raw_clawhub, list) else []) if isinstance(s, str) and s.strip()]
+
+    # LLM often passes arrays as JSON strings — parse all array params defensively
+    def _parse_list(val) -> list:
+        if isinstance(val, list):
+            return val
+        if isinstance(val, str):
+            val = val.strip()
+            if val.startswith("["):
+                try:
+                    import json as _j
+                    parsed = _j.loads(val)
+                    if isinstance(parsed, list):
+                        return parsed
+                except (ValueError, TypeError):
+                    pass
+        return []
+
+    skill_names = [s for s in _parse_list(args.get("skill_names")) if isinstance(s, str)]
+    mcp_server_ids = [s for s in _parse_list(args.get("mcp_server_ids")) if isinstance(s, str)]
+    clawhub_slugs = [s for s in _parse_list(args.get("clawhub_slugs")) if isinstance(s, str) and s.strip()]
     permission_scope = args.get("permission_scope", "company")
 
     # Heartbeat config (self-awareness cycle) — LLM may pass strings for numeric fields
