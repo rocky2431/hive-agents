@@ -534,76 +534,9 @@ async def _invoke_agent_for_triggers(agent_id: uuid.UUID, triggers: list[AgentTr
 
             await db.commit()
 
-        # Push trigger result to user's active WebSocket connections
-        final_reply = reply or "".join(collected_content)
-        if final_reply:
-            try:
-                from app.api.websocket import manager as ws_manager
-                agent_id_str = str(agent_id)
-
-                # Build notification message with trigger badge
-                trigger_badge = ", ".join(trigger_names)
-                notification = f"⚡ **触发器触发** `{trigger_badge}`\n\n{final_reply}"
-
-                # Save to user's active chat session(s) for persistence
-                async with async_session() as db:
-                    from app.models.chat_session import ChatSession
-                    from sqlalchemy import func
-
-                    # Prefer the session the user currently has open (via WS)
-                    active_session_ids = ws_manager.get_active_session_ids(agent_id_str)
-                    target_session_ids = []
-
-                    if active_session_ids:
-                        target_session_ids = active_session_ids
-                        logger.info(f"[Trigger] Saving notification to {len(active_session_ids)} active session(s)")
-                    else:
-                        # Fallback: most recent web session for this agent
-                        _sr = await db.execute(
-                            select(ChatSession.id)
-                            .where(
-                                ChatSession.agent_id == agent_id,
-                                ChatSession.user_id == agent.creator_id,
-                                ChatSession.source_channel.notin_(["trigger"]),
-                            )
-                            .order_by(
-                                func.coalesce(ChatSession.last_message_at, ChatSession.created_at).desc()
-                            )
-                            .limit(1)
-                        )
-                        row = _sr.scalar_one_or_none()
-                        if row:
-                            target_session_ids = [str(row)]
-                            logger.info(f"[Trigger] No active WS, saving to most recent session {row}")
-                        else:
-                            logger.warning(f"[Trigger] No web session found for agent {agent.name}")
-
-                    for sid in target_session_ids:
-                        db.add(ChatMessage(
-                            agent_id=agent_id,
-                            conversation_id=sid,
-                            role="assistant",
-                            content=notification,
-                            user_id=agent.creator_id,
-                        ))
-                    if target_session_ids:
-                        await db.commit()
-
-                # Push to all active WebSocket connections for this agent
-                if agent_id_str in ws_manager.active_connections:
-                    for ws, _sid in list(ws_manager.active_connections[agent_id_str]):
-                        try:
-                            await ws.send_json({
-                                "type": "trigger_notification",
-                                "content": notification,
-                                "triggers": [t.name for t in triggers],
-                            })
-                        except Exception as ws_err:
-                            logger.debug(f"WebSocket send failed (connection may have closed): {ws_err}")
-            except Exception as e:
-                logger.error(f"Failed to push trigger result to WebSocket: {e}")
-                import traceback
-                traceback.print_exc()
+        # Trigger results live in the Reflection Session (内心独白) only.
+        # Do NOT push to user's chat WebSocket — it pollutes the conversation.
+        # Users can view trigger results in the self-awareness tab.
 
         # Audit log
         await write_audit_log("trigger_fired", {
