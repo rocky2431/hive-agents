@@ -30,26 +30,10 @@ def upgrade() -> None:
         """
     )
 
-    op.add_column("departments", sa.Column("tenant_id", UUID(as_uuid=True), nullable=True))
-    op.add_column("enterprise_info", sa.Column("tenant_id", UUID(as_uuid=True), nullable=True))
-
-    op.create_index("ix_departments_tenant_id", "departments", ["tenant_id"], unique=False)
-    op.create_index("ix_enterprise_info_tenant_id", "enterprise_info", ["tenant_id"], unique=False)
-
-    op.create_foreign_key(
-        "fk_departments_tenant_id_tenants",
-        "departments",
-        "tenants",
-        ["tenant_id"],
-        ["id"],
-    )
-    op.create_foreign_key(
-        "fk_enterprise_info_tenant_id_tenants",
-        "enterprise_info",
-        "tenants",
-        ["tenant_id"],
-        ["id"],
-    )
+    op.execute("ALTER TABLE departments ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenants(id)")
+    op.execute("ALTER TABLE enterprise_info ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenants(id)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_departments_tenant_id ON departments (tenant_id)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_enterprise_info_tenant_id ON enterprise_info (tenant_id)")
 
     op.execute(
         """
