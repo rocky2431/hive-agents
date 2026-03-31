@@ -12,6 +12,7 @@ def test_combined_openai_tools_matches_canonical_surface():
 
     assert combined_names == {
         "cancel_trigger",
+        "create_digital_employee",
         "delete_file",
         "discover_resources",
         "edit_file",
@@ -41,6 +42,7 @@ def test_combined_openai_tools_matches_canonical_surface():
         "read_emails",
         "read_file",
         "reply_email",
+        "search_clawhub",
         "send_channel_file",
         "send_email",
         "send_feishu_message",

@@ -28,7 +28,7 @@ async def test_ensure_workspace_creates_standard_structure_and_profile(monkeypat
             return False
 
         async def execute(self, _query):
-            return _FakeScalarResult(SimpleNamespace(role_description="负责投后分析"))
+            return _FakeScalarResult(SimpleNamespace(name="投后助手", role_description="负责投后分析"))
 
     async def fake_sync_tasks(agent_id_arg, workspace):
         sync_calls.append((agent_id_arg, workspace))
@@ -45,7 +45,9 @@ async def test_ensure_workspace_creates_standard_structure_and_profile(monkeypat
     assert (workspace / "workspace" / "knowledge_base").is_dir()
     assert (workspace / "memory").is_dir()
     assert (workspace / "memory" / "memory.md").exists()
-    assert (workspace / "soul.md").read_text(encoding="utf-8") == "# Personality\n\n负责投后分析\n"
+    soul_content = (workspace / "soul.md").read_text(encoding="utf-8")
+    assert "# Soul — 投后助手" in soul_content
+    assert "负责投后分析" in soul_content
 
     enterprise_dir = tmp_path / "enterprise_info_tenant-1"
     assert (enterprise_dir / "knowledge_base").is_dir()

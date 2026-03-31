@@ -33,6 +33,7 @@ async def test_get_agent_reply_delegates_to_runtime_invoker(monkeypatch):
     creator_id = uuid4()
     model_id = uuid4()
     fallback_model_id = uuid4()
+    tenant_id = uuid4()
     target_agent = SimpleNamespace(
         id=target_agent_id,
         name="督办目标Agent",
@@ -41,6 +42,7 @@ async def test_get_agent_reply_delegates_to_runtime_invoker(monkeypatch):
         primary_model_id=model_id,
         fallback_model_id=fallback_model_id,
         max_tool_rounds=7,
+        tenant_id=tenant_id,
     )
     model = SimpleNamespace(
         id=model_id,
@@ -49,6 +51,7 @@ async def test_get_agent_reply_delegates_to_runtime_invoker(monkeypatch):
         api_key="key",
         base_url=None,
         max_output_tokens=None,
+        tenant_id=tenant_id,
     )
     fallback_model = SimpleNamespace(
         id=fallback_model_id,
@@ -57,6 +60,7 @@ async def test_get_agent_reply_delegates_to_runtime_invoker(monkeypatch):
         api_key="fallback-key",
         base_url=None,
         max_output_tokens=None,
+        tenant_id=tenant_id,
     )
     db = _FakeDB([model, fallback_model])
     captured = {}

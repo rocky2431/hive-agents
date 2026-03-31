@@ -118,16 +118,16 @@ def test_create_sub_agent_success():
     assert resp.status_code == 201
     data = resp.json()
     assert data["name"] == "代码助手"
-    assert data["agent_kind"] == "sub"
-    assert data["parent_agent_id"] == str(_MAIN_AGENT_ID)
     assert len(fake_db.added) == 1
 
 
-def test_create_sub_agent_fails_without_main():
-    """Cannot create sub-agent if user has no main agent."""
-    client, _ = _build_client(main_agent=None)
-    resp = client.post("/desktop/agents", json={"name": "测试"})
-    assert resp.status_code == 404
+def test_create_agent_succeeds_without_existing_agents():
+    """Creating an agent works even without any prior agents."""
+    client, fake_db = _build_client(main_agent=None)
+    with patch.object(agents_mod, "bump_sync_version", new_callable=AsyncMock, return_value=2):
+        resp = client.post("/desktop/agents", json={"name": "测试", "role_description": "test"})
+    assert resp.status_code == 201
+    assert resp.json()["name"] == "测试"
 
 
 # ─── PATCH /desktop/agents/{id} (update sub-agent) ─────
@@ -168,15 +168,14 @@ def test_update_other_users_agent_forbidden():
     assert resp.status_code == 403
 
 
-def test_update_main_agent_forbidden():
-    """Cannot modify a main agent from Desktop."""
-    main_as_target = SimpleNamespace(
+def test_update_other_users_agent_returns_403():
+    """Cannot modify another user's agent."""
+    other_agent = SimpleNamespace(
         id=_MAIN_AGENT_ID,
         name="主Agent",
-        agent_kind="main",
-        owner_user_id=_USER_ID,
+        owner_user_id=_OTHER_USER_ID,
     )
-    client, _ = _build_client(agents_by_id={_MAIN_AGENT_ID: main_as_target})
+    client, _ = _build_client(agents_by_id={_MAIN_AGENT_ID: other_agent})
     resp = client.patch(f"/desktop/agents/{_MAIN_AGENT_ID}", json={"name": "改主Agent"})
     assert resp.status_code == 403
 

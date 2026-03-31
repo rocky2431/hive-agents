@@ -142,10 +142,9 @@ def test_bootstrap_returns_full_payload():
 
     assert data["sync_version"] == 5
     assert data["user"]["username"] == "zhangsan"
-    assert data["main_agent"]["agent_kind"] == "main"
-    assert data["main_agent"]["name"] == "张三的主 Agent"
-    assert len(data["sub_agents"]) == 1
-    assert data["sub_agents"][0]["agent_kind"] == "sub"
+    assert len(data["agents"]) == 2
+    agent_names = {a["name"] for a in data["agents"]}
+    assert "张三的主 Agent" in agent_names
     assert isinstance(data["policy"], dict)
     assert isinstance(data["llm_config"], list)
 
@@ -157,8 +156,7 @@ def test_bootstrap_no_agents():
     assert resp.status_code == 200
     data = resp.json()
 
-    assert data["main_agent"] is None
-    assert data["sub_agents"] == []
+    assert data["agents"] == []
 
 
 # ─── Sync tests ─────────────────────────────────────────

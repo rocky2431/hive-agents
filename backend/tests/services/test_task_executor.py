@@ -56,6 +56,7 @@ async def test_execute_task_delegates_to_runtime_invoker(monkeypatch):
         completed_at=None,
         supervision_target_name="",
     )
+    tenant_id = uuid4()
     agent = SimpleNamespace(
         id=agent_id,
         name="Ops Agent",
@@ -63,6 +64,7 @@ async def test_execute_task_delegates_to_runtime_invoker(monkeypatch):
         primary_model_id=model_id,
         fallback_model_id=None,
         creator_id=creator_id,
+        tenant_id=tenant_id,
     )
     model = SimpleNamespace(
         id=model_id,
@@ -71,6 +73,7 @@ async def test_execute_task_delegates_to_runtime_invoker(monkeypatch):
         api_key="key",
         base_url=None,
         max_output_tokens=None,
+        tenant_id=tenant_id,
     )
 
     setup_session = _FakeSession([task])

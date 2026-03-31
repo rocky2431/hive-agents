@@ -40,17 +40,19 @@ def test_hr_tool_included_in_hr_tools_set():
     assert "jina_search" in names
     assert "jina_read" in names
     assert "execute_code" in names
-    # discover_resources comes via mcp_admin_pack, not _HR_TOOL_NAMES
-    assert len(hr_tools) == 6
+    assert "discover_resources" in names
+    assert "search_clawhub" in names
+    assert len(hr_tools) == 7
 
 
 def test_hr_tool_meta_has_correct_attributes():
     """The create_digital_employee tool must have correct category and adapter."""
-    from app.tools.decorator import get_all_registered_tools
-    # Ensure handlers are imported
-    from app.tools.collector import collect_tools
-    collect_tools()
+    import importlib
+    import app.tools.handlers.hr as hr_mod
+    # Force re-registration in case a prior test called clear_registry()
+    importlib.reload(hr_mod)
 
+    from app.tools.decorator import get_all_registered_tools
     all_metas = get_all_registered_tools()
     meta, _fn = all_metas["create_digital_employee"]
     assert meta.governance == ""  # no governance gate — HR agent is standard zone
