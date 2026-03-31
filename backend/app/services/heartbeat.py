@@ -8,6 +8,7 @@ Runs as a background task inside the FastAPI process.
 """
 
 import asyncio
+import re
 import uuid
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -184,6 +185,78 @@ async def _build_evolution_context(agent_id: uuid.UUID, recent_activities: list)
     return "\n\n".join(parts) if parts else ""
 
 
+def _resolve_workspace_root(agent_id: uuid.UUID) -> Path | None:
+    """Find the first existing workspace root for an agent."""
+    from app.config import get_settings
+    settings = get_settings()
+    for ws_root in [
+        Path("/tmp/hive_workspaces") / str(agent_id),
+        Path(settings.AGENT_DATA_DIR) / str(agent_id),
+    ]:
+        if ws_root.exists():
+            return ws_root
+    return None
+
+
+def _update_evolution_files(
+    agent_id: uuid.UUID,
+    outcome_type: str,
+    summary: str,
+) -> None:
+    """Server-side evolution update after heartbeat. No LLM needed.
+
+    Appends to evolution/lineage.md and increments evolution/scorecard.md counters.
+    """
+    ws_root = _resolve_workspace_root(agent_id)
+    if ws_root is None:
+        return
+
+    evo_dir = ws_root / "evolution"
+    if not evo_dir.exists():
+        return
+
+    now = datetime.now(timezone.utc)
+    timestamp = now.strftime("%Y-%m-%d-%H:%M")
+
+    # --- Append to lineage.md ---
+    try:
+        lineage_path = evo_dir / "lineage.md"
+        existing = lineage_path.read_text(encoding="utf-8", errors="replace") if lineage_path.exists() else ""
+        existing = existing.replace("(no entries yet)", "").rstrip()
+        entry = (
+            f"\n\n### HB-{timestamp} [auto]\n"
+            f"- Outcome: {outcome_type}\n"
+            f"- Summary: {summary[:120]}\n"
+        )
+        lineage_path.write_text(existing + entry, encoding="utf-8")
+    except Exception as e:
+        logger.warning(f"Failed to update evolution/lineage.md for {agent_id}: {e}")
+
+    # --- Increment scorecard.md counters ---
+    try:
+        scorecard_path = evo_dir / "scorecard.md"
+        if not scorecard_path.exists():
+            return
+        content = scorecard_path.read_text(encoding="utf-8", errors="replace")
+
+        def _inc(text: str, key: str) -> str:
+            pattern = rf"(- {re.escape(key)}:\s*)(\d+)"
+            m = re.search(pattern, text)
+            if m:
+                return text[:m.start()] + m.group(1) + str(int(m.group(2)) + 1) + text[m.end():]
+            return text
+
+        content = _inc(content, "total_heartbeats")
+        if outcome_type == "action_taken":
+            content = _inc(content, "useful_heartbeats")
+        elif outcome_type in ("failure", "crash"):
+            content = _inc(content, "failed_attempts")
+
+        scorecard_path.write_text(content, encoding="utf-8")
+    except Exception as e:
+        logger.warning(f"Failed to update evolution/scorecard.md for {agent_id}: {e}")
+
+
 def _build_heartbeat_tool_executor(agent_id: uuid.UUID, creator_id: uuid.UUID):
     """Build a tool executor with per-heartbeat plaza posting limits."""
     plaza_posts_made = 0
@@ -299,6 +372,12 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
                 },
             )
 
+            # Server-side evolution update (no LLM needed)
+            try:
+                _update_evolution_files(agent_id, outcome_type, reply[:80] if reply else "empty")
+            except Exception as evo_err:
+                logger.debug(f"Evolution update skipped: {evo_err}")
+
             # Update last_heartbeat_at
             agent.last_heartbeat_at = datetime.now(timezone.utc)
             await db.commit()
@@ -330,6 +409,11 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
             )
         except Exception as log_err:
             logger.debug(f"Failed to log heartbeat crash to activity: {log_err}")
+        # Server-side evolution: record crash too
+        try:
+            _update_evolution_files(agent_id, "crash", str(e)[:80])
+        except Exception as evo_err:
+            logger.debug(f"Evolution crash update skipped: {evo_err}")
 
 
 async def _heartbeat_tick():
@@ -353,15 +437,21 @@ async def _heartbeat_tick():
             agents = result.scalars().all()
 
             # Periodic workspace sync — write DB data to files agents can read
-            synced_tenants = set()
+            synced_tenants: set[uuid.UUID] = set()
+            from app.services.workspace_sync import sync_all_for_tenant
             for a in agents:
                 if a.tenant_id and a.tenant_id not in synced_tenants:
-                    try:
-                        from app.services.workspace_sync import sync_all_for_tenant
-                        await sync_all_for_tenant(db, a.tenant_id)
-                        synced_tenants.add(a.tenant_id)
-                    except Exception as sync_err:
-                        logger.debug(f"Workspace sync skipped: {sync_err}")
+                    for attempt in range(2):
+                        try:
+                            await sync_all_for_tenant(db, a.tenant_id)
+                            synced_tenants.add(a.tenant_id)
+                            break
+                        except Exception as sync_err:
+                            if attempt == 0:
+                                logger.warning(f"Workspace sync failed for tenant {a.tenant_id}, retrying: {sync_err}")
+                                await asyncio.sleep(1)
+                            else:
+                                logger.warning(f"Workspace sync failed for tenant {a.tenant_id} after retry: {sync_err}")
 
             # Pre-load tenants for timezone resolution
             tenant_ids = {a.tenant_id for a in agents if a.tenant_id}

@@ -213,6 +213,17 @@ async def build_agent_context(agent_id: uuid.UUID, agent_name: str, role_descrip
                 parts.append(f"\n## Company Information\n{company_intro}")
     except Exception as exc:
         logger.debug("Failed to load company intro for agent {}: {}", agent_id, exc)
+        _agent_tenant_id = None
+
+    # --- Organization Structure (from synced workspace file) ---
+    if _agent_tenant_id:
+        org_path = PERSISTENT_DATA / f"enterprise_info_{_agent_tenant_id}" / "org_structure.md"
+        org_structure = _read_file_safe(org_path, 2000)
+        if org_structure and "尚未同步" not in org_structure and "尚未填写" not in org_structure:
+            if org_structure.startswith("# "):
+                org_structure = "\n".join(org_structure.split("\n")[1:]).strip()
+            if org_structure:
+                parts.append(f"\n## Organization Structure\n{org_structure}")
 
     if soul and soul not in ("_描述你的角色和职责。_", "_Describe your role and responsibilities._"):
         parts.append(f"\n## Personality\n{soul}")
