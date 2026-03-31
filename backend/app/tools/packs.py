@@ -105,6 +105,10 @@ def infer_static_pack_names(tool_names: list[str] | tuple[str, ...]) -> tuple[st
 
 
 def make_mcp_server_pack_name(server_name: str | None, server_url: str | None = None) -> str:
+    # NOTE: Theoretical collision risk exists when different server names normalize
+    # to the same slug (e.g. "my.server" vs "my_server"). Acceptable because MCP
+    # server names are typically unique within a tenant and collisions are benign
+    # (same pack activated twice is a no-op).
     source = server_name
     if not source and server_url:
         parsed = urlparse(server_url)

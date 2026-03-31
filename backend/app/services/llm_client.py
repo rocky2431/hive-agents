@@ -1205,7 +1205,7 @@ class GeminiClient(LLMClient):
     ) -> LLMResponse:
         """Streaming completion using Gemini SSE endpoint."""
         if self._is_openai_compatible_base():
-            logger.info("[Gemini] Using OpenAI-compatible endpoint for model %s (base_url override detected)", self.model)
+            logger.debug("[Gemini] Using OpenAI-compatible endpoint for model %s (base_url override detected)", self.model)
             fallback = await self._get_openai_fallback_client()
             return await fallback.stream(
                 messages=messages,
@@ -1357,7 +1357,7 @@ class AnthropicClient(LLMClient):
             return 16384
         if "haiku" in model_lower:
             return 8192
-        return 8192
+        return 16384  # Default to higher limit for unknown/future models
 
     def _build_payload(
         self,
@@ -1500,98 +1500,116 @@ class AnthropicClient(LLMClient):
         final_model = self.model
 
         client = await self._get_client()
-        
-        try:
-            async with client.stream("POST", url, json=payload, headers=self._get_headers()) as resp:
-                if resp.status_code >= 400:
-                    error_body = ""
-                    async for chunk in resp.aiter_bytes():
-                        error_body += chunk.decode(errors="replace")
-                    raise LLMError(f"HTTP {resp.status_code}: {error_body[:500]}")
 
-                current_event = None
-                
-                async for line in resp.aiter_lines():
-                    if not line.strip():
-                        continue
-                        
-                    if line.startswith("event:"):
-                        current_event = line[len("event:"):].strip()
-                        continue
-                        
-                    if not line.startswith("data:"):
-                        continue
-                        
-                    data_str = line[len("data:"):].strip()
-                    if data_str == "[DONE]":
-                        break
-                        
-                    try:
-                        data = json.loads(data_str)
-                    except json.JSONDecodeError:
-                        continue
+        # Retry loop for transient connection failures (ME-08)
+        max_retries = 2
+        for attempt in range(max_retries):
+            try:
+                async with client.stream("POST", url, json=payload, headers=self._get_headers()) as resp:
+                    if resp.status_code >= 400:
+                        error_body = ""
+                        async for chunk in resp.aiter_bytes():
+                            error_body += chunk.decode(errors="replace")
+                        raise LLMError(f"HTTP {resp.status_code}: {error_body[:500]}")
 
-                    # Handle events
-                    if current_event == "message_start":
-                        msg = data.get("message", {})
-                        if msg.get("model"):
-                            final_model = msg["model"]
-                        if msg.get("usage"):
-                            final_usage = msg["usage"]
-                            
-                    elif current_event == "content_block_start":
-                        block = data.get("content_block", {})
-                        idx = data.get("index", 0)
-                        if block.get("type") == "tool_use":
-                            tool_call_index_map[idx] = len(tool_calls_data)
-                            tool_calls_data.append({
-                                "id": block.get("id"),
-                                "type": "function",
-                                "function": {"name": block.get("name"), "arguments": ""}
-                            })
-                            
-                    elif current_event == "content_block_delta":
-                        idx = data.get("index", 0)
-                        delta = data.get("delta", {})
-                        delta_type = delta.get("type")
-                        
-                        if delta_type == "text_delta":
-                            text = delta.get("text", "")
-                            full_content += text
-                            if on_chunk:
-                                await on_chunk(text)
-                                
-                        elif delta_type == "thinking_delta":
-                            thought = delta.get("thinking", "")
-                            full_reasoning += thought
-                            if on_thinking:
-                                await on_thinking(thought)
-                        
-                        elif delta_type == "signature_delta":
-                            full_signature = delta.get("signature")
-                                
-                        elif delta_type == "input_json_delta":
-                            if idx in tool_call_index_map:
-                                tc_idx = tool_call_index_map[idx]
-                                tool_calls_data[tc_idx]["function"]["arguments"] += delta.get("partial_json", "")
-                                
-                    elif current_event == "message_delta":
-                        delta = data.get("delta", {})
-                        if delta.get("stop_reason"):
-                            last_finish_reason = delta["stop_reason"]
-                        if data.get("usage"):
-                            # message_delta usage is cumulative
-                            final_usage = data["usage"]
-                            
-                    elif current_event == "error":
-                        error_info = data.get("error", {})
-                        raise LLMError(f"Anthropic stream error ({error_info.get('type')}): {error_info.get('message')}")
+                    current_event = None
 
-                    elif current_event == "message_stop":
-                        break
+                    async for line in resp.aiter_lines():
+                        if not line.strip():
+                            continue
 
-        except (httpx.ConnectError, httpx.ReadError, httpx.ConnectTimeout) as e:
-            raise LLMError(f"Connection failed: {e}")
+                        if line.startswith("event:"):
+                            current_event = line[len("event:"):].strip()
+                            continue
+
+                        if not line.startswith("data:"):
+                            continue
+
+                        data_str = line[len("data:"):].strip()
+                        if data_str == "[DONE]":
+                            break
+
+                        try:
+                            data = json.loads(data_str)
+                        except json.JSONDecodeError:
+                            continue
+
+                        # Handle events
+                        if current_event == "message_start":
+                            msg = data.get("message", {})
+                            if msg.get("model"):
+                                final_model = msg["model"]
+                            if msg.get("usage"):
+                                final_usage = msg["usage"]
+
+                        elif current_event == "content_block_start":
+                            block = data.get("content_block", {})
+                            idx = data.get("index", 0)
+                            if block.get("type") == "tool_use":
+                                tool_call_index_map[idx] = len(tool_calls_data)
+                                tool_calls_data.append({
+                                    "id": block.get("id"),
+                                    "type": "function",
+                                    "function": {"name": block.get("name"), "arguments": ""}
+                                })
+
+                        elif current_event == "content_block_delta":
+                            idx = data.get("index", 0)
+                            delta = data.get("delta", {})
+                            delta_type = delta.get("type")
+
+                            if delta_type == "text_delta":
+                                text = delta.get("text", "")
+                                full_content += text
+                                if on_chunk:
+                                    await on_chunk(text)
+
+                            elif delta_type == "thinking_delta":
+                                thought = delta.get("thinking", "")
+                                full_reasoning += thought
+                                if on_thinking:
+                                    await on_thinking(thought)
+
+                            elif delta_type == "signature_delta":
+                                full_signature = delta.get("signature")
+
+                            elif delta_type == "input_json_delta":
+                                if idx in tool_call_index_map:
+                                    tc_idx = tool_call_index_map[idx]
+                                    tool_calls_data[tc_idx]["function"]["arguments"] += delta.get("partial_json", "")
+
+                        elif current_event == "message_delta":
+                            delta = data.get("delta", {})
+                            if delta.get("stop_reason"):
+                                last_finish_reason = delta["stop_reason"]
+                            if data.get("usage"):
+                                # message_delta usage is cumulative
+                                final_usage = data["usage"]
+
+                        elif current_event == "error":
+                            error_info = data.get("error", {})
+                            raise LLMError(f"Anthropic stream error ({error_info.get('type')}): {error_info.get('message')}")
+
+                        elif current_event == "message_stop":
+                            break
+
+                break  # Stream completed successfully
+
+            except (httpx.ConnectError, httpx.ReadError, httpx.ConnectTimeout) as e:
+                if attempt < max_retries - 1:
+                    logger.warning("[Anthropic] Stream attempt %d failed, retrying: %s", attempt + 1, e)
+                    await asyncio.sleep(1)
+                    # Reset accumulators for clean retry
+                    full_content = ""
+                    full_reasoning = ""
+                    full_signature = None
+                    tool_calls_data = []
+                    tool_call_index_map = {}
+                    last_finish_reason = None
+                    final_usage = None
+                    final_model = self.model
+                else:
+                    raise LLMError(f"Anthropic connection failed after {max_retries} attempts: {e}")
 
         # Normalize stop reason to OpenAI style (optional but helpful for consistency)
         if last_finish_reason == "end_turn":

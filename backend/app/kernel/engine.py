@@ -390,6 +390,7 @@ class AgentKernel:
         try:
             runtime_config = await _maybe_await(self._deps.resolve_runtime_config(request.agent_id))
             if runtime_config.quota_message:
+                # Note: final_tools not included — not yet resolved at this point
                 return _build_error_result(runtime_config.quota_message)
 
             resolved_memory_context = await _maybe_await(
@@ -785,6 +786,9 @@ class AgentKernel:
                                     await _maybe_await(request.on_tool_call(running_payload))
                                 except Exception as _cb_exc:
                                     logger.warning("[Kernel] on_tool_call(running) callback failed: %s", _cb_exc)
+                                    _callback_failure_count += 1
+                                    if _callback_failure_count == 3:
+                                        logger.error("[Kernel] Multiple callback failures (%d) — client may be disconnected", _callback_failure_count)
 
                         # 2. Execute all tools concurrently via asyncio.gather
                         sem = asyncio.Semaphore(_PARALLEL_SEMAPHORE_LIMIT)
@@ -897,6 +901,7 @@ class AgentKernel:
                                             )
                                             session_context.prompt_prefix = prompt_prefix
                                             session_context.prompt_fingerprint = _fingerprint_prompt(prompt_prefix)
+                                            session_context._memory_hash = hashlib.sha256(resolved_memory_context.encode("utf-8")).hexdigest()[:16]
                                             system_prompt = assemble_runtime_prompt(
                                                 prompt_prefix,
                                                 build_dynamic_prompt_suffix(

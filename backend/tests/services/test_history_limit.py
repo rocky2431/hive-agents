@@ -15,8 +15,8 @@ def test_compute_history_limit_openai_128k():
     """OpenAI 128k context → dynamic budget after reserves."""
     from app.services.memory_service import compute_history_limit
     limit = compute_history_limit("openai", "gpt-4o")
-    # 128000 - 12500 = 115500 / 300 = 385
-    assert limit == 385
+    # 128000 - 3000(prompt) - 1500(tools) - 8000(gen) - 2500(memory) = 113000 / 300 = 376
+    assert limit == 376
 
 
 def test_compute_history_limit_small_model():
@@ -46,17 +46,17 @@ def test_compute_history_limit_unknown_provider_uses_128k_fallback():
     """Unknown provider should fallback to 128k context."""
     from app.services.memory_service import compute_history_limit
     limit = compute_history_limit("some_unknown_provider", "some-model")
-    # 128000 - 12500 = 115500 / 300 = 385
-    assert limit == 385
+    # 128000 - 3000(prompt) - 1500(tools) - 8000(gen) - 2500(memory) = 113000 / 300 = 376
+    assert limit == 376
 
 
 def test_compute_history_limit_with_real_prompt_tokens():
     """When real system_prompt_tokens provided, budget is more accurate."""
     from app.services.memory_service import compute_history_limit
-    # With large prompt: 128000 - 8000(prompt) - 3000(tools) - 8000(gen) = 109000 / 300 = 363
+    # With large prompt: 128000 - 8000(prompt) - 3000(tools) - 8000(gen) - 2500(memory) = 106500 / 300 = 355
     limit = compute_history_limit(
         "openai", "gpt-4o",
         system_prompt_tokens=8000,
         tool_definitions_tokens=3000,
     )
-    assert limit == 363
+    assert limit == 355

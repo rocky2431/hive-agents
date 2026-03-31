@@ -33,9 +33,13 @@ def estimate_tokens(messages: list[dict], *, provider: str = "") -> int:
                 if isinstance(part, dict) and part.get("type") == "text":
                     total_chars += len(part.get("text", ""))
                 elif isinstance(part, dict) and part.get("type") == "image_url":
-                    # Image tokens: ~85 for low-res, ~765 for high-res.
-                    # Conservative estimate of 300 tokens per image.
-                    total_chars += int(300 * cpt)
+                    # Image tokens vary by detail level: ~85 low, ~765 high.
+                    detail = "auto"
+                    img_data = part.get("image_url", {})
+                    if isinstance(img_data, dict):
+                        detail = img_data.get("detail", "auto")
+                    tokens_for_image = 85 if detail == "low" else 765 if detail == "high" else 300
+                    total_chars += int(tokens_for_image * cpt)
         # Tool calls: estimate actual JSON arg size instead of flat 200
         if msg.get("tool_calls"):
             for tc in msg["tool_calls"]:

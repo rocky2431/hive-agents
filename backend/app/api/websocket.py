@@ -29,37 +29,42 @@ class ConnectionManager:
     def __init__(self):
         # agent_id_str -> list of (WebSocket, session_id_str | None)
         self.active_connections: dict[str, list[tuple]] = {}
+        self._lock = asyncio.Lock()
 
     async def connect(self, agent_id: str, websocket: WebSocket, session_id: str | None = None):
         await websocket.accept()
-        if agent_id not in self.active_connections:
-            self.active_connections[agent_id] = []
-        self.active_connections[agent_id].append((websocket, session_id))
+        async with self._lock:
+            if agent_id not in self.active_connections:
+                self.active_connections[agent_id] = []
+            self.active_connections[agent_id].append((websocket, session_id))
 
-    def disconnect(self, agent_id: str, websocket: WebSocket):
-        if agent_id in self.active_connections:
-            self.active_connections[agent_id] = [
-                (ws, sid) for ws, sid in self.active_connections[agent_id] if ws != websocket
-            ]
-
-    async def send_message(self, agent_id: str, message: dict):
-        if agent_id in self.active_connections:
-            dead = []
-            for ws, _sid in self.active_connections[agent_id]:
-                try:
-                    await ws.send_json(message)
-                except Exception:
-                    dead.append((ws, _sid))
-            for d in dead:
+    async def disconnect(self, agent_id: str, websocket: WebSocket):
+        async with self._lock:
+            if agent_id in self.active_connections:
                 self.active_connections[agent_id] = [
-                    c for c in self.active_connections[agent_id] if c != d
+                    (ws, sid) for ws, sid in self.active_connections[agent_id] if ws != websocket
                 ]
 
-    def get_active_session_ids(self, agent_id: str) -> list[str]:
+    async def send_message(self, agent_id: str, message: dict):
+        async with self._lock:
+            if agent_id in self.active_connections:
+                dead = []
+                for ws, _sid in self.active_connections[agent_id]:
+                    try:
+                        await ws.send_json(message)
+                    except Exception:
+                        dead.append((ws, _sid))
+                for d in dead:
+                    self.active_connections[agent_id] = [
+                        c for c in self.active_connections[agent_id] if c != d
+                    ]
+
+    async def get_active_session_ids(self, agent_id: str) -> list[str]:
         """Return distinct session IDs for all active WS connections of an agent."""
-        if agent_id not in self.active_connections:
-            return []
-        return list(set(sid for _ws, sid in self.active_connections[agent_id] if sid))
+        async with self._lock:
+            if agent_id not in self.active_connections:
+                return []
+            return list(set(sid for _ws, sid in self.active_connections[agent_id] if sid))
 
 
 manager = ConnectionManager()
@@ -706,12 +711,12 @@ async def websocket_chat(
 
     except WebSocketDisconnect:
         logger.info(f"[WS] Client disconnected: {agent_name}")
-        manager.disconnect(agent_id_str, websocket)
+        await manager.disconnect(agent_id_str, websocket)
     except Exception as e:
         logger.error(f"[WS] Error in message loop: {type(e).__name__}: {e}")
         import traceback
         traceback.print_exc()
-        manager.disconnect(agent_id_str, websocket)
+        await manager.disconnect(agent_id_str, websocket)
         try:
             await websocket.close(code=1011)
         except Exception as e:

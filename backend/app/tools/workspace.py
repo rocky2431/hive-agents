@@ -113,7 +113,8 @@ async def ensure_workspace(agent_id: uuid.UUID, tenant_id: str | None = None) ->
             encoding="utf-8",
         )
 
-    if not (ws / "soul.md").exists():
+    soul_path = ws / "soul.md"
+    if not soul_path.exists():
         # Structure aligned with agent_template/soul.md (single source of truth)
         agent_name = str(agent_id)[:8]
         role_desc = "digital assistant"
@@ -141,7 +142,12 @@ async def ensure_workspace(agent_id: uuid.UUID, tenant_id: str | None = None) ->
 - Follows company confidentiality policies
 - Sensitive operations require creator approval
 """
-        (ws / "soul.md").write_text(soul_content.strip() + "\n", encoding="utf-8")
+        # Atomic write-if-not-exists to prevent race condition (ME-07)
+        try:
+            with open(soul_path, "x", encoding="utf-8") as f:
+                f.write(soul_content.strip() + "\n")
+        except FileExistsError:
+            logger.debug("[Workspace] soul.md already exists for agent %s (concurrent create)", agent_id)
 
     # Bootstrap evolution seed files
     _bootstrap_evolution_files(ws)

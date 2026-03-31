@@ -35,7 +35,7 @@ class PersistentMemoryStore:
             rows = []
             for index, fact in enumerate(facts):
                 payload = dict(fact)
-                content = str(payload.pop("content"))
+                content = str(payload.pop("content"))[:2000]  # Cap individual fact content
                 subject = payload.pop("subject", None)
                 timestamp = payload.pop("timestamp", payload.pop("created_at", None))
                 rows.append(

@@ -32,10 +32,13 @@ class MemoryAssembler:
 
         Returns a string with section headers ready to inject into a system prompt.
         """
-        # Deduplicate by content hash (first occurrence wins)
+        # Sort ALL items by score FIRST so dedup keeps highest-scored version (CR-01)
+        sorted_items = sorted(items, key=lambda i: i.score, reverse=True)
+
+        # Deduplicate by content hash (highest score wins since we sorted first)
         seen: set[str] = set()
         unique_items: list[MemoryItem] = []
-        for item in items:
+        for item in sorted_items:
             h = _content_hash(item.content)
             if h not in seen:
                 seen.add(h)
@@ -45,9 +48,7 @@ class MemoryAssembler:
         groups: dict[MemoryKind, list[MemoryItem]] = {}
         for item in unique_items:
             groups.setdefault(item.kind, []).append(item)
-
-        for kind_items in groups.values():
-            kind_items.sort(key=lambda item: item.score, reverse=True)
+        # Items already sorted by score from the global sort above
 
         # Build output in priority order
         sections: list[str] = []
@@ -59,6 +60,7 @@ class MemoryAssembler:
                 continue
 
             lines: list[str] = [header]
+            header_len = len(header) + 1
             for item in kind_items:
                 line = f"- {item.content}" if kind != MemoryKind.WORKING else item.content
                 line_len = len(line) + 1  # +1 for newline
@@ -69,6 +71,7 @@ class MemoryAssembler:
 
             # Only add the section if it has content beyond the header
             if len(lines) > 1:
+                total_chars += header_len  # Count header only if section has content
                 sections.append("\n".join(lines))
 
             if total_chars >= budget_chars:

@@ -113,6 +113,8 @@ async def receive_webhook(token: str, request: Request):
             payload_str = repr(body[:2000])
 
         # Store payload and set pending flag
+        if cfg.get("_webhook_pending"):
+            logger.warning("[Webhook] Overwriting pending payload for trigger %s — previous event may be lost", target.name)
         if len(payload_str) > 8000:
             logger.warning("Webhook payload truncated for trigger %s: %d->8000 chars", target.name, len(payload_str))
         new_config = {**cfg, "_webhook_pending": True, "_webhook_payload": payload_str[:8000]}

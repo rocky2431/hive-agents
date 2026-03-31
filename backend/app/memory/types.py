@@ -2,9 +2,30 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
+
+_logger = logging.getLogger(__name__)
+
+
+def parse_utc_timestamp(value: str | None) -> datetime | None:
+    """Parse timestamp string to UTC datetime. Shared across memory subsystem."""
+    if not value or not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(normalized)
+    except ValueError:
+        _logger.debug("Unparseable timestamp: %s", value)
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
 
 
 class MemoryKind(StrEnum):
@@ -23,6 +44,9 @@ class MemoryItem:
     score: float = 0.0
     source: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self):
+        self.score = max(0.0, min(self.score, 1.0))
 
 
 @dataclass(slots=True)

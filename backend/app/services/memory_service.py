@@ -126,7 +126,9 @@ def compute_history_limit(
     # Generation headroom: ~8K tokens for model output
     generation_reserve = 8000
 
-    total_reserved = prompt_reserve + tools_reserve + generation_reserve
+    # Memory context assembled by MemoryAssembler (~8K chars ≈ 2300 tokens)
+    memory_context_reserve = 2500
+    total_reserved = prompt_reserve + tools_reserve + generation_reserve + memory_context_reserve
     history_token_budget = max(context_limit - total_reserved, context_limit // 4)
 
     avg_tokens_per_message = 300
@@ -227,6 +229,10 @@ async def maybe_compress_messages(
 
     # Fallback: text extraction
     summary = _extract_summary(old_messages)
+    if not summary:
+        # CR-03: If extraction also produces empty summary, keep original messages
+        logger.warning("[Memory] Both LLM and extraction summaries empty — skipping compression")
+        return messages
     if on_compaction:
         maybe_result = on_compaction({
             "summary": summary,
@@ -621,25 +627,28 @@ def _merge_memory_facts(
         # Expire stale low-value facts: older than expiry_days AND low relevance score
         fact_ts = fact.get("timestamp")
         if fact_ts and isinstance(fact_ts, str):
-            try:
-                ts_str = fact_ts.strip()
-                if ts_str.endswith("Z"):
-                    ts_str = ts_str[:-1] + "+00:00"
-                fact_dt = datetime.fromisoformat(ts_str)
-                if fact_dt.tzinfo is None:
-                    fact_dt = fact_dt.replace(tzinfo=timezone.utc)
+            from app.memory.types import parse_utc_timestamp
+
+            fact_dt = parse_utc_timestamp(fact_ts)
+            if fact_dt is not None:
                 fact_score = float(fact.get("score", 1.0))
                 if fact_dt < cutoff and fact_score < expiry_score_threshold:
                     continue
-            except (ValueError, TypeError) as ts_err:
-                logger.debug("Unparseable fact timestamp %r, keeping fact: %s", fact_ts, ts_err)
 
         identity = _fact_identity(fact)
         if not identity:
             continue
 
         if identity in identities:
-            old_index = identities.pop(identity)
+            old_index = identities[identity]
+            old_fact = merged[old_index]
+            # Keep the higher-confidence fact; equal score = new wins (more recent) (CR-02)
+            old_score = float(old_fact.get("score", 0.0))
+            new_score = float(fact.get("score", 0.0))
+            if new_score < old_score:
+                continue  # Keep existing higher-score fact
+            # New fact is better — replace old
+            identities.pop(identity)
             merged.pop(old_index)
             for known_identity, known_index in list(identities.items()):
                 if known_index > old_index:

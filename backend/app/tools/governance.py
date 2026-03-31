@@ -193,6 +193,9 @@ async def _run_governance_inner(
         )
         return message
 
+    if not context.tenant_id:
+        logger.info("[Governance] No tenant_id — skipping capability checks for tool %s", context.tool_name)
+
     if context.tenant_id:
         try:
             tenant_uuid = uuid.UUID(context.tenant_id)

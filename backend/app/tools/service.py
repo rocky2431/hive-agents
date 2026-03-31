@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import json as _json
 import traceback
 import uuid
 from dataclasses import dataclass
@@ -90,7 +91,7 @@ class ToolRuntimeService:
                         f"Called tool {tool_name}: {result[:80]}",
                         detail={
                             "tool": tool_name,
-                            "args": {k: str(v)[:100] for k, v in arguments.items()},
+                            "args": {k: (_json.dumps(v, ensure_ascii=False, default=str)[:100] if isinstance(v, (dict, list)) else str(v)[:100]) for k, v in arguments.items()},
                             "result": result[:300],
                         },
                     )

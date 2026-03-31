@@ -8,7 +8,9 @@ Runs as a background task inside the FastAPI process.
 """
 
 import asyncio
+import os
 import re
+import tempfile
 import uuid
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -278,6 +280,26 @@ async def _build_evolution_context(agent_id: uuid.UUID, recent_activities: list)
     return "\n\n".join(parts) if parts else ""
 
 
+def _atomic_write(path: Path, content: str) -> None:
+    """Write file atomically via temp file + rename."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_fd, tmp_path = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
+    fd_closed = False
+    try:
+        os.write(tmp_fd, content.encode("utf-8"))
+        os.close(tmp_fd)
+        fd_closed = True
+        os.replace(tmp_path, str(path))
+    except BaseException:
+        if not fd_closed:
+            os.close(tmp_fd)
+        try:
+            os.unlink(tmp_path)
+        except OSError as unlink_exc:
+            logger.debug("[Heartbeat] Failed to clean up temp file %s: %s", tmp_path, unlink_exc)
+        raise
+
+
 def _update_evolution_files(
     agent_id: uuid.UUID,
     outcome_type: str,
@@ -330,12 +352,12 @@ def _update_evolution_files(
         )
         trend = f"Useful rate: {useful_rate}% ({counters['useful_heartbeats']}/{counters['total_heartbeats']})"
 
-        scorecard_path.write_text(
+        _atomic_write(
+            scorecard_path,
             "# Evolution Scorecard\n\n## Metrics\n"
             + "".join(f"- {k}: {v}\n" for k, v in counters.items())
             + f"\n## Recent Trend\n{trend}\n"
             + f"Last updated: {now}\n",
-            encoding="utf-8",
         )
     except Exception as exc:
         logger.debug(f"[Heartbeat] Failed to update scorecard for {agent_id}: {exc}")
@@ -348,7 +370,7 @@ def _update_evolution_files(
             existing = "# Evolution Lineage\n\n"
         score_str = f", score={score}" if score is not None else ""
         entry = f"### HB-{now}\n- Outcome: {outcome_type}{score_str}\n- Summary: {summary}\n\n"
-        lineage_path.write_text(existing.rstrip() + "\n\n" + entry, encoding="utf-8")
+        _atomic_write(lineage_path, existing.rstrip() + "\n\n" + entry)
     except Exception as exc:
         logger.debug(f"[Heartbeat] Failed to update lineage for {agent_id}: {exc}")
 
@@ -663,6 +685,16 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
             # Parse structured outcome from LLM reply
             outcome_type, heartbeat_score = _parse_heartbeat_outcome(reply)
 
+            # Update last_heartbeat_at BEFORE activity logging (optimistic lock)
+            # to prevent timestamp storm: if execution/logging takes long, the agent
+            # won't be re-triggered because the timestamp is already advanced.
+            async with async_session() as db3:
+                a_result = await db3.execute(select(Agent).where(Agent.id == agent_id))
+                a = a_result.scalar_one_or_none()
+                if a:
+                    a.last_heartbeat_at = datetime.now(timezone.utc)
+                    await db3.commit()
+
             # M-20: Activity log MUST be written before evolution files
             # so evolution context sees the latest activity on next heartbeat
             from app.services.activity_logger import log_activity
@@ -677,14 +709,6 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
                     "session_id": str(session_id),
                 },
             )
-
-            # Update last_heartbeat_at
-            async with async_session() as db3:
-                a_result = await db3.execute(select(Agent).where(Agent.id == agent_id))
-                a = a_result.scalar_one_or_none()
-                if a:
-                    a.last_heartbeat_at = datetime.now(timezone.utc)
-                    await db3.commit()
 
             # Server-side evolution file writeback — closes the feedback loop
             try:

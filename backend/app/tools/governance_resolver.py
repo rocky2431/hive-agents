@@ -38,13 +38,17 @@ class ToolGovernanceResolver:
 
     def build_dependencies(self) -> GovernanceDependencies:
         async def _resolve_security_zone(agent_id: uuid.UUID) -> str:
-            async with async_session() as db:
-                result = await db.execute(select(Agent).where(Agent.id == agent_id))
-                agent = result.scalar_one_or_none()
-                zone = getattr(agent, "security_zone", None)
-                if not zone:
-                    logger.warning("[Governance] Agent %s has no security_zone set — defaulting to 'restricted'", agent_id)
-                return zone or "restricted"
+            try:
+                async with async_session() as db:
+                    result = await db.execute(select(Agent).where(Agent.id == agent_id))
+                    agent = result.scalar_one_or_none()
+                    zone = getattr(agent, "security_zone", None)
+                    if not zone:
+                        logger.warning("[Governance] Agent %s has no security_zone set — defaulting to 'restricted'", agent_id)
+                    return zone or "restricted"
+            except Exception as exc:
+                logger.error("[Governance] Failed to resolve security zone for %s: %s — defaulting to 'restricted'", agent_id, exc)
+                return "restricted"
 
         async def _check_capability(tenant_id: uuid.UUID, agent_id: uuid.UUID, tool_name: str):
             async with async_session() as db:

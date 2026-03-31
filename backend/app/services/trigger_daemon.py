@@ -431,7 +431,10 @@ async def _invoke_agent_for_triggers(agent_id: uuid.UUID, triggers: list[AgentTr
             # Load agent
             result = await db.execute(select(Agent).where(Agent.id == agent_id))
             agent = result.scalar_one_or_none()
-            if not agent or agent.status in ("expired", "stopped", "error", "archived"):
+            if not agent:
+                logger.warning("[TriggerDaemon] Agent %s not found — skipping trigger", agent_id)
+                return
+            if agent.status in ("expired", "stopped", "error", "archived"):
                 return
 
             # Set execution identity — autonomous agent action
@@ -679,6 +682,9 @@ async def _tick():
                                 }
                             if trigger.max_fires and trigger.fire_count >= trigger.max_fires:
                                 trigger.is_enabled = False
+                    # IMPORTANT: commit() MUST complete before create_task() below
+                    # to ensure trigger state (last_fired_at, fire_count) is persisted
+                    # before the async invocation reads it — prevents duplicate fires.
                     await db.commit()
             except Exception as e:
                 logger.warning(f"Failed to pre-update trigger state: {e}")

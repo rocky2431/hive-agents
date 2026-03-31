@@ -12,9 +12,19 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from app.memory.store import PersistentMemoryStore
-from app.memory.types import MemoryItem, MemoryKind
+from app.memory.types import MemoryItem, MemoryKind, parse_utc_timestamp
 
 logger = logging.getLogger(__name__)
+
+
+def _content_similar(a: str, b: str, threshold: float = 0.7) -> bool:
+    """Check if two text blocks are similar using word overlap."""
+    words_a = set(a.lower().split())
+    words_b = set(b.lower().split())
+    if not words_a or not words_b:
+        return False
+    overlap = len(words_a & words_b)
+    return overlap / min(len(words_a), len(words_b)) > threshold
 
 
 def _score_relevance(content: str, query: str) -> float:
@@ -25,20 +35,7 @@ def _score_relevance(content: str, query: str) -> float:
     return len(overlap) / max(len(query_words), 1)
 
 
-def _parse_timestamp(value: str | None) -> datetime | None:
-    if not value or not isinstance(value, str):
-        return None
-    normalized = value.strip()
-    if normalized.endswith("Z"):
-        normalized = normalized[:-1] + "+00:00"
-    try:
-        dt = datetime.fromisoformat(normalized)
-    except ValueError:
-        logger.debug("Unparseable timestamp: %s", value)
-        return None
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=UTC)
-    return dt.astimezone(UTC)
+_parse_timestamp = parse_utc_timestamp  # Use shared implementation from types.py
 
 
 def _score_recency(timestamp: str | None) -> float:
@@ -169,6 +166,14 @@ class MemoryRetriever:
 
         except Exception as exc:
             logger.warning("Episodic retrieval failed: %s", exc)
+
+        # Deduplicate episodic items with similar content
+        if len(items) > 1:
+            unique: list[MemoryItem] = [items[0]]
+            for item in items[1:]:
+                if not any(_content_similar(item.content, u.content) for u in unique):
+                    unique.append(item)
+            items = unique
 
         return items
 
