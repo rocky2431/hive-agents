@@ -94,6 +94,14 @@ export interface EnterpriseStats {
   [key: string]: number;
 }
 
+export interface MemoryConfig {
+  summary_model_id: string | null;
+  rerank_model_id: string | null;
+  compress_threshold: number;
+  keep_recent: number;
+  extract_to_viking: boolean;
+}
+
 export const enterpriseApi = {
   /** LLM models */
   listLLMModels: (tenantId?: string) => get<LLMModel[]>(`/enterprise/llm-models${tenantId ? `?tenant_id=${tenantId}` : ''}`),
@@ -121,6 +129,12 @@ export const enterpriseApi = {
   getStats: (tenantId?: string) => get<EnterpriseStats>(`/enterprise/stats${tenantId ? `?tenant_id=${tenantId}` : ''}`),
   getTenantQuotas: () => get<Record<string, unknown>>('/enterprise/tenant-quotas'),
   updateTenantQuotas: (data: Record<string, unknown>) => patch<void>('/enterprise/tenant-quotas', data),
+
+  /** Memory config */
+  getMemoryConfig: (tenantId?: string) =>
+    get<MemoryConfig>(`/enterprise/memory/config${tenantId ? `?tenant_id=${tenantId}` : ''}`),
+  updateMemoryConfig: (data: MemoryConfig, tenantId?: string) =>
+    put<MemoryConfig>(`/enterprise/memory/config${tenantId ? `?tenant_id=${tenantId}` : ''}`, data),
 
   /** Invitation codes */
   listInvitationCodes: (params?: string) =>

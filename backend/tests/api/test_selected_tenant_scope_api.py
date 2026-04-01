@@ -140,6 +140,33 @@ async def test_platform_admin_can_update_selected_tenant_memory_config():
 
 
 @pytest.mark.asyncio
+async def test_platform_admin_can_update_selected_tenant_memory_config_with_rerank_model():
+    import app.api.memory as memory_api
+
+    own_tenant_id = uuid4()
+    target_tenant_id = uuid4()
+    # Three DB calls: 1) lookup existing TenantSetting, 2) validate summary_model_id, 3) validate rerank_model_id
+    db = _FakeDB([_ScalarResult(None), _ScalarResult(uuid4()), _ScalarResult(uuid4())])
+
+    result = await memory_api.update_memory_config(
+        data=memory_api.MemoryConfigUpdate(
+            summary_model_id="summary-model-1",
+            rerank_model_id="rerank-model-1",
+            keep_recent=20,
+        ),
+        tenant_id=str(target_tenant_id),
+        current_user=SimpleNamespace(role="platform_admin", tenant_id=own_tenant_id),
+        db=db,
+    )
+
+    assert result["summary_model_id"] == "summary-model-1"
+    assert result["rerank_model_id"] == "rerank-model-1"
+    assert result["keep_recent"] == 20
+    assert db.added[0].tenant_id == target_tenant_id
+    assert db.committed is True
+
+
+@pytest.mark.asyncio
 async def test_platform_admin_can_get_selected_tenant_oidc_config():
     import app.api.enterprise as enterprise_api
 

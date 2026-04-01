@@ -137,9 +137,49 @@ def _build_persisted_memory_messages(
         base_messages = _llm_messages_to_dicts(api_messages[1:])  # Skip system prompt
     else:
         base_messages = list(request.memory_messages or request.messages)
+    base_messages.extend(_build_runtime_memory_event_messages(request.session_context))
     if final_content and not final_content.startswith("[LLM") and not final_content.startswith("[Error]"):
         base_messages.append({"role": "assistant", "content": final_content})
     return base_messages
+
+
+def _build_runtime_memory_event_messages(session_context: Any | None) -> list[dict]:
+    if session_context is None:
+        return []
+
+    events: list[dict] = []
+
+    for outcome in getattr(session_context, "recent_tool_outcomes", [])[-5:]:
+        tool_name = outcome.get("tool", "?")
+        summary = outcome.get("summary", "")
+        if summary:
+            events.append({
+                "role": "assistant",
+                "content": f"Runtime event: tool outcome {tool_name} — {summary}",
+            })
+
+    for path in getattr(session_context, "recent_writes", [])[-5:]:
+        if path:
+            events.append({
+                "role": "assistant",
+                "content": f"Runtime event: wrote file {path}",
+            })
+
+    for ref in getattr(session_context, "recent_external_refs", [])[-5:]:
+        if ref:
+            events.append({
+                "role": "assistant",
+                "content": f"Runtime event: external reference {ref}",
+            })
+
+    for item in getattr(session_context, "pending_items", [])[-5:]:
+        if item:
+            events.append({
+                "role": "assistant",
+                "content": f"Runtime event: pending work {item}",
+            })
+
+    return events
 
 
 def _is_prompt_too_long(exc: Exception) -> bool:
@@ -407,7 +447,7 @@ def _build_restoration_context(
     # ── 3: Recently-read files ──
     if session_context and getattr(session_context, "recent_files", None):
         _file_budget = min(max(_per_file_cap // 2, 2000), _per_file_cap)
-        for fpath_str in session_context.recent_files[-3:]:
+        for fpath_str in reversed(session_context.recent_files[-3:]):
             if total >= _restore_budget:
                 break
             try:
