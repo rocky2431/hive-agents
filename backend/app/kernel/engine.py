@@ -753,10 +753,24 @@ class AgentKernel:
                             args = json.loads(raw_args) if raw_args else {}
                         except json.JSONDecodeError:
                             logger.warning(
-                                "[Kernel] Malformed tool arguments: tool=%s, raw=%s",
+                                "[Kernel] Malformed tool arguments — returning error to LLM: tool=%s, raw=%s",
                                 tool_name, (raw_args or "")[:200],
                             )
-                            args = {}
+                            # Report parse error as tool result instead of silently using empty dict
+                            _parse_err = (
+                                f"[Argument Parse Error] Failed to parse JSON arguments for '{tool_name}'. "
+                                f"Raw input (truncated): {(raw_args or '')[:200]}. "
+                                f"Please fix JSON syntax and retry."
+                            )
+                            _err_event = {"name": tool_name, "args": {}, "status": "done", "result": _parse_err}
+                            api_messages.append(LLMMessage(role="tool", tool_call_id=tc["id"], content=_parse_err))
+                            if request.on_tool_call:
+                                try:
+                                    await _maybe_await(request.on_tool_call(_err_event))
+                                except Exception as _cb_err:
+                                    logger.warning("[Kernel] on_tool_call callback failed for parse error event: %s", _cb_err)
+                            collected_parts.append(build_tool_call_event(_err_event)["part"])
+                            continue
                         parsed_tool_calls.append((tc, tool_name, args))
 
                     if len(parsed_tool_calls) > 1 and _can_parallelize_batch(response.tool_calls):

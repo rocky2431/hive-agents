@@ -352,13 +352,16 @@ async def websocket_chat(
                     asst_msg["reasoning_content"] = tc_data["reasoning_content"]
                 conversation.append(asst_msg)
                 # Tool result message
+                # Aligned with kernel _TOOL_RESULT_EVICTION_THRESHOLD (8000)
+                _tc_str = str(tc_result)
+                if len(_tc_str) > 8000:
+                    logger.info("[WS] Tool result truncated on reload: %d→8000 chars", len(_tc_str))
+                    _tc_str = _tc_str[:8000] + "\n\n[... truncated, full output may be in workspace/tool_results/]"
                 conversation.append({
                     "role": "tool",
                     "tool_call_id": tc_id,
-                    "content": str(tc_result)[:2000],
+                    "content": _tc_str,
                 })
-                if len(str(tc_result)) > 2000:
-                    logger.info("[WS] Tool result truncated on reload: %d→2000 chars", len(str(tc_result)))
             except Exception as _tc_parse_err:
                 logger.debug("[WS] Skipped malformed tool_call record: %s", _tc_parse_err)
                 continue
@@ -498,8 +501,11 @@ async def websocket_chat(
                             try:
                                 import json as _json_tc
                                 raw_result = data.get("result") or ""
-                                if len(str(raw_result)) > 2000:
-                                    logger.info("[WS] Tool result truncated on save: %d->2000 chars (tool=%s)", len(str(raw_result)), data.get("name", "?"))
+                                # Aligned with kernel _TOOL_RESULT_EVICTION_THRESHOLD (8000)
+                                _raw_str = str(raw_result)
+                                if len(_raw_str) > 8000:
+                                    logger.info("[WS] Tool result truncated on save: %d->8000 chars (tool=%s)", len(_raw_str), data.get("name", "?"))
+                                    _raw_str = _raw_str[:8000] + "\n\n[... truncated]"
                                 async with async_session() as _tc_db:
                                     tc_msg = ChatMessage(
                                         agent_id=agent_id,
@@ -509,7 +515,7 @@ async def websocket_chat(
                                             "name": data.get("name", ""),
                                             "args": data.get("args"),
                                             "status": "done",
-                                            "result": str(raw_result)[:2000],
+                                            "result": _raw_str,
                                             "reasoning_content": data.get("reasoning_content"),
                                         }),
                                         conversation_id=conv_id,

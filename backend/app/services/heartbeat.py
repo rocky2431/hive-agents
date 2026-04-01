@@ -8,6 +8,7 @@ Runs as a background task inside the FastAPI process.
 """
 
 import asyncio
+import fcntl
 import os
 import re
 import tempfile
@@ -310,6 +311,9 @@ def _update_evolution_files(
 
     This closes the evolution feedback loop — the agent can see its real
     performance history on subsequent heartbeats instead of frozen seed values.
+
+    Uses flock() to protect the read-modify-write cycle against concurrent
+    heartbeat processes writing the same files.
     """
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d-%H:%M")
 
@@ -322,57 +326,67 @@ def _update_evolution_files(
     evo_dir = ws_root / "evolution"
     evo_dir.mkdir(parents=True, exist_ok=True)
 
-    # ── Update scorecard counters ──
-    scorecard_path = evo_dir / "scorecard.md"
+    # Acquire exclusive lock for the entire read-modify-write cycle
+    lock_path = evo_dir / ".evolution.lock"
+    lock_fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR)
     try:
-        sc_text = scorecard_path.read_text(encoding="utf-8", errors="replace") if scorecard_path.exists() else ""
-        counters = {
-            "total_heartbeats": 0,
-            "useful_heartbeats": 0,
-            "failed_attempts": 0,
-            "blocked_approaches": 0,
-            "skills_created": 0,
-            "strategies_evolved": 0,
-        }
-        for key in counters:
-            match = re.search(rf"- {key}:\s*(\d+)", sc_text)
-            if match:
-                counters[key] = int(match.group(1))
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
 
-        counters["total_heartbeats"] += 1
-        if outcome_type == "action_taken" and (score is None or score >= 5):
-            counters["useful_heartbeats"] += 1
-        elif outcome_type in ("failure", "crash"):
-            counters["failed_attempts"] += 1
+        # ── Update scorecard counters ──
+        scorecard_path = evo_dir / "scorecard.md"
+        try:
+            sc_text = scorecard_path.read_text(encoding="utf-8", errors="replace") if scorecard_path.exists() else ""
+            counters = {
+                "total_heartbeats": 0,
+                "useful_heartbeats": 0,
+                "failed_attempts": 0,
+                "blocked_approaches": 0,
+                "skills_created": 0,
+                "strategies_evolved": 0,
+            }
+            for key in counters:
+                match = re.search(rf"- {key}:\s*(\d+)", sc_text)
+                if match:
+                    counters[key] = int(match.group(1))
 
-        useful_rate = (
-            round(counters["useful_heartbeats"] / counters["total_heartbeats"] * 100)
-            if counters["total_heartbeats"] > 0
-            else 0
-        )
-        trend = f"Useful rate: {useful_rate}% ({counters['useful_heartbeats']}/{counters['total_heartbeats']})"
+            counters["total_heartbeats"] += 1
+            if outcome_type == "action_taken" and (score is None or score >= 5):
+                counters["useful_heartbeats"] += 1
+            elif outcome_type in ("failure", "crash"):
+                counters["failed_attempts"] += 1
 
-        _atomic_write(
-            scorecard_path,
-            "# Evolution Scorecard\n\n## Metrics\n"
-            + "".join(f"- {k}: {v}\n" for k, v in counters.items())
-            + f"\n## Recent Trend\n{trend}\n"
-            + f"Last updated: {now}\n",
-        )
-    except Exception as exc:
-        logger.debug(f"[Heartbeat] Failed to update scorecard for {agent_id}: {exc}")
+            useful_rate = (
+                round(counters["useful_heartbeats"] / counters["total_heartbeats"] * 100)
+                if counters["total_heartbeats"] > 0
+                else 0
+            )
+            trend = f"Useful rate: {useful_rate}% ({counters['useful_heartbeats']}/{counters['total_heartbeats']})"
 
-    # ── Append lineage entry ──
-    lineage_path = evo_dir / "lineage.md"
-    try:
-        existing = lineage_path.read_text(encoding="utf-8", errors="replace") if lineage_path.exists() else ""
-        if "(no entries yet)" in existing:
-            existing = "# Evolution Lineage\n\n"
-        score_str = f", score={score}" if score is not None else ""
-        entry = f"### HB-{now}\n- Outcome: {outcome_type}{score_str}\n- Summary: {summary}\n\n"
-        _atomic_write(lineage_path, existing.rstrip() + "\n\n" + entry)
-    except Exception as exc:
-        logger.debug(f"[Heartbeat] Failed to update lineage for {agent_id}: {exc}")
+            _atomic_write(
+                scorecard_path,
+                "# Evolution Scorecard\n\n## Metrics\n"
+                + "".join(f"- {k}: {v}\n" for k, v in counters.items())
+                + f"\n## Recent Trend\n{trend}\n"
+                + f"Last updated: {now}\n",
+            )
+        except Exception as exc:
+            logger.debug(f"[Heartbeat] Failed to update scorecard for {agent_id}: {exc}")
+
+        # ── Append lineage entry ──
+        lineage_path = evo_dir / "lineage.md"
+        try:
+            existing = lineage_path.read_text(encoding="utf-8", errors="replace") if lineage_path.exists() else ""
+            if "(no entries yet)" in existing:
+                existing = "# Evolution Lineage\n\n"
+            score_str = f", score={score}" if score is not None else ""
+            entry = f"### HB-{now}\n- Outcome: {outcome_type}{score_str}\n- Summary: {summary}\n\n"
+            _atomic_write(lineage_path, existing.rstrip() + "\n\n" + entry)
+        except Exception as exc:
+            logger.debug(f"[Heartbeat] Failed to update lineage for {agent_id}: {exc}")
+
+    finally:
+        fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        os.close(lock_fd)
 
     logger.info(f"[Heartbeat] Evolution files updated for agent {agent_id}: {outcome_type}")
 
@@ -711,8 +725,9 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
             )
 
             # Server-side evolution file writeback — closes the feedback loop
+            # Runs in thread pool to avoid blocking the event loop (flock is blocking I/O)
             try:
-                _update_evolution_files(agent_id, outcome_type, heartbeat_score, summary)
+                await asyncio.to_thread(_update_evolution_files, agent_id, outcome_type, heartbeat_score, summary)
             except Exception as _evo_err:
                 logger.warning(f"[Heartbeat] Evolution writeback failed for {agent_id}: {_evo_err}")
 
@@ -750,7 +765,7 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
             logger.debug(f"Failed to log heartbeat crash to activity: {log_err}")
         # Update evolution files on crash too — closes the feedback loop
         try:
-            _update_evolution_files(agent_id, "crash", None, f"crash: {str(e)[:60]}")
+            await asyncio.to_thread(_update_evolution_files, agent_id, "crash", None, f"crash: {str(e)[:60]}")
         except Exception as _evo_crash_err:
             logger.debug(f"[Heartbeat] Evolution writeback on crash failed: {_evo_crash_err}")
 

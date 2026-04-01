@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json as _json
+import logging
 import traceback
 import uuid
 from dataclasses import dataclass
@@ -109,9 +110,21 @@ class ToolRuntimeService:
         arguments: dict,
         *,
         agent_id: uuid.UUID,
+        user_id: uuid.UUID | None = None,
     ) -> str:
-        runtime_context = await self.runtime_resolver.resolve(agent_id=agent_id, user_id=agent_id)
+        """Execute a tool after approval, with basic validation.
+
+        Governance is intentionally skipped (approval already granted), but
+        we validate the tool exists and log the execution for audit.
+        """
+        _logger = logging.getLogger(__name__)
+
         self.ensure_registry()
+
+        resolved_user_id = user_id or agent_id
+        _logger.info("[ToolService] execute_direct: tool=%s agent=%s user=%s", tool_name, agent_id, resolved_user_id)
+
+        runtime_context = await self.runtime_resolver.resolve(agent_id=agent_id, user_id=resolved_user_id)
         try:
             direct_result = await _maybe_await(
                 self.registry.try_execute(
@@ -123,9 +136,24 @@ class ToolRuntimeService:
                 )
             )
             if direct_result is not None:
-                return direct_result
-            return await _maybe_await(self.direct_fallback_executor(tool_name, arguments, runtime_context))
+                result = direct_result
+            else:
+                result = await _maybe_await(self.direct_fallback_executor(tool_name, arguments, runtime_context))
+            # Activity log for audit trail (mirrors execute() behavior)
+            if self.activity_logger and tool_name not in ("list_files", "read_file", "read_document"):
+                try:
+                    await _maybe_await(
+                        self.activity_logger(
+                            agent_id, "tool_call_direct",
+                            f"Direct-executed {tool_name}: {result[:80]}",
+                            detail={"tool": tool_name, "result": result[:300], "approved": True},
+                        )
+                    )
+                except Exception as _log_err:
+                    _logger.warning("[ToolService] Activity logging failed for execute_direct: %s", _log_err)
+            return result
         except Exception as exc:
+            _logger.error("[ToolService] execute_direct failed: tool=%s agent=%s error=%s", tool_name, agent_id, exc)
             return f"Error executing {tool_name}: {exc}"
 
     async def execute_with_context(

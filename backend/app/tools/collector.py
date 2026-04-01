@@ -8,7 +8,7 @@ governance sets, pack groups).
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable
 
 from app.tools.adapters import adapt_and_call
@@ -62,20 +62,33 @@ def _meta_to_seed_dict(meta: ToolMeta) -> dict[str, Any]:
 def _import_handler_modules() -> None:
     """Import all handler modules to trigger @tool registration.
 
-    Explicit imports — no pkgutil magic — to guarantee deterministic order
-    and catch import errors at startup.
+    Each handler is imported individually with error isolation — one broken
+    handler no longer prevents all other tools from registering.
     """
-    # Phase 3 handler imports — add new modules here as tools are migrated.
-    import app.tools.handlers.search  # noqa: F401
-    import app.tools.handlers.filesystem  # noqa: F401
-    import app.tools.handlers.skills  # noqa: F401
-    import app.tools.handlers.triggers  # noqa: F401
-    import app.tools.handlers.communication  # noqa: F401
-    import app.tools.handlers.feishu  # noqa: F401
-    import app.tools.handlers.mcp  # noqa: F401
-    import app.tools.handlers.email  # noqa: F401
-    import app.tools.handlers.plaza  # noqa: F401
-    import app.tools.handlers.hr  # noqa: F401
+    _handler_modules = [
+        "app.tools.handlers.search",
+        "app.tools.handlers.filesystem",
+        "app.tools.handlers.skills",
+        "app.tools.handlers.triggers",
+        "app.tools.handlers.communication",
+        "app.tools.handlers.feishu",
+        "app.tools.handlers.mcp",
+        "app.tools.handlers.email",
+        "app.tools.handlers.plaza",
+        "app.tools.handlers.hr",
+    ]
+    _failed: list[str] = []
+    for _mod in _handler_modules:
+        try:
+            __import__(_mod)
+        except Exception as exc:
+            logger.error("[Collector] Failed to import handler %s: %s", _mod, exc, exc_info=True)
+            _failed.append(_mod)
+    if _failed:
+        logger.error(
+            "[Collector] %d/%d handler module(s) failed to import: %s — affected tools will be unavailable",
+            len(_failed), len(_handler_modules), _failed,
+        )
 
 
 def collect_tools() -> CollectedTools:
