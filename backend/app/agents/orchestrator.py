@@ -24,6 +24,18 @@ class OrchestrationPolicy:
 
 # ── Async delegation registry (in-process, per-worker) ──────────────
 _async_tasks: dict[str, asyncio.Task[AgentDelegationResult]] = {}
+_MAX_TRACKED_TASKS = 200
+
+
+def _cleanup_stale_tasks() -> None:
+    """Remove completed tasks that haven't been checked, to prevent unbounded growth."""
+    if len(_async_tasks) <= _MAX_TRACKED_TASKS:
+        return
+    stale = [tid for tid, task in _async_tasks.items() if task.done()]
+    for tid in stale:
+        _async_tasks.pop(tid, None)
+    if len(_async_tasks) > _MAX_TRACKED_TASKS:
+        logger.warning("[Orchestrator] %d active async tasks exceeds cap %d", len(_async_tasks), _MAX_TRACKED_TASKS)
 
 
 @dataclass(slots=True)
@@ -201,6 +213,7 @@ async def delegate_async(
     policy: OrchestrationPolicy | None = None,
 ) -> AsyncDelegationHandle:
     """Launch a child agent in the background and return immediately."""
+    _cleanup_stale_tasks()
     request = AgentDelegationRequest(
         target=target,
         target_model=target_model,

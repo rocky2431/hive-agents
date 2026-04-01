@@ -380,7 +380,17 @@ def _update_evolution_files(
                 existing = "# Evolution Lineage\n\n"
             score_str = f", score={score}" if score is not None else ""
             entry = f"### HB-{now}\n- Outcome: {outcome_type}{score_str}\n- Summary: {summary}\n\n"
-            _atomic_write(lineage_path, existing.rstrip() + "\n\n" + entry)
+            new_content = existing.rstrip() + "\n\n" + entry
+
+            # Rotate lineage: keep header + last 200 entries to prevent unbounded growth
+            _LINEAGE_MAX_ENTRIES = 200
+            segments = new_content.split("### HB-")
+            if len(segments) > _LINEAGE_MAX_ENTRIES + 1:  # +1 for header segment
+                header = "# Evolution Lineage\n\n"
+                trimmed = header + "### HB-".join(segments[-_LINEAGE_MAX_ENTRIES:])
+                _atomic_write(lineage_path, trimmed)
+            else:
+                _atomic_write(lineage_path, new_content)
         except Exception as exc:
             logger.debug(f"[Heartbeat] Failed to update lineage for {agent_id}: {exc}")
 
@@ -656,31 +666,35 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
                 except Exception as tc_err:
                     logger.debug(f"Failed to persist heartbeat tool call: {tc_err}")
 
-            result = await invoke_agent(
-                AgentInvocationRequest(
-                    model=model,
-                    messages=runtime_messages,
-                    memory_messages=runtime_messages,
-                    agent_name=agent.name,
-                    role_description=agent.role_description or "",
-                    agent_id=agent_id,
-                    user_id=agent.creator_id,
-                    execution_identity=ExecutionIdentityRef(
-                        identity_type="agent_bot",
-                        identity_id=agent_id,
-                        label=f"Agent: {agent.name} (heartbeat)",
-                    ),
-                    session_context=SessionContext(
-                        source="heartbeat",
-                        channel="heartbeat",
-                        session_id=str(session_id),
-                        metadata={"agent_id": str(agent_id)},
-                    ),
-                    on_tool_call=_on_tool_call,
-                    tool_executor=_build_heartbeat_tool_executor(agent_id, agent.creator_id),
-                    core_tools_only=False,
-                    max_tool_rounds=25,
-                )
+            _HEARTBEAT_TIMEOUT_SECONDS = 300  # 5 min hard limit to prevent event loop deadlock
+            result = await asyncio.wait_for(
+                invoke_agent(
+                    AgentInvocationRequest(
+                        model=model,
+                        messages=runtime_messages,
+                        memory_messages=runtime_messages,
+                        agent_name=agent.name,
+                        role_description=agent.role_description or "",
+                        agent_id=agent_id,
+                        user_id=agent.creator_id,
+                        execution_identity=ExecutionIdentityRef(
+                            identity_type="agent_bot",
+                            identity_id=agent_id,
+                            label=f"Agent: {agent.name} (heartbeat)",
+                        ),
+                        session_context=SessionContext(
+                            source="heartbeat",
+                            channel="heartbeat",
+                            session_id=str(session_id),
+                            metadata={"agent_id": str(agent_id)},
+                        ),
+                        on_tool_call=_on_tool_call,
+                        tool_executor=_build_heartbeat_tool_executor(agent_id, agent.creator_id),
+                        core_tools_only=False,
+                        max_tool_rounds=25,
+                    )
+                ),
+                timeout=_HEARTBEAT_TIMEOUT_SECONDS,
             )
             reply = result.content
 

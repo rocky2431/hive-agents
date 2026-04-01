@@ -388,6 +388,9 @@ class AgentKernel:
                 )
             )
         try:
+            if request.model is None:
+                return _build_error_result("[Error] No LLM model configured — unable to invoke agent.")
+
             runtime_config = await _maybe_await(self._deps.resolve_runtime_config(request.agent_id))
             if runtime_config.quota_message:
                 # Note: final_tools not included — not yet resolved at this point

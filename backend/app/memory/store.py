@@ -114,6 +114,10 @@ class PersistentMemoryStore:
         db_path = self._db_path(agent_id)
         try:
             conn = sqlite3.connect(db_path)
+            # WAL mode for concurrent read/write safety; busy_timeout prevents
+            # immediate "database is locked" errors on concurrent writes.
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=5000")
             # Quick integrity check — detect corruption early
             conn.execute("PRAGMA integrity_check").fetchone()
             return conn
