@@ -353,7 +353,13 @@ async def discord_interaction_webhook(
                     except Exception as e:
                         logger.error(f"[Discord] Failed to send follow-up: {e}")
 
-        asyncio.create_task(handle_in_background())
+        async def _safe_background():
+            try:
+                await handle_in_background()
+            except Exception as _bg_err:
+                logger.error(f"[Discord] Background task failed: {_bg_err}", exc_info=True)
+
+        asyncio.create_task(_safe_background())
         # Return DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE — shows "thinking..." to user
         return {"type": 5}
 

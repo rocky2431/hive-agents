@@ -1121,6 +1121,10 @@ class GeminiClient(LLMClient):
         finish_reason = None
 
         candidates = data.get("candidates") or []
+        if not candidates:
+            # Gemini returns empty candidates on safety blocks or degraded state
+            block_reason = data.get("promptFeedback", {}).get("blockReason", "")
+            logger.warning("[Gemini] Empty candidates — blockReason=%s", block_reason or "none")
         if candidates:
             candidate = candidates[0]
             finish_reason = candidate.get("finishReason")

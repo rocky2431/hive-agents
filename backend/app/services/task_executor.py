@@ -96,6 +96,13 @@ async def execute_task(task_id: uuid.UUID, agent_id: uuid.UUID) -> None:
             select(LLMModel).where(LLMModel.id == model_id, LLMModel.tenant_id == agent.tenant_id)
         )
         model = model_result.scalar_one_or_none()
+        # Load fallback model for runtime resilience (mirrors websocket/heartbeat behavior)
+        fallback_model = None
+        if agent.fallback_model_id and agent.fallback_model_id != model_id:
+            fb_result = await db.execute(
+                select(LLMModel).where(LLMModel.id == agent.fallback_model_id, LLMModel.tenant_id == agent.tenant_id)
+            )
+            fallback_model = fb_result.scalar_one_or_none()
         if not model:
             await _log_error(task_id, "配置的模型不存在")
             if task_type == 'supervision':
@@ -119,6 +126,7 @@ async def execute_task(task_id: uuid.UUID, agent_id: uuid.UUID) -> None:
         result = await invoke_agent(
             AgentInvocationRequest(
                 model=model,
+                fallback_model=fallback_model,
                 messages=runtime_messages,
                 memory_messages=runtime_messages,
                 agent_name=agent_name,

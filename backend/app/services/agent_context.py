@@ -212,6 +212,9 @@ async def build_agent_context(agent_id: uuid.UUID, agent_name: str, role_descrip
                     company_intro = setting.value["content"].strip()
 
             if company_intro:
+                # Cap to prevent unbounded prompt growth from large tenant metadata
+                if len(company_intro) > 5000:
+                    company_intro = company_intro[:5000] + "\n...(company info truncated)"
                 parts.append(f"\n## Company Information\n{company_intro}")
     except Exception as exc:
         logger.debug("Failed to load company intro for agent {}: {}", agent_id, exc)
@@ -267,11 +270,18 @@ async def build_agent_context(agent_id: uuid.UUID, agent_name: str, role_descrip
             triggers = result.scalars().all()
             if triggers:
                 lines = ["You have the following active triggers:"]
+                _triggers_chars = 0
+                _TRIGGERS_BUDGET = 3000
                 for t in triggers:
                     config_str = str(t.config)[:80]
                     reason_str = (t.reason or "")[:500]
                     ref_str = f" (focus: {t.focus_ref})" if t.focus_ref else ""
-                    lines.append(f"\n- **{t.name}** [{t.type}]{ref_str}\n  Config: `{config_str}`\n  Reason: {reason_str}")
+                    line = f"\n- **{t.name}** [{t.type}]{ref_str}\n  Config: `{config_str}`\n  Reason: {reason_str}"
+                    _triggers_chars += len(line)
+                    if _triggers_chars > _TRIGGERS_BUDGET:
+                        lines.append(f"\n... and {len(triggers) - len(lines) + 1} more triggers (truncated)")
+                        break
+                    lines.append(line)
                 parts.append("\n## Active Triggers\n" + "\n".join(lines))
     except Exception as exc:
         logger.debug("Failed to load active triggers for agent {}: {}", agent_id, exc)

@@ -896,16 +896,20 @@ async def process_feishu_event(agent_id: uuid.UUID, body: dict, db: AsyncSession
                     _last_flush_time = now
 
             # Call LLM with history and streaming callback
-            reply_text = await _call_agent_llm(
-                db,
-                agent_id,
-                llm_user_text,
-                history=history,
-                user_id=platform_user_id,
-                on_chunk=_ws_on_chunk,
-                on_thinking=_ws_on_thinking,
-                session_id=session_conv_id,
-            )
+            try:
+                reply_text = await _call_agent_llm(
+                    db,
+                    agent_id,
+                    llm_user_text,
+                    history=history,
+                    user_id=platform_user_id,
+                    on_chunk=_ws_on_chunk,
+                    on_thinking=_ws_on_thinking,
+                    session_id=session_conv_id,
+                )
+            except Exception as _llm_err:
+                logger.error(f"[Feishu] LLM invocation failed for agent {agent_id}: {_llm_err}")
+                reply_text = f"⚠️ 抱歉，处理消息时出错，请稍后重试。({type(_llm_err).__name__})"
             _cfs.reset(_cfs_token)
             _cfso.reset(_cfso_token)
             logger.info(f"[Feishu] LLM reply: {reply_text[:100]}")
