@@ -1096,6 +1096,22 @@ class AgentKernel:
                                             session_context, expansion_payload.active_packs
                                         )
                                         if new_packs:
+                                            # P1.10: Delayed loading metrics
+                                            _new_tool_count = sum(
+                                                len(p.get("tools", [])) for p in new_packs if isinstance(p, dict)
+                                            )
+                                            _pack_names = [p.get("name", "?") for p in new_packs if isinstance(p, dict)]
+                                            logger.info(
+                                                "[Kernel] Tool expansion: +%d tools via %s (trigger: %s)",
+                                                _new_tool_count, _pack_names, tool_name,
+                                                extra={
+                                                    "metric": "tool_expansion",
+                                                    "trigger_tool": tool_name,
+                                                    "pack_names": _pack_names,
+                                                    "new_tool_count": _new_tool_count,
+                                                    "total_packs": len(session_context.active_packs),
+                                                },
+                                            )
                                             event_payload = expansion_payload.event_payload or {
                                                 "type": "pack_activation",
                                                 "packs": new_packs,

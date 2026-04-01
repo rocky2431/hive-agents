@@ -27,6 +27,45 @@ _async_tasks: dict[str, asyncio.Task[AgentDelegationResult]] = {}
 _MAX_TRACKED_TASKS = 200
 
 
+def _persist_delegation_event(
+    *,
+    task_id: str,
+    status: str,
+    parent_agent_id: str | uuid.UUID | None = None,
+    child_agent_name: str | None = None,
+    trace_id: str | None = None,
+    result_preview: str = "",
+    timed_out: bool = False,
+) -> None:
+    """Fire-and-forget persistence of delegation lifecycle events via activity logger."""
+    if not parent_agent_id:
+        return
+    try:
+        from app.services.activity_logger import log_activity
+        detail: dict[str, Any] = {
+            "task_id": task_id,
+            "status": status,
+            "trace_id": trace_id or "",
+            "child_agent": child_agent_name or "",
+            "timed_out": timed_out,
+        }
+        if result_preview:
+            detail["result_preview"] = result_preview
+        # Fire-and-forget async logging from sync context
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(log_activity(
+                agent_id=uuid.UUID(str(parent_agent_id)),
+                action_type="delegation_" + status,
+                summary="Delegation " + status + ": " + (child_agent_name or task_id),
+                detail=detail,
+            ))
+        except RuntimeError:
+            logger.debug("[Orchestrator] No running event loop — delegation persistence skipped")
+    except Exception as _persist_err:
+        logger.debug("[Orchestrator] Delegation persistence failed: %s", _persist_err)
+
+
 def _cleanup_stale_tasks() -> None:
     """Remove completed tasks that haven't been checked, to prevent unbounded growth."""
     if len(_async_tasks) <= _MAX_TRACKED_TASKS:
@@ -244,8 +283,17 @@ async def delegate_async(
                 depth=depth,
             )
 
-    task = asyncio.create_task(_run(), name=f"async-delegation-{task_id}")
+    task = asyncio.create_task(_run(), name="async-delegation-" + task_id)
     _async_tasks[task_id] = task
+
+    # P1.8: Persist delegation start to activity log for observability
+    _persist_delegation_event(
+        task_id=task_id,
+        parent_agent_id=parent_agent_id,
+        child_agent_name=target.name,
+        trace_id=real_trace_id,
+        status="started",
+    )
     logger.info("[Orchestrator] Async delegation started: task_id=%s target=%s", task_id, target.name)
     return AsyncDelegationHandle(task_id=task_id, trace_id=real_trace_id, target_name=target.name)
 
@@ -261,6 +309,13 @@ async def check_async_delegation(task_id: str) -> dict[str, Any]:
     _async_tasks.pop(task_id, None)
     try:
         delegation_result = task.result()
+        # P1.8: Persist delegation completion
+        _persist_delegation_event(
+            task_id=task_id,
+            status="completed",
+            result_preview=delegation_result.content[:300] if delegation_result.content else "",
+            timed_out=delegation_result.timed_out,
+        )
         return {
             "task_id": task_id,
             "status": "completed",
@@ -268,6 +323,7 @@ async def check_async_delegation(task_id: str) -> dict[str, Any]:
             "timed_out": delegation_result.timed_out,
         }
     except Exception as exc:
+        _persist_delegation_event(task_id=task_id, status="error", result_preview=str(exc)[:300])
         return {"task_id": task_id, "status": "error", "result": str(exc)}
 
 

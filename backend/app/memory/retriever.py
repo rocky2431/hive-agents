@@ -11,8 +11,14 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
+import json
+
 from app.memory.store import PersistentMemoryStore
 from app.memory.types import MemoryItem, MemoryKind, parse_utc_timestamp
+
+# Rerank: only trigger LLM side-query when semantic candidates exceed this count.
+_RERANK_THRESHOLD = 5
+_RERANK_MAX_SELECT = 5
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +64,71 @@ def _score_semantic_item(content: str, query: str, timestamp: str | None) -> flo
     return 0.5 + recency * 0.3
 
 
+async def _rerank_semantic_items(
+    items: list[MemoryItem],
+    query: str,
+    model_config: dict | None = None,
+) -> list[MemoryItem]:
+    """Use a cheap LLM side-query to select the most relevant semantic memories.
+
+    Returns up to _RERANK_MAX_SELECT items, preserving original MemoryItem objects.
+    Falls back to the original list on any error.
+
+    Args:
+        model_config: dict with keys provider/api_key/model/base_url for create_llm_client.
+            If None, rerank is skipped (graceful degradation).
+    """
+    if not model_config:
+        return items[:_RERANK_MAX_SELECT]
+
+    try:
+        from app.services.llm_client import LLMMessage, create_llm_client
+    except ImportError:
+        return items[:_RERANK_MAX_SELECT]
+
+    manifest_lines = [
+        str(i) + ": " + item.content[:150] for i, item in enumerate(items)
+    ]
+    manifest = "\n".join(manifest_lines)
+    prompt_parts = [
+        "Query: " + query,
+        "",
+        "Memories (index: content):",
+        manifest,
+        "",
+        "Select up to " + str(_RERANK_MAX_SELECT) + " memory indices most useful for this query. ",
+        'Return JSON: {"selected": [0, 2, 4]}',
+    ]
+    prompt_text = "\n".join(prompt_parts)
+    try:
+        client = create_llm_client(**model_config)
+        response = await client.stream(
+            messages=[
+                LLMMessage(role="system", content="Select the most relevant memories. Return only JSON."),
+                LLMMessage(role="user", content=prompt_text),
+            ],
+            max_tokens=100,
+            temperature=0.0,
+        )
+        content = response.content if hasattr(response, "content") else str(response)
+        start = content.find("{")
+        end = content.rfind("}") + 1
+        if start >= 0 and end > start:
+            parsed = json.loads(content[start:end])
+            indices = parsed.get("selected", [])
+            if isinstance(indices, list) and indices:
+                selected = [items[i] for i in indices if isinstance(i, int) and 0 <= i < len(items)]
+                if selected:
+                    logger.debug("[Retriever] Rerank selected %d/%d items", len(selected), len(items))
+                    return selected
+        if hasattr(client, "close"):
+            await client.close()
+    except Exception as exc:
+        logger.debug("[Retriever] Rerank failed, using original order: %s", exc)
+
+    return items[:_RERANK_MAX_SELECT]
+
+
 class MemoryRetriever:
     """Four-layer memory retrieval pipeline.
 
@@ -78,12 +149,25 @@ class MemoryRetriever:
         tenant_id: str | None,
         *,
         limit: int = 20,
+        rerank_model_config: dict | None = None,
     ) -> list[MemoryItem]:
-        """Retrieve memory items from all four layers."""
+        """Retrieve memory items from all four layers.
+
+        Args:
+            rerank_model_config: When provided and semantic candidates > _RERANK_THRESHOLD,
+                use a cheap LLM side-query to re-score semantic items by relevance.
+                Dict with keys: provider, api_key, model, base_url (for create_llm_client).
+        """
         items: list[MemoryItem] = []
         items.extend(self._retrieve_working(agent_id))
         items.extend(await self._retrieve_episodic(agent_id, session_id))
-        items.extend(self._retrieve_semantic(agent_id, query, limit=limit))
+        semantic_items = self._retrieve_semantic(agent_id, query, limit=limit)
+
+        # P1.6: Optional LLM-based rerank for semantic items
+        if rerank_model_config and query and len(semantic_items) > _RERANK_THRESHOLD:
+            semantic_items = await _rerank_semantic_items(semantic_items, query, rerank_model_config)
+
+        items.extend(semantic_items)
         items.extend(await self._retrieve_external(agent_id, query, tenant_id))
         return items
 
