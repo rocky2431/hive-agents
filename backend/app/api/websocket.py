@@ -352,11 +352,11 @@ async def websocket_chat(
                     asst_msg["reasoning_content"] = tc_data["reasoning_content"]
                 conversation.append(asst_msg)
                 # Tool result message
-                # Aligned with kernel _TOOL_RESULT_EVICTION_THRESHOLD (8000)
+                # Aligned with kernel _TOOL_RESULT_EVICTION_THRESHOLD (50K, CC standard)
                 _tc_str = str(tc_result)
-                if len(_tc_str) > 8000:
-                    logger.info("[WS] Tool result truncated on reload: %d→8000 chars", len(_tc_str))
-                    _tc_str = _tc_str[:8000] + "\n\n[... truncated, full output may be in workspace/tool_results/]"
+                if len(_tc_str) > 50000:
+                    logger.info("[WS] Tool result truncated on reload: %d→50000 chars", len(_tc_str))
+                    _tc_str = _tc_str[:50000] + "\n\n[... truncated, full output may be in workspace/tool_results/]"
                 conversation.append({
                     "role": "tool",
                     "tool_call_id": tc_id,
@@ -501,11 +501,11 @@ async def websocket_chat(
                             try:
                                 import json as _json_tc
                                 raw_result = data.get("result") or ""
-                                # Aligned with kernel _TOOL_RESULT_EVICTION_THRESHOLD (8000)
+                                # Aligned with kernel _TOOL_RESULT_EVICTION_THRESHOLD (50K, CC standard)
                                 _raw_str = str(raw_result)
-                                if len(_raw_str) > 8000:
-                                    logger.info("[WS] Tool result truncated on save: %d->8000 chars (tool=%s)", len(_raw_str), data.get("name", "?"))
-                                    _raw_str = _raw_str[:8000] + "\n\n[... truncated]"
+                                if len(_raw_str) > 50000:
+                                    logger.info("[WS] Tool result truncated on save: %d->50000 chars (tool=%s)", len(_raw_str), data.get("name", "?"))
+                                    _raw_str = _raw_str[:50000] + "\n\n[... truncated]"
                                 async with async_session() as _tc_db:
                                     tc_msg = ChatMessage(
                                         agent_id=agent_id,

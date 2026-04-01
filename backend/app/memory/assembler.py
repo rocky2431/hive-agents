@@ -27,7 +27,7 @@ def _content_hash(content: str) -> str:
 class MemoryAssembler:
     """Assemble retrieved memory items into a prompt section."""
 
-    def assemble(self, items: list[MemoryItem], budget_chars: int = 8000) -> str:
+    def assemble(self, items: list[MemoryItem], budget_chars: int = 12000) -> str:
         """Render memory items grouped by kind, deduplicated and budget-trimmed.
 
         Returns a string with section headers ready to inject into a system prompt.

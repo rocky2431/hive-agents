@@ -425,7 +425,7 @@ async def _extract_facts_with_llm(messages: list[dict], model_config: dict) -> l
     if not conversation_text:
         return []
 
-    text = "\n".join(conversation_text[-15:])
+    text = "\n".join(conversation_text[-30:])
 
     client = create_llm_client(**model_config)
     try:
@@ -435,14 +435,18 @@ async def _extract_facts_with_llm(messages: list[dict], model_config: dict) -> l
                     role="system",
                     content=(
                         "Extract key facts from this conversation that would be useful to remember for future interactions. "
-                        "Return a JSON array of objects with 'content' and optional 'subject' fields. Extract 2-5 facts max. "
-                        "Focus on: user preferences, important decisions, project details, personal information shared. "
+                        "Return a JSON array of objects with 'content' and optional 'subject' fields. Extract 2-8 facts max.\n"
+                        "PRIORITY extraction targets (do NOT miss these):\n"
+                        "1. User feedback, corrections, or preferences about how the agent should behave\n"
+                        "2. Explicit instructions for future behavior\n"
+                        "3. Important decisions or project context\n"
+                        "4. Personal information or working style preferences\n"
                         "Respond ONLY with the JSON array, no other text."
                     ),
                 ),
                 LLMMessage(role="user", content=text),
             ],
-            max_tokens=500,
+            max_tokens=1000,
             temperature=0.3,
         )
 

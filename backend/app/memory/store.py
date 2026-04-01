@@ -91,7 +91,7 @@ class PersistentMemoryStore:
             facts.append(fact)
         return facts
 
-    def render_semantic_lines(self, agent_id: uuid.UUID, *, limit: int = 15) -> str:
+    def render_semantic_lines(self, agent_id: uuid.UUID, *, limit: int = 30) -> str:
         lines = []
         for fact in self.load_semantic_facts(agent_id):
             content = fact.get("content", fact.get("fact", ""))

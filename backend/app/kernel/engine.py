@@ -33,8 +33,12 @@ _MIDLOOP_COMPACT_CHECK_INTERVAL = 3
 _MIDLOOP_COMPACT_THRESHOLD = 0.85  # 85% of context window
 
 # Large tool result eviction: save to workspace file and keep truncated preview.
-_TOOL_RESULT_EVICTION_THRESHOLD = 8000  # chars
-_TOOL_RESULT_PREVIEW_LENGTH = 2000  # chars to keep inline
+# Aligned with Claude Code's DEFAULT_MAX_RESULT_SIZE_CHARS (50,000).
+_TOOL_RESULT_EVICTION_THRESHOLD = 50000  # chars (CC: 50K)
+_TOOL_RESULT_PREVIEW_LENGTH = 2000  # chars to keep inline (CC: 2K)
+# Per-round aggregate budget: prevents N parallel tools from overloading context.
+# Aligned with Claude Code's MAX_TOOL_RESULTS_PER_MESSAGE_CHARS (200,000).
+_TOOL_RESULTS_AGGREGATE_BUDGET = 200000  # chars per round (CC: 200K)
 # Tools whose output should never be evicted (small, structural results).
 _EVICTION_EXEMPT_TOOLS = frozenset({
     "list_files", "read_file", "load_skill", "tool_search",
@@ -235,6 +239,55 @@ def _dicts_to_llm_messages(dicts: list[dict]) -> list[LLMMessage]:
         )
         for d in dicts
     ]
+
+
+# Post-compaction context restoration budget (CC: 50K tokens ≈ 200K chars; Hive uses 20K chars)
+_POST_COMPACT_RESTORE_BUDGET = 20000  # chars
+_POST_COMPACT_PER_FILE_CAP = 5000    # chars per file (CC: 5K tokens)
+
+
+def _build_restoration_context(agent_id: Any) -> str:
+    """Build critical context to re-inject after mid-loop compaction.
+
+    Mirrors CC's post-compaction restoration: re-inject soul + focus so
+    the agent doesn't lose its identity/working-memory after compression.
+    """
+    from pathlib import Path as _Path
+    from app.config import get_settings as _get_settings
+
+    parts: list[str] = []
+    total = 0
+    settings = _get_settings()
+
+    for ws_root in [
+        _Path("/tmp/hive_workspaces") / str(agent_id),
+        _Path(settings.AGENT_DATA_DIR) / str(agent_id),
+    ]:
+        if not ws_root.exists():
+            continue
+        # Priority order: soul (identity), focus (working memory)
+        for rel_path, label in [("soul.md", "Agent Identity"), ("focus.md", "Working Memory")]:
+            fpath = ws_root / rel_path
+            if not fpath.exists():
+                continue
+            try:
+                content = fpath.read_text(encoding="utf-8", errors="replace").strip()
+                if not content:
+                    continue
+                if len(content) > _POST_COMPACT_PER_FILE_CAP:
+                    content = content[:_POST_COMPACT_PER_FILE_CAP] + "\n...(truncated)"
+                if total + len(content) > _POST_COMPACT_RESTORE_BUDGET:
+                    break
+                parts.append(f"### {label}\n{content}")
+                total += len(content)
+            except Exception:
+                continue
+        if parts:
+            break  # Use first workspace that has files
+
+    if not parts:
+        return ""
+    return "[Restored Context — re-injected after compression]\n\n" + "\n\n".join(parts)
 
 
 def _maybe_evict_tool_result(
@@ -776,6 +829,9 @@ class AgentKernel:
                             continue
                         parsed_tool_calls.append((tc, tool_name, args))
 
+                    # Per-round aggregate budget tracker (CC: MAX_TOOL_RESULTS_PER_MESSAGE_CHARS)
+                    _round_tool_chars = 0
+
                     if len(parsed_tool_calls) > 1 and _can_parallelize_batch(response.tool_calls):
                         # --- Parallel execution for read-only tools ---
                         if request.cancel_event and request.cancel_event.is_set():
@@ -845,12 +901,15 @@ class AgentKernel:
                                     if _callback_failure_count == 3:
                                         logger.error("[Kernel] Multiple callback failures (%d) — client may be disconnected", _callback_failure_count)
                             collected_parts.append(build_tool_call_event(done_payload)["part"])
+                            _content = _maybe_evict_tool_result(tool_name, tc["id"], str(result), request.eviction_dir)
+                            _round_tool_chars += len(_content)
+                            if _round_tool_chars > _TOOL_RESULTS_AGGREGATE_BUDGET and tool_name not in _EVICTION_EXEMPT_TOOLS:
+                                logger.info("[Kernel] Round aggregate budget exceeded (%d > %d), force-evicting %s", _round_tool_chars, _TOOL_RESULTS_AGGREGATE_BUDGET, tool_name)
+                                _content = _maybe_evict_tool_result(tool_name, tc["id"], str(result), request.eviction_dir)
+                                if len(_content) == len(str(result)):
+                                    _content = str(result)[:_TOOL_RESULT_PREVIEW_LENGTH] + f"\n\n[... truncated to fit round aggregate budget ({_TOOL_RESULTS_AGGREGATE_BUDGET} chars)]"
                             api_messages.append(
-                                LLMMessage(
-                                    role="tool",
-                                    tool_call_id=tc["id"],
-                                    content=_maybe_evict_tool_result(tool_name, tc["id"], str(result), request.eviction_dir),
-                                )
+                                LLMMessage(role="tool", tool_call_id=tc["id"], content=_content)
                             )
                     else:
                         # --- Sequential execution (original logic) ---
@@ -953,12 +1012,14 @@ class AgentKernel:
                                         logger.error("[Kernel] Multiple callback failures (%d) — client may be disconnected", _callback_failure_count)
                             collected_parts.append(build_tool_call_event(done_payload)["part"])
 
+                            _content = _maybe_evict_tool_result(tool_name, tc["id"], str(result), request.eviction_dir)
+                            _round_tool_chars += len(_content)
+                            if _round_tool_chars > _TOOL_RESULTS_AGGREGATE_BUDGET and tool_name not in _EVICTION_EXEMPT_TOOLS:
+                                logger.info("[Kernel] Round aggregate budget exceeded (%d > %d), force-evicting %s", _round_tool_chars, _TOOL_RESULTS_AGGREGATE_BUDGET, tool_name)
+                                if len(_content) == len(str(result)):
+                                    _content = str(result)[:_TOOL_RESULT_PREVIEW_LENGTH] + f"\n\n[... truncated to fit round aggregate budget ({_TOOL_RESULTS_AGGREGATE_BUDGET} chars)]"
                             api_messages.append(
-                                LLMMessage(
-                                    role="tool",
-                                    tool_call_id=tc["id"],
-                                    content=_maybe_evict_tool_result(tool_name, tc["id"], str(result), request.eviction_dir),
-                                )
+                                LLMMessage(role="tool", tool_call_id=tc["id"], content=_content)
                             )
 
                     # ── Mid-loop context compaction ──────────────────────────
@@ -989,7 +1050,19 @@ class AgentKernel:
                             )
                         )
                         if len(compressed) < len(conv_dicts):
-                            api_messages = [api_messages[0]] + _dicts_to_llm_messages(compressed)
+                            # Post-compaction restoration: re-inject soul + focus (CC pattern)
+                            _restored = ""
+                            if request.agent_id:
+                                try:
+                                    _restored = _build_restoration_context(request.agent_id)
+                                except Exception as _restore_err:
+                                    logger.debug("[Kernel] Post-compact restoration failed: %s", _restore_err)
+                            restored_msgs = _dicts_to_llm_messages(compressed)
+                            if _restored:
+                                # Insert restoration context right after the summary, before recent messages
+                                restored_msgs.insert(1 if len(restored_msgs) > 1 else 0,
+                                    LLMMessage(role="system", content=_restored))
+                            api_messages = [api_messages[0]] + restored_msgs
                             # Preserve pre-compaction parts so clients get full event history (C-02)
                             # Mark them as pre-compaction to avoid duplicate persistence
                             logger.info(

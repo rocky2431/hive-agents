@@ -582,7 +582,7 @@ def test_maybe_evict_tool_result_truncates_large_output():
     assert _maybe_evict_tool_result("run_code", "call_1", small) == small
 
     # Exempt tool — never evicted even if large
-    large = "x" * 10000
+    large = "x" * 60000
     assert _maybe_evict_tool_result("read_file", "call_2", large) == large
     assert _maybe_evict_tool_result("list_files", "call_3", large) == large
     assert _maybe_evict_tool_result("web_search", "call_exempt", large) == large
@@ -591,7 +591,7 @@ def test_maybe_evict_tool_result_truncates_large_output():
     evicted = _maybe_evict_tool_result("run_code", "call_4", large)
     assert len(evicted) < len(large)
     assert "truncated" in evicted
-    assert "10000 chars" in evicted
+    assert "60000 chars" in evicted
     assert "call_4" in evicted
     # Preview should be present (first 2000 chars)
     assert evicted.startswith("x" * 2000)
@@ -600,7 +600,7 @@ def test_maybe_evict_tool_result_truncates_large_output():
 def test_maybe_evict_writes_file_when_eviction_dir_provided(tmp_path):
     from app.kernel.engine import _maybe_evict_tool_result
 
-    large = "RESULT_DATA\n" * 1000  # ~12000 chars
+    large = "RESULT_DATA\n" * 5000  # ~60000 chars
     eviction_dir = tmp_path / "tool_results"
 
     evicted = _maybe_evict_tool_result("run_code", "call_99", large, eviction_dir=eviction_dir)
@@ -641,7 +641,7 @@ async def test_large_tool_result_evicted_in_kernel_loop():
         ),
     ])
 
-    large_result = "RESULT_LINE\n" * 1000  # ~12000 chars
+    large_result = "RESULT_LINE\n" * 5000  # ~60000 chars (exceeds 50K eviction threshold)
 
     kernel = AgentKernel(
         KernelDependencies(
