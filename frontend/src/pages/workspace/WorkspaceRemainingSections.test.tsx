@@ -115,8 +115,8 @@ describe('Workspace remaining sections', () => {
     );
 
     expect(orgMarkup).toContain('Engineering');
-    expect(quotasMarkup).toContain('Default User Quotas');
-    expect(quotasMarkup).toContain('Default Max Triggers');
+    expect(quotasMarkup).toContain('Employee Token Quotas');
+    expect(quotasMarkup).toContain('defaultMaxTriggers');
     expect(toolsMarkup).toContain('Global Tools');
   });
 

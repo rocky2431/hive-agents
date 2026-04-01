@@ -1,6 +1,7 @@
 """Conversation summarization — compress old messages to save tokens."""
 
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -131,8 +132,74 @@ def _extract_tool_summary(messages: list[dict]) -> str:
     return "\n".join(tool_entries[-15:])
 
 
+def _extract_artifacts(messages: list[dict]) -> list[str]:
+    patterns = (
+        r"(\/[A-Za-z0-9_\-./]+)",
+        r"(https?:\/\/[^\s)]+)",
+        r"\b([A-Za-z0-9_-]{6,})\b",
+    )
+    artifacts: list[str] = []
+    seen: set[str] = set()
+    for msg in messages:
+        content = msg.get("content", "")
+        if not isinstance(content, str):
+            continue
+        for pattern in patterns:
+            for match in re.findall(pattern, content):
+                if not isinstance(match, str):
+                    continue
+                normalized = match.strip()
+                if len(normalized) < 6 or normalized in seen:
+                    continue
+                if normalized.startswith("http") or normalized.startswith("/") or "_" in normalized:
+                    artifacts.append(normalized)
+                    seen.add(normalized)
+    return artifacts[:8]
+
+
+def _extract_preferences(messages: list[dict]) -> list[str]:
+    preferences: list[str] = []
+    seen: set[str] = set()
+    hints = ("prefer", "记住", "更喜欢", "不要", "务必", "请用", "以后", "always", "never")
+    for msg in messages:
+        if msg.get("role") != "user":
+            continue
+        content = msg.get("content", "")
+        if not isinstance(content, str):
+            continue
+        lowered = content.lower()
+        if any(hint in lowered or hint in content for hint in hints):
+            pref = content.strip()[:200]
+            if pref not in seen:
+                preferences.append(pref)
+                seen.add(pref)
+    return preferences[:5]
+
+
+def _extract_pending(messages: list[dict]) -> list[str]:
+    pending: list[str] = []
+    seen: set[str] = set()
+    hints = ("next", "pending", "todo", "need to", "下一步", "还需要", "待", "继续")
+    for msg in reversed(messages):
+        if msg.get("role") != "assistant":
+            continue
+        content = msg.get("content", "")
+        if not isinstance(content, str):
+            continue
+        lowered = content.lower()
+        if any(hint in lowered or hint in content for hint in hints):
+            item = content.strip()[:200]
+            if item not in seen:
+                pending.append(item)
+                seen.add(item)
+        if len(pending) >= 4:
+            break
+    pending.reverse()
+    return pending
+
+
 def _extract_summary(messages: list[dict]) -> str:
-    """Extract structured summary without LLM — keep user requests, tool actions, and assistant conclusions."""
+    """Extract a state-first snapshot without an LLM."""
     user_asks: list[str] = []
     assistant_answers: list[str] = []
     for msg in messages:
@@ -146,22 +213,33 @@ def _extract_summary(messages: list[dict]) -> str:
             assistant_answers.append(content[:300])
 
     if not user_asks and not assistant_answers:
-        return "**Current Task:** (unknown)\n**Pending:** (none captured)"
+        return "**Task Ledger:** (unknown)\n**Pending Ledger:** (none captured)"
 
     task = user_asks[-1] if user_asks else "(unknown)"
-    lines = [f"**Current Task:** {task}"]
-    if len(user_asks) > 1:
-        earlier = "; ".join(u[:80] for u in user_asks[-4:-1])
-        lines.append(f"**Key Decisions:** {earlier}")
-
-    tool_summary = _extract_tool_summary(messages)
-    if tool_summary:
-        lines.append(f"**Tools Used:**\n{tool_summary}")
-
+    decision_candidates = user_asks[-4:-1]
     if assistant_answers:
-        last_answer = assistant_answers[-1][:200]
-        lines.append(f"**Important Context:** {last_answer}")
-    return "\n".join(lines)
+        decision_candidates.append(assistant_answers[-1][:120])
+    decision_text = "; ".join(item[:120] for item in decision_candidates if item) or "(none captured)"
+    tool_summary = _extract_tool_summary(messages) or "(no tool activity captured)"
+    artifacts = _extract_artifacts(messages)
+    artifact_text = "\n".join(f"- {item}" for item in artifacts) if artifacts else "- (none captured)"
+    preferences = _extract_preferences(messages)
+    preference_text = "\n".join(f"- {item}" for item in preferences) if preferences else "- (none captured)"
+    pending = _extract_pending(messages)
+    pending_text = "\n".join(f"- {item}" for item in pending) if pending else "- (none captured)"
+    narrative = assistant_answers[-1][:200] if assistant_answers else "(none captured)"
+
+    return "\n".join(
+        [
+            f"**Task Ledger:** {task}",
+            f"**Decision Ledger:** {decision_text}",
+            f"**Artifact Ledger:**\n{artifact_text}",
+            f"**Tool Ledger:**\n{tool_summary}",
+            f"**Preference Ledger:**\n{preference_text}",
+            f"**Pending Ledger:**\n{pending_text}",
+            f"**Narrative Snapshot:** {narrative}",
+        ]
+    )
 
 
 async def _llm_summarize(messages: list[dict], model_config: dict) -> str | None:
@@ -204,12 +282,13 @@ async def _llm_summarize(messages: list[dict], model_config: dict) -> str | None
                     content=(
                         "Summarize this conversation into a structured snapshot. "
                         "Use EXACTLY this format (keep headers, fill in content, omit empty sections):\n\n"
-                        "**Current Task:** [what was being worked on]\n"
-                        "**Tools Used:** [which tools were called and key results]\n"
-                        "**Key Decisions:** [decisions made, preferences expressed]\n"
-                        "**Files/Resources:** [file paths, URLs, IDs mentioned]\n"
-                        "**Pending:** [incomplete items, next steps]\n"
-                        "**Important Context:** [corrections, constraints, user preferences]\n\n"
+                        "**Task Ledger:** [what was being worked on]\n"
+                        "**Decision Ledger:** [decisions made, user corrections, constraints]\n"
+                        "**Artifact Ledger:** [file paths, URLs, IDs, resource handles]\n"
+                        "**Tool Ledger:** [which tools were called and key results]\n"
+                        "**Preference Ledger:** [stable user preferences or instructions for future behavior]\n"
+                        "**Pending Ledger:** [incomplete items, next steps]\n"
+                        "**Narrative Snapshot:** [short 1-2 line recap]\n\n"
                         "Be concise — each field 1-2 lines max. "
                         "Respond in the same language as the conversation."
                     ),

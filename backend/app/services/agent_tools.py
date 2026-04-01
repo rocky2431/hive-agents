@@ -23,6 +23,7 @@ from sqlalchemy import select
 
 from app.database import async_session
 from app.models.agent import Agent
+from app.config import get_settings
 from app.services.pack_policy_service import get_tenant_pack_policies, is_pack_enabled
 from app.tools import (
     ToolExecutionRegistry,
@@ -34,7 +35,6 @@ from app.tools import (
 from app.tools.packs import make_mcp_server_pack_name, static_pack_names_for_tool
 
 logger = logging.getLogger(__name__)
-from app.config import get_settings
 
 _settings = get_settings()
 WORKSPACE_ROOT = Path(_settings.AGENT_DATA_DIR)
@@ -118,6 +118,16 @@ def _get_tool_runtime_service() -> ToolRuntimeService:
             return await _send_feishu_message(context.agent_id, arguments)
         if tool_name == "send_message_to_agent":
             return await _send_message_to_agent(context.agent_id, arguments)
+        if tool_name == "delegate_to_agent":
+            return await _delegate_to_agent_async(context.agent_id, arguments)
+        if tool_name == "check_async_task":
+            return await _check_async_task(context.agent_id, arguments)
+        if tool_name == "cancel_async_task":
+            return await _cancel_async_task(context.agent_id, arguments)
+        if tool_name == "list_async_tasks":
+            return await _list_async_tasks(context.agent_id)
+        if tool_name == "get_current_time":
+            return await _get_current_time(context.agent_id, arguments)
         # Fallback: try MCP passthrough for unrecognized tools
         return await _execute_mcp_tool(tool_name, arguments, agent_id=context.agent_id)
 
@@ -150,6 +160,11 @@ CORE_TOOL_NAMES = {
     "load_skill",
     "set_trigger",
     "send_message_to_agent",
+    "delegate_to_agent",
+    "check_async_task",
+    "cancel_async_task",
+    "list_async_tasks",
+    "get_current_time",
     "send_channel_file",
     "tool_search",
 }
@@ -220,7 +235,7 @@ async def _agent_has_feishu(agent_id: uuid.UUID) -> bool:
                 select(ChannelConfig).where(
                     ChannelConfig.agent_id == agent_id,
                     ChannelConfig.channel_type == "feishu",
-                    ChannelConfig.is_configured == True,
+                    ChannelConfig.is_configured,
                 )
             )
             return r.scalar_one_or_none() is not None
@@ -272,7 +287,7 @@ async def get_agent_tools_for_llm(
             pack_policies = await get_tenant_pack_policies(db, getattr(agent, "tenant_id", None))
 
             # Get all globally enabled tools
-            all_tools_r = await db.execute(select(Tool).where(Tool.enabled == True))
+            all_tools_r = await db.execute(select(Tool).where(Tool.enabled))
             all_tools = all_tools_r.scalars().all()
 
             # Get agent-specific assignments
@@ -481,6 +496,11 @@ from app.services.agent_tool_domains.messaging import (  # noqa: E402
     _build_agent_message_tool_executor as _build_agent_message_tool_executor,
     _invoke_agent_message_runtime as _invoke_agent_message_runtime,
     _send_message_to_agent as _send_message_to_agent,
+    _delegate_to_agent_async as _delegate_to_agent_async,
+    _check_async_task as _check_async_task,
+    _cancel_async_task as _cancel_async_task,
+    _list_async_tasks as _list_async_tasks,
+    _get_current_time as _get_current_time,
 )
 from app.services.agent_tool_domains.feishu_helpers import (  # noqa: E402
     _get_feishu_token as _get_feishu_token,

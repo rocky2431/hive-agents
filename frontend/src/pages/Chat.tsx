@@ -6,6 +6,7 @@ import MarkdownRenderer from '../components/MarkdownRenderer';
 import { agentApi } from '../api/domains/agents';
 import { enterpriseApi } from '../api/domains/enterprise';
 import { chatApi } from '../api/domains/chat';
+import { normalizeToolCallResult } from './agent-detail/toolResultEnvelope';
 import { useAuthStore } from '../stores';
 
 /* ── Inline SVG Icons ── */
@@ -118,13 +119,31 @@ export default function Chat() {
         return msg;
     };
 
+    const normalizeToolCalls = (toolCalls?: ToolCall[]): ToolCall[] | undefined => {
+        if (!toolCalls || toolCalls.length === 0) return toolCalls;
+        return toolCalls.map((toolCall) => {
+            const normalized = normalizeToolCallResult(toolCall.name, toolCall.result);
+            return {
+                ...toolCall,
+                result: normalized.displayResult,
+            };
+        });
+    };
+
     // Load chat history on mount
     useEffect(() => {
         if (!id || !token) return;
         chatApi.getHistory(id!)
             .then((history: any[]) => {
                 if (history.length > 0) setMessages(history.map(h => {
-                    const msg = parseMessage({ role: h.role, content: h.content, fileName: h.fileName, toolCalls: h.toolCalls, thinking: h.thinking, imageUrl: h.imageUrl });
+                    const msg = parseMessage({
+                        role: h.role,
+                        content: h.content,
+                        fileName: h.fileName,
+                        toolCalls: normalizeToolCalls(h.toolCalls),
+                        thinking: h.thinking,
+                        imageUrl: h.imageUrl,
+                    });
                     msg.timestamp = h.created_at || undefined;
                     return msg;
                 }));
@@ -196,7 +215,12 @@ export default function Chat() {
                     });
                 } else if (data.type === 'tool_call') {
                     if (data.status === 'done') {
-                        pendingToolCalls.current.push({ name: data.name, args: data.args, result: data.result });
+                        const normalized = normalizeToolCallResult(data.name, data.result);
+                        pendingToolCalls.current.push({
+                            name: data.name,
+                            args: data.args,
+                            result: normalized.displayResult,
+                        });
                     }
                 } else if (data.type === 'done') {
                     // Final response — replace streaming message with final + tool calls

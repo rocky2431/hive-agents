@@ -113,6 +113,53 @@ async def test_prompt_builder_includes_active_packs_section(monkeypatch):
     assert "web_search, jina_read" in prompt
 
 
+class TestModelAwareBudget:
+    """assemble_runtime_prompt scales budget with context window."""
+
+    def test_default_budget_when_no_context_window(self) -> None:
+        from app.runtime.prompt_builder import _compute_system_prompt_budget
+        budget = _compute_system_prompt_budget(None)
+        assert budget == 60000
+
+    def test_default_budget_when_zero(self) -> None:
+        from app.runtime.prompt_builder import _compute_system_prompt_budget
+        assert _compute_system_prompt_budget(0) == 60000
+
+    def test_small_model_gets_floor_budget(self) -> None:
+        from app.runtime.prompt_builder import _compute_system_prompt_budget
+        # 8K context → 8000 * 0.20 * 3.5 = 5600 → clamped to floor 15000
+        budget = _compute_system_prompt_budget(8000)
+        assert budget == 15000
+
+    def test_large_model_gets_scaled_budget(self) -> None:
+        from app.runtime.prompt_builder import _compute_system_prompt_budget
+        # 200K context → 200000 * 0.20 * 3.5 = 140000 (within 180K ceiling)
+        budget = _compute_system_prompt_budget(200000)
+        assert budget == 140000
+
+    def test_medium_model_proportional(self) -> None:
+        from app.runtime.prompt_builder import _compute_system_prompt_budget
+        # 64K context → 64000 * 0.20 * 3.5 = 44800
+        budget = _compute_system_prompt_budget(64000)
+        assert budget == 44800
+
+    def test_assemble_trims_frozen_when_over_budget(self) -> None:
+        from app.runtime.prompt_builder import assemble_runtime_prompt
+        frozen = "A" * 20000
+        dynamic = "B" * 100
+        # 8K model → budget 15000 → 20000 + 100 > 15000 → should trim
+        result = assemble_runtime_prompt(frozen, dynamic, context_window_tokens=8000)
+        assert len(result) <= 15200  # budget + truncation notice
+        assert "B" * 100 in result  # dynamic preserved
+
+    def test_assemble_no_trim_when_within_budget(self) -> None:
+        from app.runtime.prompt_builder import assemble_runtime_prompt
+        frozen = "A" * 1000
+        dynamic = "B" * 100
+        result = assemble_runtime_prompt(frozen, dynamic, context_window_tokens=200000)
+        assert "truncated" not in result
+
+
 def test_dynamic_suffix_trims_large_retrieval_but_keeps_suffix():
     from app.runtime.prompt_builder import build_dynamic_prompt_suffix
 

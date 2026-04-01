@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 
@@ -9,6 +10,33 @@ from app.tools.decorator import ToolMeta, tool
 from app.tools.runtime import ToolExecutionRequest
 
 logger = logging.getLogger(__name__)
+
+
+def _build_create_employee_result(
+    *,
+    agent_id: str,
+    agent_name: str,
+    features: list[str],
+    skills_dir: str,
+) -> str:
+    message = (
+        f"Successfully created digital employee '{agent_name}' (ID: {agent_id}). "
+        f"Config: {', '.join(features)}. "
+        f"14 default skills auto-installed. "
+        f"Skills directory: {skills_dir}. "
+        "The employee is now being initialized and will be ready shortly."
+    )
+    return json.dumps(
+        {
+            "status": "success",
+            "agent_id": agent_id,
+            "agent_name": agent_name,
+            "features": features,
+            "skills_dir": skills_dir,
+            "message": message,
+        },
+        ensure_ascii=False,
+    )
 
 
 @tool(ToolMeta(
@@ -503,12 +531,11 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
             if clawhub_results:
                 features.append(f"clawhub={clawhub_results}")
 
-            return (
-                f"Successfully created digital employee '{agent.name}' (ID: {agent.id}). "
-                f"Config: {', '.join(features)}. "
-                f"14 default skills auto-installed. "
-                f"Skills directory: {agent_dir / 'skills'}. "
-                f"The employee is now being initialized and will be ready shortly."
+            return _build_create_employee_result(
+                agent_id=str(agent.id),
+                agent_name=agent.name,
+                features=features,
+                skills_dir=str(agent_dir / "skills"),
             )
 
     except Exception as e:

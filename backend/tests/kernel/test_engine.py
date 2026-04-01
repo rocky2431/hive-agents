@@ -21,6 +21,64 @@ class _FakeClient:
         return None
 
 
+def test_build_restoration_context_prefers_newest_recent_files(tmp_path, monkeypatch):
+    from app.kernel.engine import _build_restoration_context
+    from app.runtime.session import SessionContext
+
+    agent_id = uuid4()
+    workspace = tmp_path / str(agent_id)
+    workspace.mkdir(parents=True)
+
+    files = []
+    for name in ["a.txt", "b.txt", "c.txt", "d.txt", "e.txt"]:
+        path = tmp_path / name
+        path.write_text(f"content for {name}", encoding="utf-8")
+        files.append(str(path))
+
+    session = SessionContext()
+    session.recent_files = files
+
+    monkeypatch.setattr(
+        "app.config.get_settings",
+        lambda: SimpleNamespace(AGENT_DATA_DIR=str(tmp_path)),
+    )
+
+    restored = _build_restoration_context(agent_id, session_context=session)
+
+    e_idx = restored.index("### Recent File: e.txt")
+    d_idx = restored.index("### Recent File: d.txt")
+    c_idx = restored.index("### Recent File: c.txt")
+    assert e_idx < d_idx < c_idx
+
+
+def test_build_persisted_memory_messages_includes_runtime_events():
+    from app.kernel.contracts import InvocationRequest
+    from app.kernel.engine import _build_persisted_memory_messages
+    from app.runtime.session import SessionContext
+
+    session = SessionContext()
+    session.track_tool_outcome("web_search", "Found deployment guide and rollback notes")
+    session.track_file_write("workspace/deploy-plan.md")
+    session.track_external_ref("https://docs.example.com/deploy")
+    session.track_pending_item("Verify rollback checklist before production deploy")
+
+    request = InvocationRequest(
+        model=SimpleNamespace(provider="openai", model="gpt-4.1"),
+        messages=[{"role": "user", "content": "继续部署任务"}],
+        agent_name="Ops Agent",
+        role_description="deployment helper",
+        session_context=session,
+    )
+
+    persisted = _build_persisted_memory_messages(request, "部署步骤已整理")
+    contents = [msg.get("content", "") for msg in persisted if isinstance(msg.get("content"), str)]
+
+    assert any("Runtime event: tool outcome web_search" in content for content in contents)
+    assert any("Runtime event: wrote file workspace/deploy-plan.md" in content for content in contents)
+    assert any("Runtime event: external reference https://docs.example.com/deploy" in content for content in contents)
+    assert any("Runtime event: pending work Verify rollback checklist before production deploy" in content for content in contents)
+
+
 @pytest.mark.asyncio
 async def test_agent_kernel_handles_tool_round_and_collects_parts():
     from app.kernel.contracts import InvocationRequest
@@ -805,3 +863,42 @@ async def test_persist_memory_called_on_llm_error():
     assert "LLM Error" in result.content
     assert len(persist_calls) == 1
     assert persist_calls[0]["session_id"] == "sess-err"
+
+
+class TestPromptTooLongDetection:
+    """_is_prompt_too_long detects PTL errors from various providers."""
+
+    def test_openai_context_length_exceeded(self) -> None:
+        from app.kernel.engine import _is_prompt_too_long
+        exc = Exception("HTTP 400: context_length_exceeded - This model's maximum context length is 128000 tokens")
+        assert _is_prompt_too_long(exc) is True
+
+    def test_anthropic_too_long(self) -> None:
+        from app.kernel.engine import _is_prompt_too_long
+        exc = Exception("Anthropic stream error (invalid_request_error): prompt is too long: 210000 tokens > 200000 maximum")
+        assert _is_prompt_too_long(exc) is True
+
+    def test_gemini_request_too_large(self) -> None:
+        from app.kernel.engine import _is_prompt_too_long
+        exc = Exception("HTTP 400: request too large for model")
+        assert _is_prompt_too_long(exc) is True
+
+    def test_input_too_long(self) -> None:
+        from app.kernel.engine import _is_prompt_too_long
+        exc = Exception("input too long for this model")
+        assert _is_prompt_too_long(exc) is True
+
+    def test_unrelated_error_not_detected(self) -> None:
+        from app.kernel.engine import _is_prompt_too_long
+        exc = Exception("HTTP 500: Internal server error")
+        assert _is_prompt_too_long(exc) is False
+
+    def test_rate_limit_not_detected(self) -> None:
+        from app.kernel.engine import _is_prompt_too_long
+        exc = Exception("Rate limited after 3 attempts: 429 Too Many Requests")
+        assert _is_prompt_too_long(exc) is False
+
+    def test_connection_error_not_detected(self) -> None:
+        from app.kernel.engine import _is_prompt_too_long
+        exc = Exception("Connection failed after 3 attempts: timeout")
+        assert _is_prompt_too_long(exc) is False

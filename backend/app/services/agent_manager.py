@@ -5,7 +5,6 @@ import shutil
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from string import Template
 
 import docker
 from docker.errors import DockerException, NotFound
@@ -27,7 +26,7 @@ class AgentManager:
         try:
             self.docker_client = docker.from_env()
         except DockerException:
-            logger.warning("Docker not available — agent containers will not be managed")
+            logger.info("Docker not available — OpenClaw containers will not be managed")
             self.docker_client = None
 
     def _agent_dir(self, agent_id: uuid.UUID) -> Path:
@@ -35,6 +34,10 @@ class AgentManager:
 
     def _template_dir(self) -> Path:
         return Path(settings.AGENT_TEMPLATE_DIR)
+
+    @staticmethod
+    def _uses_openclaw_container(agent: Agent) -> bool:
+        return getattr(agent, "agent_type", "native") == "openclaw"
 
     async def initialize_agent_files(self, db: AsyncSession, agent: Agent,
                                       personality: str = "", boundaries: str = "") -> None:
@@ -169,6 +172,12 @@ class AgentManager:
 
         Returns container_id or None if Docker not available.
         """
+        if not self._uses_openclaw_container(agent):
+            logger.info("Agent %s is native; skipping OpenClaw container start", agent.name)
+            agent.status = "idle"
+            agent.last_active_at = datetime.now(timezone.utc)
+            return None
+
         if not self.docker_client:
             logger.info("Docker not available, skipping container start")
             agent.status = "idle"
@@ -234,6 +243,10 @@ class AgentManager:
 
     async def stop_container(self, agent: Agent) -> bool:
         """Stop the agent's Docker container."""
+        if not self._uses_openclaw_container(agent):
+            logger.info("Agent %s is native; no OpenClaw container to stop", agent.name)
+            return True
+
         if not self.docker_client or not agent.container_id:
             agent.status = "stopped"
             return True
@@ -254,6 +267,10 @@ class AgentManager:
 
     async def remove_container(self, agent: Agent) -> bool:
         """Stop and remove the agent's Docker container."""
+        if not self._uses_openclaw_container(agent):
+            logger.info("Agent %s is native; no OpenClaw container to remove", agent.name)
+            return True
+
         if not self.docker_client or not agent.container_id:
             return True
 

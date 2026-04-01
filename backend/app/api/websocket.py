@@ -29,7 +29,14 @@ class ConnectionManager:
     def __init__(self):
         # agent_id_str -> list of (WebSocket, session_id_str | None)
         self.active_connections: dict[str, list[tuple]] = {}
+        self._runtime_sessions: dict[str, SessionContext] = {}
+        self._runtime_session_order: list[str] = []
         self._lock = asyncio.Lock()
+
+    def _runtime_session_key(self, agent_id: str, session_id: str | None) -> str | None:
+        if not session_id:
+            return None
+        return f"{agent_id}:{session_id}"
 
     async def connect(self, agent_id: str, websocket: WebSocket, session_id: str | None = None):
         await websocket.accept()
@@ -65,6 +72,32 @@ class ConnectionManager:
             if agent_id not in self.active_connections:
                 return []
             return list(set(sid for _ws, sid in self.active_connections[agent_id] if sid))
+
+    async def get_or_create_runtime_session(self, agent_id: str, session_id: str | None) -> SessionContext:
+        """Return a stable SessionContext for a chat session across turns/reconnects."""
+        if not session_id:
+            return SessionContext(source="websocket", channel="web")
+
+        async with self._lock:
+            key = self._runtime_session_key(agent_id, session_id)
+            assert key is not None
+            session = self._runtime_sessions.get(key)
+            if session is None:
+                session = SessionContext(
+                    session_id=session_id,
+                    source="websocket",
+                    channel="web",
+                )
+                self._runtime_sessions[key] = session
+                self._runtime_session_order.append(key)
+                if len(self._runtime_session_order) > 200:
+                    evict_key = self._runtime_session_order.pop(0)
+                    self._runtime_sessions.pop(evict_key, None)
+            else:
+                if key in self._runtime_session_order:
+                    self._runtime_session_order.remove(key)
+                self._runtime_session_order.append(key)
+            return session
 
 
 manager = ConnectionManager()
@@ -123,6 +156,7 @@ async def call_llm(
     memory_context: str = "",
     cancel_event: asyncio.Event | None = None,
     execution_identity: ExecutionIdentityRef | None = None,
+    session_context: SessionContext | None = None,
 ) -> str:
     """Call LLM via the unified agent runtime."""
     runtime_messages = [msg for msg in messages if msg.get("role") != "system"]
@@ -149,7 +183,7 @@ async def call_llm(
             memory_messages=runtime_memory_messages,
             memory_context=memory_context,
             cancel_event=cancel_event,
-            session_context=SessionContext(
+            session_context=session_context or SessionContext(
                 session_id=session_id,
                 source="websocket",
                 channel="web",
@@ -376,6 +410,8 @@ async def websocket_chat(
         if welcome_message and not history_messages:
             await websocket.send_json({"type": "done", "role": "assistant", "content": welcome_message})
 
+        runtime_session_context = await manager.get_or_create_runtime_session(agent_id_str, conv_id)
+
         while True:
             logger.info(f"[WS] Waiting for message from {agent_name}...")
             import asyncio as _aio_idle
@@ -581,6 +617,7 @@ async def websocket_chat(
                         session_id=conv_id,
                         memory_messages=conversation,
                         cancel_event=cancel_event,
+                        session_context=runtime_session_context,
                         execution_identity=ExecutionIdentityRef(
                             identity_type="delegated_user",
                             identity_id=user.id,

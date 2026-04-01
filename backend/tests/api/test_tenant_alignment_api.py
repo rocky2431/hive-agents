@@ -166,7 +166,11 @@ async def test_org_sync_route_uses_selected_tenant(monkeypatch):
         captured["tenant_id"] = tenant_id
         return {"departments": 3}
 
+    async def fake_sync_org_structure(db, tenant_id):
+        captured["workspace_sync_tenant_id"] = tenant_id
+
     monkeypatch.setattr("app.services.org_sync_service.org_sync_service.full_sync", fake_full_sync)
+    monkeypatch.setattr("app.services.workspace_sync.sync_org_structure", fake_sync_org_structure)
 
     result = await enterprise_api.trigger_org_sync(
         tenant_id=str(target_tenant_id),
@@ -175,6 +179,7 @@ async def test_org_sync_route_uses_selected_tenant(monkeypatch):
 
     assert result["departments"] == 3
     assert captured["tenant_id"] == target_tenant_id
+    assert captured["workspace_sync_tenant_id"] == target_tenant_id
 
 
 @pytest.mark.asyncio

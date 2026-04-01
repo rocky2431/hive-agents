@@ -71,6 +71,54 @@ describe('request cleanup adapters', () => {
     expect(result).toBe(blob);
   });
 
+  it('routes enterprise memory config through enterpriseApi', async () => {
+    vi.doMock('./core/request', async () => {
+      const actual = await vi.importActual<typeof import('./core/request')>('./core/request');
+      return {
+        ...actual,
+        get: vi.fn(),
+        put: vi.fn(),
+      };
+    });
+    const { enterpriseApi } = await import('./domains/enterprise');
+    const { get, put } = await import('./core/request');
+    vi.mocked(get).mockResolvedValue({
+      summary_model_id: 'summary-model-1',
+      rerank_model_id: 'rerank-model-1',
+      compress_threshold: 82,
+      keep_recent: 12,
+      extract_to_viking: false,
+    });
+    vi.mocked(put).mockResolvedValue({
+      summary_model_id: 'summary-model-1',
+      rerank_model_id: 'rerank-model-1',
+      compress_threshold: 82,
+      keep_recent: 12,
+      extract_to_viking: false,
+    });
+
+    await enterpriseApi.getMemoryConfig('tenant-1');
+    await enterpriseApi.updateMemoryConfig(
+      {
+        summary_model_id: 'summary-model-1',
+        rerank_model_id: 'rerank-model-1',
+        compress_threshold: 82,
+        keep_recent: 12,
+        extract_to_viking: false,
+      },
+      'tenant-1',
+    );
+
+    expect(get).toHaveBeenCalledWith('/enterprise/memory/config?tenant_id=tenant-1');
+    expect(put).toHaveBeenCalledWith('/enterprise/memory/config?tenant_id=tenant-1', {
+      summary_model_id: 'summary-model-1',
+      rerank_model_id: 'rerank-model-1',
+      compress_threshold: 82,
+      keep_recent: 12,
+      extract_to_viking: false,
+    });
+  });
+
   it('routes session message loading through chatApi with abort support', async () => {
     vi.doMock('./core/request', async () => {
       const actual = await vi.importActual<typeof import('./core/request')>('./core/request');
@@ -197,6 +245,23 @@ describe('request cleanup adapters', () => {
       scope_ids: [],
       access_level: 'use',
     });
+  });
+
+  it('routes execution mode updates through agentApi patch()', async () => {
+    vi.doMock('./core/request', async () => {
+      const actual = await vi.importActual<typeof import('./core/request')>('./core/request');
+      return {
+        ...actual,
+        patch: vi.fn(),
+      };
+    });
+    const { agentApi } = await import('./domains/agents');
+    const { patch } = await import('./core/request');
+    vi.mocked(patch).mockResolvedValue({ id: 'agent-1', execution_mode: 'coordinator' } as any);
+
+    await agentApi.update('agent-1', { execution_mode: 'coordinator' });
+
+    expect(patch).toHaveBeenCalledWith('/agents/agent-1', { execution_mode: 'coordinator' });
   });
 
   it('routes user management through usersApi', async () => {

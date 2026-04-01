@@ -12,6 +12,7 @@ export interface AgentCreateParams {
   agent_class?: string;
   primary_model_id?: string;
   security_zone?: string;
+  execution_mode?: 'standard' | 'coordinator';
 }
 
 export interface AgentUpdateParams {
@@ -27,6 +28,7 @@ export interface AgentUpdateParams {
   heartbeat_interval_minutes?: number;
   heartbeat_active_hours?: string;
   timezone?: string;
+  execution_mode?: 'standard' | 'coordinator';
 }
 
 export interface AgentPermissions {

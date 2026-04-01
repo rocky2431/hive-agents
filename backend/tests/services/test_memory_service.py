@@ -94,6 +94,7 @@ async def test_persist_runtime_memory_updates_short_session_and_agent_memory(mon
 
     agent_id = uuid4()
     tenant_id = uuid4()
+    session_id = str(uuid4())
     chat_session = SimpleNamespace(summary=None)
     fake_session = _FakeSession([chat_session])
     update_calls = []
@@ -102,8 +103,8 @@ async def test_persist_runtime_memory_updates_short_session_and_agent_memory(mon
         assert len(messages) == 2
         return "rolled summary"
 
-    async def fake_update_agent_memory(_agent_id, messages, _tenant_id):
-        update_calls.append((_agent_id, messages, _tenant_id))
+    async def fake_update_agent_memory(_agent_id, messages, _tenant_id, *, session_id=None):
+        update_calls.append((_agent_id, messages, _tenant_id, session_id))
 
     async def fake_get_memory_config(_tenant_id):
         return {}
@@ -115,7 +116,7 @@ async def test_persist_runtime_memory_updates_short_session_and_agent_memory(mon
 
     await persist_runtime_memory(
         agent_id=agent_id,
-        session_id=str(uuid4()),
+        session_id=session_id,
         tenant_id=tenant_id,
         messages=[
             {"role": "user", "content": "我更喜欢咖啡而不是茶，请记住。"},
@@ -132,6 +133,7 @@ async def test_persist_runtime_memory_updates_short_session_and_agent_memory(mon
             {"role": "assistant", "content": "已记录你的偏好。"},
         ],
         tenant_id,
+        session_id,
     )]
 
 
@@ -191,3 +193,197 @@ async def test_update_agent_memory_dedupes_and_replaces_latest_fact(monkeypatch,
         "Works on Project X",
     ]
     assert all(fact.get("timestamp") for fact in facts)
+
+
+@pytest.mark.asyncio
+async def test_update_agent_memory_tracks_incremental_cursor_per_session(monkeypatch, tmp_path):
+    from app.services.memory_service import _extraction_cursors, _update_agent_memory
+
+    agent_id = uuid4()
+    tenant_id = uuid4()
+    extracted_batches: list[list[str]] = []
+
+    async def fake_get_summary_model_config(_tenant_id):
+        return None
+
+    def fake_extract(messages):
+        extracted_batches.append([m["content"] for m in messages if isinstance(m.get("content"), str)])
+        return [{"content": messages[-1]["content"]}] if messages else []
+
+    monkeypatch.setattr(
+        "app.services.memory_service.get_settings",
+        lambda: SimpleNamespace(AGENT_DATA_DIR=str(tmp_path)),
+    )
+    monkeypatch.setattr("app.services.memory_service._get_summary_model_config", fake_get_summary_model_config)
+    monkeypatch.setattr("app.services.memory_service._extract_facts_simple", fake_extract)
+    _extraction_cursors.clear()
+
+    await _update_agent_memory(
+        agent_id,
+        [
+            {"role": "user", "content": "session-1-msg-1"},
+            {"role": "assistant", "content": "session-1-msg-2"},
+        ],
+        tenant_id,
+        session_id="session-1",
+    )
+    await _update_agent_memory(
+        agent_id,
+        [
+            {"role": "user", "content": "session-2-msg-1"},
+            {"role": "assistant", "content": "session-2-msg-2"},
+            {"role": "user", "content": "session-2-msg-3"},
+        ],
+        tenant_id,
+        session_id="session-2",
+    )
+
+    assert extracted_batches == [
+        ["session-1-msg-1", "session-1-msg-2"],
+        ["session-2-msg-1", "session-2-msg-2", "session-2-msg-3"],
+    ]
+
+
+@pytest.mark.asyncio
+async def test_build_memory_context_passes_rerank_model_config(monkeypatch, tmp_path):
+    from app.services import memory_service
+
+    agent_id = uuid4()
+    tenant_id = uuid4()
+    captured = {}
+
+    class _FakeRetriever:
+        async def retrieve(self, _agent_id, _query, _session_id, _tenant_id, *, rerank_model_config=None, limit=20):
+            captured["rerank_model_config"] = rerank_model_config
+            captured["limit"] = limit
+            return ["memory-item"]
+
+    class _FakeAssembler:
+        def assemble(self, items):
+            captured["assembled_items"] = items
+            return "ASSEMBLED"
+
+    monkeypatch.setattr(
+        memory_service,
+        "MemoryRetriever",
+        lambda **_kwargs: _FakeRetriever(),
+    )
+    monkeypatch.setattr(
+        memory_service,
+        "MemoryAssembler",
+        lambda: _FakeAssembler(),
+    )
+    monkeypatch.setattr(
+        memory_service,
+        "_get_rerank_model_config",
+        lambda _tenant_id: {
+            "provider": "openai",
+            "model": "gpt-4.1-mini",
+            "api_key": "test-key",
+            "base_url": None,
+        },
+        raising=False,
+    )
+
+    context = await memory_service.build_memory_context(
+        agent_id,
+        tenant_id,
+        session_id="session-1",
+        query="latest roadmap preference",
+    )
+
+    assert context == "ASSEMBLED"
+    assert captured["assembled_items"] == ["memory-item"]
+    assert captured["rerank_model_config"] == {
+        "provider": "openai",
+        "model": "gpt-4.1-mini",
+        "api_key": "test-key",
+        "base_url": None,
+    }
+
+
+def test_extraction_cursor_persists_to_disk(monkeypatch, tmp_path):
+    from app.services import memory_service
+
+    agent_id = uuid4()
+
+    monkeypatch.setattr(
+        memory_service,
+        "get_settings",
+        lambda: SimpleNamespace(AGENT_DATA_DIR=str(tmp_path)),
+    )
+
+    memory_service._extraction_cursors.clear()
+    memory_service._set_extraction_cursor(agent_id, 7, "session-1")
+
+    memory_service._extraction_cursors.clear()
+
+    assert memory_service._get_extraction_cursor(agent_id, "session-1") == 7
+
+
+@pytest.mark.asyncio
+async def test_build_memory_context_uses_adaptive_budget_profile(monkeypatch, tmp_path):
+    from app.services import memory_service
+
+    agent_id = uuid4()
+    tenant_id = uuid4()
+    captured = {}
+
+    class _FakeRetriever:
+        async def retrieve(
+            self,
+            _agent_id,
+            _query,
+            _session_id,
+            _tenant_id,
+            *,
+            rerank_model_config=None,
+            limit=20,
+            retrieval_profile=None,
+        ):
+            captured["rerank_model_config"] = rerank_model_config
+            captured["limit"] = limit
+            captured["retrieval_profile"] = retrieval_profile
+            return ["memory-item"]
+
+    class _FakeAssembler:
+        def assemble(self, items, budget_chars=20000):
+            captured["assembled_items"] = items
+            captured["budget_chars"] = budget_chars
+            return "ASSEMBLED"
+
+    monkeypatch.setattr(
+        memory_service,
+        "MemoryRetriever",
+        lambda **_kwargs: _FakeRetriever(),
+    )
+    monkeypatch.setattr(
+        memory_service,
+        "MemoryAssembler",
+        lambda: _FakeAssembler(),
+    )
+    monkeypatch.setattr(
+        memory_service,
+        "_get_rerank_model_config",
+        lambda _tenant_id: {
+            "provider": "openai",
+            "model": "gpt-4.1-mini",
+            "api_key": "test-key",
+            "base_url": None,
+        },
+        raising=False,
+    )
+
+    context = await memory_service.build_memory_context(
+        agent_id,
+        tenant_id,
+        session_id="session-1",
+        query="请研究最近的路线图变化并整理来源",
+        context_window_tokens=256000,
+    )
+
+    assert context == "ASSEMBLED"
+    assert captured["assembled_items"] == ["memory-item"]
+    assert captured["budget_chars"] >= 24000
+    assert captured["retrieval_profile"].semantic_limit >= 12
+    assert captured["retrieval_profile"].rerank_max_select >= 8

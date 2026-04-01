@@ -9,6 +9,7 @@ Covers three phases:
 from __future__ import annotations
 
 import json
+import inspect
 import logging
 import re
 import uuid
@@ -23,6 +24,7 @@ from app.memory import FileBackedMemoryStore, MemoryAssembler, MemoryRetriever, 
 from app.models.chat_session import ChatSession
 from app.models.llm import LLMModel
 from app.models.tenant_setting import TenantSetting
+from app.runtime.context_budget import ContextBudget, compute_context_budget
 from app.services.conversation_summarizer import estimate_tokens, _extract_summary
 
 logger = logging.getLogger(__name__)
@@ -49,6 +51,8 @@ async def build_memory_snapshot(
     tenant_id: uuid.UUID,
     *,
     session_id: str | None = None,
+    context_window_tokens: int | None = None,
+    budget_profile: ContextBudget | None = None,
 ) -> str:
     """Build a session-start memory snapshot for frozen prompt prefixes."""
     return await build_memory_context(
@@ -56,6 +60,8 @@ async def build_memory_snapshot(
         tenant_id,
         session_id=session_id,
         query="",
+        context_window_tokens=context_window_tokens,
+        budget_profile=budget_profile,
     )
 
 
@@ -65,22 +71,42 @@ async def build_memory_context(
     *,
     session_id: str | None = None,
     query: str = "",
+    context_window_tokens: int | None = None,
+    budget_profile: ContextBudget | None = None,
 ) -> str:
     """Build a self-consistent memory context for any runtime entrypoint.
 
     Uses the four-layer retrieval pipeline (working, episodic, semantic, external)
     followed by the assembler. Falls back to FileBackedMemoryStore on failure.
     """
+    retrieval_profile = budget_profile or compute_context_budget(
+        context_window_tokens=context_window_tokens,
+        query=query,
+        active_pack_count=0,
+    )
     try:
         retriever = MemoryRetriever(data_root=Path(get_settings().AGENT_DATA_DIR))
+        rerank_model_config = None
+        if query:
+            rerank_model_config = await _maybe_await(_get_rerank_model_config(tenant_id))
+        retrieve_kwargs = {
+            "rerank_model_config": rerank_model_config,
+            "limit": max(50, retrieval_profile.semantic_limit * 2),
+        }
+        if "retrieval_profile" in inspect.signature(retriever.retrieve).parameters:
+            retrieve_kwargs["retrieval_profile"] = retrieval_profile
         items = await retriever.retrieve(
             agent_id,
             query,
             session_id,
             str(tenant_id) if tenant_id else None,
+            **retrieve_kwargs,
         )
         assembler = MemoryAssembler()
-        result = assembler.assemble(items)
+        assemble_kwargs = {}
+        if "budget_chars" in inspect.signature(assembler.assemble).parameters:
+            assemble_kwargs["budget_chars"] = retrieval_profile.memory_budget_chars
+        result = assembler.assemble(items, **assemble_kwargs)
         if result:
             return result
     except Exception as exc:
@@ -98,6 +124,12 @@ async def build_memory_context(
     except Exception as exc:
         logger.warning("FileBackedMemoryStore fallback failed, returning empty memory context: %s", exc)
         return ""
+
+
+async def _maybe_await(value):
+    if inspect.isawaitable(value):
+        return await value
+    return value
 
 
 def compute_history_limit(
@@ -119,22 +151,28 @@ def compute_history_limit(
     context_limit = _get_input_context_limit(provider, model_name, max_input_tokens_override)
 
     # Reserve tokens for known consumers
-    # System prompt: use real value or estimate ~3000 tokens
-    prompt_reserve = system_prompt_tokens if system_prompt_tokens > 0 else 3000
+    # System prompt: use real value, or estimate based on context window
+    # For 256K models, system prompt can be ~51K tokens; 3K was a severe underestimate.
+    if system_prompt_tokens > 0:
+        prompt_reserve = system_prompt_tokens
+    else:
+        # Estimate: 20% of context window (matches _SYSTEM_PROMPT_CONTEXT_RATIO)
+        prompt_reserve = max(3000, int(context_limit * 0.20))
+
     # Tool definitions: use real value or estimate ~1500 tokens (15 tools × ~100 tokens each)
     tools_reserve = tool_definitions_tokens if tool_definitions_tokens > 0 else 1500
     # Generation headroom: ~8K tokens for model output
     generation_reserve = 8000
 
-    # Memory context assembled by MemoryAssembler (~8K chars ≈ 2300 tokens)
-    memory_context_reserve = 2500
+    # Memory context assembled by MemoryAssembler (20K+ chars ≈ 6K tokens for 256K models)
+    memory_context_reserve = 6000
     total_reserved = prompt_reserve + tools_reserve + generation_reserve + memory_context_reserve
     history_token_budget = max(context_limit - total_reserved, context_limit // 4)
 
     avg_tokens_per_message = 300
     computed = history_token_budget // avg_tokens_per_message
-    # Clamp: at least 20 (usable minimum), at most 500 (DB performance guard)
-    return max(20, min(computed, 500))
+    # Clamp: at least 20 (usable minimum), at most 800 (256K models can hold 800+ messages)
+    return max(20, min(computed, 800))
 
 
 async def compute_history_limit_for_agent(agent_id: uuid.UUID) -> int:
@@ -183,7 +221,8 @@ async def maybe_compress_messages(
     """
     # Resolve config from tenant settings
     config = await _get_memory_config(tenant_id) if tenant_id else {}
-    threshold = compress_threshold if compress_threshold is not None else config.get("compress_threshold", 70) / 100.0
+    # Default 82% — was 70%, too aggressive for 256K models (compressed with 77K tokens remaining)
+    threshold = compress_threshold if compress_threshold is not None else config.get("compress_threshold", 82) / 100.0
     recent_count = keep_recent if keep_recent is not None else config.get("keep_recent", 10)
 
     # Resolve context window
@@ -258,6 +297,17 @@ async def on_conversation_end(
         messages=messages,
     )
 
+    # P3.1: Auto-dream gate check — fire-and-forget if conditions met
+    try:
+        from app.services.auto_dream import record_session_end, should_dream, run_dream
+        record_session_end(agent_id)
+        if should_dream(agent_id):
+            import asyncio
+            asyncio.create_task(run_dream(agent_id, tenant_id))
+            logger.info("[Memory] Auto-dream triggered for agent %s", agent_id)
+    except Exception as _dream_err:
+        logger.debug("[Memory] Auto-dream check failed: %s", _dream_err)
+
 
 async def persist_runtime_memory(
     *,
@@ -275,7 +325,7 @@ async def persist_runtime_memory(
         if summary and session_id:
             await _save_session_summary(session_id, summary)
 
-        await _update_agent_memory(agent_id, messages, tenant_id)
+        await _update_agent_memory(agent_id, messages, tenant_id, session_id=session_id)
 
         config = await _get_memory_config(tenant_id)
         if config.get("extract_to_viking", False) and summary:
@@ -356,6 +406,33 @@ async def _get_summary_model_config(tenant_id: uuid.UUID) -> dict | None:
         return None
 
 
+async def _get_rerank_model_config(tenant_id: uuid.UUID) -> dict | None:
+    """Resolve the optional LLM model to use for semantic memory reranking."""
+    config = await _get_memory_config(tenant_id)
+    model_id = config.get("rerank_model_id")
+    if not model_id:
+        return None
+
+    try:
+        async with async_session() as db:
+            result = await db.execute(
+                select(LLMModel).where(LLMModel.id == uuid.UUID(str(model_id)), LLMModel.tenant_id == tenant_id)
+            )
+            model = result.scalar_one_or_none()
+            if not model or not model.enabled:
+                return None
+
+            return {
+                "provider": model.provider,
+                "model": model.model,
+                "api_key": model.api_key,
+                "base_url": model.base_url,
+            }
+    except Exception as e:
+        logger.warning("Failed to load rerank model: %s", e)
+        return None
+
+
 async def _generate_session_summary(messages: list[dict], tenant_id: uuid.UUID) -> str | None:
     """Generate a summary for the session using LLM or fallback extraction."""
     summary_model = await _get_summary_model_config(tenant_id)
@@ -369,33 +446,115 @@ async def _generate_session_summary(messages: list[dict], tenant_id: uuid.UUID) 
     return _extract_summary(messages)
 
 
-async def _update_agent_memory(agent_id: uuid.UUID, messages: list[dict], tenant_id: uuid.UUID) -> None:
-    """Extract facts from conversation and update the persistent semantic store."""
+# P2.1: Cursor-based incremental extraction — only process new messages since last cursor.
+_extraction_cursors: dict[str, int] = {}  # agent_id_hex:session_id -> last_processed_message_index
+
+
+def _extraction_cursor_key(agent_id: uuid.UUID, session_id: str | None = None) -> str:
+    return f"{agent_id.hex}:{session_id or 'runtime'}"
+
+
+def _extraction_cursor_state_path(agent_id: uuid.UUID) -> Path:
+    return Path(get_settings().AGENT_DATA_DIR) / str(agent_id) / "memory" / "extraction_cursors.json"
+
+
+def _load_extraction_cursor_state(agent_id: uuid.UUID) -> dict[str, int]:
+    path = _extraction_cursor_state_path(agent_id)
+    if not path.exists():
+        return {}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    state: dict[str, int] = {}
+    for key, value in raw.items():
+        if isinstance(key, str) and isinstance(value, int):
+            state[key] = value
+    return state
+
+
+def _persist_extraction_cursor_state(agent_id: uuid.UUID) -> None:
+    path = _extraction_cursor_state_path(agent_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    prefix = f"{agent_id.hex}:"
+    state = {
+        key[len(prefix):]: value
+        for key, value in _extraction_cursors.items()
+        if key.startswith(prefix)
+    }
+    path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _get_extraction_cursor(agent_id: uuid.UUID, session_id: str | None = None) -> int:
+    """Load last extraction cursor, restoring from disk when necessary."""
+    key = _extraction_cursor_key(agent_id, session_id)
+    if key in _extraction_cursors:
+        return _extraction_cursors[key]
+
+    persisted = _load_extraction_cursor_state(agent_id)
+    if persisted:
+        for persisted_session, value in persisted.items():
+            _extraction_cursors[f"{agent_id.hex}:{persisted_session}"] = value
+    return _extraction_cursors.get(key, 0)
+
+
+def _set_extraction_cursor(agent_id: uuid.UUID, index: int, session_id: str | None = None) -> None:
+    _extraction_cursors[_extraction_cursor_key(agent_id, session_id)] = index
+    _persist_extraction_cursor_state(agent_id)
+
+
+async def _update_agent_memory(
+    agent_id: uuid.UUID,
+    messages: list[dict],
+    tenant_id: uuid.UUID,
+    *,
+    session_id: str | None = None,
+) -> None:
+    """Extract facts from conversation and update the persistent semantic store.
+
+    Uses cursor-based incremental extraction: only processes messages added since
+    the last extraction for this agent. Falls back to full extraction on first run.
+    """
     settings = get_settings()
     semantic_store = PersistentMemoryStore(data_root=Path(settings.AGENT_DATA_DIR))
+
+    # Incremental: only extract from messages since last cursor
+    cursor = _get_extraction_cursor(agent_id, session_id)
+    if cursor > 0 and cursor < len(messages):
+        delta_messages = messages[cursor:]
+        logger.debug(
+            "[Memory] Incremental extraction for %s: %d new messages (cursor=%d, total=%d)",
+            agent_id, len(delta_messages), cursor, len(messages),
+        )
+    else:
+        delta_messages = messages
 
     # Load existing memory from the canonical store
     existing_facts = semantic_store.load_semantic_facts(agent_id)
 
-    # Try LLM-powered fact extraction
+    # Try LLM-powered fact extraction on delta messages only
     summary_model = await _get_summary_model_config(tenant_id)
     new_facts: list[dict] = []
     if summary_model:
         try:
-            new_facts = await _extract_facts_with_llm(messages, summary_model)
+            new_facts = await _extract_facts_with_llm(delta_messages, summary_model)
         except Exception as e:
             logger.debug("LLM fact extraction failed: %s", e)
 
     if not new_facts:
         # Simple extraction: pull key user statements
-        new_facts = _extract_facts_simple(messages)
+        new_facts = _extract_facts_simple(delta_messages)
 
     if not new_facts:
+        _set_extraction_cursor(agent_id, len(messages), session_id)
         return
 
     all_facts = _merge_memory_facts(existing_facts, new_facts)
     semantic_store.replace_semantic_facts(agent_id, all_facts)
-    logger.info("Updated semantic memory store for agent %s: %d facts", agent_id, len(all_facts))
+    _set_extraction_cursor(agent_id, len(messages), session_id)
+    logger.info("Updated semantic memory store for agent %s: %d facts (delta=%d msgs)", agent_id, len(all_facts), len(delta_messages))
 
 
 def _load_agent_memory(agent_id: uuid.UUID) -> str:
@@ -412,20 +571,43 @@ async def _extract_facts_with_llm(messages: list[dict], model_config: dict) -> l
     """Use LLM to extract memorable facts from conversation."""
     from app.services.llm_client import LLMMessage, create_llm_client
 
-    # Build condensed conversation text
+    # Build condensed conversation text — include tool results and file writes (P0.3)
     conversation_text = []
+    _tool_names: dict[str, str] = {}  # tool_call_id → tool_name
     for msg in messages:
         role = msg.get("role", "")
         content = msg.get("content", "")
         if not isinstance(content, str) or not content.strip():
+            # Track tool_calls for name resolution even if no text content
+            for tc in msg.get("tool_calls", []):
+                _fn = tc.get("function", {})
+                _tool_names[tc.get("id", "")] = _fn.get("name", "")
             continue
+
         if role in ("user", "assistant") and "tool_calls" not in msg:
-            conversation_text.append(f"{role}: {content[:300]}")
+            conversation_text.append(role + ": " + content[:300])
+        elif role == "tool":
+            # P0.3: Include high-value tool results in extraction input
+            _tc_id = msg.get("tool_call_id", "")
+            _tool_name = _tool_names.get(_tc_id, "unknown_tool")
+            # Skip low-value tools (list_files, get_current_time, etc.)
+            if _tool_name not in (
+                "list_files", "get_current_time", "list_triggers",
+                "list_tasks", "check_async_task", "tool_search",
+            ):
+                _preview = content[:200] if len(content) > 200 else content
+                conversation_text.append("tool(" + _tool_name + "): " + _preview)
+
+        # Track tool_calls for name resolution
+        for tc in msg.get("tool_calls", []):
+            _fn = tc.get("function", {})
+            _tool_names[tc.get("id", "")] = _fn.get("name", "")
 
     if not conversation_text:
         return []
 
-    text = "\n".join(conversation_text[-30:])
+    # Was -40, too narrow for long conversations — tool results in early rounds got skipped
+    text = "\n".join(conversation_text[-80:])
 
     client = create_llm_client(**model_config)
     try:
@@ -435,12 +617,24 @@ async def _extract_facts_with_llm(messages: list[dict], model_config: dict) -> l
                     role="system",
                     content=(
                         "Extract key facts from this conversation that would be useful to remember for future interactions. "
-                        "Return a JSON array of objects with 'content' and optional 'subject' fields. Extract 2-8 facts max.\n"
+                        "Return a JSON array of objects with 'content', optional 'subject', and 'category' fields. Extract 2-8 facts max.\n"
+                        "CATEGORIES (assign one per fact):\n"
+                        "- user: preferences, role, knowledge, working style\n"
+                        "- feedback: corrections, confirmations, behavioral guidance\n"
+                        "- project: goals, deadlines, decisions, status updates\n"
+                        "- reference: pointers to external systems, URLs, tool names\n"
+                        "- constraint: hard rules the agent must follow\n"
+                        "- strategy: successful approaches worth reusing\n"
+                        "- blocked_pattern: approaches that failed — do not retry\n"
+                        "- general: anything else\n"
                         "PRIORITY extraction targets (do NOT miss these):\n"
-                        "1. User feedback, corrections, or preferences about how the agent should behave\n"
-                        "2. Explicit instructions for future behavior\n"
-                        "3. Important decisions or project context\n"
-                        "4. Personal information or working style preferences\n"
+                        "1. User feedback, corrections, or preferences → category: feedback\n"
+                        "2. Explicit instructions for future behavior → category: feedback\n"
+                        "3. Important decisions or project context → category: project\n"
+                        "4. Personal information or working style → category: user\n"
+                        "5. Tool execution conclusions or discovered facts → category: reference\n"
+                        "6. File write artifacts or created resources → category: project\n"
+                        "7. External content key findings → category: reference\n"
                         "Respond ONLY with the JSON array, no other text."
                     ),
                 ),
@@ -611,7 +805,7 @@ def _merge_memory_facts(
     existing_facts: list[dict],
     new_facts: list[dict],
     *,
-    max_facts: int = 50,
+    max_facts: int = 150,  # L-04: increased from 50 for 256K models
     expiry_days: int = 180,
     expiry_score_threshold: float = 0.3,
 ) -> list[dict]:

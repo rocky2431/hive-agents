@@ -3,13 +3,21 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import uuid
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
 from app.runtime.invoker import AgentInvocationRequest, invoke_agent
 from app.runtime.session import SessionContext
+from app.services.runtime_task_service import (
+    create_runtime_task_record,
+    get_runtime_task_record,
+    list_active_runtime_task_records,
+    update_runtime_task_record,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -22,16 +30,67 @@ class OrchestrationPolicy:
     timeout_seconds: float = 30.0
 
 
+@dataclass(slots=True)
+class AsyncDelegationState:
+    task: asyncio.Task["AgentDelegationResult"]
+    parent_agent_id: uuid.UUID | None
+    child_agent_name: str | None
+    trace_id: str
+
+
 # ── Async delegation registry (in-process, per-worker) ──────────────
-_async_tasks: dict[str, asyncio.Task[AgentDelegationResult]] = {}
+_async_tasks: dict[str, AsyncDelegationState] = {}
 _MAX_TRACKED_TASKS = 200
+
+
+def _maybe_uuid(value: str | uuid.UUID | None) -> uuid.UUID | None:
+    if value is None or isinstance(value, uuid.UUID):
+        return value
+    try:
+        return uuid.UUID(str(value))
+    except (TypeError, ValueError, AttributeError):
+        return None
+
+
+async def _persist_delegation_event(
+    *,
+    task_id: str,
+    status: str,
+    parent_agent_id: str | uuid.UUID | None = None,
+    child_agent_name: str | None = None,
+    trace_id: str | None = None,
+    result_preview: str = "",
+    timed_out: bool = False,
+) -> None:
+    """Best-effort persistence of delegation lifecycle events via activity logger."""
+    if not parent_agent_id:
+        return
+    try:
+        from app.services.activity_logger import log_activity
+        detail: dict[str, Any] = {
+            "task_id": task_id,
+            "status": status,
+            "trace_id": trace_id or "",
+            "child_agent": child_agent_name or "",
+            "timed_out": timed_out,
+        }
+        if result_preview:
+            detail["result_preview"] = result_preview
+        await log_activity(
+            agent_id=uuid.UUID(str(parent_agent_id)),
+            action_type="delegation_" + status,
+            summary="Delegation " + status + ": " + (child_agent_name or task_id),
+            detail=detail,
+        )
+    except Exception as _persist_err:
+        logger.debug("[Orchestrator] Delegation persistence failed: %s", _persist_err)
 
 
 def _cleanup_stale_tasks() -> None:
     """Remove completed tasks that haven't been checked, to prevent unbounded growth."""
     if len(_async_tasks) <= _MAX_TRACKED_TASKS:
         return
-    stale = [tid for tid, task in _async_tasks.items() if task.done()]
+    stale = [tid for tid, state in _async_tasks.items() if state.task.done()]
     for tid in stale:
         _async_tasks.pop(tid, None)
     if len(_async_tasks) > _MAX_TRACKED_TASKS:
@@ -70,6 +129,69 @@ class AgentDelegationResult:
     depth: int
     timed_out: bool = False
     depth_limited: bool = False
+    failed: bool = False
+
+
+def _build_runtime_task_metadata(request: AgentDelegationRequest) -> dict[str, Any]:
+    metadata: dict[str, Any] = {
+        "message_count": len(request.conversation_messages),
+        "system_prompt_suffix": request.system_prompt_suffix,
+    }
+    resumable = request.tool_executor is None
+    if resumable:
+        try:
+            json.dumps(request.conversation_messages)
+        except (TypeError, ValueError):
+            resumable = False
+
+    metadata["resumable_delegation"] = resumable
+    metadata["resume_after_restart"] = resumable
+    if resumable:
+        metadata.update({
+            "owner_id": str(request.owner_id),
+            "target_agent_id": str(getattr(request.target, "id", "")),
+            "conversation_messages": request.conversation_messages,
+            "max_tool_rounds": request.max_tool_rounds,
+            "timeout_seconds": request.policy.timeout_seconds,
+        })
+    return metadata
+
+
+async def _resolve_resumable_target_runtime(child_agent_id: uuid.UUID) -> tuple[Any, Any] | None:
+    """Resolve a resumable native target agent and its model from persisted state."""
+    from sqlalchemy import select
+
+    from app.database import async_session
+    from app.models.agent import Agent
+    from app.models.llm import LLMModel
+
+    async with async_session() as db:
+        result = await db.execute(select(Agent).where(Agent.id == child_agent_id))
+        target = result.scalar_one_or_none()
+        if not target:
+            return None
+        if target.status in ("expired", "stopped", "archived"):
+            return None
+        if getattr(target, "agent_type", "native") == "openclaw":
+            return None
+
+        target_model = None
+        if target.primary_model_id:
+            model_r = await db.execute(
+                select(LLMModel).where(LLMModel.id == target.primary_model_id, LLMModel.tenant_id == target.tenant_id)
+            )
+            target_model = model_r.scalar_one_or_none()
+
+        if not target_model and target.fallback_model_id:
+            fb_r = await db.execute(
+                select(LLMModel).where(LLMModel.id == target.fallback_model_id, LLMModel.tenant_id == target.tenant_id)
+            )
+            target_model = fb_r.scalar_one_or_none()
+
+        if not target_model:
+            return None
+
+        return target, target_model
 
 
 async def delegate_to_agent(
@@ -122,6 +244,7 @@ async def _delegate(request: AgentDelegationRequest) -> AgentDelegationResult:
             trace_id=trace_id,
             depth=request.depth,
             depth_limited=True,
+            failed=True,
         )
 
     invocation = AgentInvocationRequest(
@@ -168,6 +291,7 @@ async def _delegate(request: AgentDelegationRequest) -> AgentDelegationResult:
             trace_id=trace_id,
             depth=request.depth,
             timed_out=True,
+            failed=True,
         )
     except Exception as exc:
         # M-22: Log full stack server-side; return only safe summary to LLM
@@ -183,6 +307,7 @@ async def _delegate(request: AgentDelegationRequest) -> AgentDelegationResult:
             child_session_id=child_session_id,
             trace_id=trace_id,
             depth=request.depth,
+            failed=True,
         )
 
     return AgentDelegationResult(
@@ -190,6 +315,73 @@ async def _delegate(request: AgentDelegationRequest) -> AgentDelegationResult:
         child_session_id=child_session_id,
         trace_id=trace_id,
         depth=request.depth,
+    )
+
+
+def _spawn_async_delegation_task(
+    *,
+    task_id: str,
+    request: AgentDelegationRequest,
+    trace_id: str,
+) -> None:
+    async def _run() -> AgentDelegationResult:
+        try:
+            delegation_result = await _delegate(request)
+            try:
+                await update_runtime_task_record(
+                    task_id,
+                    status="failed" if delegation_result.failed else "completed",
+                    result_summary=delegation_result.content,
+                    trace_id=delegation_result.trace_id,
+                    child_session_id=delegation_result.child_session_id,
+                    metadata_json={
+                        "timed_out": delegation_result.timed_out,
+                        "depth_limited": delegation_result.depth_limited,
+                    },
+                )
+            except Exception as exc:
+                logger.warning("[Orchestrator] Failed to update runtime task %s: %s", task_id, exc)
+            return delegation_result
+        except asyncio.CancelledError:
+            try:
+                await update_runtime_task_record(
+                    task_id,
+                    status="killed",
+                    result_summary="Task cancelled by parent agent",
+                    trace_id=trace_id,
+                    child_session_id=request.session_id,
+                    metadata_json={"timed_out": False, "depth_limited": False, "cancelled": True},
+                )
+            except Exception as update_exc:
+                logger.warning("[Orchestrator] Failed to persist runtime task cancellation %s: %s", task_id, update_exc)
+            raise
+        except Exception as exc:
+            logger.error("[Orchestrator] Async delegation %s failed: %s", task_id, exc)
+            try:
+                await update_runtime_task_record(
+                    task_id,
+                    status="failed",
+                    result_summary=f"Async task {task_id} failed: {exc}",
+                    trace_id=trace_id,
+                    child_session_id=request.session_id,
+                    metadata_json={"timed_out": False, "depth_limited": False},
+                )
+            except Exception as update_exc:
+                logger.warning("[Orchestrator] Failed to persist runtime task failure %s: %s", task_id, update_exc)
+            return AgentDelegationResult(
+                content=f"Async task {task_id} failed: {exc}",
+                child_session_id=request.session_id,
+                trace_id=trace_id,
+                depth=request.depth,
+                failed=True,
+            )
+
+    task = asyncio.create_task(_run(), name="async-delegation-" + task_id)
+    _async_tasks[task_id] = AsyncDelegationState(
+        task=task,
+        parent_agent_id=_maybe_uuid(request.parent_agent_id),
+        child_agent_name=getattr(request.target, "name", None),
+        trace_id=trace_id,
     )
 
 
@@ -214,6 +406,8 @@ async def delegate_async(
 ) -> AsyncDelegationHandle:
     """Launch a child agent in the background and return immediately."""
     _cleanup_stale_tasks()
+    task_id = uuid.uuid4().hex
+    real_trace_id = trace_id or uuid.uuid4().hex
     request = AgentDelegationRequest(
         target=target,
         target_model=target_model,
@@ -225,56 +419,298 @@ async def delegate_async(
         max_tool_rounds=max_tool_rounds,
         parent_agent_id=parent_agent_id,
         parent_session_id=parent_session_id,
-        trace_id=trace_id,
+        trace_id=real_trace_id,
         depth=depth,
         policy=policy or OrchestrationPolicy(timeout_seconds=120.0),
     )
-    task_id = uuid.uuid4().hex
-    real_trace_id = trace_id or uuid.uuid4().hex
+    metadata_json = _build_runtime_task_metadata(request)
 
-    async def _run() -> AgentDelegationResult:
-        try:
-            return await _delegate(request)
-        except Exception as exc:
-            logger.error("[Orchestrator] Async delegation %s failed: %s", task_id, exc)
-            return AgentDelegationResult(
-                content=f"Async task {task_id} failed: {exc}",
-                child_session_id=session_id,
-                trace_id=real_trace_id,
-                depth=depth,
-            )
+    try:
+        await create_runtime_task_record(
+            task_id=task_id,
+            task_type="delegation",
+            status="pending",
+            parent_agent_id=_maybe_uuid(parent_agent_id),
+            child_agent_id=getattr(target, "id", None),
+            child_agent_name=getattr(target, "name", None),
+            prompt=conversation_messages[-1].get("content", "") if conversation_messages else None,
+            trace_id=real_trace_id,
+            parent_session_id=parent_session_id,
+            child_session_id=session_id,
+            depth=depth,
+            metadata_json=metadata_json,
+        )
+    except Exception as exc:
+        logger.warning("[Orchestrator] Failed to create runtime task record %s: %s", task_id, exc)
+    _spawn_async_delegation_task(task_id=task_id, request=request, trace_id=real_trace_id)
+    try:
+        await update_runtime_task_record(
+            task_id,
+            status="running",
+            trace_id=real_trace_id,
+            child_session_id=session_id,
+        )
+    except Exception as exc:
+        logger.warning("[Orchestrator] Failed to mark runtime task %s as running: %s", task_id, exc)
 
-    task = asyncio.create_task(_run(), name=f"async-delegation-{task_id}")
-    _async_tasks[task_id] = task
+    # P1.8: Persist delegation start to activity log for observability
+    await _persist_delegation_event(
+        task_id=task_id,
+        parent_agent_id=parent_agent_id,
+        child_agent_name=target.name,
+        trace_id=real_trace_id,
+        status="started",
+    )
     logger.info("[Orchestrator] Async delegation started: task_id=%s target=%s", task_id, target.name)
     return AsyncDelegationHandle(task_id=task_id, trace_id=real_trace_id, target_name=target.name)
 
 
-async def check_async_delegation(task_id: str) -> dict[str, Any]:
+async def check_async_delegation(
+    task_id: str,
+    *,
+    parent_agent_id: str | uuid.UUID | None = None,
+) -> dict[str, Any]:
     """Check status of an async delegation. Returns status + result if done."""
-    task = _async_tasks.get(task_id)
-    if task is None:
-        return {"task_id": task_id, "status": "not_found", "result": None}
-    if not task.done():
+    state = _async_tasks.get(task_id)
+    if state is None:
+        try:
+            persisted = await get_runtime_task_record(task_id)
+        except Exception as exc:
+            logger.warning("[Orchestrator] Failed to load runtime task %s: %s", task_id, exc)
+            persisted = None
+        if persisted is None:
+            return {"task_id": task_id, "status": "not_found", "result": None}
+        return {
+            "task_id": task_id,
+            "status": persisted.get("status", "not_found"),
+            "result": persisted.get("result"),
+            "timed_out": bool((persisted.get("metadata") or {}).get("timed_out", False)),
+        }
+    request_parent_agent_id = _maybe_uuid(parent_agent_id)
+    if (
+        request_parent_agent_id is not None
+        and state.parent_agent_id is not None
+        and request_parent_agent_id != state.parent_agent_id
+    ):
+        return {"task_id": task_id, "status": "forbidden", "result": None}
+    if not state.task.done():
         return {"task_id": task_id, "status": "running", "result": None}
     # Remove completed task from registry after reading
     _async_tasks.pop(task_id, None)
     try:
-        delegation_result = task.result()
+        delegation_result = state.task.result()
+        # P1.8: Persist delegation completion
+        await _persist_delegation_event(
+            task_id=task_id,
+            status="failed" if delegation_result.failed else "completed",
+            result_preview=delegation_result.content[:300] if delegation_result.content else "",
+            timed_out=delegation_result.timed_out,
+            parent_agent_id=state.parent_agent_id,
+            child_agent_name=state.child_agent_name,
+            trace_id=state.trace_id,
+        )
         return {
             "task_id": task_id,
-            "status": "completed",
+            "status": "failed" if delegation_result.failed else "completed",
             "result": delegation_result.content,
             "timed_out": delegation_result.timed_out,
         }
+    except asyncio.CancelledError:
+        await _persist_delegation_event(
+            task_id=task_id,
+            status="killed",
+            result_preview="Task cancelled by parent agent",
+            parent_agent_id=state.parent_agent_id,
+            child_agent_name=state.child_agent_name,
+            trace_id=state.trace_id,
+        )
+        return {
+            "task_id": task_id,
+            "status": "killed",
+            "result": "Task cancelled by parent agent",
+            "timed_out": False,
+        }
     except Exception as exc:
+        await _persist_delegation_event(
+            task_id=task_id,
+            status="error",
+            result_preview=str(exc)[:300],
+            parent_agent_id=state.parent_agent_id,
+            child_agent_name=state.child_agent_name,
+            trace_id=state.trace_id,
+        )
         return {"task_id": task_id, "status": "error", "result": str(exc)}
 
 
-def list_async_delegations() -> list[dict[str, Any]]:
+async def cancel_async_delegation(
+    task_id: str,
+    *,
+    parent_agent_id: str | uuid.UUID | None = None,
+) -> dict[str, Any]:
+    """Cancel a running async delegation if it belongs to the caller."""
+    state = _async_tasks.get(task_id)
+    request_parent_agent_id = _maybe_uuid(parent_agent_id)
+
+    if state is None:
+        try:
+            persisted = await get_runtime_task_record(task_id)
+        except Exception as exc:
+            logger.warning("[Orchestrator] Failed to load runtime task %s for cancellation: %s", task_id, exc)
+            persisted = None
+        if persisted is None:
+            return {"task_id": task_id, "status": "not_found", "result": None}
+        persisted_parent_agent_id = _maybe_uuid(persisted.get("parent_agent_id"))
+        if (
+            request_parent_agent_id is not None
+            and persisted_parent_agent_id is not None
+            and request_parent_agent_id != persisted_parent_agent_id
+        ):
+            return {"task_id": task_id, "status": "forbidden", "result": None}
+        status = persisted.get("status") or "not_found"
+        if status in {"completed", "failed", "killed"}:
+            return {"task_id": task_id, "status": status, "result": persisted.get("result")}
+        return {
+            "task_id": task_id,
+            "status": "not_running_here",
+            "result": "Task exists but is not running in this worker process.",
+        }
+
+    if (
+        request_parent_agent_id is not None
+        and state.parent_agent_id is not None
+        and request_parent_agent_id != state.parent_agent_id
+    ):
+        return {"task_id": task_id, "status": "forbidden", "result": None}
+
+    if state.task.done():
+        return await check_async_delegation(task_id, parent_agent_id=request_parent_agent_id)
+
+    state.task.cancel()
+    try:
+        await state.task
+    except asyncio.CancelledError:
+        pass
+    finally:
+        _async_tasks.pop(task_id, None)
+
+    try:
+        await update_runtime_task_record(
+            task_id,
+            status="killed",
+            result_summary="Task cancelled by parent agent",
+            trace_id=state.trace_id,
+            metadata_json={"timed_out": False, "depth_limited": False, "cancelled": True},
+        )
+    except Exception as exc:
+        logger.warning("[Orchestrator] Failed to persist cancelled runtime task %s: %s", task_id, exc)
+
+    await _persist_delegation_event(
+        task_id=task_id,
+        status="killed",
+        result_preview="Task cancelled by parent agent",
+        parent_agent_id=state.parent_agent_id,
+        child_agent_name=state.child_agent_name,
+        trace_id=state.trace_id,
+    )
+    return {
+        "task_id": task_id,
+        "status": "killed",
+        "result": "Task cancelled by parent agent",
+    }
+
+
+def list_async_delegations(
+    *,
+    parent_agent_id: str | uuid.UUID | None = None,
+) -> list[dict[str, Any]]:
     """List all tracked async delegations with their status."""
     results: list[dict[str, Any]] = []
-    for task_id, task in _async_tasks.items():
-        status = "completed" if task.done() else "running"
-        results.append({"task_id": task_id, "status": status})
+    request_parent_agent_id = _maybe_uuid(parent_agent_id)
+    for task_id, state in _async_tasks.items():
+        if request_parent_agent_id is not None and state.parent_agent_id != request_parent_agent_id:
+            continue
+        if state.task.cancelled():
+            status = "killed"
+        else:
+            status = "completed" if state.task.done() else "running"
+        results.append({
+            "task_id": task_id,
+            "status": status,
+            "target_agent": state.child_agent_name,
+            "trace_id": state.trace_id,
+        })
     return results
+
+
+async def resume_persisted_async_delegations(*, limit: int = 50) -> list[str]:
+    """Resume restart-safe async delegations from persisted runtime task records."""
+    resumed: list[str] = []
+    try:
+        records = await list_active_runtime_task_records(limit=limit, statuses=("pending", "running"))
+    except Exception as exc:
+        logger.warning("[Orchestrator] Failed to load active runtime tasks for resume: %s", exc)
+        return resumed
+
+    for record in records:
+        task_id = str(record.get("task_id") or "")
+        if not task_id or task_id in _async_tasks:
+            continue
+
+        metadata = record.get("metadata") or {}
+        if not metadata.get("resumable_delegation") or not metadata.get("resume_after_restart"):
+            continue
+
+        target_agent_id = _maybe_uuid(metadata.get("target_agent_id") or record.get("child_agent_id"))
+        owner_id = _maybe_uuid(metadata.get("owner_id"))
+        conversation_messages = metadata.get("conversation_messages")
+        if target_agent_id is None or owner_id is None or not isinstance(conversation_messages, list):
+            logger.warning("[Orchestrator] Runtime task %s missing resumable metadata; cannot resume", task_id)
+            continue
+
+        resolved = await _resolve_resumable_target_runtime(target_agent_id)
+        if resolved is None:
+            try:
+                await update_runtime_task_record(
+                    task_id,
+                    status="failed",
+                    result_summary="Task could not be resumed after restart because the target agent runtime is unavailable.",
+                    metadata_json={"resume_failed": True},
+                )
+            except Exception as exc:
+                logger.warning("[Orchestrator] Failed to persist resume failure for %s: %s", task_id, exc)
+            continue
+
+        target, target_model = resolved
+        request = AgentDelegationRequest(
+            target=target,
+            target_model=target_model,
+            conversation_messages=conversation_messages,
+            owner_id=owner_id,
+            session_id=str(record.get("child_session_id") or uuid.uuid4().hex),
+            tool_executor=None,
+            system_prompt_suffix=str(metadata.get("system_prompt_suffix") or ""),
+            max_tool_rounds=metadata.get("max_tool_rounds"),
+            parent_agent_id=record.get("parent_agent_id"),
+            parent_session_id=record.get("parent_session_id"),
+            trace_id=str(record.get("trace_id") or uuid.uuid4().hex),
+            depth=int(record.get("depth") or 1),
+            policy=OrchestrationPolicy(timeout_seconds=float(metadata.get("timeout_seconds") or 120.0)),
+        )
+
+        _spawn_async_delegation_task(task_id=task_id, request=request, trace_id=request.trace_id or uuid.uuid4().hex)
+        try:
+            await update_runtime_task_record(
+                task_id,
+                status="running",
+                trace_id=request.trace_id,
+                child_session_id=request.session_id,
+                metadata_json={
+                    "resumed_after_restart": True,
+                    "resumed_at": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+        except Exception as exc:
+            logger.warning("[Orchestrator] Failed to mark resumed runtime task %s as running: %s", task_id, exc)
+        resumed.append(task_id)
+
+    return resumed

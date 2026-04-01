@@ -6,33 +6,79 @@ returning a unified list of MemoryItem objects for the assembler.
 
 from __future__ import annotations
 
+import json
 import logging
+import re as _re
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
 from app.memory.store import PersistentMemoryStore
 from app.memory.types import MemoryItem, MemoryKind, parse_utc_timestamp
+from app.runtime.context_budget import ContextBudget
+
+# Rerank: only trigger LLM side-query when semantic candidates exceed this count.
+_RERANK_THRESHOLD = 5
+_RERANK_MAX_SELECT = 5
 
 logger = logging.getLogger(__name__)
 
+_CJK_RE = _re.compile(r"[\u4e00-\u9fff\u3400-\u4dbf\uF900-\uFAFF]")
+_PUNCTUATION_CHARS = frozenset("，。！？；：""''（）【】、…—《》·,.!?;:\"'()[]{}/ \t\n\r")
+
+
+def _has_cjk(text: str) -> bool:
+    """Detect if text contains CJK characters."""
+    return bool(_CJK_RE.search(text))
+
+
+def _chars_set(text: str) -> set[str]:
+    """Extract meaningful characters for CJK overlap scoring, filtering punctuation/whitespace."""
+    return {c for c in text.lower() if c not in _PUNCTUATION_CHARS and not c.isspace()}
+
 
 def _content_similar(a: str, b: str, threshold: float = 0.7) -> bool:
-    """Check if two text blocks are similar using word overlap."""
-    words_a = set(a.lower().split())
-    words_b = set(b.lower().split())
-    if not words_a or not words_b:
-        return False
-    overlap = len(words_a & words_b)
-    return overlap / min(len(words_a), len(words_b)) > threshold
+    """Check if two text blocks are similar using word overlap (English) or char overlap (CJK)."""
+    a_lower = a.lower()
+    b_lower = b.lower()
+
+    # Path 1: word overlap (English)
+    words_a = set(a_lower.split())
+    words_b = set(b_lower.split())
+    word_sim = 0.0
+    if words_a and words_b:
+        word_sim = len(words_a & words_b) / min(len(words_a), len(words_b))
+
+    # Path 2: character overlap (CJK)
+    char_sim = 0.0
+    if _has_cjk(a) or _has_cjk(b):
+        chars_a = _chars_set(a)
+        chars_b = _chars_set(b)
+        if chars_a and chars_b:
+            char_sim = len(chars_a & chars_b) / min(len(chars_a), len(chars_b))
+
+    return max(word_sim, char_sim) > threshold
 
 
 def _score_relevance(content: str, query: str) -> float:
-    """Score content relevance against query using keyword overlap."""
-    query_words = set(query.lower().split())
-    content_words = set(content.lower().split())
-    overlap = query_words & content_words
-    return len(overlap) / max(len(query_words), 1)
+    """Score content relevance using dual-path: word overlap (English) + char overlap (CJK)."""
+    q_lower = query.lower()
+    c_lower = content.lower()
+
+    # Path 1: English word overlap
+    query_words = set(q_lower.split())
+    content_words = set(c_lower.split())
+    word_overlap = len(query_words & content_words) / max(len(query_words), 1)
+
+    # Path 2: CJK character overlap (only if query or content has CJK)
+    char_overlap = 0.0
+    if _has_cjk(query) or _has_cjk(content):
+        query_chars = _chars_set(query)
+        content_chars = _chars_set(content)
+        if query_chars:
+            char_overlap = len(query_chars & content_chars) / len(query_chars)
+
+    return max(word_overlap, char_overlap)
 
 
 _parse_timestamp = parse_utc_timestamp  # Use shared implementation from types.py
@@ -48,14 +94,88 @@ def _score_recency(timestamp: str | None) -> float:
     return 1.0 / (1.0 + (age_days / 90.0))
 
 
-def _score_semantic_item(content: str, query: str, timestamp: str | None) -> float:
+def _score_semantic_item(content: str, query: str, timestamp: str | None, category: str | None = None) -> float:
     lexical = _score_relevance(content, query) if query else 0.0
     recency = _score_recency(timestamp)
     if query:
-        return lexical * 0.85 + recency * 0.15
-    # Without query (session start): baseline 0.5 + recency bonus so all semantic
-    # facts surface with reasonable scores instead of pure recency ordering.
-    return 0.5 + recency * 0.3
+        base = lexical * 0.85 + recency * 0.15
+    else:
+        # Without query (session start): baseline 0.5 + recency bonus so all semantic
+        # facts surface with reasonable scores instead of pure recency ordering.
+        base = 0.5 + recency * 0.3
+    # B-07 + P1.2: category-aware scoring — high-signal categories get boosted
+    if category in ("feedback", "constraint", "blocked_pattern"):
+        base = min(base * 1.5, 1.0)
+    elif category in ("user", "strategy"):
+        base = min(base * 1.2, 1.0)
+    return base
+
+
+async def _rerank_semantic_items(
+    items: list[MemoryItem],
+    query: str,
+    model_config: dict | None = None,
+    *,
+    max_select: int = _RERANK_MAX_SELECT,
+) -> list[MemoryItem]:
+    """Use a cheap LLM side-query to select the most relevant semantic memories.
+
+    Returns up to _RERANK_MAX_SELECT items, preserving original MemoryItem objects.
+    Falls back to the original list on any error.
+
+    Args:
+        model_config: dict with keys provider/api_key/model/base_url for create_llm_client.
+            If None, rerank is skipped (graceful degradation).
+    """
+    if not model_config:
+        return items[:max_select]
+
+    try:
+        from app.services.llm_client import LLMMessage, create_llm_client
+    except ImportError:
+        return items[:max_select]
+
+    manifest_lines = [
+        str(i) + ": " + item.content[:150] for i, item in enumerate(items)
+    ]
+    manifest = "\n".join(manifest_lines)
+    prompt_parts = [
+        "Query: " + query,
+        "",
+        "Memories (index: content):",
+        manifest,
+        "",
+        "Select up to " + str(max_select) + " memory indices most useful for this query. ",
+        'Return JSON: {"selected": [0, 2, 4]}',
+    ]
+    prompt_text = "\n".join(prompt_parts)
+    try:
+        client = create_llm_client(**model_config)
+        response = await client.stream(
+            messages=[
+                LLMMessage(role="system", content="Select the most relevant memories. Return only JSON."),
+                LLMMessage(role="user", content=prompt_text),
+            ],
+            max_tokens=100,
+            temperature=0.0,
+        )
+        content = response.content if hasattr(response, "content") else str(response)
+        start = content.find("{")
+        end = content.rfind("}") + 1
+        if start >= 0 and end > start:
+            parsed = json.loads(content[start:end])
+            indices = parsed.get("selected", [])
+            if isinstance(indices, list) and indices:
+                selected = [items[i] for i in indices if isinstance(i, int) and 0 <= i < len(items)]
+                if selected:
+                    logger.debug("[Retriever] Rerank selected %d/%d items", len(selected), len(items))
+                    return selected
+        if hasattr(client, "close"):
+            await client.close()
+    except Exception as exc:
+        logger.debug("[Retriever] Rerank failed, using original order: %s", exc)
+
+        return items[:max_select]
 
 
 class MemoryRetriever:
@@ -77,14 +197,38 @@ class MemoryRetriever:
         session_id: str | None,
         tenant_id: str | None,
         *,
-        limit: int = 20,
+        limit: int = 50,
+        rerank_model_config: dict | None = None,
+        retrieval_profile: ContextBudget | None = None,
     ) -> list[MemoryItem]:
-        """Retrieve memory items from all four layers."""
+        """Retrieve memory items from all four layers.
+
+        Args:
+            rerank_model_config: When provided and semantic candidates > _RERANK_THRESHOLD,
+                use a cheap LLM side-query to re-score semantic items by relevance.
+                Dict with keys: provider, api_key, model, base_url (for create_llm_client).
+        """
         items: list[MemoryItem] = []
         items.extend(self._retrieve_working(agent_id))
-        items.extend(await self._retrieve_episodic(agent_id, session_id))
-        items.extend(self._retrieve_semantic(agent_id, query, limit=limit))
-        items.extend(await self._retrieve_external(agent_id, query, tenant_id))
+        episodic_limit = retrieval_profile.episodic_limit if retrieval_profile else 3
+        semantic_limit = retrieval_profile.semantic_limit if retrieval_profile else limit
+        external_limit = retrieval_profile.external_limit if retrieval_profile else 5
+        rerank_max_select = retrieval_profile.rerank_max_select if retrieval_profile else _RERANK_MAX_SELECT
+
+        items.extend(await self._retrieve_episodic(agent_id, session_id, previous_limit=episodic_limit))
+        semantic_items = self._retrieve_semantic(agent_id, query, limit=semantic_limit)
+
+        # P1.6: Optional LLM-based rerank for semantic items
+        if rerank_model_config and query and len(semantic_items) > _RERANK_THRESHOLD:
+            semantic_items = await _rerank_semantic_items(
+                semantic_items,
+                query,
+                rerank_model_config,
+                max_select=rerank_max_select,
+            )
+
+        items.extend(semantic_items)
+        items.extend(await self._retrieve_external(agent_id, query, tenant_id, limit=external_limit))
         return items
 
     # -- Working layer: agent's focus.md --
@@ -105,7 +249,13 @@ class MemoryRetriever:
 
     # -- Episodic layer: session summaries from DB --
 
-    async def _retrieve_episodic(self, agent_id: uuid.UUID, session_id: str | None) -> list[MemoryItem]:
+    async def _retrieve_episodic(
+        self,
+        agent_id: uuid.UUID,
+        session_id: str | None,
+        *,
+        previous_limit: int = 3,
+    ) -> list[MemoryItem]:
         items: list[MemoryItem] = []
         try:
             from app.database import async_session
@@ -132,11 +282,11 @@ class MemoryRetriever:
                                 content=row[0],
                                 score=1.0,
                                 source="current_session",
-                                metadata={"session_id": str(row[1])},
+                                metadata={"session_id": str(row[1]), "is_current_session": True},
                             )
                         )
 
-                # Previous session summaries — load up to 3 for continuity
+                # Previous session summaries — load a bounded continuity window
                 prev_query = (
                     select(ChatSession.summary, ChatSession.id, ChatSession.last_message_at)
                     .where(
@@ -144,7 +294,7 @@ class MemoryRetriever:
                         ChatSession.summary.isnot(None),
                     )
                     .order_by(ChatSession.last_message_at.desc(), ChatSession.created_at.desc())
-                    .limit(3)
+                    .limit(previous_limit)
                 )
                 if session_uuid:
                     prev_query = prev_query.where(ChatSession.id != session_uuid)
@@ -154,13 +304,17 @@ class MemoryRetriever:
                     if row[0]:
                         # Score decays: 0.8 → 0.6 → 0.4 for older sessions
                         score = max(0.8 - i * 0.2, 0.3)
+                        _last_msg_at = row[2]
                         items.append(
                             MemoryItem(
                                 kind=MemoryKind.EPISODIC,
                                 content=row[0],
                                 score=score,
                                 source=f"previous_session_{i + 1}",
-                                metadata={"session_id": str(row[1])},
+                                metadata={
+                                    "session_id": str(row[1]),
+                                    "timestamp": _last_msg_at.isoformat() if _last_msg_at else None,
+                                },
                             )
                         )
 
@@ -179,7 +333,7 @@ class MemoryRetriever:
 
     # -- Semantic layer: memory.json facts scored by relevance --
 
-    def _retrieve_semantic(self, agent_id: uuid.UUID, query: str, *, limit: int = 20) -> list[MemoryItem]:
+    def _retrieve_semantic(self, agent_id: uuid.UUID, query: str, *, limit: int = 50) -> list[MemoryItem]:
         try:
             facts = self._persistent_store.load_semantic_facts(agent_id)
         except Exception as exc:
@@ -197,7 +351,8 @@ class MemoryRetriever:
             if not content:
                 continue
             timestamp = fact.get("timestamp") or fact.get("created_at")
-            score = _score_semantic_item(content, query, timestamp)
+            _category = fact.get("category")
+            score = _score_semantic_item(content, query, timestamp, category=_category)
             items.append(
                 MemoryItem(
                     kind=MemoryKind.SEMANTIC,
@@ -214,7 +369,14 @@ class MemoryRetriever:
 
     # -- External layer: OpenViking recall --
 
-    async def _retrieve_external(self, agent_id: uuid.UUID, query: str, tenant_id: str | None) -> list[MemoryItem]:
+    async def _retrieve_external(
+        self,
+        agent_id: uuid.UUID,
+        query: str,
+        tenant_id: str | None,
+        *,
+        limit: int = 5,
+    ) -> list[MemoryItem]:
         if not query or not tenant_id:
             return []
 
@@ -228,7 +390,7 @@ class MemoryRetriever:
                 query,
                 tenant_id=tenant_id,
                 agent_id=str(agent_id),
-                limit=5,
+                limit=limit,
             )
 
             items: list[MemoryItem] = []

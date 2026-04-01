@@ -1,4 +1,4 @@
-"""Tests for PersistentMemoryStore FTS5 search."""
+"""Tests for PersistentMemoryStore FTS5 search and typed memory."""
 
 import json
 import uuid
@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from app.memory.store import PersistentMemoryStore
+from app.memory.store import MEMORY_CATEGORIES, PersistentMemoryStore
 
 
 @pytest.fixture
@@ -100,3 +100,61 @@ def test_search_preserves_metadata(store, agent_id):
     assert len(results) == 1
     assert results[0]["subject"] == "meetings"
     assert results[0]["timestamp"] == "2026-03-20"
+
+
+# ── P1.1: Typed memory (category field) ──────────────────────────
+
+
+class TestTypedMemoryCategory:
+    """semantic_facts stores and retrieves category field."""
+
+    def test_category_stored_and_loaded(self, store, agent_id) -> None:
+        facts = [
+            {"content": "User prefers dark mode", "category": "user"},
+            {"content": "Always run tests before commit", "category": "feedback"},
+            {"content": "Sprint ends March 30", "category": "project"},
+        ]
+        store.replace_semantic_facts(agent_id, facts)
+        loaded = store.load_semantic_facts(agent_id)
+        assert loaded[0]["category"] == "user"
+        assert loaded[1]["category"] == "feedback"
+        assert loaded[2]["category"] == "project"
+
+    def test_default_category_is_general(self, store, agent_id) -> None:
+        facts = [{"content": "no category specified"}]
+        store.replace_semantic_facts(agent_id, facts)
+        loaded = store.load_semantic_facts(agent_id)
+        assert loaded[0]["category"] == "general"
+
+    def test_invalid_category_falls_back_to_general(self, store, agent_id) -> None:
+        facts = [{"content": "bad category", "category": "nonsense"}]
+        store.replace_semantic_facts(agent_id, facts)
+        loaded = store.load_semantic_facts(agent_id)
+        assert loaded[0]["category"] == "general"
+
+    def test_search_returns_category(self, store, agent_id) -> None:
+        facts = [
+            {"content": "Slack channel for bugs is #bugs", "category": "reference"},
+            {"content": "User likes coffee", "category": "user"},
+        ]
+        store.replace_semantic_facts(agent_id, facts)
+        results = store.search_facts(agent_id, "bugs")
+        assert len(results) >= 1
+        assert results[0]["category"] == "reference"
+
+    def test_category_survives_legacy_import(self, store, agent_id) -> None:
+        """Legacy JSON without category should get 'general' on import."""
+        memory_dir = store.data_root / str(agent_id) / "memory"
+        memory_dir.mkdir(parents=True, exist_ok=True)
+        legacy = [{"content": "old fact from JSON"}]
+        (memory_dir / "memory.json").write_text(json.dumps(legacy))
+        loaded = store.load_semantic_facts(agent_id)
+        assert len(loaded) == 1
+        assert loaded[0]["category"] == "general"
+
+    def test_all_valid_categories_accepted(self, store, agent_id) -> None:
+        facts = [{"content": f"fact for {cat}", "category": cat} for cat in MEMORY_CATEGORIES]
+        store.replace_semantic_facts(agent_id, facts)
+        loaded = store.load_semantic_facts(agent_id)
+        categories = {f["category"] for f in loaded}
+        assert categories == MEMORY_CATEGORIES

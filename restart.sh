@@ -160,6 +160,9 @@ start_backend() {
     echo -e "${YELLOW}🚀 Starting backend...${NC}"
     cd "$BACKEND_DIR"
 
+    echo -e "${YELLOW}🔄 Applying database migrations...${NC}"
+    DATABASE_URL="$DATABASE_URL" .venv/bin/alembic upgrade head
+
     # Auto-run data migrations (idempotent)
     echo -e "${YELLOW}🔄 Running data migrations...${NC}"
     .venv/bin/python -m app.scripts.migrate_schedules_to_triggers || true

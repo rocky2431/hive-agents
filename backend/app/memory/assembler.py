@@ -7,8 +7,13 @@ and trims output to a character budget.
 from __future__ import annotations
 
 import hashlib
+from datetime import UTC, datetime
 
-from app.memory.types import MemoryItem, MemoryKind
+from app.memory.types import MemoryItem, MemoryKind, parse_utc_timestamp
+
+# Memories older than this threshold get a freshness warning appended.
+# L-03: Increased from 1 to 7 days — 1 day was too aggressive for agents running periodically
+_FRESHNESS_WARNING_DAYS = 7
 
 # Display order and section headers for each memory kind.
 _SECTION_ORDER: list[tuple[MemoryKind, str]] = [
@@ -24,10 +29,26 @@ def _content_hash(content: str) -> str:
     return hashlib.md5(content.strip().lower().encode("utf-8")).hexdigest()  # noqa: S324
 
 
+def _freshness_suffix(item: MemoryItem) -> str:
+    """Return a freshness warning suffix for stale memories, empty for fresh ones."""
+    ts_raw = item.metadata.get("timestamp")
+    if not ts_raw:
+        return ""
+    ts = parse_utc_timestamp(ts_raw) if isinstance(ts_raw, str) else ts_raw
+    if not isinstance(ts, datetime):
+        return ""
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=UTC)
+    age_days = (datetime.now(UTC) - ts).days
+    if age_days > _FRESHNESS_WARNING_DAYS:
+        return f" [{age_days}d ago — verify before acting]"
+    return ""
+
+
 class MemoryAssembler:
     """Assemble retrieved memory items into a prompt section."""
 
-    def assemble(self, items: list[MemoryItem], budget_chars: int = 12000) -> str:
+    def assemble(self, items: list[MemoryItem], budget_chars: int = 20000) -> str:
         """Render memory items grouped by kind, deduplicated and budget-trimmed.
 
         Returns a string with section headers ready to inject into a system prompt.
@@ -62,7 +83,11 @@ class MemoryAssembler:
             lines: list[str] = [header]
             header_len = len(header) + 1
             for item in kind_items:
-                line = f"- {item.content}" if kind != MemoryKind.WORKING else item.content
+                freshness = _freshness_suffix(item) if kind != MemoryKind.WORKING else ""
+                # B-06 fix: render category prefix for non-general types so LLM sees memory taxonomy
+                _cat = item.metadata.get("category", "")
+                _cat_prefix = f"[{_cat}] " if _cat and _cat != "general" and kind != MemoryKind.WORKING else ""
+                line = f"- {_cat_prefix}{item.content}{freshness}" if kind != MemoryKind.WORKING else item.content
                 line_len = len(line) + 1  # +1 for newline
                 if total_chars + line_len > budget_chars:
                     break

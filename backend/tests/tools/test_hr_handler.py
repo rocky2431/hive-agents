@@ -58,3 +58,20 @@ def test_hr_tool_meta_has_correct_attributes():
     assert meta.governance == "sensitive"  # agent creation requires governance approval
     assert meta.category == "hr"
     assert meta.adapter == "request"
+
+
+def test_build_create_employee_result_is_structured_json():
+    from app.tools.handlers.hr import _build_create_employee_result
+
+    agent_id = "d20f09de-c0a8-4cc1-a033-0b982dd7a0a3"
+    result = _build_create_employee_result(
+        agent_id=agent_id,
+        agent_name="Strategy Bot",
+        features=["heartbeat=09:00-18:00 every 120min"],
+        skills_dir="/tmp/agent/skills",
+    )
+
+    assert '"status": "success"' in result
+    assert f'"agent_id": "{agent_id}"' in result
+    assert '"agent_name": "Strategy Bot"' in result
+    assert '"message": "Successfully created digital employee' in result

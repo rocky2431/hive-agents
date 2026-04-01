@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+from app.runtime.session import SessionContext
 
 
 class _FakeClient:
@@ -20,6 +21,69 @@ class _FakeClient:
 
     async def close(self) -> None:
         return None
+
+
+@pytest.mark.asyncio
+async def test_build_system_prompt_uses_static_agent_context_only(monkeypatch):
+    from app.runtime.invoker import AgentInvocationRequest, _build_system_prompt
+
+    captured = {}
+
+    async def fake_build_agent_context(*args, **kwargs):
+        captured["kwargs"] = kwargs
+        return "STATIC_AGENT_CONTEXT"
+
+    monkeypatch.setattr("app.runtime.invoker.build_agent_context", fake_build_agent_context)
+
+    request = AgentInvocationRequest(
+        model=SimpleNamespace(provider="openai", model="gpt-4.1", api_key="key", base_url=None, max_output_tokens=None),
+        messages=[{"role": "user", "content": "hello"}],
+        agent_name="Agent",
+        role_description="desc",
+        agent_id=uuid4(),
+        user_id=uuid4(),
+        session_context=SessionContext(session_id="s-1", source="websocket"),
+    )
+
+    prompt = await _build_system_prompt(
+        request,
+        tenant_id=uuid4(),
+        resolved_memory_context="MEMORY_SNAPSHOT",
+        current_user_name="Rocky",
+    )
+
+    assert prompt == "STATIC_AGENT_CONTEXT\n\nMEMORY_SNAPSHOT"
+    assert captured["kwargs"]["include_memory_file"] is False
+    assert captured["kwargs"]["include_runtime_metadata"] is False
+
+
+@pytest.mark.asyncio
+async def test_resolve_retrieval_context_appends_runtime_hints(monkeypatch):
+    from app.runtime.invoker import AgentInvocationRequest, _resolve_retrieval_context
+
+    async def fake_build_memory_context(*args, **kwargs):
+        return "MEMORY_RECALL"
+
+    async def fake_build_agent_runtime_context(*args, **kwargs):
+        return "RUNTIME_HINTS"
+
+    monkeypatch.setattr("app.runtime.invoker.build_memory_context", fake_build_memory_context)
+    monkeypatch.setattr("app.runtime.invoker.fetch_relevant_knowledge", lambda *_args, **_kwargs: "KNOWLEDGE")
+    monkeypatch.setattr("app.runtime.invoker.build_agent_runtime_context", fake_build_agent_runtime_context)
+
+    request = AgentInvocationRequest(
+        model=SimpleNamespace(provider="openai", model="gpt-4.1", api_key="key", base_url=None, max_output_tokens=None),
+        messages=[{"role": "user", "content": "最新进展是什么"}],
+        agent_name="Agent",
+        role_description="desc",
+        agent_id=uuid4(),
+        user_id=uuid4(),
+        session_context=SessionContext(session_id="s-2", source="websocket"),
+    )
+
+    result = await _resolve_retrieval_context(request, tenant_id=uuid4())
+
+    assert result == "RUNTIME_HINTS\n\nMEMORY_RECALL\n\nKNOWLEDGE"
 
 
 @pytest.mark.asyncio
@@ -202,6 +266,41 @@ async def test_invoke_agent_passes_cancel_and_fallback_to_kernel(monkeypatch):
     assert result.content == "ok"
     assert captured["request"].cancel_event is cancel_event
     assert captured["request"].fallback_model is fallback_model
+
+
+@pytest.mark.asyncio
+async def test_invoke_agent_passes_execution_mode_to_kernel(monkeypatch):
+    from app.runtime.invoker import AgentInvocationRequest, invoke_agent
+
+    captured = {}
+
+    class _FakeKernel:
+        async def handle(self, request):
+            captured["request"] = request
+            return SimpleNamespace(content="ok", tokens_used=0, final_tools=None, parts=[])
+
+    monkeypatch.setattr("app.runtime.invoker.get_agent_kernel", lambda: _FakeKernel())
+
+    result = await invoke_agent(
+        AgentInvocationRequest(
+            model=SimpleNamespace(
+                provider="openai",
+                model="gpt-4.1",
+                api_key="key",
+                base_url=None,
+                max_output_tokens=None,
+            ),
+            messages=[{"role": "user", "content": "hello"}],
+            agent_name="Coordinator",
+            role_description="desc",
+            agent_id=uuid4(),
+            user_id=uuid4(),
+            execution_mode="coordinator",
+        )
+    )
+
+    assert result.content == "ok"
+    assert captured["request"].execution_mode == "coordinator"
 
 
 @pytest.mark.asyncio
@@ -439,6 +538,12 @@ async def test_invoke_agent_loads_and_persists_runtime_memory(monkeypatch):
         captured["loaded"] = (_agent_id, _tenant_id, session_id)
         return "RUNTIME_MEMORY"
 
+    async def fake_build_memory_context(*args, **kwargs):
+        return ""
+
+    async def fake_build_agent_runtime_context(*args, **kwargs):
+        return ""
+
     async def fake_persist_runtime_memory(*, agent_id, session_id, tenant_id, messages):
         captured["persisted"] = {
             "agent_id": agent_id,
@@ -452,7 +557,9 @@ async def test_invoke_agent_loads_and_persists_runtime_memory(monkeypatch):
 
     monkeypatch.setattr("app.runtime.invoker._resolve_runtime_config", fake_resolve_runtime_config)
     monkeypatch.setattr("app.runtime.invoker.build_agent_context", fake_build_agent_context)
+    monkeypatch.setattr("app.runtime.invoker.build_agent_runtime_context", fake_build_agent_runtime_context)
     monkeypatch.setattr("app.runtime.invoker.fetch_relevant_knowledge", fake_fetch_relevant_knowledge)
+    monkeypatch.setattr("app.runtime.invoker.build_memory_context", fake_build_memory_context)
     monkeypatch.setattr("app.runtime.invoker.build_memory_snapshot", fake_build_memory_snapshot)
     monkeypatch.setattr("app.runtime.invoker.persist_runtime_memory", fake_persist_runtime_memory)
     monkeypatch.setattr("app.runtime.invoker.maybe_compress_messages", fake_compress)

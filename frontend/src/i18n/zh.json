@@ -446,6 +446,15 @@
         "inherited": "使用公司默认时区",
         "default": "↩ 公司默认"
       },
+      "executionMode": {
+        "title": "执行模式",
+        "description": "选择此数字员工是以普通执行者运行，还是以主要负责委派其他智能体的协调者模式运行。",
+        "current": "当前模式",
+        "standard": "标准模式",
+        "coordinator": "协调者模式",
+        "standardDesc": "使用普通的单智能体运行时",
+        "coordinatorDesc": "负责委派并综合多个工作智能体的结果"
+      },
       "heartbeat": {
         "title": "心跳",
         "description": "定期感知检查 — 数字员工主动监控广场和工作环境。",

@@ -115,6 +115,142 @@ async def send_message_to_agent(agent_id: uuid.UUID, arguments: dict) -> str:
     return await _send_message_to_agent(agent_id, arguments)
 
 
+# -- delegate_to_agent -------------------------------------------------------
+
+@tool(ToolMeta(
+    name="delegate_to_agent",
+    description="Spawn an async task on another digital employee and return immediately with a task handle. Use this for coordinator-style delegation when you want work to continue in the background and check back later with check_async_task.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "agent_name": {
+                "type": "string",
+                "description": "Target digital employee's name",
+            },
+            "message": {
+                "type": "string",
+                "description": "Precise task instructions for the worker agent",
+            },
+            "max_tool_rounds": {
+                "type": "integer",
+                "description": "Optional override for the worker's max tool rounds",
+            },
+            "parent_session_id": {
+                "type": "string",
+                "description": "Optional parent session/task identifier for tracing",
+            },
+        },
+        "required": ["agent_name", "message"],
+    },
+    category="communication",
+    display_name="Delegate to Agent",
+    icon="\U0001f9ed",
+    adapter="agent_args",
+))
+async def delegate_to_agent(agent_id: uuid.UUID, arguments: dict) -> str:
+    from app.services.agent_tools import _delegate_to_agent_async
+    return await _delegate_to_agent_async(agent_id, arguments)
+
+
+# -- check_async_task --------------------------------------------------------
+
+@tool(ToolMeta(
+    name="check_async_task",
+    description="Check the status of a previously spawned async agent task. Returns running/completed/failed plus result when available.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "task_id": {
+                "type": "string",
+                "description": "The task_id returned by delegate_to_agent",
+            },
+        },
+        "required": ["task_id"],
+    },
+    category="communication",
+    display_name="Check Async Task",
+    icon="\U0001f50e",
+    read_only=True,
+    parallel_safe=True,
+    adapter="agent_args",
+))
+async def check_async_task(agent_id: uuid.UUID, arguments: dict) -> str:
+    from app.services.agent_tools import _check_async_task
+    return await _check_async_task(agent_id, arguments)
+
+
+# -- cancel_async_task -------------------------------------------------------
+
+@tool(ToolMeta(
+    name="cancel_async_task",
+    description="Cancel a previously spawned async agent task that you own. Use this to stop runaway or no-longer-needed worker tasks.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "task_id": {
+                "type": "string",
+                "description": "The task_id returned by delegate_to_agent",
+            },
+        },
+        "required": ["task_id"],
+    },
+    category="communication",
+    display_name="Cancel Async Task",
+    icon="\u23f9",
+    adapter="agent_args",
+))
+async def cancel_async_task(agent_id: uuid.UUID, arguments: dict) -> str:
+    from app.services.agent_tools import _cancel_async_task
+    return await _cancel_async_task(agent_id, arguments)
+
+
+# -- list_async_tasks --------------------------------------------------------
+
+@tool(ToolMeta(
+    name="list_async_tasks",
+    description="List recent async agent tasks that you spawned. Useful for coordinators that need to inspect multiple worker tasks.",
+    parameters={
+        "type": "object",
+        "properties": {},
+    },
+    category="communication",
+    display_name="List Async Tasks",
+    icon="\U0001f4cb",
+    read_only=True,
+    parallel_safe=True,
+    adapter="agent_only",
+))
+async def list_async_tasks(agent_id: uuid.UUID) -> str:
+    from app.services.agent_tools import _list_async_tasks
+    return await _list_async_tasks(agent_id)
+
+
+# -- get_current_time --------------------------------------------------------
+
+@tool(ToolMeta(
+    name="get_current_time",
+    description="Return the current local time for your effective timezone. Useful for scheduling, trigger creation, and time-aware planning.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "timezone": {
+                "type": "string",
+                "description": "Optional IANA timezone override such as Asia/Shanghai or America/New_York",
+            },
+        },
+    },
+    category="communication",
+    display_name="Get Current Time",
+    icon="\u23f1",
+    read_only=True,
+    parallel_safe=True,
+    adapter="agent_args",
+))
+async def get_current_time(agent_id: uuid.UUID, arguments: dict) -> str:
+    from app.services.agent_tools import _get_current_time
+    return await _get_current_time(agent_id, arguments)
+
+
 # -- send_channel_file --------------------------------------------------------
 
 @tool(ToolMeta(

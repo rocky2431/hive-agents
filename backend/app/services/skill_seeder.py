@@ -20,6 +20,12 @@ RETIRED_BUILTIN_SKILL_FOLDERS = {
 }
 
 
+def _is_seedable_skill_template_file(path: Path) -> bool:
+    if "__pycache__" in path.parts:
+        return False
+    return path.suffix != ".pyc"
+
+
 BUILTIN_SKILLS = [
     {
         "name": "Complex Task Executor",
@@ -389,6 +395,8 @@ async def seed_skills():
                 files = []
                 for f in skill_dir.rglob("*"):
                     if f.is_file():
+                        if not _is_seedable_skill_template_file(f.relative_to(skill_dir)):
+                            continue
                         rel = str(f.relative_to(skill_dir))
                         try:
                             files.append({"path": rel, "content": f.read_text(encoding="utf-8")})
@@ -409,6 +417,8 @@ async def seed_skills():
                 files = []
                 for f in skill_dir.rglob("*"):
                     if f.is_file():
+                        if not _is_seedable_skill_template_file(f.relative_to(skill_dir)):
+                            continue
                         rel = str(f.relative_to(skill_dir))
                         try:
                             files.append({"path": rel, "content": f.read_text(encoding="utf-8")})
@@ -546,16 +556,15 @@ async def push_default_skills_to_existing_agents():
     Called at startup after seed_skills() so existing agents automatically receive new default skills
     like MCP_INSTALLER without requiring manual re-creation.
     """
-    from pathlib import Path
     from app.models.agent import Agent
-    from app.models.skill import Skill, SkillFile
+    from app.models.skill import Skill
     from sqlalchemy.orm import selectinload
     from app.services.agent_manager import agent_manager
 
     async with async_session() as db:
         # Load all is_default skills with their files
         default_skills_r = await db.execute(
-            select(Skill).where(Skill.is_default == True).options(selectinload(Skill.files))
+            select(Skill).where(Skill.is_default).options(selectinload(Skill.files))
         )
         default_skills = default_skills_r.scalars().all()
         if not default_skills:

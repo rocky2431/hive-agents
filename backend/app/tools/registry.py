@@ -53,7 +53,17 @@ _FILE_SYSTEM = {
 }
 _SKILLS = {"load_skill", "tool_search", "discover_resources", "import_mcp_server"}
 _SCHEDULED = {"set_trigger", "update_trigger", "cancel_trigger", "list_triggers"}
-_CHANNEL = {"send_feishu_message", "send_web_message", "send_message_to_agent", "send_channel_file"}
+_CHANNEL = {
+    "send_feishu_message",
+    "send_web_message",
+    "send_message_to_agent",
+    "delegate_to_agent",
+    "check_async_task",
+    "cancel_async_task",
+    "list_async_tasks",
+    "get_current_time",
+    "send_channel_file",
+}
 _WEB = {"jina_search", "jina_read", "web_search"}
 
 _STATIC_READ_ONLY_TOOL_NAMES = {
@@ -70,6 +80,9 @@ _STATIC_READ_ONLY_TOOL_NAMES = {
     "discover_resources",
     "list_mcp_resources",
     "read_mcp_resource",
+    "check_async_task",
+    "list_async_tasks",
+    "get_current_time",
 }
 
 _STATIC_PARALLEL_SAFE_TOOL_NAMES = {
@@ -82,6 +95,9 @@ _STATIC_PARALLEL_SAFE_TOOL_NAMES = {
     "web_search",
     "jina_search",
     "jina_read",
+    "check_async_task",
+    "list_async_tasks",
+    "get_current_time",
 }
 
 

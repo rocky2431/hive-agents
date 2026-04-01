@@ -32,6 +32,7 @@ from app.models.trigger import AgentTrigger  # noqa: F401
 from app.models.refresh_token import RefreshToken  # noqa: F401
 from app.models.guard_policy import GuardPolicy  # noqa: F401
 from app.models.tenant_channel_config import TenantChannelConfig  # noqa: F401
+from app.models.runtime_task import RuntimeTask  # noqa: F401
 
 config = context.config
 settings = get_settings()

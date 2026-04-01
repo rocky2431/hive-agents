@@ -32,13 +32,33 @@ from app.tools.registry import is_parallel_safe_tool
 _MIDLOOP_COMPACT_CHECK_INTERVAL = 3
 _MIDLOOP_COMPACT_THRESHOLD = 0.85  # 85% of context window
 
+# Prompt-Too-Long reactive retry: compress and retry when provider rejects oversized prompt.
+_PTL_MAX_RETRIES = 2
+# Provider-specific error patterns indicating prompt exceeds context window.
+_PTL_ERROR_PATTERNS = (
+    "context_length_exceeded",
+    "maximum context length",
+    "token budget",
+    "too many tokens",
+    "request too large",
+    "prompt is too long",
+    "content length limit",
+    "exceeds the model",
+    "input is too long",
+    "input too long",
+)
+
 # Large tool result eviction: save to workspace file and keep truncated preview.
 # Aligned with Claude Code's DEFAULT_MAX_RESULT_SIZE_CHARS (50,000).
 _TOOL_RESULT_EVICTION_THRESHOLD = 50000  # chars (CC: 50K)
-_TOOL_RESULT_PREVIEW_LENGTH = 2000  # chars to keep inline (CC: 2K)
+_TOOL_RESULT_PREVIEW_LENGTH = 4000  # chars to keep inline — was 2K, 256K models can afford more context
 # Per-round aggregate budget: prevents N parallel tools from overloading context.
 # Aligned with Claude Code's MAX_TOOL_RESULTS_PER_MESSAGE_CHARS (200,000).
 _TOOL_RESULTS_AGGREGATE_BUDGET = 200000  # chars per round (CC: 200K)
+# Time-based microcompact: clear old tool results by round age to delay heavy compaction.
+_MICROCOMPACT_ROUND_AGE = 20  # rounds old — tool results older than this get cleared
+_MICROCOMPACT_CLEARED_MARKER = "[Old tool result cleared to save context space]"
+
 # Tools whose output should never be evicted (small, structural results).
 _EVICTION_EXEMPT_TOOLS = frozenset({
     "list_files", "read_file", "load_skill", "tool_search",
@@ -117,9 +137,55 @@ def _build_persisted_memory_messages(
         base_messages = _llm_messages_to_dicts(api_messages[1:])  # Skip system prompt
     else:
         base_messages = list(request.memory_messages or request.messages)
+    base_messages.extend(_build_runtime_memory_event_messages(request.session_context))
     if final_content and not final_content.startswith("[LLM") and not final_content.startswith("[Error]"):
         base_messages.append({"role": "assistant", "content": final_content})
     return base_messages
+
+
+def _build_runtime_memory_event_messages(session_context: Any | None) -> list[dict]:
+    if session_context is None:
+        return []
+
+    events: list[dict] = []
+
+    for outcome in getattr(session_context, "recent_tool_outcomes", [])[-5:]:
+        tool_name = outcome.get("tool", "?")
+        summary = outcome.get("summary", "")
+        if summary:
+            events.append({
+                "role": "assistant",
+                "content": f"Runtime event: tool outcome {tool_name} — {summary}",
+            })
+
+    for path in getattr(session_context, "recent_writes", [])[-5:]:
+        if path:
+            events.append({
+                "role": "assistant",
+                "content": f"Runtime event: wrote file {path}",
+            })
+
+    for ref in getattr(session_context, "recent_external_refs", [])[-5:]:
+        if ref:
+            events.append({
+                "role": "assistant",
+                "content": f"Runtime event: external reference {ref}",
+            })
+
+    for item in getattr(session_context, "pending_items", [])[-5:]:
+        if item:
+            events.append({
+                "role": "assistant",
+                "content": f"Runtime event: pending work {item}",
+            })
+
+    return events
+
+
+def _is_prompt_too_long(exc: Exception) -> bool:
+    """Detect if an LLMError indicates the prompt exceeded the context window."""
+    msg = str(exc).lower()
+    return any(pattern in msg for pattern in _PTL_ERROR_PATTERNS)
 
 
 def _build_error_result(
@@ -192,6 +258,85 @@ def _can_parallelize_batch(tool_calls: list[dict]) -> bool:
     return True
 
 
+async def _execute_tool_with_hooks(
+    *,
+    execute_tool: ExecuteTool,
+    request: InvocationRequest,
+    tool_name: str,
+    tool_args: dict[str, Any],
+    emit_event: Callable[[dict], Awaitable[None]],
+) -> tuple[str, dict[str, Any], bool]:
+    """Execute a tool with consistent pre/post/failure hook semantics."""
+    from app.runtime.hooks import HookEvent, emit_hook
+
+    effective_args = dict(tool_args)
+    hook_result = await emit_hook(
+        HookEvent.PRE_TOOL_USE,
+        agent_id=request.agent_id,
+        session_id=request.memory_session_id,
+        tool_name=tool_name,
+        tool_args=effective_args,
+    )
+    if hook_result and hook_result.modified_args:
+        effective_args = hook_result.modified_args
+    if hook_result and hook_result.block:
+        return "Blocked by hook: " + (hook_result.reason or "policy"), effective_args, False
+
+    try:
+        result = await _maybe_await(
+            execute_tool(tool_name, effective_args, request, emit_event)
+        )
+    except Exception as exc:
+        err = f"[Tool execution error] {type(exc).__name__}: {str(exc)[:200]}"
+        await emit_hook(
+            HookEvent.POST_TOOL_FAILURE,
+            agent_id=request.agent_id,
+            session_id=request.memory_session_id,
+            tool_name=tool_name,
+            tool_args=effective_args,
+            error=err,
+        )
+        return err, effective_args, False
+
+    await emit_hook(
+        HookEvent.POST_TOOL_USE,
+        agent_id=request.agent_id,
+        session_id=request.memory_session_id,
+        tool_name=tool_name,
+        tool_args=effective_args,
+        tool_result=str(result)[:500] if result else "",
+    )
+
+    # B-05 + P0.5: track all high-value tool outcomes for post-compact restoration
+    _session = request.session_context
+    _args_dict = effective_args if isinstance(effective_args, dict) else {}
+    if _session:
+        if tool_name == "read_file":
+            _path = _args_dict.get("path", "")
+            if _path:
+                _session.track_file_read(_path)
+        elif tool_name == "load_skill":
+            _skill = _args_dict.get("skill_name") or _args_dict.get("name", "")
+            if _skill:
+                _session.track_skill_loaded(_skill)
+        elif tool_name in ("write_file", "edit_file"):
+            _path = _args_dict.get("path", "")
+            if _path:
+                _session.track_file_write(_path)
+                _session.track_tool_outcome(tool_name, "Wrote " + _path)
+        elif tool_name in ("web_search", "jina_read", "read_document", "read_mcp_resource"):
+            _ref = _args_dict.get("url") or _args_dict.get("query") or _args_dict.get("path", "")
+            if _ref:
+                _session.track_external_ref(str(_ref)[:200])
+            _result_str = str(result)
+            if len(_result_str) > 100:
+                _session.track_tool_outcome(tool_name, _result_str[:200])
+        elif tool_name == "execute_code":
+            _session.track_tool_outcome(tool_name, str(result)[:200])
+
+    return str(result), effective_args, True
+
+
 def _fingerprint_prompt(prompt_prefix: str) -> str:
     return hashlib.sha256(prompt_prefix.encode("utf-8")).hexdigest()
 
@@ -242,15 +387,24 @@ def _dicts_to_llm_messages(dicts: list[dict]) -> list[LLMMessage]:
 
 
 # Post-compaction context restoration budget (CC: 50K tokens ≈ 200K chars; Hive uses 20K chars)
-_POST_COMPACT_RESTORE_BUDGET = 20000  # chars
-_POST_COMPACT_PER_FILE_CAP = 5000    # chars per file (CC: 5K tokens)
+# Post-compact restoration uses ContextBudget.restore_budget when available.
+# These are fallback defaults when no budget profile is present.
+_POST_COMPACT_RESTORE_BUDGET = 60000  # chars (~17K tokens) — was 20K, too thin for 256K models
+_POST_COMPACT_PER_FILE_CAP = 8000    # chars per file — was 5K
 
 
-def _build_restoration_context(agent_id: Any) -> str:
+def _build_restoration_context(
+    agent_id: Any,
+    session_context: Any | None = None,
+) -> str:
     """Build critical context to re-inject after mid-loop compaction.
 
-    Mirrors CC's post-compaction restoration: re-inject soul + focus so
-    the agent doesn't lose its identity/working-memory after compression.
+    Restores (in priority order):
+    1. Soul (agent identity)
+    2. Focus (working memory)
+    3. Recently-read files (up to 3, 2K chars each)
+    4. Active skills summary
+    5. Active packs summary
     """
     from pathlib import Path as _Path
     from app.config import get_settings as _get_settings
@@ -258,14 +412,19 @@ def _build_restoration_context(agent_id: Any) -> str:
     parts: list[str] = []
     total = 0
     settings = _get_settings()
+    _budget_profile = None
+    if session_context is not None:
+        _budget_profile = getattr(session_context, "metadata", {}).get("context_budget")
+    _restore_budget = getattr(_budget_profile, "restore_budget_chars", _POST_COMPACT_RESTORE_BUDGET)
+    _per_file_cap = getattr(_budget_profile, "restore_per_file_cap_chars", _POST_COMPACT_PER_FILE_CAP)
 
+    # ── 1+2: Soul + Focus (existing logic) ──
     for ws_root in [
         _Path("/tmp/hive_workspaces") / str(agent_id),
         _Path(settings.AGENT_DATA_DIR) / str(agent_id),
     ]:
         if not ws_root.exists():
             continue
-        # Priority order: soul (identity), focus (working memory)
         for rel_path, label in [("soul.md", "Agent Identity"), ("focus.md", "Working Memory")]:
             fpath = ws_root / rel_path
             if not fpath.exists():
@@ -274,9 +433,9 @@ def _build_restoration_context(agent_id: Any) -> str:
                 content = fpath.read_text(encoding="utf-8", errors="replace").strip()
                 if not content:
                     continue
-                if len(content) > _POST_COMPACT_PER_FILE_CAP:
-                    content = content[:_POST_COMPACT_PER_FILE_CAP] + "\n...(truncated)"
-                if total + len(content) > _POST_COMPACT_RESTORE_BUDGET:
+                if len(content) > _per_file_cap:
+                    content = content[:_per_file_cap] + "\n...(truncated)"
+                if total + len(content) > _restore_budget:
                     break
                 parts.append(f"### {label}\n{content}")
                 total += len(content)
@@ -284,6 +443,76 @@ def _build_restoration_context(agent_id: Any) -> str:
                 continue
         if parts:
             break  # Use first workspace that has files
+
+    # ── 3: Recently-read files ──
+    if session_context and getattr(session_context, "recent_files", None):
+        _file_budget = min(max(_per_file_cap // 2, 2000), _per_file_cap)
+        for fpath_str in reversed(session_context.recent_files[-3:]):
+            if total >= _restore_budget:
+                break
+            try:
+                _fp = _Path(fpath_str)
+                if _fp.exists() and _fp.stat().st_size < 100_000:
+                    content = _fp.read_text(encoding="utf-8", errors="replace").strip()
+                    if content:
+                        content = content[:_file_budget]
+                        parts.append(f"### Recent File: {_fp.name}\n```\n{content}\n```")
+                        total += len(content)
+            except Exception:
+                continue
+
+    # ── 4: Recent tool outcomes ── (P0.5)
+    if session_context and getattr(session_context, "recent_tool_outcomes", None):
+        _outcomes = session_context.recent_tool_outcomes[-5:]
+        if _outcomes and total < _restore_budget:
+            _lines = [f"- {o.get('tool', '?')}: {o.get('summary', '')}" for o in _outcomes]
+            _block = "### Recent Tool Results\n" + "\n".join(_lines)
+            if total + len(_block) < _restore_budget:
+                parts.append(_block)
+                total += len(_block)
+
+    # ── 5: Recent writes ── (P0.5)
+    if session_context and getattr(session_context, "recent_writes", None):
+        _writes = session_context.recent_writes[-5:]
+        if _writes and total < _restore_budget:
+            _block = "### Recent Writes\n" + "\n".join(f"- {w}" for w in _writes)
+            if total + len(_block) < _restore_budget:
+                parts.append(_block)
+                total += len(_block)
+
+    # ── 6: Active skills summary ──
+    if session_context and getattr(session_context, "active_skills", None):
+        skills_line = ", ".join(session_context.active_skills)
+        if total + len(skills_line) < _restore_budget:
+            parts.append(f"### Active Skills\n{skills_line}")
+            total += len(skills_line)
+
+    # ── 7: Active packs summary ──
+    if session_context and getattr(session_context, "active_packs", None):
+        pack_names = [p.get("name", "?") for p in session_context.active_packs if isinstance(p, dict)]
+        if pack_names:
+            packs_line = ", ".join(pack_names)
+            if total + len(packs_line) < _restore_budget:
+                parts.append(f"### Active Packs\n{packs_line}")
+                total += len(packs_line)
+
+    # ── 8: Recent external references ── (P0.5)
+    if session_context and getattr(session_context, "recent_external_refs", None):
+        _refs = session_context.recent_external_refs[-5:]
+        if _refs and total < _restore_budget:
+            _block = "### Recent External References\n" + "\n".join(f"- {r}" for r in _refs)
+            if total + len(_block) < _restore_budget:
+                parts.append(_block)
+                total += len(_block)
+
+    # ── 9: Pending work items ── (P0.5)
+    if session_context and getattr(session_context, "pending_items", None):
+        _pending = session_context.pending_items[-5:]
+        if _pending and total < _restore_budget:
+            _block = "### Pending Work\n" + "\n".join(f"- {p}" for p in _pending)
+            if total + len(_block) < _restore_budget:
+                parts.append(_block)
+                total += len(_block)
 
     if not parts:
         return ""
@@ -463,6 +692,7 @@ class AgentKernel:
             from app.runtime.prompt_builder import assemble_runtime_prompt, build_dynamic_prompt_suffix
 
             session_ctx = request.session_context
+            budget_profile = session_ctx.metadata.get("context_budget") if session_ctx else None
             # Prompt cache: reuse frozen prefix if available AND still valid.
             # Rebuild if memory context changed (hash-based invalidation).
             _cache_valid = False
@@ -476,14 +706,38 @@ class AgentKernel:
                     if session_ctx:
                         session_ctx.active_packs.clear()
 
+            # Resolve model context window for dynamic prompt budget
+            _ctx_window = getattr(request.model, "max_input_tokens", None) if request.model else None
+
+            # B-01 fix: detect coordinator mode early, include prompt in suffix BEFORE budget enforcement
+            from app.runtime.coordinator import is_coordinator_mode, get_coordinator_prompt, filter_tools_for_coordinator
+            _is_coordinator = is_coordinator_mode(agent=runtime_config, request=request)
+            _effective_suffix = request.system_prompt_suffix or ""
+            if _is_coordinator:
+                _effective_suffix = (_effective_suffix + "\n\n" + get_coordinator_prompt()).strip()
+
+            # P0.4 Observability: prompt cache hit/miss
+            logger.info(
+                "[Kernel] Prompt cache %s (agent=%s)",
+                "hit" if _cache_valid else "miss",
+                request.agent_id,
+                extra={"metric": "prompt_cache", "cache_hit": _cache_valid},
+            )
+
             if _cache_valid and session_ctx and session_ctx.prompt_prefix:
                 # Session has a valid frozen prefix — only rebuild dynamic suffix
                 dynamic_suffix = build_dynamic_prompt_suffix(
                     active_packs=session_ctx.active_packs if session_ctx else [],
                     retrieval_context=resolved_retrieval_context,
-                    system_prompt_suffix=request.system_prompt_suffix,
+                    system_prompt_suffix=_effective_suffix,
+                    budget_profile=budget_profile,
                 )
-                system_prompt = assemble_runtime_prompt(session_ctx.prompt_prefix, dynamic_suffix)
+                system_prompt = assemble_runtime_prompt(
+                    session_ctx.prompt_prefix,
+                    dynamic_suffix,
+                    context_window_tokens=_ctx_window,
+                    budget_profile=budget_profile,
+                )
             else:
                 # First call in session: build and cache the frozen prefix only.
                 prompt_prefix = await _maybe_await(
@@ -501,9 +755,15 @@ class AgentKernel:
                 dynamic_suffix = build_dynamic_prompt_suffix(
                     active_packs=session_ctx.active_packs if session_ctx else [],
                     retrieval_context=resolved_retrieval_context,
-                    system_prompt_suffix=request.system_prompt_suffix,
+                    system_prompt_suffix=_effective_suffix,
+                    budget_profile=budget_profile,
                 )
-                system_prompt = assemble_runtime_prompt(prompt_prefix, dynamic_suffix)
+                system_prompt = assemble_runtime_prompt(
+                    prompt_prefix,
+                    dynamic_suffix,
+                    context_window_tokens=_ctx_window,
+                    budget_profile=budget_profile,
+                )
 
             tools_for_llm = request.initial_tools
             if tools_for_llm is None:
@@ -511,6 +771,11 @@ class AgentKernel:
                     tools_for_llm = await _maybe_await(self._deps.get_tools(request.agent_id, request.core_tools_only))
                 else:
                     tools_for_llm = []
+
+            # B-01/B-04 fix: Coordinator mode — filter tools (prompt already in budget via suffix)
+            if _is_coordinator:
+                tools_for_llm = filter_tools_for_coordinator(tools_for_llm)
+                logger.info("[Kernel] Coordinator mode active for agent %s", request.agent_id)
 
             collected_parts: list[dict[str, Any]] = []
             streamed_chunks: list[str] = []
@@ -650,6 +915,7 @@ class AgentKernel:
                         )
 
                     # Apply provider-specific cache hints (e.g., Anthropic prefix caching)
+                    ptl_retries = 0
                     while True:
                         stream_messages = _clone_api_messages(api_messages)
                         if self._deps.apply_vision_transform:
@@ -693,6 +959,75 @@ class AgentKernel:
                                 round_i + 1,
                                 exc,
                             )
+                            # ── PTL reactive retry: compress context and retry ──
+                            if _is_prompt_too_long(exc) and ptl_retries < _PTL_MAX_RETRIES:
+                                if len(api_messages) <= 4:
+                                    logger.warning(
+                                        "[Kernel] PTL detected but only %d messages — skipping compression",
+                                        len(api_messages),
+                                    )
+                                else:
+                                    ptl_retries += 1
+                                    logger.warning(
+                                        "[Kernel] PTL detected (attempt %d/%d), compressing context before retry",
+                                        ptl_retries, _PTL_MAX_RETRIES,
+                                    )
+                                    conv_dicts = _llm_messages_to_dicts(api_messages[1:])
+                                    _before_chars = sum(len(d.get("content", "") or "") for d in conv_dicts)
+                                    compressed = await _maybe_await(
+                                        self._deps.maybe_compress_messages(
+                                            conv_dicts,
+                                            model_provider=active_model.provider,
+                                            model_name=active_model.model,
+                                            max_input_tokens_override=getattr(
+                                                active_model, "max_input_tokens", None
+                                            ),
+                                            tenant_id=runtime_config.tenant_id,
+                                            compress_threshold=0.5,  # aggressive — force compression
+                                            on_compaction=_emit_compaction_event,
+                                        )
+                                    )
+                                    _after_chars = sum(len(d.get("content", "") or "") for d in compressed)
+                                    # Only retry if compression achieved meaningful reduction (>20%)
+                                    if _after_chars < _before_chars * 0.8:
+                                        # B-02 fix: rebuild system prompt with fresh dynamic suffix after compression
+                                        _ptl_dynamic = build_dynamic_prompt_suffix(
+                                            active_packs=session_ctx.active_packs if session_ctx else [],
+                                            retrieval_context=resolved_retrieval_context,
+                                            system_prompt_suffix=_effective_suffix,
+                                            budget_profile=budget_profile,
+                                        )
+                                        _ptl_prefix = (session_ctx.prompt_prefix if session_ctx else None) or prompt_prefix
+                                        _ptl_system = assemble_runtime_prompt(
+                                            _ptl_prefix,
+                                            _ptl_dynamic,
+                                            context_window_tokens=_ctx_window,
+                                            budget_profile=budget_profile,
+                                        )
+                                        api_messages = [LLMMessage(role="system", content=_ptl_system)] + _dicts_to_llm_messages(compressed)
+                                        logger.info(
+                                            "[Kernel] PTL retry: %d→%d chars, %d→%d msgs (attempt %d/%d)",
+                                            _before_chars, _after_chars,
+                                            len(conv_dicts) + 1, len(api_messages),
+                                            ptl_retries, _PTL_MAX_RETRIES,
+                                            extra={
+                                                "metric": "ptl_retry",
+                                                "attempt": ptl_retries,
+                                                "before_chars": _before_chars,
+                                                "after_chars": _after_chars,
+                                                "before_msgs": len(conv_dicts) + 1,
+                                                "after_msgs": len(api_messages),
+                                            },
+                                        )
+                                        continue  # retry the LLM call with compressed context
+                                    else:
+                                        logger.warning(
+                                            "[Kernel] PTL compression insufficient: %d→%d chars (%.0f%%), falling through",
+                                            _before_chars, _after_chars,
+                                            (_after_chars / _before_chars * 100) if _before_chars else 0,
+                                        )
+
+                            # ── Fallback model retry ──
                             if fallback_model is not None and active_model is request.model:
                                 await client.close()
                                 client = self._deps.create_client(fallback_model)
@@ -866,10 +1201,14 @@ class AgentKernel:
                         # 2. Execute all tools concurrently via asyncio.gather
                         sem = asyncio.Semaphore(_PARALLEL_SEMAPHORE_LIMIT)
 
-                        async def _run_tool(t_name: str, t_args: dict) -> str:
+                        async def _run_tool(t_name: str, t_args: dict) -> tuple[str, dict[str, Any], bool]:
                             async with sem:
-                                return await _maybe_await(
-                                    self._deps.execute_tool(t_name, t_args, request, _emit_event)
+                                return await _execute_tool_with_hooks(
+                                    execute_tool=self._deps.execute_tool,
+                                    request=request,
+                                    tool_name=t_name,
+                                    tool_args=t_args,
+                                    emit_event=_emit_event,
                                 )
 
                         results = await asyncio.gather(
@@ -881,13 +1220,18 @@ class AgentKernel:
                             if isinstance(_r, BaseException):
                                 _tn = parsed_tool_calls[_i][1]
                                 logger.warning("[Kernel] Parallel tool %s failed: %s", _tn, _r)
-                                results[_i] = f"[Tool execution error] {type(_r).__name__}: {str(_r)[:200]}"
+                                results[_i] = (
+                                    f"[Tool execution error] {type(_r).__name__}: {str(_r)[:200]}",
+                                    parsed_tool_calls[_i][2],
+                                    False,
+                                )
 
                         # 3. Emit "done" events and append tool results in original order
-                        for (tc, tool_name, args), result in zip(parsed_tool_calls, results):
+                        for (tc, tool_name, _original_args), execution in zip(parsed_tool_calls, results):
+                            result, effective_args, _executed = execution
                             done_payload = {
                                 "name": tool_name,
-                                "args": args,
+                                "args": effective_args,
                                 "status": "done",
                                 "result": result,
                                 "reasoning_content": full_reasoning_content,
@@ -940,12 +1284,16 @@ class AgentKernel:
                                     if _callback_failure_count == 3:
                                         logger.error("[Kernel] Multiple callback failures (%d) — client may be disconnected", _callback_failure_count)
 
-                            result = await _maybe_await(
-                                self._deps.execute_tool(tool_name, args, request, _emit_event)
+                            result, args, executed = await _execute_tool_with_hooks(
+                                execute_tool=self._deps.execute_tool,
+                                request=request,
+                                tool_name=tool_name,
+                                tool_args=args,
+                                emit_event=_emit_event,
                             )
 
                             if request.expand_tools and request.agent_id:
-                                if _should_expand_tools(tool_name, args):
+                                if executed and _should_expand_tools(tool_name, args):
                                     expansion_payload: ToolExpansionResult | list[dict] | None = None
                                     if self._deps.resolve_tool_expansion:
                                         expansion_payload = await _maybe_await(
@@ -960,6 +1308,22 @@ class AgentKernel:
                                             session_context, expansion_payload.active_packs
                                         )
                                         if new_packs:
+                                            # P1.10: Delayed loading metrics
+                                            _new_tool_count = sum(
+                                                len(p.get("tools", [])) for p in new_packs if isinstance(p, dict)
+                                            )
+                                            _pack_names = [p.get("name", "?") for p in new_packs if isinstance(p, dict)]
+                                            logger.info(
+                                                "[Kernel] Tool expansion: +%d tools via %s (trigger: %s)",
+                                                _new_tool_count, _pack_names, tool_name,
+                                                extra={
+                                                    "metric": "tool_expansion",
+                                                    "trigger_tool": tool_name,
+                                                    "pack_names": _pack_names,
+                                                    "new_tool_count": _new_tool_count,
+                                                    "total_packs": len(session_context.active_packs),
+                                                },
+                                            )
                                             event_payload = expansion_payload.event_payload or {
                                                 "type": "pack_activation",
                                                 "packs": new_packs,
@@ -984,7 +1348,10 @@ class AgentKernel:
                                                     active_packs=session_context.active_packs,
                                                     retrieval_context=resolved_retrieval_context,
                                                     system_prompt_suffix=request.system_prompt_suffix,
+                                                    budget_profile=budget_profile,
                                                 ),
+                                                context_window_tokens=_ctx_window,
+                                                budget_profile=budget_profile,
                                             )
                                             api_messages[0] = LLMMessage(role="system", content=system_prompt)
                                     elif isinstance(expansion_payload, list):
@@ -993,7 +1360,8 @@ class AgentKernel:
                                         full_toolset = await _maybe_await(
                                             self._deps.get_tools(request.agent_id, False)
                                         )
-                                    tools_for_llm = full_toolset
+                                    # B-04 fix: re-filter expanded tools if coordinator mode active
+                                    tools_for_llm = filter_tools_for_coordinator(full_toolset) if _is_coordinator else full_toolset
 
                             done_payload = {
                                 "name": tool_name,
@@ -1022,7 +1390,39 @@ class AgentKernel:
                                 LLMMessage(role="tool", tool_call_id=tc["id"], content=_content)
                             )
 
-                    # ── Mid-loop context compaction ──────────────────────────
+                    # ── L1: Time-based microcompact — clear old tool results ──
+                    if round_i >= _MICROCOMPACT_ROUND_AGE and (round_i + 1) % _MIDLOOP_COMPACT_CHECK_INTERVAL == 0:
+                        _mc_cleared = 0
+                        _cutoff_round = round_i - _MICROCOMPACT_ROUND_AGE
+                        for _mi, _msg in enumerate(api_messages):
+                            if (
+                                _msg.role == "tool"
+                                and _mi < _cutoff_round * 3  # rough: ~3 messages per round
+                                and _msg.content != _MICROCOMPACT_CLEARED_MARKER
+                                and len(_msg.content or "") > 500
+                            ):
+                                # Check if the tool is exempt
+                                _tc_id = _msg.tool_call_id or ""
+                                _is_exempt = any(
+                                    prev.role == "assistant"
+                                    and any(
+                                        tc.get("function", {}).get("name", "") in _EVICTION_EXEMPT_TOOLS
+                                        for tc in (prev.tool_calls or [])
+                                        if tc.get("id") == _tc_id
+                                    )
+                                    for prev in api_messages[max(0, _mi - 5):_mi]
+                                )
+                                if not _is_exempt:
+                                    _msg.content = _MICROCOMPACT_CLEARED_MARKER
+                                    _mc_cleared += 1
+                        if _mc_cleared:
+                            logger.info(
+                                "[Kernel] Microcompact: cleared %d old tool results (round %d, cutoff round %d)",
+                                _mc_cleared, round_i + 1, _cutoff_round,
+                                extra={"metric": "microcompact", "cleared": _mc_cleared, "round": round_i + 1},
+                            )
+
+                    # ── L3: Mid-loop context compaction ──────────────────────────
                     if (round_i + 1) % _MIDLOOP_COMPACT_CHECK_INTERVAL == 0 and len(api_messages) > 6:
                         # Cancel check before potentially slow compression
                         if request.cancel_event and request.cancel_event.is_set():
@@ -1054,7 +1454,10 @@ class AgentKernel:
                             _restored = ""
                             if request.agent_id:
                                 try:
-                                    _restored = _build_restoration_context(request.agent_id)
+                                    _restored = _build_restoration_context(
+                                        request.agent_id,
+                                        session_context=request.session_context,
+                                    )
                                 except Exception as _restore_err:
                                     logger.debug("[Kernel] Post-compact restoration failed: %s", _restore_err)
                             restored_msgs = _dicts_to_llm_messages(compressed)
@@ -1070,6 +1473,13 @@ class AgentKernel:
                                 len(conv_dicts) + 1,
                                 len(api_messages),
                                 round_i + 1,
+                                extra={
+                                    "metric": "compaction",
+                                    "before_msgs": len(conv_dicts) + 1,
+                                    "after_msgs": len(api_messages),
+                                    "round": round_i + 1,
+                                    "restored": bool(_restored),
+                                },
                             )
                             # Persist compacted state so recovery doesn't lose progress
                             await self._persist_before_exit(
