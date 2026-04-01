@@ -133,9 +133,9 @@ class TestModelAwareBudget:
 
     def test_large_model_gets_scaled_budget(self) -> None:
         from app.runtime.prompt_builder import _compute_system_prompt_budget
-        # 200K context → 200000 * 0.20 * 3.5 = 140000 → clamped to ceiling 120000
+        # 200K context → 200000 * 0.20 * 3.5 = 140000 (within 180K ceiling)
         budget = _compute_system_prompt_budget(200000)
-        assert budget == 120000
+        assert budget == 140000
 
     def test_medium_model_proportional(self) -> None:
         from app.runtime.prompt_builder import _compute_system_prompt_budget

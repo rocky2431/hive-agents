@@ -51,7 +51,7 @@ _PTL_ERROR_PATTERNS = (
 # Large tool result eviction: save to workspace file and keep truncated preview.
 # Aligned with Claude Code's DEFAULT_MAX_RESULT_SIZE_CHARS (50,000).
 _TOOL_RESULT_EVICTION_THRESHOLD = 50000  # chars (CC: 50K)
-_TOOL_RESULT_PREVIEW_LENGTH = 2000  # chars to keep inline (CC: 2K)
+_TOOL_RESULT_PREVIEW_LENGTH = 4000  # chars to keep inline — was 2K, 256K models can afford more context
 # Per-round aggregate budget: prevents N parallel tools from overloading context.
 # Aligned with Claude Code's MAX_TOOL_RESULTS_PER_MESSAGE_CHARS (200,000).
 _TOOL_RESULTS_AGGREGATE_BUDGET = 200000  # chars per round (CC: 200K)
@@ -347,8 +347,10 @@ def _dicts_to_llm_messages(dicts: list[dict]) -> list[LLMMessage]:
 
 
 # Post-compaction context restoration budget (CC: 50K tokens ≈ 200K chars; Hive uses 20K chars)
-_POST_COMPACT_RESTORE_BUDGET = 20000  # chars
-_POST_COMPACT_PER_FILE_CAP = 5000    # chars per file (CC: 5K tokens)
+# Post-compact restoration uses ContextBudget.restore_budget when available.
+# These are fallback defaults when no budget profile is present.
+_POST_COMPACT_RESTORE_BUDGET = 60000  # chars (~17K tokens) — was 20K, too thin for 256K models
+_POST_COMPACT_PER_FILE_CAP = 8000    # chars per file — was 5K
 
 
 def _build_restoration_context(

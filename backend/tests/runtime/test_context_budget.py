@@ -32,7 +32,8 @@ def test_compute_context_budget_256k_research_is_more_aggressive():
         active_pack_count=2,
     )
 
-    assert budget.system_prompt_budget_chars == 120000
+    # 256K * 0.20 * 3.5 = 179200 (within 180K ceiling)
+    assert budget.system_prompt_budget_chars == 179200
     assert budget.retrieval_budget_chars >= 12000
     assert budget.knowledge_budget_chars >= 4000
     assert budget.active_packs_budget_chars >= 4000

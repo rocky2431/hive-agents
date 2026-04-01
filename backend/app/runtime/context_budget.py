@@ -10,7 +10,7 @@ _DEFAULT_SYSTEM_PROMPT_CHAR_BUDGET = 60000
 _SYSTEM_PROMPT_CONTEXT_RATIO = 0.20
 _CHARS_PER_TOKEN = 3.5
 _MIN_SYSTEM_PROMPT_BUDGET = 15000
-_MAX_SYSTEM_PROMPT_BUDGET = 120000
+_MAX_SYSTEM_PROMPT_BUDGET = 180000  # ~51K tokens — allows 256K models to use full 20% ratio
 
 
 def compute_system_prompt_budget(context_window_tokens: int | None) -> int:

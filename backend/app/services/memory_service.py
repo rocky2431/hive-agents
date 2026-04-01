@@ -151,22 +151,28 @@ def compute_history_limit(
     context_limit = _get_input_context_limit(provider, model_name, max_input_tokens_override)
 
     # Reserve tokens for known consumers
-    # System prompt: use real value or estimate ~3000 tokens
-    prompt_reserve = system_prompt_tokens if system_prompt_tokens > 0 else 3000
+    # System prompt: use real value, or estimate based on context window
+    # For 256K models, system prompt can be ~51K tokens; 3K was a severe underestimate.
+    if system_prompt_tokens > 0:
+        prompt_reserve = system_prompt_tokens
+    else:
+        # Estimate: 20% of context window (matches _SYSTEM_PROMPT_CONTEXT_RATIO)
+        prompt_reserve = max(3000, int(context_limit * 0.20))
+
     # Tool definitions: use real value or estimate ~1500 tokens (15 tools × ~100 tokens each)
     tools_reserve = tool_definitions_tokens if tool_definitions_tokens > 0 else 1500
     # Generation headroom: ~8K tokens for model output
     generation_reserve = 8000
 
-    # Memory context assembled by MemoryAssembler (~8K chars ≈ 2300 tokens)
-    memory_context_reserve = 2500
+    # Memory context assembled by MemoryAssembler (20K+ chars ≈ 6K tokens for 256K models)
+    memory_context_reserve = 6000
     total_reserved = prompt_reserve + tools_reserve + generation_reserve + memory_context_reserve
     history_token_budget = max(context_limit - total_reserved, context_limit // 4)
 
     avg_tokens_per_message = 300
     computed = history_token_budget // avg_tokens_per_message
-    # Clamp: at least 20 (usable minimum), at most 500 (DB performance guard)
-    return max(20, min(computed, 500))
+    # Clamp: at least 20 (usable minimum), at most 800 (256K models can hold 800+ messages)
+    return max(20, min(computed, 800))
 
 
 async def compute_history_limit_for_agent(agent_id: uuid.UUID) -> int:
@@ -215,7 +221,8 @@ async def maybe_compress_messages(
     """
     # Resolve config from tenant settings
     config = await _get_memory_config(tenant_id) if tenant_id else {}
-    threshold = compress_threshold if compress_threshold is not None else config.get("compress_threshold", 70) / 100.0
+    # Default 82% — was 70%, too aggressive for 256K models (compressed with 77K tokens remaining)
+    threshold = compress_threshold if compress_threshold is not None else config.get("compress_threshold", 82) / 100.0
     recent_count = keep_recent if keep_recent is not None else config.get("keep_recent", 10)
 
     # Resolve context window
@@ -599,7 +606,8 @@ async def _extract_facts_with_llm(messages: list[dict], model_config: dict) -> l
     if not conversation_text:
         return []
 
-    text = "\n".join(conversation_text[-40:])
+    # Was -40, too narrow for long conversations — tool results in early rounds got skipped
+    text = "\n".join(conversation_text[-80:])
 
     client = create_llm_client(**model_config)
     try:

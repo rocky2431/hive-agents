@@ -27,11 +27,11 @@ class SessionContext:
     pending_items: list[str] = field(default_factory=list)  # unfinished work items
 
     def track_file_read(self, path: str) -> None:
-        """Record a file read for post-compact restoration. Keeps last 5 unique paths."""
+        """Record a file read for post-compact restoration. Keeps last 10 unique paths."""
         if path in self.recent_files:
             self.recent_files.remove(path)
         self.recent_files.append(path)
-        if len(self.recent_files) > 5:
+        if len(self.recent_files) > 10:
             self.recent_files.pop(0)
 
     def track_skill_loaded(self, skill_name: str) -> None:
@@ -44,13 +44,13 @@ class SessionContext:
         if path in self.recent_writes:
             self.recent_writes.remove(path)
         self.recent_writes.append(path)
-        if len(self.recent_writes) > 5:
+        if len(self.recent_writes) > 10:
             self.recent_writes.pop(0)
 
     def track_tool_outcome(self, tool_name: str, summary: str) -> None:
         """Record a high-value tool outcome for post-compact restoration. Keeps last 5."""
         self.recent_tool_outcomes.append({"tool": tool_name, "summary": summary[:300]})
-        if len(self.recent_tool_outcomes) > 5:
+        if len(self.recent_tool_outcomes) > 10:
             self.recent_tool_outcomes.pop(0)
 
     def track_external_ref(self, ref: str) -> None:
