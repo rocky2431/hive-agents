@@ -179,6 +179,31 @@ async def check_async_task(agent_id: uuid.UUID, arguments: dict) -> str:
     return await _check_async_task(agent_id, arguments)
 
 
+# -- cancel_async_task -------------------------------------------------------
+
+@tool(ToolMeta(
+    name="cancel_async_task",
+    description="Cancel a previously spawned async agent task that you own. Use this to stop runaway or no-longer-needed worker tasks.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "task_id": {
+                "type": "string",
+                "description": "The task_id returned by delegate_to_agent",
+            },
+        },
+        "required": ["task_id"],
+    },
+    category="communication",
+    display_name="Cancel Async Task",
+    icon="\u23f9",
+    adapter="agent_args",
+))
+async def cancel_async_task(agent_id: uuid.UUID, arguments: dict) -> str:
+    from app.services.agent_tools import _cancel_async_task
+    return await _cancel_async_task(agent_id, arguments)
+
+
 # -- list_async_tasks --------------------------------------------------------
 
 @tool(ToolMeta(

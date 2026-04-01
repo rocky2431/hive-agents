@@ -754,11 +754,39 @@ async def _check_async_task(from_agent_id: uuid.UUID, args: dict) -> str:
         if record and record.get("parent_agent_id") not in {None, str(from_agent_id)}:
             return "❌ This task does not belong to the current agent"
 
-        status = await check_async_delegation(task_id)
+        status = await check_async_delegation(task_id, parent_agent_id=from_agent_id)
+        if status.get("status") == "forbidden":
+            return "❌ This task does not belong to the current agent"
         return json.dumps(status, ensure_ascii=False)
     except Exception as e:
         logger.error("check_async_task failed: %s", e, exc_info=True)
         return f"❌ Error checking async task: {e}"
+
+
+async def _cancel_async_task(from_agent_id: uuid.UUID, args: dict) -> str:
+    """Cancel a previously spawned async task if it belongs to the current agent."""
+    task_id = (args.get("task_id") or "").strip()
+    if not task_id:
+        return "❌ Please provide task_id"
+
+    try:
+        from app.agents.orchestrator import cancel_async_delegation
+        from app.services.runtime_task_service import get_runtime_task_record
+
+        try:
+            record = await get_runtime_task_record(task_id)
+        except Exception:
+            record = None
+        if record and record.get("parent_agent_id") not in {None, str(from_agent_id)}:
+            return "❌ This task does not belong to the current agent"
+
+        status = await cancel_async_delegation(task_id, parent_agent_id=from_agent_id)
+        if status.get("status") == "forbidden":
+            return "❌ This task does not belong to the current agent"
+        return json.dumps(status, ensure_ascii=False)
+    except Exception as e:
+        logger.error("cancel_async_task failed: %s", e, exc_info=True)
+        return f"❌ Error cancelling async task: {e}"
 
 
 async def _list_async_tasks(from_agent_id: uuid.UUID) -> str:
@@ -772,7 +800,7 @@ async def _list_async_tasks(from_agent_id: uuid.UUID) -> str:
         except Exception:
             tasks = []
         if not tasks:
-            tasks = list_async_delegations()
+            tasks = list_async_delegations(parent_agent_id=from_agent_id)
         return json.dumps(tasks, ensure_ascii=False)
     except Exception as e:
         logger.error("list_async_tasks failed: %s", e, exc_info=True)

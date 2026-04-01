@@ -1,7 +1,6 @@
 """Activity logger — simple async function to record agent actions."""
 
 import uuid
-from datetime import datetime, timezone
 
 from loguru import logger
 
@@ -17,6 +16,7 @@ async def log_activity(
     related_id: uuid.UUID | None = None,
 ) -> None:
     """Record an agent activity. Fire-and-forget, never raises."""
+    db = None
     try:
         async with async_session() as db:
             db.add(AgentActivityLog(
@@ -28,4 +28,9 @@ async def log_activity(
             ))
             await db.commit()
     except Exception as e:
+        if db is not None:
+            try:
+                await db.rollback()
+            except Exception:
+                pass
         logger.error(f"[ActivityLog] Failed to log {action_type}: {e}")

@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 # Tools the coordinator is allowed to use directly
 COORDINATOR_ALLOWED_TOOLS = frozenset({
     "delegate_to_agent",
+    "cancel_async_task",
     "send_message_to_agent",
     "check_async_task",
     "list_async_tasks",
@@ -55,6 +56,7 @@ Research (parallel) → Synthesis (you) → Implementation (serial per file set)
 - Read-only research tasks: run in parallel freely
 - Write-heavy implementation: serialize per file set to prevent conflicts
 - Continue vs. Spawn: use `check_async_task` to continue a worker that already has context; spawn fresh when context overlap is low
+- Stop unneeded or runaway work with `cancel_async_task`
 - Never say "based on your findings, fix it" — synthesize what was found, then give specific instructions
 
 ### What You Must NOT Do

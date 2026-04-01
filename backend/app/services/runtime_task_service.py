@@ -62,22 +62,26 @@ async def create_runtime_task_record(
 
     started_at = datetime.now(timezone.utc) if status == "running" else None
     async with async_session() as db:
-        db.add(RuntimeTask(
-            id=runtime_task_id,
-            task_type=task_type,
-            status=status,
-            parent_agent_id=parent_agent_id,
-            child_agent_id=child_agent_id,
-            child_agent_name=child_agent_name,
-            prompt=prompt,
-            trace_id=trace_id,
-            parent_session_id=parent_session_id,
-            child_session_id=child_session_id,
-            depth=depth,
-            metadata_json=metadata_json,
-            started_at=started_at,
-        ))
-        await db.commit()
+        try:
+            db.add(RuntimeTask(
+                id=runtime_task_id,
+                task_type=task_type,
+                status=status,
+                parent_agent_id=parent_agent_id,
+                child_agent_id=child_agent_id,
+                child_agent_name=child_agent_name,
+                prompt=prompt,
+                trace_id=trace_id,
+                parent_session_id=parent_session_id,
+                child_session_id=child_session_id,
+                depth=depth,
+                metadata_json=metadata_json,
+                started_at=started_at,
+            ))
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
     return runtime_task_id.hex
 
 
@@ -87,23 +91,27 @@ async def update_runtime_task_record(task_id: str, **fields: Any) -> bool:
         return False
 
     async with async_session() as db:
-        result = await db.execute(select(RuntimeTask).where(RuntimeTask.id == runtime_task_id))
-        task = result.scalar_one_or_none()
-        if task is None:
-            return False
+        try:
+            result = await db.execute(select(RuntimeTask).where(RuntimeTask.id == runtime_task_id))
+            task = result.scalar_one_or_none()
+            if task is None:
+                return False
 
-        for key, value in fields.items():
-            if hasattr(task, key):
-                setattr(task, key, value)
+            for key, value in fields.items():
+                if hasattr(task, key):
+                    setattr(task, key, value)
 
-        now = datetime.now(timezone.utc)
-        status = fields.get("status")
-        if status == "running" and task.started_at is None:
-            task.started_at = now
-        if status in {"completed", "failed", "killed"} and task.completed_at is None:
-            task.completed_at = now
+            now = datetime.now(timezone.utc)
+            status = fields.get("status")
+            if status == "running" and task.started_at is None:
+                task.started_at = now
+            if status in {"completed", "failed", "killed"} and task.completed_at is None:
+                task.completed_at = now
 
-        await db.commit()
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
     return True
 
 
@@ -113,11 +121,15 @@ async def get_runtime_task_record(task_id: str) -> dict[str, Any] | None:
         return None
 
     async with async_session() as db:
-        result = await db.execute(select(RuntimeTask).where(RuntimeTask.id == runtime_task_id))
-        task = result.scalar_one_or_none()
-        if task is None:
-            return None
-        return _task_to_dict(task)
+        try:
+            result = await db.execute(select(RuntimeTask).where(RuntimeTask.id == runtime_task_id))
+            task = result.scalar_one_or_none()
+            if task is None:
+                return None
+            return _task_to_dict(task)
+        except Exception:
+            await db.rollback()
+            raise
 
 
 async def list_runtime_task_records(
@@ -126,9 +138,13 @@ async def list_runtime_task_records(
     limit: int = 20,
 ) -> list[dict[str, Any]]:
     async with async_session() as db:
-        stmt = select(RuntimeTask).order_by(RuntimeTask.created_at.desc()).limit(limit)
-        if parent_agent_id is not None:
-            stmt = stmt.where(RuntimeTask.parent_agent_id == parent_agent_id)
-        result = await db.execute(stmt)
-        tasks = result.scalars().all()
+        try:
+            stmt = select(RuntimeTask).order_by(RuntimeTask.created_at.desc()).limit(limit)
+            if parent_agent_id is not None:
+                stmt = stmt.where(RuntimeTask.parent_agent_id == parent_agent_id)
+            result = await db.execute(stmt)
+            tasks = result.scalars().all()
+        except Exception:
+            await db.rollback()
+            raise
     return [_task_to_dict(task) for task in tasks]

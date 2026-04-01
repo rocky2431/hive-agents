@@ -122,6 +122,8 @@ def _get_tool_runtime_service() -> ToolRuntimeService:
             return await _delegate_to_agent_async(context.agent_id, arguments)
         if tool_name == "check_async_task":
             return await _check_async_task(context.agent_id, arguments)
+        if tool_name == "cancel_async_task":
+            return await _cancel_async_task(context.agent_id, arguments)
         if tool_name == "list_async_tasks":
             return await _list_async_tasks(context.agent_id)
         if tool_name == "get_current_time":
@@ -160,6 +162,7 @@ CORE_TOOL_NAMES = {
     "send_message_to_agent",
     "delegate_to_agent",
     "check_async_task",
+    "cancel_async_task",
     "list_async_tasks",
     "get_current_time",
     "send_channel_file",
@@ -495,6 +498,7 @@ from app.services.agent_tool_domains.messaging import (  # noqa: E402
     _send_message_to_agent as _send_message_to_agent,
     _delegate_to_agent_async as _delegate_to_agent_async,
     _check_async_task as _check_async_task,
+    _cancel_async_task as _cancel_async_task,
     _list_async_tasks as _list_async_tasks,
     _get_current_time as _get_current_time,
 )

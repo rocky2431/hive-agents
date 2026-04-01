@@ -60,6 +60,7 @@ class TestCoordinatorMode:
     def test_all_allowed_tools_are_reasonable(self) -> None:
         # Coordinator should have delegation + file access + time + triggers
         assert "delegate_to_agent" in COORDINATOR_ALLOWED_TOOLS
+        assert "cancel_async_task" in COORDINATOR_ALLOWED_TOOLS
         assert "send_message_to_agent" in COORDINATOR_ALLOWED_TOOLS
         assert "check_async_task" in COORDINATOR_ALLOWED_TOOLS
         assert "read_file" in COORDINATOR_ALLOWED_TOOLS

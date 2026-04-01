@@ -32,6 +32,7 @@ def test_combined_openai_tools_matches_canonical_surface():
         "grep_search",
         "import_mcp_server",
         "check_async_task",
+        "cancel_async_task",
         "get_current_time",
         "list_mcp_resources",
         "list_async_tasks",

@@ -7,6 +7,14 @@ from uuid import uuid4
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _stub_activity_logger(monkeypatch):
+    async def fake_log_activity(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr("app.services.activity_logger.log_activity", fake_log_activity)
+
+
 @pytest.mark.asyncio
 async def test_delegate_to_agent_builds_runtime_request(monkeypatch):
     from app.agents.orchestrator import delegate_to_agent
@@ -174,6 +182,123 @@ async def test_delegate_async_returns_handle_immediately(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_delegate_async_waits_for_activity_log_persistence(monkeypatch):
+    from app.agents.orchestrator import delegate_async
+
+    log_started = asyncio.Event()
+    allow_log_finish = asyncio.Event()
+
+    async def fake_invoke(_invocation):
+        return SimpleNamespace(content="async result")
+
+    async def fake_log_activity(*args, **kwargs):
+        log_started.set()
+        await allow_log_finish.wait()
+
+    async def fake_create_task(**kwargs):
+        return kwargs["task_id"]
+
+    monkeypatch.setattr("app.agents.orchestrator.invoke_agent", fake_invoke)
+    monkeypatch.setattr("app.agents.orchestrator.create_runtime_task_record", fake_create_task)
+    monkeypatch.setattr("app.services.activity_logger.log_activity", fake_log_activity)
+
+    target = SimpleNamespace(id=uuid4(), name="Worker", role_description="helper")
+    model = SimpleNamespace(provider="openai", model="gpt-4.1", api_key="k", base_url=None, max_output_tokens=None)
+
+    pending = asyncio.create_task(
+        delegate_async(
+            target=target,
+            target_model=model,
+            conversation_messages=[{"role": "user", "content": "do research"}],
+            owner_id=uuid4(),
+            session_id="sess-wait-log",
+            parent_agent_id=uuid4(),
+        )
+    )
+
+    await asyncio.wait_for(log_started.wait(), timeout=0.2)
+    assert pending.done() is False
+
+    allow_log_finish.set()
+    handle = await asyncio.wait_for(pending, timeout=0.2)
+    assert handle.task_id
+
+
+@pytest.mark.asyncio
+async def test_cancel_async_delegation_marks_task_killed(monkeypatch):
+    from app.agents.orchestrator import cancel_async_delegation, delegate_async
+
+    never_finish = asyncio.Event()
+    persisted: list[tuple[str, dict]] = []
+
+    async def fake_invoke(_invocation):
+        await never_finish.wait()
+        return SimpleNamespace(content="done")
+
+    async def fake_create_task(**kwargs):
+        persisted.append(("create", kwargs))
+        return kwargs["task_id"]
+
+    async def fake_update_task(task_id, **kwargs):
+        persisted.append(("update", {"task_id": task_id, **kwargs}))
+        return True
+
+    monkeypatch.setattr("app.agents.orchestrator.invoke_agent", fake_invoke)
+    monkeypatch.setattr("app.agents.orchestrator.create_runtime_task_record", fake_create_task)
+    monkeypatch.setattr("app.agents.orchestrator.update_runtime_task_record", fake_update_task)
+
+    target = SimpleNamespace(id=uuid4(), name="KillableWorker", role_description="")
+    model = SimpleNamespace(provider="openai", model="gpt-4.1", api_key="k", base_url=None, max_output_tokens=None)
+    owner_id = uuid4()
+
+    handle = await delegate_async(
+        target=target,
+        target_model=model,
+        conversation_messages=[{"role": "user", "content": "do research"}],
+        owner_id=uuid4(),
+        session_id="sess-kill",
+        parent_agent_id=owner_id,
+    )
+
+    status = await cancel_async_delegation(handle.task_id, parent_agent_id=owner_id)
+
+    assert status["status"] == "killed"
+    assert status["task_id"] == handle.task_id
+    assert any(kind == "update" and payload["status"] == "killed" for kind, payload in persisted)
+
+
+@pytest.mark.asyncio
+async def test_cancel_async_delegation_rejects_other_parent(monkeypatch):
+    from app.agents.orchestrator import cancel_async_delegation, delegate_async
+
+    never_finish = asyncio.Event()
+
+    async def fake_invoke(_invocation):
+        await never_finish.wait()
+        return SimpleNamespace(content="done")
+
+    monkeypatch.setattr("app.agents.orchestrator.invoke_agent", fake_invoke)
+
+    target = SimpleNamespace(id=uuid4(), name="KillableWorker", role_description="")
+    model = SimpleNamespace(provider="openai", model="gpt-4.1", api_key="k", base_url=None, max_output_tokens=None)
+    owner_a = uuid4()
+
+    handle = await delegate_async(
+        target=target,
+        target_model=model,
+        conversation_messages=[{"role": "user", "content": "do research"}],
+        owner_id=uuid4(),
+        session_id="sess-kill-owner",
+        parent_agent_id=owner_a,
+    )
+
+    status = await cancel_async_delegation(handle.task_id, parent_agent_id=uuid4())
+    assert status["status"] == "forbidden"
+
+    never_finish.set()
+
+
+@pytest.mark.asyncio
 async def test_check_async_delegation_not_found():
     from app.agents.orchestrator import check_async_delegation
 
@@ -238,6 +363,51 @@ async def test_list_async_delegations(monkeypatch):
     # Cleanup
     never_finish.set()
     await asyncio.sleep(0.05)
+
+
+@pytest.mark.asyncio
+async def test_list_async_delegations_filters_by_parent_agent(monkeypatch):
+    from app.agents.orchestrator import check_async_delegation, delegate_async, list_async_delegations
+
+    never_finish = asyncio.Event()
+
+    async def fake_invoke(_invocation):
+        await never_finish.wait()
+        return SimpleNamespace(content="done")
+
+    monkeypatch.setattr("app.agents.orchestrator.invoke_agent", fake_invoke)
+
+    target = SimpleNamespace(id=uuid4(), name="ScopedWorker", role_description="")
+    model = SimpleNamespace(provider="openai", model="gpt-4.1", api_key="k", base_url=None, max_output_tokens=None)
+    owner_a = uuid4()
+    owner_b = uuid4()
+
+    handle_a = await delegate_async(
+        target=target,
+        target_model=model,
+        conversation_messages=[{"role": "user", "content": "task-a"}],
+        owner_id=uuid4(),
+        session_id="sess-scope-a",
+        parent_agent_id=owner_a,
+    )
+    handle_b = await delegate_async(
+        target=target,
+        target_model=model,
+        conversation_messages=[{"role": "user", "content": "task-b"}],
+        owner_id=uuid4(),
+        session_id="sess-scope-b",
+        parent_agent_id=owner_b,
+    )
+
+    tasks = list_async_delegations(parent_agent_id=owner_a)
+    task_ids = {task["task_id"] for task in tasks}
+    assert handle_a.task_id in task_ids
+    assert handle_b.task_id not in task_ids
+
+    never_finish.set()
+    await asyncio.sleep(0.05)
+    await check_async_delegation(handle_a.task_id)
+    await check_async_delegation(handle_b.task_id)
 
 
 @pytest.mark.asyncio

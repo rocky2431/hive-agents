@@ -104,6 +104,11 @@ class Agent(Base):
     primary_model: Mapped["LLMModel | None"] = relationship(foreign_keys=[primary_model_id])
     fallback_model: Mapped["LLMModel | None"] = relationship(foreign_keys=[fallback_model_id])
 
+    @property
+    def agent_kind(self) -> str:
+        """Compatibility shim for legacy main/sub-agent semantics."""
+        return "sub" if self.parent_agent_id else "main"
+
 
 class AgentPermission(Base):
     """Access permission for a digital employee."""

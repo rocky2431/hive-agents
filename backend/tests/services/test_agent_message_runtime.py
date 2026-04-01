@@ -1,9 +1,19 @@
 from __future__ import annotations
 
+import asyncio
+import json
 from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _stub_activity_logger(monkeypatch):
+    async def fake_log_activity(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr("app.services.activity_logger.log_activity", fake_log_activity)
 
 
 @pytest.mark.asyncio
@@ -107,3 +117,128 @@ async def test_build_agent_message_tool_executor_persists_tool_calls(monkeypatch
     assert calls["persist"]["tool_args"] == {"path": "skills/test/SKILL.md"}
     assert calls["persist"]["tool_result"] == "TOOL_RESULT"
     assert calls["persist"]["participant_id"] == participant_id
+
+
+@pytest.mark.asyncio
+async def test_list_async_tasks_filters_in_memory_fallback(monkeypatch):
+    from app.agents.orchestrator import check_async_delegation, delegate_async
+    from app.services.agent_tool_domains.messaging import _list_async_tasks
+
+    never_finish = asyncio.Event()
+
+    async def fake_invoke(_invocation):
+        await never_finish.wait()
+        return SimpleNamespace(content="done")
+
+    async def fake_list_runtime_task_records(**_kwargs):
+        raise RuntimeError("db unavailable")
+
+    monkeypatch.setattr("app.agents.orchestrator.invoke_agent", fake_invoke)
+    monkeypatch.setattr("app.services.runtime_task_service.list_runtime_task_records", fake_list_runtime_task_records)
+
+    target = SimpleNamespace(id=uuid4(), name="ScopedWorker", role_description="")
+    model = SimpleNamespace(provider="openai", model="gpt-4.1", api_key="k", base_url=None, max_output_tokens=None)
+    owner_a = uuid4()
+    owner_b = uuid4()
+
+    handle_a = await delegate_async(
+        target=target,
+        target_model=model,
+        conversation_messages=[{"role": "user", "content": "task-a"}],
+        owner_id=uuid4(),
+        session_id="msg-scope-a",
+        parent_agent_id=owner_a,
+    )
+    handle_b = await delegate_async(
+        target=target,
+        target_model=model,
+        conversation_messages=[{"role": "user", "content": "task-b"}],
+        owner_id=uuid4(),
+        session_id="msg-scope-b",
+        parent_agent_id=owner_b,
+    )
+
+    payload = json.loads(await _list_async_tasks(owner_a))
+    task_ids = {task["task_id"] for task in payload}
+    assert handle_a.task_id in task_ids
+    assert handle_b.task_id not in task_ids
+
+    never_finish.set()
+    await check_async_delegation(handle_a.task_id)
+    await check_async_delegation(handle_b.task_id)
+
+
+@pytest.mark.asyncio
+async def test_check_async_task_rejects_other_agent_when_db_lookup_unavailable(monkeypatch):
+    from app.agents.orchestrator import check_async_delegation, delegate_async
+    from app.services.agent_tool_domains.messaging import _check_async_task
+
+    never_finish = asyncio.Event()
+
+    async def fake_invoke(_invocation):
+        await never_finish.wait()
+        return SimpleNamespace(content="done")
+
+    async def fake_get_runtime_task_record(_task_id):
+        raise RuntimeError("db unavailable")
+
+    monkeypatch.setattr("app.agents.orchestrator.invoke_agent", fake_invoke)
+    monkeypatch.setattr("app.services.runtime_task_service.get_runtime_task_record", fake_get_runtime_task_record)
+
+    target = SimpleNamespace(id=uuid4(), name="ProtectedWorker", role_description="")
+    model = SimpleNamespace(provider="openai", model="gpt-4.1", api_key="k", base_url=None, max_output_tokens=None)
+    owner_a = uuid4()
+    owner_b = uuid4()
+
+    handle = await delegate_async(
+        target=target,
+        target_model=model,
+        conversation_messages=[{"role": "user", "content": "task-a"}],
+        owner_id=uuid4(),
+        session_id="msg-check-a",
+        parent_agent_id=owner_a,
+    )
+
+    result = await _check_async_task(owner_b, {"task_id": handle.task_id})
+    assert "does not belong" in result
+
+    never_finish.set()
+    await check_async_delegation(handle.task_id)
+
+
+@pytest.mark.asyncio
+async def test_cancel_async_task_rejects_other_agent_when_db_lookup_unavailable(monkeypatch):
+    from app.agents.orchestrator import check_async_delegation, delegate_async
+    from app.services.agent_tool_domains.messaging import _cancel_async_task
+
+    never_finish = asyncio.Event()
+
+    async def fake_invoke(_invocation):
+        await never_finish.wait()
+        return SimpleNamespace(content="done")
+
+    async def fake_get_runtime_task_record(_task_id):
+        raise RuntimeError("db unavailable")
+
+    monkeypatch.setattr("app.agents.orchestrator.invoke_agent", fake_invoke)
+    monkeypatch.setattr("app.services.runtime_task_service.get_runtime_task_record", fake_get_runtime_task_record)
+
+    target = SimpleNamespace(id=uuid4(), name="ProtectedWorker", role_description="")
+    model = SimpleNamespace(provider="openai", model="gpt-4.1", api_key="k", base_url=None, max_output_tokens=None)
+    owner_a = uuid4()
+    owner_b = uuid4()
+
+    handle = await delegate_async(
+        target=target,
+        target_model=model,
+        conversation_messages=[{"role": "user", "content": "task-a"}],
+        owner_id=uuid4(),
+        session_id="msg-cancel-a",
+        parent_agent_id=owner_a,
+    )
+
+    result = await _cancel_async_task(owner_b, {"task_id": handle.task_id})
+    assert "does not belong" in result
+
+    never_finish.set()
+    await check_async_delegation(handle.task_id)

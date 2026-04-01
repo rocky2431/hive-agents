@@ -78,6 +78,11 @@ def test_minimal_kernel_tool_set_stays_small_and_explicit():
         "load_skill",
         "set_trigger",
         "send_message_to_agent",
+        "delegate_to_agent",
+        "check_async_task",
+        "cancel_async_task",
+        "list_async_tasks",
+        "get_current_time",
         "send_channel_file",
         "tool_search",
     }
