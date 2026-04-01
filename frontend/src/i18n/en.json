@@ -418,6 +418,34 @@
         "heartbeatInterval": "Heartbeat Interval"
       },
       "clampedMessage": "{{name}}: {{requested}} -> {{applied}} (company policy)",
+      "timezone": {
+        "title": "🌐 Timezone",
+        "description": "The timezone used for this agent's scheduling, active hours, and time awareness. Defaults to the company timezone if not set.",
+        "current": "Agent Timezone",
+        "override": "Custom timezone for this agent",
+        "inherited": "Using company default timezone",
+        "default": "↩ Company default"
+      },
+      "executionMode": {
+        "title": "Execution Mode",
+        "description": "Choose whether this agent runs as a normal worker or as a coordinator that primarily delegates to other agents.",
+        "current": "Current Mode",
+        "standard": "Standard",
+        "coordinator": "Coordinator",
+        "standardDesc": "Uses the normal single-agent runtime",
+        "coordinatorDesc": "Delegates and synthesizes work across worker agents"
+      },
+      "heartbeat": {
+        "title": "Heartbeat",
+        "description": "Periodic awareness check — agent proactively monitors the plaza and work environment.",
+        "enabled": "Enable Heartbeat",
+        "enabledDesc": "Agent will periodically check plaza and work status",
+        "interval": "Check Interval",
+        "intervalDesc": "How often the agent checks for updates",
+        "activeHours": "Active Hours",
+        "activeHoursDesc": "Only trigger heartbeat during these hours (HH:MM-HH:MM)",
+        "lastRun": "Last heartbeat"
+      },
       "channel": {
         "title": "Channel Config",
         "feishu": "Feishu Bot",

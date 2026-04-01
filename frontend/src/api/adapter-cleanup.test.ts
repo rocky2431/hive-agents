@@ -199,6 +199,23 @@ describe('request cleanup adapters', () => {
     });
   });
 
+  it('routes execution mode updates through agentApi patch()', async () => {
+    vi.doMock('./core/request', async () => {
+      const actual = await vi.importActual<typeof import('./core/request')>('./core/request');
+      return {
+        ...actual,
+        patch: vi.fn(),
+      };
+    });
+    const { agentApi } = await import('./domains/agents');
+    const { patch } = await import('./core/request');
+    vi.mocked(patch).mockResolvedValue({ id: 'agent-1', execution_mode: 'coordinator' } as any);
+
+    await agentApi.update('agent-1', { execution_mode: 'coordinator' });
+
+    expect(patch).toHaveBeenCalledWith('/agents/agent-1', { execution_mode: 'coordinator' });
+  });
+
   it('routes user management through usersApi', async () => {
     vi.doMock('./core/request', async () => {
       const actual = await vi.importActual<typeof import('./core/request')>('./core/request');

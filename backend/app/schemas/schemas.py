@@ -63,6 +63,7 @@ class UserUpdate(BaseModel):
 # ─── Agent ──────────────────────────────────────────────
 
 AgentClass = Literal["internal_system", "internal_tenant", "external_gateway", "external_api"]
+AgentExecutionMode = Literal["standard", "coordinator"]
 
 class AgentCreate(BaseModel):
     name: str = Field(min_length=2, max_length=100, description="Agent name, 2-100 characters")
@@ -85,6 +86,7 @@ class AgentCreate(BaseModel):
     # Classification
     agent_class: AgentClass = "internal_tenant"
     security_zone: str = "standard"  # public | standard | restricted
+    execution_mode: AgentExecutionMode = "standard"
     # Skills to copy into agent workspace
     skill_ids: list[uuid.UUID] = []
 
@@ -117,6 +119,7 @@ class AgentOut(BaseModel):
     agent_type: str = "native"
     agent_class: AgentClass = "internal_tenant"
     security_zone: str = "standard"
+    execution_mode: AgentExecutionMode = "standard"
     openclaw_last_seen: datetime | None = None
     created_at: datetime
     last_active_at: datetime | None = None
@@ -141,6 +144,7 @@ class AgentUpdate(BaseModel):
     timezone: str | None = None
     agent_class: AgentClass | None = None
     security_zone: str | None = None
+    execution_mode: AgentExecutionMode | None = None
 
 
 class AgentStatusOut(BaseModel):

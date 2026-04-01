@@ -309,6 +309,7 @@ async def create_agent(
         fallback_model_id=data.fallback_model_id,
         agent_class=data.agent_class,
         security_zone=data.security_zone,
+        execution_mode=data.execution_mode,
         status="draft",
         max_triggers=default_max_triggers,
         min_poll_interval_min=default_min_poll,

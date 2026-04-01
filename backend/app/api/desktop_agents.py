@@ -11,7 +11,6 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import get_current_user
@@ -27,6 +26,7 @@ router = APIRouter(prefix="/desktop", tags=["desktop-agents"])
 
 
 SecurityZone = Literal["public", "standard", "restricted"]
+ExecutionMode = Literal["standard", "coordinator"]
 
 
 class SubAgentCreate(BaseModel):
@@ -34,6 +34,7 @@ class SubAgentCreate(BaseModel):
     role_description: str = ""
     bio: str | None = None
     security_zone: SecurityZone = "standard"
+    execution_mode: ExecutionMode = "standard"
 
 
 class SubAgentUpdate(BaseModel):
@@ -41,6 +42,7 @@ class SubAgentUpdate(BaseModel):
     role_description: str | None = None
     bio: str | None = None
     security_zone: SecurityZone | None = None
+    execution_mode: ExecutionMode | None = None
 
 
 class SubAgentOut(BaseModel):
@@ -52,6 +54,7 @@ class SubAgentOut(BaseModel):
     owner_user_id: uuid.UUID | None = None
     config_version: int
     security_zone: str
+    execution_mode: ExecutionMode = "standard"
 
     model_config = {"from_attributes": True}
 
@@ -87,6 +90,7 @@ async def create_sub_agent(
         creator_id=current_user.id,
         tenant_id=current_user.tenant_id,
         security_zone=body.security_zone,
+        execution_mode=body.execution_mode,
         config_version=1,
     )
     db.add(agent)

@@ -36,6 +36,15 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
+vi.stubGlobal('localStorage', {
+  getItem: vi.fn(() => ''),
+  setItem: vi.fn(),
+  removeItem: vi.fn(),
+  clear: vi.fn(),
+  key: vi.fn(),
+  length: 0,
+} as unknown as Storage);
+
 vi.mock('@tanstack/react-query', () => ({
   useQuery: ({ queryKey }: { queryKey: unknown[] }) => {
     const key = String(queryKey[0]);
@@ -71,6 +80,14 @@ vi.mock('@tanstack/react-query', () => ({
               role_description: 'Quality reviewer',
             },
           },
+        ],
+      };
+    }
+    if (key === 'agents') {
+      return {
+        data: [
+          { id: 'agent-1', name: 'Primary Bot', role_description: 'Main agent' },
+          { id: 'agent-2', name: 'Reviewer Bot', role_description: 'Quality reviewer' },
         ],
       };
     }
@@ -149,9 +166,9 @@ describe('AgentDetail extracted sections', () => {
   it('renders RelationshipEditor as a standalone module with human and agent sections', () => {
     const markup = renderToStaticMarkup(<RelationshipEditor agentId="agent-1" />);
 
-    expect(markup).toContain('humanRelationships');
-    expect(markup).toContain('agentRelationships');
-    expect(markup).toContain('Alice');
+    expect(markup).toContain('owner');
+    expect(markup).toContain('bindEmployee');
+    expect(markup).toContain('peers');
     expect(markup).toContain('Reviewer Bot');
   });
 
@@ -323,6 +340,7 @@ describe('AgentDetail extracted sections', () => {
         agent={{
           id: 'agent-1',
           agent_type: 'native',
+          execution_mode: 'coordinator',
           primary_model_id: 'model-1',
           fallback_model_id: '',
           // max_tokens_per_day: 10000,
@@ -378,7 +396,9 @@ describe('AgentDetail extracted sections', () => {
     );
 
     expect(markup).toContain('modelConfig');
-    expect(markup).toContain('Welcome Message');
+    expect(markup).toContain('Execution Mode');
+    expect(markup).toContain('Coordinator');
+    expect(markup).toContain('welcomeMessage');
     expect(markup).toContain('Access Permissions');
     expect(markup).toContain('Channel Config Mock');
     expect(markup).toContain('deleteAgent');
