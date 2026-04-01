@@ -267,17 +267,32 @@ async def _execute_tool_with_hooks(
         tool_result=str(result)[:500] if result else "",
     )
 
-    # B-05 fix: track file reads and skill loads for post-compact restoration
+    # B-05 + P0.5: track all high-value tool outcomes for post-compact restoration
     _session = request.session_context
+    _args_dict = effective_args if isinstance(effective_args, dict) else {}
     if _session:
         if tool_name == "read_file":
-            _path = effective_args.get("path", "") if isinstance(effective_args, dict) else ""
+            _path = _args_dict.get("path", "")
             if _path:
                 _session.track_file_read(_path)
         elif tool_name == "load_skill":
-            _skill = (effective_args.get("skill_name") or effective_args.get("name", "")) if isinstance(effective_args, dict) else ""
+            _skill = _args_dict.get("skill_name") or _args_dict.get("name", "")
             if _skill:
                 _session.track_skill_loaded(_skill)
+        elif tool_name in ("write_file", "edit_file"):
+            _path = _args_dict.get("path", "")
+            if _path:
+                _session.track_file_write(_path)
+                _session.track_tool_outcome(tool_name, "Wrote " + _path)
+        elif tool_name in ("web_search", "jina_read", "read_document", "read_mcp_resource"):
+            _ref = _args_dict.get("url") or _args_dict.get("query") or _args_dict.get("path", "")
+            if _ref:
+                _session.track_external_ref(str(_ref)[:200])
+            _result_str = str(result)
+            if len(_result_str) > 100:
+                _session.track_tool_outcome(tool_name, _result_str[:200])
+        elif tool_name == "execute_code":
+            _session.track_tool_outcome(tool_name, str(result)[:200])
 
     return str(result), effective_args, True
 
@@ -390,7 +405,7 @@ def _build_restoration_context(
     # ── 3: Recently-read files ──
     if session_context and getattr(session_context, "recent_files", None):
         _file_budget = min(max(_per_file_cap // 2, 2000), _per_file_cap)
-        for fpath_str in reversed(session_context.recent_files[:3]):
+        for fpath_str in session_context.recent_files[-3:]:
             if total >= _restore_budget:
                 break
             try:
@@ -404,20 +419,58 @@ def _build_restoration_context(
             except Exception:
                 continue
 
-    # ── 4: Active skills summary ──
+    # ── 4: Recent tool outcomes ── (P0.5)
+    if session_context and getattr(session_context, "recent_tool_outcomes", None):
+        _outcomes = session_context.recent_tool_outcomes[-5:]
+        if _outcomes and total < _restore_budget:
+            _lines = [f"- {o.get('tool', '?')}: {o.get('summary', '')}" for o in _outcomes]
+            _block = "### Recent Tool Results\n" + "\n".join(_lines)
+            if total + len(_block) < _restore_budget:
+                parts.append(_block)
+                total += len(_block)
+
+    # ── 5: Recent writes ── (P0.5)
+    if session_context and getattr(session_context, "recent_writes", None):
+        _writes = session_context.recent_writes[-5:]
+        if _writes and total < _restore_budget:
+            _block = "### Recent Writes\n" + "\n".join(f"- {w}" for w in _writes)
+            if total + len(_block) < _restore_budget:
+                parts.append(_block)
+                total += len(_block)
+
+    # ── 6: Active skills summary ──
     if session_context and getattr(session_context, "active_skills", None):
         skills_line = ", ".join(session_context.active_skills)
         if total + len(skills_line) < _restore_budget:
             parts.append(f"### Active Skills\n{skills_line}")
             total += len(skills_line)
 
-    # ── 5: Active packs summary ──
+    # ── 7: Active packs summary ──
     if session_context and getattr(session_context, "active_packs", None):
         pack_names = [p.get("name", "?") for p in session_context.active_packs if isinstance(p, dict)]
         if pack_names:
             packs_line = ", ".join(pack_names)
             if total + len(packs_line) < _restore_budget:
                 parts.append(f"### Active Packs\n{packs_line}")
+                total += len(packs_line)
+
+    # ── 8: Recent external references ── (P0.5)
+    if session_context and getattr(session_context, "recent_external_refs", None):
+        _refs = session_context.recent_external_refs[-5:]
+        if _refs and total < _restore_budget:
+            _block = "### Recent External References\n" + "\n".join(f"- {r}" for r in _refs)
+            if total + len(_block) < _restore_budget:
+                parts.append(_block)
+                total += len(_block)
+
+    # ── 9: Pending work items ── (P0.5)
+    if session_context and getattr(session_context, "pending_items", None):
+        _pending = session_context.pending_items[-5:]
+        if _pending and total < _restore_budget:
+            _block = "### Pending Work\n" + "\n".join(f"- {p}" for p in _pending)
+            if total + len(_block) < _restore_budget:
+                parts.append(_block)
+                total += len(_block)
 
     if not parts:
         return ""

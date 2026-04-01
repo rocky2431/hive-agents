@@ -16,8 +16,18 @@ SummaryLoader = Callable[[uuid.UUID, str | None], Awaitable[str | None]]
 MemoryLoader = Callable[[uuid.UUID], str]
 
 
-# Valid memory categories (aligned with Claude Code's 4-type taxonomy + general default).
-MEMORY_CATEGORIES = frozenset({"user", "feedback", "project", "reference", "general"})
+# Valid memory categories — extended for unified evolution schema (P1.2).
+# Core 4 (Claude Code aligned) + evolution types + general default.
+MEMORY_CATEGORIES = frozenset({
+    "user",            # preferences, role, knowledge, working style
+    "feedback",        # corrections, confirmations, behavioral guidance
+    "project",         # goals, deadlines, decisions, status updates
+    "reference",       # pointers to external systems, URLs, tool names
+    "general",         # anything else
+    "constraint",      # hard rules agent must follow
+    "strategy",        # successful approaches worth reusing
+    "blocked_pattern", # approaches proven to fail — do not retry
+})
 
 
 class PersistentMemoryStore:

@@ -123,24 +123,39 @@ def compute_context_budget(
     system_budget = compute_system_prompt_budget(context_window_tokens)
     profile = infer_task_profile(query, messages=messages)
 
+    # P1.3: Task-aware ratio profiles — each task type prioritizes different context
+    #
+    # Coding: boost restore (recent files, pending, write artifacts), moderate memory
+    # Research: boost external/knowledge, high memory for accumulated findings
+    # Operations: boost focus/triggers/failure patterns, moderate restore
+    # General: balanced defaults
     if profile.name == "coding":
         retrieval_ratio = 0.12
         knowledge_ratio = 0.04
         memory_ratio = 0.24
+        focus_ratio = 0.07       # higher — current task state matters
+        restore_ratio = 0.65     # higher — recent files/writes/pending critical
+        triggers_ratio = 0.03
         semantic_base = 16
         episodic_base = 4
         external_base = 4
     elif profile.name == "research":
         retrieval_ratio = 0.15
-        knowledge_ratio = 0.08
-        memory_ratio = 0.28
+        knowledge_ratio = 0.10   # higher — external evidence is king
+        memory_ratio = 0.28      # higher — accumulated findings
+        focus_ratio = 0.05
+        restore_ratio = 0.50
+        triggers_ratio = 0.03
         semantic_base = 20
         episodic_base = 5
-        external_base = 6
+        external_base = 8        # higher — more external sources
     elif profile.name == "operations":
         retrieval_ratio = 0.10
         knowledge_ratio = 0.05
         memory_ratio = 0.22
+        focus_ratio = 0.08       # higher — operational state
+        restore_ratio = 0.55
+        triggers_ratio = 0.07    # higher — trigger/cron state matters
         semantic_base = 14
         episodic_base = 4
         external_base = 4
@@ -148,6 +163,9 @@ def compute_context_budget(
         retrieval_ratio = 0.09
         knowledge_ratio = 0.04
         memory_ratio = 0.20
+        focus_ratio = 0.06
+        restore_ratio = 0.55
+        triggers_ratio = 0.05
         semantic_base = 12
         episodic_base = 4
         external_base = 3
@@ -161,16 +179,16 @@ def compute_context_budget(
         12000,
     )
     retrieval_budget = _clamp(int(system_budget * retrieval_ratio), 3000, 24000)
-    knowledge_budget = _clamp(int(system_budget * knowledge_ratio), 1500, 12000)
+    knowledge_budget = _clamp(int(system_budget * knowledge_ratio), 1500, 16000)
     memory_budget = _clamp(int(system_budget * memory_ratio), 12000, 36000)
     skill_catalog_budget = _clamp(int(system_budget * 0.08), 4000, 12000)
     soul_budget = _clamp(int(system_budget * 0.22), 16000, 32000)
     relationships_budget = _clamp(int(system_budget * 0.035), 2000, 6000)
     company_info_budget = _clamp(int(system_budget * 0.07), 5000, 12000)
     org_structure_budget = _clamp(int(system_budget * 0.035), 2000, 6000)
-    focus_budget = _clamp(int(system_budget * 0.06), 3000, 10000)
-    runtime_triggers_budget = _clamp(int(system_budget * 0.05), 3000, 8000)
-    restore_budget = _clamp(int(system_budget * 0.55), 12000, 100000)
+    focus_budget = _clamp(int(system_budget * focus_ratio), 3000, 12000)
+    runtime_triggers_budget = _clamp(int(system_budget * triggers_ratio), 2000, 10000)
+    restore_budget = _clamp(int(system_budget * restore_ratio), 12000, 100000)
     restore_per_file_cap = _clamp(int(restore_budget * 0.2), 2500, 12000)
 
     semantic_limit = _clamp(semantic_base + complexity_bonus * 2 + large_context_bonus * 2, 8, 32)

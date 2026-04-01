@@ -564,20 +564,42 @@ async def _extract_facts_with_llm(messages: list[dict], model_config: dict) -> l
     """Use LLM to extract memorable facts from conversation."""
     from app.services.llm_client import LLMMessage, create_llm_client
 
-    # Build condensed conversation text
+    # Build condensed conversation text — include tool results and file writes (P0.3)
     conversation_text = []
+    _tool_names: dict[str, str] = {}  # tool_call_id → tool_name
     for msg in messages:
         role = msg.get("role", "")
         content = msg.get("content", "")
         if not isinstance(content, str) or not content.strip():
+            # Track tool_calls for name resolution even if no text content
+            for tc in msg.get("tool_calls", []):
+                _fn = tc.get("function", {})
+                _tool_names[tc.get("id", "")] = _fn.get("name", "")
             continue
+
         if role in ("user", "assistant") and "tool_calls" not in msg:
-            conversation_text.append(f"{role}: {content[:300]}")
+            conversation_text.append(role + ": " + content[:300])
+        elif role == "tool":
+            # P0.3: Include high-value tool results in extraction input
+            _tc_id = msg.get("tool_call_id", "")
+            _tool_name = _tool_names.get(_tc_id, "unknown_tool")
+            # Skip low-value tools (list_files, get_current_time, etc.)
+            if _tool_name not in (
+                "list_files", "get_current_time", "list_triggers",
+                "list_tasks", "check_async_task", "tool_search",
+            ):
+                _preview = content[:200] if len(content) > 200 else content
+                conversation_text.append("tool(" + _tool_name + "): " + _preview)
+
+        # Track tool_calls for name resolution
+        for tc in msg.get("tool_calls", []):
+            _fn = tc.get("function", {})
+            _tool_names[tc.get("id", "")] = _fn.get("name", "")
 
     if not conversation_text:
         return []
 
-    text = "\n".join(conversation_text[-30:])
+    text = "\n".join(conversation_text[-40:])
 
     client = create_llm_client(**model_config)
     try:
@@ -593,12 +615,18 @@ async def _extract_facts_with_llm(messages: list[dict], model_config: dict) -> l
                         "- feedback: corrections, confirmations, behavioral guidance\n"
                         "- project: goals, deadlines, decisions, status updates\n"
                         "- reference: pointers to external systems, URLs, tool names\n"
+                        "- constraint: hard rules the agent must follow\n"
+                        "- strategy: successful approaches worth reusing\n"
+                        "- blocked_pattern: approaches that failed — do not retry\n"
                         "- general: anything else\n"
                         "PRIORITY extraction targets (do NOT miss these):\n"
                         "1. User feedback, corrections, or preferences → category: feedback\n"
                         "2. Explicit instructions for future behavior → category: feedback\n"
                         "3. Important decisions or project context → category: project\n"
                         "4. Personal information or working style → category: user\n"
+                        "5. Tool execution conclusions or discovered facts → category: reference\n"
+                        "6. File write artifacts or created resources → category: project\n"
+                        "7. External content key findings → category: reference\n"
                         "Respond ONLY with the JSON array, no other text."
                     ),
                 ),

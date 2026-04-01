@@ -49,7 +49,8 @@ def _load_dream_state(agent_id: uuid.UUID) -> tuple[datetime | None, int]:
         return None, 0
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
+    except Exception as exc:
+        logger.debug("[AutoDream] Failed to load dream state: %s", exc)
         return None, 0
 
     last_raw = payload.get("last_dream_time")
@@ -207,7 +208,7 @@ async def _consolidate_with_llm(
         "1. Remove duplicate or contradictory facts (keep the newer/more specific one)\n"
         "2. Merge related facts into single comprehensive statements\n"
         "3. Add new facts from sessions that aren't already captured\n"
-        "4. Assign each fact a category: user, feedback, project, reference, or general\n"
+        "4. Assign each fact a category: user, feedback, project, reference, constraint, strategy, blocked_pattern, or general\n"
         "5. Return JSON array: [{\"content\": \"...\", \"category\": \"...\", \"subject\": \"...\"}]\n"
         "Return ONLY the JSON array, no other text."
     )

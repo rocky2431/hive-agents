@@ -23,6 +23,7 @@ router = APIRouter(prefix="/enterprise/memory", tags=["memory"])
 
 class MemoryConfigUpdate(BaseModel):
     summary_model_id: str | None = None
+    rerank_model_id: str | None = None
     compress_threshold: int = 70  # percentage
     keep_recent: int = 10
     extract_to_viking: bool = False
@@ -46,6 +47,7 @@ async def get_memory_config(
     if not setting:
         return {
             "summary_model_id": None,
+            "rerank_model_id": None,
             "compress_threshold": 70,
             "keep_recent": 10,
             "extract_to_viking": False,
@@ -73,17 +75,18 @@ async def update_memory_config(
 
     config_dict = data.model_dump()
 
-    # Validate summary_model_id belongs to the same tenant
-    if data.summary_model_id:
-        from app.models.llm import LLMModel
-        model_r = await db.execute(
-            select(LLMModel.id).where(
-                LLMModel.id == data.summary_model_id,
-                LLMModel.tenant_id == target_tenant_id,
+    # Validate model IDs belong to the same tenant
+    from app.models.llm import LLMModel
+    for field_name, model_id in [("summary_model_id", data.summary_model_id), ("rerank_model_id", data.rerank_model_id)]:
+        if model_id:
+            model_r = await db.execute(
+                select(LLMModel.id).where(
+                    LLMModel.id == model_id,
+                    LLMModel.tenant_id == target_tenant_id,
+                )
             )
-        )
-        if not model_r.scalar_one_or_none():
-            raise HTTPException(status_code=400, detail="Summary model not found in your tenant")
+            if not model_r.scalar_one_or_none():
+                raise HTTPException(status_code=400, detail=f"{field_name} model not found in your tenant")
 
     if setting:
         setting.value = config_dict

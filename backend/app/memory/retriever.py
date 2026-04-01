@@ -6,12 +6,12 @@ returning a unified list of MemoryItem objects for the assembler.
 
 from __future__ import annotations
 
+import json
 import logging
+import re as _re
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-
-import json
 
 from app.memory.store import PersistentMemoryStore
 from app.memory.types import MemoryItem, MemoryKind, parse_utc_timestamp
@@ -23,23 +23,62 @@ _RERANK_MAX_SELECT = 5
 
 logger = logging.getLogger(__name__)
 
+_CJK_RE = _re.compile(r"[\u4e00-\u9fff\u3400-\u4dbf\uF900-\uFAFF]")
+_PUNCTUATION_CHARS = frozenset("，。！？；：""''（）【】、…—《》·,.!?;:\"'()[]{}/ \t\n\r")
+
+
+def _has_cjk(text: str) -> bool:
+    """Detect if text contains CJK characters."""
+    return bool(_CJK_RE.search(text))
+
+
+def _chars_set(text: str) -> set[str]:
+    """Extract meaningful characters for CJK overlap scoring, filtering punctuation/whitespace."""
+    return {c for c in text.lower() if c not in _PUNCTUATION_CHARS and not c.isspace()}
+
 
 def _content_similar(a: str, b: str, threshold: float = 0.7) -> bool:
-    """Check if two text blocks are similar using word overlap."""
-    words_a = set(a.lower().split())
-    words_b = set(b.lower().split())
-    if not words_a or not words_b:
-        return False
-    overlap = len(words_a & words_b)
-    return overlap / min(len(words_a), len(words_b)) > threshold
+    """Check if two text blocks are similar using word overlap (English) or char overlap (CJK)."""
+    a_lower = a.lower()
+    b_lower = b.lower()
+
+    # Path 1: word overlap (English)
+    words_a = set(a_lower.split())
+    words_b = set(b_lower.split())
+    word_sim = 0.0
+    if words_a and words_b:
+        word_sim = len(words_a & words_b) / min(len(words_a), len(words_b))
+
+    # Path 2: character overlap (CJK)
+    char_sim = 0.0
+    if _has_cjk(a) or _has_cjk(b):
+        chars_a = _chars_set(a)
+        chars_b = _chars_set(b)
+        if chars_a and chars_b:
+            char_sim = len(chars_a & chars_b) / min(len(chars_a), len(chars_b))
+
+    return max(word_sim, char_sim) > threshold
 
 
 def _score_relevance(content: str, query: str) -> float:
-    """Score content relevance against query using keyword overlap."""
-    query_words = set(query.lower().split())
-    content_words = set(content.lower().split())
-    overlap = query_words & content_words
-    return len(overlap) / max(len(query_words), 1)
+    """Score content relevance using dual-path: word overlap (English) + char overlap (CJK)."""
+    q_lower = query.lower()
+    c_lower = content.lower()
+
+    # Path 1: English word overlap
+    query_words = set(q_lower.split())
+    content_words = set(c_lower.split())
+    word_overlap = len(query_words & content_words) / max(len(query_words), 1)
+
+    # Path 2: CJK character overlap (only if query or content has CJK)
+    char_overlap = 0.0
+    if _has_cjk(query) or _has_cjk(content):
+        query_chars = _chars_set(query)
+        content_chars = _chars_set(content)
+        if query_chars:
+            char_overlap = len(query_chars & content_chars) / len(query_chars)
+
+    return max(word_overlap, char_overlap)
 
 
 _parse_timestamp = parse_utc_timestamp  # Use shared implementation from types.py
@@ -64,10 +103,10 @@ def _score_semantic_item(content: str, query: str, timestamp: str | None, catego
         # Without query (session start): baseline 0.5 + recency bonus so all semantic
         # facts surface with reasonable scores instead of pure recency ordering.
         base = 0.5 + recency * 0.3
-    # B-07 fix: category-aware scoring — feedback and user facts are higher signal
-    if category == "feedback":
+    # B-07 + P1.2: category-aware scoring — high-signal categories get boosted
+    if category in ("feedback", "constraint", "blocked_pattern"):
         base = min(base * 1.5, 1.0)
-    elif category == "user":
+    elif category in ("user", "strategy"):
         base = min(base * 1.2, 1.0)
     return base
 
