@@ -101,6 +101,8 @@ async def main():
         "CREATE INDEX IF NOT EXISTS ix_sec_audit_resource ON security_audit_events (resource_type, resource_id)",
         # Drop dead autonomy_policy column (was stored but never enforced)
         "ALTER TABLE agents DROP COLUMN IF EXISTS autonomy_policy",
+        # Context engineering sprint (2026-04-01): coordinator mode + runtime tasks
+        "ALTER TABLE agents ADD COLUMN IF NOT EXISTS execution_mode VARCHAR(30) NOT NULL DEFAULT 'standard'",
     ]
 
     from sqlalchemy import text
