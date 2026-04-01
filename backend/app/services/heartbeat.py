@@ -27,6 +27,8 @@ from app.services.agent_tools import execute_tool
 # Single source of truth: app/templates/HEARTBEAT.md
 # No hardcoded instruction here — read from template file at runtime.
 _HEARTBEAT_TEMPLATE_PATH = Path(__file__).parent.parent / "templates" / "HEARTBEAT.md"
+_HEARTBEAT_LEASE_TTL_SECONDS = 600
+_heartbeat_leases: dict[uuid.UUID, datetime] = {}
 
 _HEARTBEAT_PRIVACY_SUFFIX = """
 ⚠️ PRIVACY RULES — STRICTLY FOLLOW:
@@ -47,6 +49,25 @@ def _get_default_heartbeat_instruction() -> str:
         return _HEARTBEAT_TEMPLATE_PATH.read_text(encoding="utf-8").strip()
     except Exception:
         return "[Heartbeat] Check focus.md, do one useful thing, reply HEARTBEAT_OK if nothing needed."
+
+
+def _try_acquire_heartbeat_lease(
+    agent_id: uuid.UUID,
+    *,
+    now: datetime | None = None,
+    ttl_seconds: int = _HEARTBEAT_LEASE_TTL_SECONDS,
+) -> bool:
+    """Acquire a per-agent heartbeat lease, expiring stale entries automatically."""
+    current = now or datetime.now(timezone.utc)
+    lease_started_at = _heartbeat_leases.get(agent_id)
+    if lease_started_at is not None and (current - lease_started_at).total_seconds() < ttl_seconds:
+        return False
+    _heartbeat_leases[agent_id] = current
+    return True
+
+
+def _release_heartbeat_lease(agent_id: uuid.UUID) -> None:
+    _heartbeat_leases.pop(agent_id, None)
 
 
 def _is_in_active_hours(active_hours: str, tz_name: str = "UTC") -> bool:
@@ -591,12 +612,19 @@ async def _touch_last_heartbeat(agent_id: uuid.UUID) -> None:
         logger.debug(f"[Heartbeat] Failed to touch last_heartbeat_at for {agent_id}: {_exc}")
 
 
-async def _execute_heartbeat(agent_id: uuid.UUID):
+async def _execute_heartbeat(agent_id: uuid.UUID, *, lease_acquired: bool = False):
     """Execute a single heartbeat for an agent.
 
     Creates a Reflection Session (like trigger_daemon) so tool calls and
     the final reply are persisted and visible in the UI.
     """
+    lease_held = lease_acquired
+    if not lease_held:
+        lease_held = _try_acquire_heartbeat_lease(agent_id)
+        if not lease_held:
+            logger.info("[Heartbeat] Skip duplicate in-flight heartbeat for %s", agent_id)
+            return
+
     import json as _json
 
     try:
@@ -834,6 +862,9 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
             await asyncio.to_thread(_update_evolution_files, agent_id, "crash", None, f"crash: {str(e)[:60]}")
         except Exception as _evo_crash_err:
             logger.debug(f"[Heartbeat] Evolution writeback on crash failed: {_evo_crash_err}")
+    finally:
+        if lease_held:
+            _release_heartbeat_lease(agent_id)
 
 
 async def _heartbeat_tick():
@@ -900,9 +931,12 @@ async def _heartbeat_tick():
                     continue
 
                 # Fire heartbeat
+                if not _try_acquire_heartbeat_lease(agent.id, now=now):
+                    logger.info("[Heartbeat] Agent %s already has an in-flight heartbeat", agent.id)
+                    continue
                 logger.info(f"💓 Triggering heartbeat for {agent.name}")
                 await write_audit_log("heartbeat_fire", {"agent_name": agent.name}, agent_id=agent.id)
-                asyncio.create_task(_execute_heartbeat(agent.id))
+                asyncio.create_task(_execute_heartbeat(agent.id, lease_acquired=True))
                 triggered += 1
 
             logger.info(

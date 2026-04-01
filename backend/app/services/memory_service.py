@@ -9,6 +9,7 @@ Covers three phases:
 from __future__ import annotations
 
 import json
+import inspect
 import logging
 import re
 import uuid
@@ -73,11 +74,15 @@ async def build_memory_context(
     """
     try:
         retriever = MemoryRetriever(data_root=Path(get_settings().AGENT_DATA_DIR))
+        rerank_model_config = None
+        if query:
+            rerank_model_config = await _maybe_await(_get_rerank_model_config(tenant_id))
         items = await retriever.retrieve(
             agent_id,
             query,
             session_id,
             str(tenant_id) if tenant_id else None,
+            rerank_model_config=rerank_model_config,
         )
         assembler = MemoryAssembler()
         result = assembler.assemble(items)
@@ -98,6 +103,12 @@ async def build_memory_context(
     except Exception as exc:
         logger.warning("FileBackedMemoryStore fallback failed, returning empty memory context: %s", exc)
         return ""
+
+
+async def _maybe_await(value):
+    if inspect.isawaitable(value):
+        return await value
+    return value
 
 
 def compute_history_limit(
@@ -364,6 +375,33 @@ async def _get_summary_model_config(tenant_id: uuid.UUID) -> dict | None:
             }
     except Exception as e:
         logger.warning("Failed to load summary model: %s", e)
+        return None
+
+
+async def _get_rerank_model_config(tenant_id: uuid.UUID) -> dict | None:
+    """Resolve the optional LLM model to use for semantic memory reranking."""
+    config = await _get_memory_config(tenant_id)
+    model_id = config.get("rerank_model_id")
+    if not model_id:
+        return None
+
+    try:
+        async with async_session() as db:
+            result = await db.execute(
+                select(LLMModel).where(LLMModel.id == uuid.UUID(str(model_id)), LLMModel.tenant_id == tenant_id)
+            )
+            model = result.scalar_one_or_none()
+            if not model or not model.enabled:
+                return None
+
+            return {
+                "provider": model.provider,
+                "model": model.model,
+                "api_key": model.api_key,
+                "base_url": model.base_url,
+            }
+    except Exception as e:
+        logger.warning("Failed to load rerank model: %s", e)
         return None
 
 

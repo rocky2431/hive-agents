@@ -76,6 +76,12 @@ def _parse_skill_frontmatter(content: str, filename: str) -> tuple[str, str]:
     return name, description
 
 
+def _strip_primary_heading(content: str) -> str:
+    if content.startswith("# "):
+        return "\n".join(content.split("\n")[1:]).strip()
+    return content
+
+
 def _load_skills_index(agent_id: uuid.UUID) -> str:
     """Load skill index (name + description) from skills/ directory.
 
@@ -96,7 +102,72 @@ def _load_skills_index(agent_id: uuid.UUID) -> str:
     return registry.render_catalog()
 
 
-async def build_agent_context(agent_id: uuid.UUID, agent_name: str, role_description: str = "", current_user_name: str = None) -> str:
+async def _build_runtime_metadata_sections(
+    agent_id: uuid.UUID,
+    *,
+    current_user_name: str | None = None,
+) -> list[str]:
+    parts: list[str] = []
+
+    from app.services.timezone_utils import get_agent_timezone, now_in_timezone
+
+    agent_tz_name = await get_agent_timezone(agent_id)
+    agent_local_now = now_in_timezone(agent_tz_name)
+    now_str = agent_local_now.strftime(f"%Y-%m-%d %H:%M:%S ({agent_tz_name})")
+    parts.append(f"\n## Current Time\n{now_str}")
+    parts.append(f"Your timezone is **{agent_tz_name}**. When setting cron triggers, use this timezone for time references.")
+
+    try:
+        from app.database import async_session
+        from app.models.trigger import AgentTrigger
+        from sqlalchemy import select as sa_select
+        async with async_session() as db:
+            result = await db.execute(
+                sa_select(AgentTrigger).where(
+                    AgentTrigger.agent_id == agent_id,
+                    AgentTrigger.is_enabled,
+                )
+            )
+            triggers = result.scalars().all()
+            if triggers:
+                lines = ["You have the following active triggers:"]
+                _triggers_chars = 0
+                _TRIGGERS_BUDGET = 3000
+                for t in triggers:
+                    config_str = str(t.config)[:80]
+                    reason_str = (t.reason or "")[:500]
+                    ref_str = f" (focus: {t.focus_ref})" if t.focus_ref else ""
+                    line = f"\n- **{t.name}** [{t.type}]{ref_str}\n  Config: `{config_str}`\n  Reason: {reason_str}"
+                    _triggers_chars += len(line)
+                    if _triggers_chars > _TRIGGERS_BUDGET:
+                        lines.append(f"\n... and {len(triggers) - len(lines) + 1} more triggers (truncated)")
+                        break
+                    lines.append(line)
+                parts.append("\n## Active Triggers\n" + "\n".join(lines))
+    except Exception as exc:
+        logger.debug("Failed to load active triggers for agent {}: {}", agent_id, exc)
+
+    if current_user_name:
+        parts.append(f"\n## Current Conversation\nYou are currently chatting with **{current_user_name}**. Address them by name when appropriate.")
+
+    return parts
+
+
+async def build_agent_runtime_context(agent_id: uuid.UUID, *, current_user_name: str | None = None) -> str:
+    """Build volatile runtime context that should be refreshed every round."""
+    return "\n".join(await _build_runtime_metadata_sections(agent_id, current_user_name=current_user_name))
+
+
+async def build_agent_context(
+    agent_id: uuid.UUID,
+    agent_name: str,
+    role_description: str = "",
+    current_user_name: str | None = None,
+    *,
+    include_memory_file: bool = True,
+    include_runtime_metadata: bool = True,
+    include_focus: bool = True,
+) -> str:
     """Build a rich system prompt incorporating agent's full context.
 
     Reads from workspace files:
@@ -110,14 +181,11 @@ async def build_agent_context(agent_id: uuid.UUID, agent_name: str, role_descrip
 
     # --- Soul ---
     soul = _read_file_safe(tool_ws / "soul.md", 16000) or _read_file_safe(data_ws / "soul.md", 16000)
-    # Strip markdown heading if present
-    if soul.startswith("# "):
-        soul = "\n".join(soul.split("\n")[1:]).strip()
+    soul = _strip_primary_heading(soul)
 
     # --- Memory ---
     memory = _read_file_safe(tool_ws / "memory" / "memory.md", 2000) or _read_file_safe(tool_ws / "memory.md", 2000)
-    if memory.startswith("# "):
-        memory = "\n".join(memory.split("\n")[1:]).strip()
+    memory = _strip_primary_heading(memory)
 
     # --- Skills index (progressive disclosure, capped to prevent prompt overflow) ---
     skills_text = _load_skills_index(agent_id)
@@ -126,18 +194,10 @@ async def build_agent_context(agent_id: uuid.UUID, agent_name: str, role_descrip
 
     # --- Relationships ---
     relationships = _read_file_safe(data_ws / "relationships.md", 2000)
-    if relationships.startswith("# "):
-        relationships = "\n".join(relationships.split("\n")[1:]).strip()
+    relationships = _strip_primary_heading(relationships)
 
     # --- Compose system prompt ---
-    from datetime import datetime, timezone as _tz
-    from app.services.timezone_utils import get_agent_timezone, now_in_timezone
-    agent_tz_name = await get_agent_timezone(agent_id)
-    agent_local_now = now_in_timezone(agent_tz_name)
-    now_str = agent_local_now.strftime(f"%Y-%m-%d %H:%M:%S ({agent_tz_name})")
     parts = [f"You are {agent_name}, an enterprise digital employee."]
-    parts.append(f"\n## Current Time\n{now_str}")
-    parts.append(f"Your timezone is **{agent_tz_name}**. When setting cron triggers, use this timezone for time references.")
 
     if role_description:
         parts.append(f"\n## Role\n{role_description}")
@@ -152,7 +212,7 @@ async def build_agent_context(agent_id: uuid.UUID, agent_name: str, role_descrip
             _cfgs = await _ctx_db.execute(
                 sa_select(ChannelConfig).where(
                     ChannelConfig.agent_id == agent_id,
-                    ChannelConfig.is_configured == True,
+                    ChannelConfig.is_configured,
                 )
             )
             _configured_channels = [c.channel_type for c in _cfgs.scalars().all()]
@@ -233,7 +293,7 @@ async def build_agent_context(agent_id: uuid.UUID, agent_name: str, role_descrip
     if soul and soul not in ("_描述你的角色和职责。_", "_Describe your role and responsibilities._"):
         parts.append(f"\n## Personality\n{soul}")
 
-    if memory and memory not in ("_这里记录重要的信息和学到的知识。_", "_Record important information and knowledge here._"):
+    if include_memory_file and memory and memory not in ("_这里记录重要的信息和学到的知识。_", "_Record important information and knowledge here._"):
         parts.append(f"\n## Memory\n{memory}")
 
     if skills_text:
@@ -250,41 +310,9 @@ async def build_agent_context(agent_id: uuid.UUID, agent_name: str, role_descrip
         or _read_file_safe(tool_ws / "agenda.md", 3000)
         or _read_file_safe(data_ws / "agenda.md", 3000)
     )
-    if focus and focus.strip() not in ("# Focus", "# Agenda", "（暂无）"):
-        if focus.startswith("# "):
-            focus = "\n".join(focus.split("\n")[1:]).strip()
+    if include_focus and focus and focus.strip() not in ("# Focus", "# Agenda", "（暂无）"):
+        focus = _strip_primary_heading(focus)
         parts.append(f"\n## Focus\n{focus}")
-
-    # --- Active Triggers ---
-    try:
-        from app.database import async_session
-        from app.models.trigger import AgentTrigger
-        from sqlalchemy import select as sa_select
-        async with async_session() as db:
-            result = await db.execute(
-                sa_select(AgentTrigger).where(
-                    AgentTrigger.agent_id == agent_id,
-                    AgentTrigger.is_enabled == True,
-                )
-            )
-            triggers = result.scalars().all()
-            if triggers:
-                lines = ["You have the following active triggers:"]
-                _triggers_chars = 0
-                _TRIGGERS_BUDGET = 3000
-                for t in triggers:
-                    config_str = str(t.config)[:80]
-                    reason_str = (t.reason or "")[:500]
-                    ref_str = f" (focus: {t.focus_ref})" if t.focus_ref else ""
-                    line = f"\n- **{t.name}** [{t.type}]{ref_str}\n  Config: `{config_str}`\n  Reason: {reason_str}"
-                    _triggers_chars += len(line)
-                    if _triggers_chars > _TRIGGERS_BUDGET:
-                        lines.append(f"\n... and {len(triggers) - len(lines) + 1} more triggers (truncated)")
-                        break
-                    lines.append(line)
-                parts.append("\n## Active Triggers\n" + "\n".join(lines))
-    except Exception as exc:
-        logger.debug("Failed to load active triggers for agent {}: {}", agent_id, exc)
 
     parts.append("""
 ## Core Rules
@@ -300,10 +328,7 @@ async def build_agent_context(agent_id: uuid.UUID, agent_name: str, role_descrip
 9. **Vet before installing**: Before installing any third-party skill, load_skill Skill Vetter and complete the security review.
 10. **Messaging**: To notify a human user, use `send_web_message`. To communicate with another digital employee (agent), use `send_message_to_agent`. Never confuse the two.""")
 
-
-
-    # Inject current user identity
-    if current_user_name:
-        parts.append(f"\n## Current Conversation\nYou are currently chatting with **{current_user_name}**. Address them by name when appropriate.")
+    if include_runtime_metadata:
+        parts.extend(await _build_runtime_metadata_sections(agent_id, current_user_name=current_user_name))
 
     return "\n".join(parts)

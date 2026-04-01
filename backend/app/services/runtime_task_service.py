@@ -99,6 +99,15 @@ async def update_runtime_task_record(task_id: str, **fields: Any) -> bool:
 
             for key, value in fields.items():
                 if hasattr(task, key):
+                    if (
+                        key == "metadata_json"
+                        and isinstance(value, dict)
+                        and isinstance(task.metadata_json, dict)
+                    ):
+                        merged = dict(task.metadata_json)
+                        merged.update(value)
+                        setattr(task, key, merged)
+                        continue
                     setattr(task, key, value)
 
             now = datetime.now(timezone.utc)
@@ -148,3 +157,64 @@ async def list_runtime_task_records(
             await db.rollback()
             raise
     return [_task_to_dict(task) for task in tasks]
+
+
+async def list_active_runtime_task_records(
+    *,
+    statuses: tuple[str, ...] = ("pending", "running"),
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    async with async_session() as db:
+        try:
+            stmt = (
+                select(RuntimeTask)
+                .where(RuntimeTask.status.in_(statuses))
+                .order_by(RuntimeTask.created_at.asc())
+                .limit(limit)
+            )
+            result = await db.execute(stmt)
+            tasks = result.scalars().all()
+        except Exception:
+            await db.rollback()
+            raise
+    return [_task_to_dict(task) for task in tasks]
+
+
+async def reconcile_orphaned_runtime_tasks(*, exclude_task_ids: set[str] | None = None) -> int:
+    """Mark any persisted running tasks as failed after a worker restart.
+
+    Async delegation currently executes in-process. After a backend restart,
+    any DB records still marked as `running` can no longer make progress and
+    should be surfaced honestly as failed instead of appearing alive forever.
+    """
+    excluded = {
+        runtime_task_id
+        for task_id in (exclude_task_ids or set())
+        if (runtime_task_id := _coerce_task_id(task_id)) is not None
+    }
+    async with async_session() as db:
+        try:
+            result = await db.execute(select(RuntimeTask).where(RuntimeTask.status == "running"))
+            tasks = result.scalars().all()
+            if not tasks:
+                return 0
+
+            now = datetime.now(timezone.utc)
+            updated = 0
+            for task in tasks:
+                if getattr(task, "id", None) in excluded:
+                    continue
+                task.status = "failed"
+                task.completed_at = now
+                if not task.result_summary:
+                    task.result_summary = "Task failed because the worker process restarted before completion."
+                metadata = dict(getattr(task, "metadata_json", None) or {})
+                metadata["orphaned_by_restart"] = True
+                task.metadata_json = metadata
+                updated += 1
+
+            await db.commit()
+            return updated
+        except Exception:
+            await db.rollback()
+            raise

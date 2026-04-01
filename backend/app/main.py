@@ -178,6 +178,18 @@ async def lifespan(app: FastAPI):
         logger.warning(f"[startup] Builtin tools seed failed: {e}")
 
     try:
+        from app.agents.orchestrator import resume_persisted_async_delegations
+        from app.services.runtime_task_service import reconcile_orphaned_runtime_tasks
+        resumed_task_ids = await resume_persisted_async_delegations(limit=50)
+        if resumed_task_ids:
+            logger.info("[startup] Resumed %d persisted async runtime task(s)", len(resumed_task_ids))
+        reconciled = await reconcile_orphaned_runtime_tasks(exclude_task_ids=set(resumed_task_ids))
+        if reconciled:
+            logger.warning("[startup] Reconciled %d orphaned runtime task(s) after restart", reconciled)
+    except Exception as e:
+        logger.warning(f"[startup] Runtime task reconciliation failed: {e}")
+
+    try:
         from app.services.tool_seeder import seed_atlassian_rovo_config, get_atlassian_api_key
         await seed_atlassian_rovo_config()
         # Auto-import Atlassian Rovo tools if an API key is already configured

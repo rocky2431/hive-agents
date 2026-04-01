@@ -242,3 +242,61 @@ async def test_update_agent_memory_tracks_incremental_cursor_per_session(monkeyp
         ["session-1-msg-1", "session-1-msg-2"],
         ["session-2-msg-1", "session-2-msg-2", "session-2-msg-3"],
     ]
+
+
+@pytest.mark.asyncio
+async def test_build_memory_context_passes_rerank_model_config(monkeypatch, tmp_path):
+    from app.services import memory_service
+
+    agent_id = uuid4()
+    tenant_id = uuid4()
+    captured = {}
+
+    class _FakeRetriever:
+        async def retrieve(self, _agent_id, _query, _session_id, _tenant_id, *, rerank_model_config=None, limit=20):
+            captured["rerank_model_config"] = rerank_model_config
+            captured["limit"] = limit
+            return ["memory-item"]
+
+    class _FakeAssembler:
+        def assemble(self, items):
+            captured["assembled_items"] = items
+            return "ASSEMBLED"
+
+    monkeypatch.setattr(
+        memory_service,
+        "MemoryRetriever",
+        lambda **_kwargs: _FakeRetriever(),
+    )
+    monkeypatch.setattr(
+        memory_service,
+        "MemoryAssembler",
+        lambda: _FakeAssembler(),
+    )
+    monkeypatch.setattr(
+        memory_service,
+        "_get_rerank_model_config",
+        lambda _tenant_id: {
+            "provider": "openai",
+            "model": "gpt-4.1-mini",
+            "api_key": "test-key",
+            "base_url": None,
+        },
+        raising=False,
+    )
+
+    context = await memory_service.build_memory_context(
+        agent_id,
+        tenant_id,
+        session_id="session-1",
+        query="latest roadmap preference",
+    )
+
+    assert context == "ASSEMBLED"
+    assert captured["assembled_items"] == ["memory-item"]
+    assert captured["rerank_model_config"] == {
+        "provider": "openai",
+        "model": "gpt-4.1-mini",
+        "api_key": "test-key",
+        "base_url": None,
+    }

@@ -6,6 +6,8 @@ from uuid import uuid4
 
 import pytest
 
+from app.runtime.session import SessionContext
+
 
 @pytest.mark.asyncio
 async def test_call_llm_delegates_to_runtime_invoker(monkeypatch):
@@ -112,3 +114,43 @@ async def test_call_llm_strips_upstream_system_messages_and_passes_execution_ide
     assert captured["request"].messages == [{"role": "user", "content": "hello"}]
     assert captured["request"].memory_messages == [{"role": "user", "content": "hello"}]
     assert captured["request"].execution_identity is execution_identity
+
+
+@pytest.mark.asyncio
+async def test_call_llm_reuses_provided_session_context(monkeypatch):
+    from app.api.websocket import call_llm
+
+    captured = {}
+    session_context = SessionContext(session_id="session-reused", source="websocket", channel="web")
+    session_context.prompt_prefix = "CACHED_PREFIX"
+    session_context.active_skills.append("Skill A")
+
+    async def fake_invoke_agent(request):
+        captured["request"] = request
+        return SimpleNamespace(content="runtime-result")
+
+    monkeypatch.setattr("app.api.websocket.invoke_agent", fake_invoke_agent)
+
+    model = SimpleNamespace(
+        provider="openai",
+        model="gpt-4.1",
+        api_key="key",
+        base_url=None,
+        max_output_tokens=None,
+    )
+
+    result = await call_llm(
+        model=model,
+        messages=[{"role": "user", "content": "hello"}],
+        agent_name="Agent",
+        role_description="desc",
+        agent_id=uuid4(),
+        user_id=uuid4(),
+        session_id="session-reused",
+        session_context=session_context,
+    )
+
+    assert result == "runtime-result"
+    assert captured["request"].session_context is session_context
+    assert captured["request"].session_context.prompt_prefix == "CACHED_PREFIX"
+    assert captured["request"].session_context.active_skills == ["Skill A"]

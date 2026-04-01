@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -132,6 +133,22 @@ def test_parse_heartbeat_no_false_positive_on_error_word():
     outcome, _score = _parse_heartbeat_outcome("I successfully fixed the error in ERRORS.md")
     # Should be action_taken (no structured tags, no HEARTBEAT_OK) — NOT failure
     assert outcome == "action_taken"
+
+
+def test_heartbeat_lease_is_mutually_exclusive():
+    from app.services import heartbeat
+
+    agent_id = uuid4()
+    heartbeat._heartbeat_leases.clear()
+    try:
+        assert heartbeat._try_acquire_heartbeat_lease(agent_id, now=datetime.now(timezone.utc))
+        assert heartbeat._try_acquire_heartbeat_lease(agent_id, now=datetime.now(timezone.utc)) is False
+
+        heartbeat._release_heartbeat_lease(agent_id)
+
+        assert heartbeat._try_acquire_heartbeat_lease(agent_id, now=datetime.now(timezone.utc))
+    finally:
+        heartbeat._heartbeat_leases.clear()
 
 
 # ─── _build_evolution_context ───────────────────────────────────

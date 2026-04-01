@@ -31,7 +31,7 @@ from app.models.user import User
 from app.runtime.prompt_builder import build_frozen_prompt_prefix
 from app.runtime.session import SessionContext
 from app.skills import SkillParser, SkillRegistry, WorkspaceSkillLoader
-from app.services.agent_context import build_agent_context
+from app.services.agent_context import build_agent_context, build_agent_runtime_context
 from app.services.agent_tools import CORE_TOOL_NAMES, execute_tool, get_agent_tools_for_llm, get_combined_openai_tools
 from app.services.knowledge_inject import fetch_relevant_knowledge
 from app.services.llm_client import apply_prompt_cache_hints
@@ -191,6 +191,9 @@ async def _build_system_prompt(
         agent_name=request.agent_name,
         role_description=request.role_description,
         current_user_name=current_user_name,
+        include_memory_file=False,
+        include_runtime_metadata=False,
+        include_focus=False,
     )
     return build_frozen_prompt_prefix(
         agent_context=agent_context,
@@ -247,6 +250,14 @@ async def _resolve_retrieval_context(
         session_id = request.session_context.session_id
 
     if request.agent_id and tenant_id:
+        current_user_name = await _resolve_current_user_name(request.user_id)
+        runtime_context = await build_agent_runtime_context(
+            request.agent_id,
+            current_user_name=current_user_name,
+        )
+        if runtime_context:
+            parts.append(runtime_context)
+
         memory_recall = await build_memory_context(
             request.agent_id,
             tenant_id,
