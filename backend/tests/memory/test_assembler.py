@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
-from app.memory.assembler import MemoryAssembler
+from datetime import UTC, datetime, timedelta
+
+from app.memory.assembler import MemoryAssembler, _freshness_suffix
 from app.memory.types import MemoryItem, MemoryKind
 
 
-def _make_item(kind: MemoryKind, content: str, score: float = 0.5) -> MemoryItem:
-    return MemoryItem(kind=kind, content=content, score=score, source="test")
+def _make_item(
+    kind: MemoryKind, content: str, score: float = 0.5, **metadata
+) -> MemoryItem:
+    return MemoryItem(kind=kind, content=content, score=score, source="test", metadata=metadata)
 
 
 class TestAssembleGroupsByKind:
@@ -172,3 +176,75 @@ class TestAssembleDedup:
         result = assembler.assemble(items)
 
         assert result.count("shared fact") == 1
+
+
+class TestFreshnessSuffix:
+    """_freshness_suffix appends age warnings for stale memories."""
+
+    def test_no_timestamp_returns_empty(self) -> None:
+        item = _make_item(MemoryKind.SEMANTIC, "fact")
+        assert _freshness_suffix(item) == ""
+
+    def test_none_timestamp_returns_empty(self) -> None:
+        item = _make_item(MemoryKind.SEMANTIC, "fact", timestamp=None)
+        assert _freshness_suffix(item) == ""
+
+    def test_recent_memory_no_warning(self) -> None:
+        now_iso = datetime.now(UTC).isoformat()
+        item = _make_item(MemoryKind.SEMANTIC, "fact", timestamp=now_iso)
+        assert _freshness_suffix(item) == ""
+
+    def test_old_memory_gets_warning(self) -> None:
+        old = (datetime.now(UTC) - timedelta(days=5)).isoformat()
+        item = _make_item(MemoryKind.SEMANTIC, "fact", timestamp=old)
+        suffix = _freshness_suffix(item)
+        assert "5d ago" in suffix
+        assert "verify before acting" in suffix
+
+    def test_exactly_one_day_no_warning(self) -> None:
+        one_day = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+        item = _make_item(MemoryKind.SEMANTIC, "fact", timestamp=one_day)
+        assert _freshness_suffix(item) == ""
+
+    def test_two_days_has_warning(self) -> None:
+        two_days = (datetime.now(UTC) - timedelta(days=2)).isoformat()
+        item = _make_item(MemoryKind.SEMANTIC, "fact", timestamp=two_days)
+        assert "2d ago" in _freshness_suffix(item)
+
+    def test_naive_datetime_does_not_crash(self) -> None:
+        """Raw naive datetime in metadata should not raise TypeError."""
+        naive_old = datetime.now() - timedelta(days=5)
+        item = MemoryItem(
+            kind=MemoryKind.SEMANTIC, content="fact", score=0.5,
+            source="test", metadata={"timestamp": naive_old},
+        )
+        suffix = _freshness_suffix(item)
+        # Age may be 4 or 5 depending on time-of-day and tz offset
+        assert "d ago" in suffix
+        assert "verify before acting" in suffix
+
+
+class TestAssembleFreshnessIntegration:
+    """Full assembler renders freshness warnings on stale items."""
+
+    def test_stale_semantic_gets_warning_in_output(self) -> None:
+        old = (datetime.now(UTC) - timedelta(days=10)).isoformat()
+        items = [_make_item(MemoryKind.SEMANTIC, "old fact", timestamp=old)]
+        assembler = MemoryAssembler()
+        result = assembler.assemble(items)
+        assert "10d ago" in result
+        assert "verify before acting" in result
+
+    def test_fresh_semantic_no_warning_in_output(self) -> None:
+        now = datetime.now(UTC).isoformat()
+        items = [_make_item(MemoryKind.SEMANTIC, "new fact", timestamp=now)]
+        assembler = MemoryAssembler()
+        result = assembler.assemble(items)
+        assert "verify before acting" not in result
+
+    def test_working_memory_never_gets_warning(self) -> None:
+        old = (datetime.now(UTC) - timedelta(days=30)).isoformat()
+        items = [_make_item(MemoryKind.WORKING, "focus", timestamp=old)]
+        assembler = MemoryAssembler()
+        result = assembler.assemble(items)
+        assert "verify before acting" not in result

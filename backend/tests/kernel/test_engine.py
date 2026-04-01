@@ -805,3 +805,42 @@ async def test_persist_memory_called_on_llm_error():
     assert "LLM Error" in result.content
     assert len(persist_calls) == 1
     assert persist_calls[0]["session_id"] == "sess-err"
+
+
+class TestPromptTooLongDetection:
+    """_is_prompt_too_long detects PTL errors from various providers."""
+
+    def test_openai_context_length_exceeded(self) -> None:
+        from app.kernel.engine import _is_prompt_too_long
+        exc = Exception("HTTP 400: context_length_exceeded - This model's maximum context length is 128000 tokens")
+        assert _is_prompt_too_long(exc) is True
+
+    def test_anthropic_too_long(self) -> None:
+        from app.kernel.engine import _is_prompt_too_long
+        exc = Exception("Anthropic stream error (invalid_request_error): prompt is too long: 210000 tokens > 200000 maximum")
+        assert _is_prompt_too_long(exc) is True
+
+    def test_gemini_request_too_large(self) -> None:
+        from app.kernel.engine import _is_prompt_too_long
+        exc = Exception("HTTP 400: request too large for model")
+        assert _is_prompt_too_long(exc) is True
+
+    def test_input_too_long(self) -> None:
+        from app.kernel.engine import _is_prompt_too_long
+        exc = Exception("input too long for this model")
+        assert _is_prompt_too_long(exc) is True
+
+    def test_unrelated_error_not_detected(self) -> None:
+        from app.kernel.engine import _is_prompt_too_long
+        exc = Exception("HTTP 500: Internal server error")
+        assert _is_prompt_too_long(exc) is False
+
+    def test_rate_limit_not_detected(self) -> None:
+        from app.kernel.engine import _is_prompt_too_long
+        exc = Exception("Rate limited after 3 attempts: 429 Too Many Requests")
+        assert _is_prompt_too_long(exc) is False
+
+    def test_connection_error_not_detected(self) -> None:
+        from app.kernel.engine import _is_prompt_too_long
+        exc = Exception("Connection failed after 3 attempts: timeout")
+        assert _is_prompt_too_long(exc) is False

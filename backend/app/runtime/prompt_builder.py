@@ -134,34 +134,79 @@ def build_dynamic_prompt_suffix(
 # ── Assembly ────────────────────────────────────────────────────
 
 
-# Maximum system prompt budget (chars). Overflow is trimmed from the end of frozen prefix.
-_SYSTEM_PROMPT_CHAR_BUDGET = 60000  # ~18K tokens — safe for 32K+ context models
+# Default system prompt budget when no model context window is known.
+_DEFAULT_SYSTEM_PROMPT_CHAR_BUDGET = 60000  # ~18K tokens — safe for 32K+ context models
+# System prompt should not exceed this proportion of the model's context window.
+_SYSTEM_PROMPT_CONTEXT_RATIO = 0.20  # 20% of effective context
+# Chars-per-token estimate (aligned with token_tracker.py: 3.5 chars/token).
+_CHARS_PER_TOKEN = 3.5
+# Hard floor/ceiling for dynamic budget (chars).
+_MIN_SYSTEM_PROMPT_BUDGET = 15000   # ~4.3K tokens — minimum for small models
+_MAX_SYSTEM_PROMPT_BUDGET = 120000  # ~34K tokens — ceiling for very large context
 
 
-def assemble_runtime_prompt(frozen_prefix: str, dynamic_suffix: str) -> str:
+def _compute_system_prompt_budget(context_window_tokens: int | None) -> int:
+    """Derive system prompt char budget from model context window.
+
+    Returns _DEFAULT_SYSTEM_PROMPT_CHAR_BUDGET when context window is unknown.
+    """
+    if not context_window_tokens or context_window_tokens <= 0:
+        return _DEFAULT_SYSTEM_PROMPT_CHAR_BUDGET
+    budget_chars = int(context_window_tokens * _SYSTEM_PROMPT_CONTEXT_RATIO * _CHARS_PER_TOKEN)
+    return max(_MIN_SYSTEM_PROMPT_BUDGET, min(budget_chars, _MAX_SYSTEM_PROMPT_BUDGET))
+
+
+def assemble_runtime_prompt(
+    frozen_prefix: str,
+    dynamic_suffix: str,
+    context_window_tokens: int | None = None,
+) -> str:
     """Combine frozen prefix + dynamic suffix into final system prompt.
 
     If total exceeds budget, frozen prefix is trimmed (dynamic suffix preserved
     because it contains per-round retrieval and pack context).
+
+    Args:
+        context_window_tokens: Model's context window in tokens. When provided,
+            the budget scales proportionally instead of using the fixed 60K default.
     """
     import logging
     _logger = logging.getLogger(__name__)
 
+    budget = _compute_system_prompt_budget(context_window_tokens)
     prompt = f"{frozen_prefix}\n\n{dynamic_suffix}" if dynamic_suffix else frozen_prefix
-    if len(prompt) > _SYSTEM_PROMPT_CHAR_BUDGET:
-        overshoot = len(prompt) - _SYSTEM_PROMPT_CHAR_BUDGET
+
+    # P0.4 Observability: log prompt budget metrics
+    _frozen_len = len(frozen_prefix)
+    _dynamic_len = len(dynamic_suffix) if dynamic_suffix else 0
+    _total_len = len(prompt)
+    _logger.debug(
+        "[PromptBuilder] Prompt budget: %d/%d chars (%d frozen + %d dynamic, ctx_window=%s)",
+        _total_len, budget, _frozen_len, _dynamic_len, context_window_tokens or "default",
+        extra={
+            "metric": "prompt_budget",
+            "frozen_chars": _frozen_len,
+            "dynamic_chars": _dynamic_len,
+            "total_chars": _total_len,
+            "budget_chars": budget,
+            "utilization_pct": round(_total_len / budget * 100, 1) if budget else 0,
+        },
+    )
+
+    if len(prompt) > budget:
+        overshoot = len(prompt) - budget
         _logger.warning(
-            "[PromptBuilder] System prompt exceeds budget: %d chars (budget=%d, overshoot=%d) — trimming frozen prefix",
-            len(prompt), _SYSTEM_PROMPT_CHAR_BUDGET, overshoot,
+            "[PromptBuilder] System prompt exceeds budget: %d chars (budget=%d, ctx_window=%s, overshoot=%d) — trimming frozen prefix",
+            len(prompt), budget, context_window_tokens or "default", overshoot,
         )
         # Trim frozen prefix from the end, preserve dynamic suffix
         dynamic_len = len(dynamic_suffix) + 2 if dynamic_suffix else 0  # +2 for "\n\n"
-        max_frozen = _SYSTEM_PROMPT_CHAR_BUDGET - dynamic_len
+        max_frozen = budget - dynamic_len
         if max_frozen > 0:
             trimmed_frozen = frozen_prefix[:max_frozen] + "\n\n...(system prompt truncated to fit context window)"
             prompt = f"{trimmed_frozen}\n\n{dynamic_suffix}" if dynamic_suffix else trimmed_frozen
         else:
-            prompt = dynamic_suffix[:_SYSTEM_PROMPT_CHAR_BUDGET]
+            prompt = dynamic_suffix[:budget]
     return prompt
 
 

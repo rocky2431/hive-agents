@@ -32,6 +32,22 @@ from app.tools.registry import is_parallel_safe_tool
 _MIDLOOP_COMPACT_CHECK_INTERVAL = 3
 _MIDLOOP_COMPACT_THRESHOLD = 0.85  # 85% of context window
 
+# Prompt-Too-Long reactive retry: compress and retry when provider rejects oversized prompt.
+_PTL_MAX_RETRIES = 2
+# Provider-specific error patterns indicating prompt exceeds context window.
+_PTL_ERROR_PATTERNS = (
+    "context_length_exceeded",
+    "maximum context length",
+    "token budget",
+    "too many tokens",
+    "request too large",
+    "prompt is too long",
+    "content length limit",
+    "exceeds the model",
+    "input is too long",
+    "input too long",
+)
+
 # Large tool result eviction: save to workspace file and keep truncated preview.
 # Aligned with Claude Code's DEFAULT_MAX_RESULT_SIZE_CHARS (50,000).
 _TOOL_RESULT_EVICTION_THRESHOLD = 50000  # chars (CC: 50K)
@@ -120,6 +136,12 @@ def _build_persisted_memory_messages(
     if final_content and not final_content.startswith("[LLM") and not final_content.startswith("[Error]"):
         base_messages.append({"role": "assistant", "content": final_content})
     return base_messages
+
+
+def _is_prompt_too_long(exc: Exception) -> bool:
+    """Detect if an LLMError indicates the prompt exceeded the context window."""
+    msg = str(exc).lower()
+    return any(pattern in msg for pattern in _PTL_ERROR_PATTERNS)
 
 
 def _build_error_result(
@@ -476,6 +498,17 @@ class AgentKernel:
                     if session_ctx:
                         session_ctx.active_packs.clear()
 
+            # Resolve model context window for dynamic prompt budget
+            _ctx_window = getattr(request.model, "max_input_tokens", None) if request.model else None
+
+            # P0.4 Observability: prompt cache hit/miss
+            logger.info(
+                "[Kernel] Prompt cache %s (agent=%s)",
+                "hit" if _cache_valid else "miss",
+                request.agent_id,
+                extra={"metric": "prompt_cache", "cache_hit": _cache_valid},
+            )
+
             if _cache_valid and session_ctx and session_ctx.prompt_prefix:
                 # Session has a valid frozen prefix — only rebuild dynamic suffix
                 dynamic_suffix = build_dynamic_prompt_suffix(
@@ -483,7 +516,9 @@ class AgentKernel:
                     retrieval_context=resolved_retrieval_context,
                     system_prompt_suffix=request.system_prompt_suffix,
                 )
-                system_prompt = assemble_runtime_prompt(session_ctx.prompt_prefix, dynamic_suffix)
+                system_prompt = assemble_runtime_prompt(
+                    session_ctx.prompt_prefix, dynamic_suffix, context_window_tokens=_ctx_window,
+                )
             else:
                 # First call in session: build and cache the frozen prefix only.
                 prompt_prefix = await _maybe_await(
@@ -503,7 +538,9 @@ class AgentKernel:
                     retrieval_context=resolved_retrieval_context,
                     system_prompt_suffix=request.system_prompt_suffix,
                 )
-                system_prompt = assemble_runtime_prompt(prompt_prefix, dynamic_suffix)
+                system_prompt = assemble_runtime_prompt(
+                    prompt_prefix, dynamic_suffix, context_window_tokens=_ctx_window,
+                )
 
             tools_for_llm = request.initial_tools
             if tools_for_llm is None:
@@ -650,6 +687,7 @@ class AgentKernel:
                         )
 
                     # Apply provider-specific cache hints (e.g., Anthropic prefix caching)
+                    ptl_retries = 0
                     while True:
                         stream_messages = _clone_api_messages(api_messages)
                         if self._deps.apply_vision_transform:
@@ -693,6 +731,61 @@ class AgentKernel:
                                 round_i + 1,
                                 exc,
                             )
+                            # ── PTL reactive retry: compress context and retry ──
+                            if _is_prompt_too_long(exc) and ptl_retries < _PTL_MAX_RETRIES:
+                                if len(api_messages) <= 4:
+                                    logger.warning(
+                                        "[Kernel] PTL detected but only %d messages — skipping compression",
+                                        len(api_messages),
+                                    )
+                                else:
+                                    ptl_retries += 1
+                                    logger.warning(
+                                        "[Kernel] PTL detected (attempt %d/%d), compressing context before retry",
+                                        ptl_retries, _PTL_MAX_RETRIES,
+                                    )
+                                    conv_dicts = _llm_messages_to_dicts(api_messages[1:])
+                                    _before_chars = sum(len(d.get("content", "") or "") for d in conv_dicts)
+                                    compressed = await _maybe_await(
+                                        self._deps.maybe_compress_messages(
+                                            conv_dicts,
+                                            model_provider=active_model.provider,
+                                            model_name=active_model.model,
+                                            max_input_tokens_override=getattr(
+                                                active_model, "max_input_tokens", None
+                                            ),
+                                            tenant_id=runtime_config.tenant_id,
+                                            compress_threshold=0.5,  # aggressive — force compression
+                                            on_compaction=_emit_compaction_event,
+                                        )
+                                    )
+                                    _after_chars = sum(len(d.get("content", "") or "") for d in compressed)
+                                    # Only retry if compression achieved meaningful reduction (>20%)
+                                    if _after_chars < _before_chars * 0.8:
+                                        api_messages = [api_messages[0]] + _dicts_to_llm_messages(compressed)
+                                        logger.info(
+                                            "[Kernel] PTL retry: %d→%d chars, %d→%d msgs (attempt %d/%d)",
+                                            _before_chars, _after_chars,
+                                            len(conv_dicts) + 1, len(api_messages),
+                                            ptl_retries, _PTL_MAX_RETRIES,
+                                            extra={
+                                                "metric": "ptl_retry",
+                                                "attempt": ptl_retries,
+                                                "before_chars": _before_chars,
+                                                "after_chars": _after_chars,
+                                                "before_msgs": len(conv_dicts) + 1,
+                                                "after_msgs": len(api_messages),
+                                            },
+                                        )
+                                        continue  # retry the LLM call with compressed context
+                                    else:
+                                        logger.warning(
+                                            "[Kernel] PTL compression insufficient: %d→%d chars (%.0f%%), falling through",
+                                            _before_chars, _after_chars,
+                                            (_after_chars / _before_chars * 100) if _before_chars else 0,
+                                        )
+
+                            # ── Fallback model retry ──
                             if fallback_model is not None and active_model is request.model:
                                 await client.close()
                                 client = self._deps.create_client(fallback_model)
@@ -985,6 +1078,7 @@ class AgentKernel:
                                                     retrieval_context=resolved_retrieval_context,
                                                     system_prompt_suffix=request.system_prompt_suffix,
                                                 ),
+                                                context_window_tokens=_ctx_window,
                                             )
                                             api_messages[0] = LLMMessage(role="system", content=system_prompt)
                                     elif isinstance(expansion_payload, list):
@@ -1070,6 +1164,13 @@ class AgentKernel:
                                 len(conv_dicts) + 1,
                                 len(api_messages),
                                 round_i + 1,
+                                extra={
+                                    "metric": "compaction",
+                                    "before_msgs": len(conv_dicts) + 1,
+                                    "after_msgs": len(api_messages),
+                                    "round": round_i + 1,
+                                    "restored": bool(_restored),
+                                },
                             )
                             # Persist compacted state so recovery doesn't lose progress
                             await self._persist_before_exit(

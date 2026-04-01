@@ -132,7 +132,7 @@ class MemoryRetriever:
                                 content=row[0],
                                 score=1.0,
                                 source="current_session",
-                                metadata={"session_id": str(row[1])},
+                                metadata={"session_id": str(row[1]), "is_current_session": True},
                             )
                         )
 
@@ -154,13 +154,17 @@ class MemoryRetriever:
                     if row[0]:
                         # Score decays: 0.8 → 0.6 → 0.4 for older sessions
                         score = max(0.8 - i * 0.2, 0.3)
+                        _last_msg_at = row[2]
                         items.append(
                             MemoryItem(
                                 kind=MemoryKind.EPISODIC,
                                 content=row[0],
                                 score=score,
                                 source=f"previous_session_{i + 1}",
-                                metadata={"session_id": str(row[1])},
+                                metadata={
+                                    "session_id": str(row[1]),
+                                    "timestamp": _last_msg_at.isoformat() if _last_msg_at else None,
+                                },
                             )
                         )
 
