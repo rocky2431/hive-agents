@@ -592,6 +592,13 @@ class AgentKernel:
                 else:
                     tools_for_llm = []
 
+            # P3.4: Coordinator mode — filter tools and append coordinator prompt
+            from app.runtime.coordinator import is_coordinator_mode, get_coordinator_prompt, filter_tools_for_coordinator
+            if is_coordinator_mode(request=request):
+                tools_for_llm = filter_tools_for_coordinator(tools_for_llm)
+                system_prompt = system_prompt + "\n\n" + get_coordinator_prompt()
+                logger.info("[Kernel] Coordinator mode active for agent %s", request.agent_id)
+
             collected_parts: list[dict[str, Any]] = []
             streamed_chunks: list[str] = []
             streamed_thinking: list[str] = []
@@ -1076,9 +1083,30 @@ class AgentKernel:
                                     if _callback_failure_count == 3:
                                         logger.error("[Kernel] Multiple callback failures (%d) — client may be disconnected", _callback_failure_count)
 
-                            result = await _maybe_await(
-                                self._deps.execute_tool(tool_name, args, request, _emit_event)
+                            # P3.2: Pre-tool hook — can block execution
+                            from app.runtime.hooks import emit_hook, HookEvent
+                            _hook_result = await emit_hook(
+                                HookEvent.PRE_TOOL_USE,
+                                agent_id=request.agent_id,
+                                tool_name=tool_name,
+                                tool_args=args,
                             )
+                            if _hook_result and _hook_result.block:
+                                result = "Blocked by hook: " + (_hook_result.reason or "policy")
+                            else:
+                                if _hook_result and _hook_result.modified_args:
+                                    args = _hook_result.modified_args
+                                result = await _maybe_await(
+                                    self._deps.execute_tool(tool_name, args, request, _emit_event)
+                                )
+                                # P3.2: Post-tool hook
+                                await emit_hook(
+                                    HookEvent.POST_TOOL_USE,
+                                    agent_id=request.agent_id,
+                                    tool_name=tool_name,
+                                    tool_args=args,
+                                    tool_result=str(result)[:500] if result else "",
+                                )
 
                             if request.expand_tools and request.agent_id:
                                 if _should_expand_tools(tool_name, args):

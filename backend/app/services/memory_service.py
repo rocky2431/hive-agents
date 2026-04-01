@@ -258,6 +258,17 @@ async def on_conversation_end(
         messages=messages,
     )
 
+    # P3.1: Auto-dream gate check — fire-and-forget if conditions met
+    try:
+        from app.services.auto_dream import record_session_end, should_dream, run_dream
+        record_session_end(agent_id)
+        if should_dream(agent_id):
+            import asyncio
+            asyncio.create_task(run_dream(agent_id, tenant_id))
+            logger.info("[Memory] Auto-dream triggered for agent %s", agent_id)
+    except Exception as _dream_err:
+        logger.debug("[Memory] Auto-dream check failed: %s", _dream_err)
+
 
 async def persist_runtime_memory(
     *,
