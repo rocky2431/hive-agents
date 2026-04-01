@@ -10,6 +10,7 @@ from pathlib import Path
 from loguru import logger
 
 from app.config import get_settings
+from app.runtime.context_budget import ContextBudget
 from app.skills import SkillRegistry, WorkspaceSkillLoader
 
 settings = get_settings()
@@ -82,7 +83,7 @@ def _strip_primary_heading(content: str) -> str:
     return content
 
 
-def _load_skills_index(agent_id: uuid.UUID) -> str:
+def _load_skills_index(agent_id: uuid.UUID, *, budget_chars: int = 8000) -> str:
     """Load skill index (name + description) from skills/ directory.
 
     Supports two formats:
@@ -99,13 +100,14 @@ def _load_skills_index(agent_id: uuid.UUID) -> str:
     for ws_root in [TOOL_WORKSPACE / str(agent_id), PERSISTENT_DATA / str(agent_id)]:
         registry.register_many(loader.load_from_workspace(ws_root))
 
-    return registry.render_catalog()
+    return registry.render_catalog(budget_chars=budget_chars)
 
 
 async def _build_runtime_metadata_sections(
     agent_id: uuid.UUID,
     *,
     current_user_name: str | None = None,
+    triggers_budget_chars: int = 3000,
 ) -> list[str]:
     parts: list[str] = []
 
@@ -132,14 +134,13 @@ async def _build_runtime_metadata_sections(
             if triggers:
                 lines = ["You have the following active triggers:"]
                 _triggers_chars = 0
-                _TRIGGERS_BUDGET = 3000
                 for t in triggers:
                     config_str = str(t.config)[:80]
                     reason_str = (t.reason or "")[:500]
                     ref_str = f" (focus: {t.focus_ref})" if t.focus_ref else ""
                     line = f"\n- **{t.name}** [{t.type}]{ref_str}\n  Config: `{config_str}`\n  Reason: {reason_str}"
                     _triggers_chars += len(line)
-                    if _triggers_chars > _TRIGGERS_BUDGET:
+                    if _triggers_chars > triggers_budget_chars:
                         lines.append(f"\n... and {len(triggers) - len(lines) + 1} more triggers (truncated)")
                         break
                     lines.append(line)
@@ -153,9 +154,21 @@ async def _build_runtime_metadata_sections(
     return parts
 
 
-async def build_agent_runtime_context(agent_id: uuid.UUID, *, current_user_name: str | None = None) -> str:
+async def build_agent_runtime_context(
+    agent_id: uuid.UUID,
+    *,
+    current_user_name: str | None = None,
+    budget_profile: ContextBudget | None = None,
+) -> str:
     """Build volatile runtime context that should be refreshed every round."""
-    return "\n".join(await _build_runtime_metadata_sections(agent_id, current_user_name=current_user_name))
+    triggers_budget = budget_profile.runtime_triggers_budget_chars if budget_profile else 3000
+    return "\n".join(
+        await _build_runtime_metadata_sections(
+            agent_id,
+            current_user_name=current_user_name,
+            triggers_budget_chars=triggers_budget,
+        )
+    )
 
 
 async def build_agent_context(
@@ -167,6 +180,7 @@ async def build_agent_context(
     include_memory_file: bool = True,
     include_runtime_metadata: bool = True,
     include_focus: bool = True,
+    budget_profile: ContextBudget | None = None,
 ) -> str:
     """Build a rich system prompt incorporating agent's full context.
 
@@ -180,20 +194,28 @@ async def build_agent_context(
     data_ws = PERSISTENT_DATA / str(agent_id)
 
     # --- Soul ---
-    soul = _read_file_safe(tool_ws / "soul.md", 16000) or _read_file_safe(data_ws / "soul.md", 16000)
+    soul_budget = budget_profile.soul_budget_chars if budget_profile else 16000
+    memory_budget = budget_profile.memory_budget_chars if budget_profile else 2000
+    skill_budget = budget_profile.skill_catalog_budget_chars if budget_profile else 4000
+    relationships_budget = budget_profile.relationships_budget_chars if budget_profile else 2000
+    company_info_budget = budget_profile.company_info_budget_chars if budget_profile else 5000
+    org_structure_budget = budget_profile.org_structure_budget_chars if budget_profile else 2000
+    focus_budget = budget_profile.focus_budget_chars if budget_profile else 3000
+
+    soul = _read_file_safe(tool_ws / "soul.md", soul_budget) or _read_file_safe(data_ws / "soul.md", soul_budget)
     soul = _strip_primary_heading(soul)
 
     # --- Memory ---
-    memory = _read_file_safe(tool_ws / "memory" / "memory.md", 2000) or _read_file_safe(tool_ws / "memory.md", 2000)
+    memory = _read_file_safe(tool_ws / "memory" / "memory.md", memory_budget) or _read_file_safe(tool_ws / "memory.md", memory_budget)
     memory = _strip_primary_heading(memory)
 
     # --- Skills index (progressive disclosure, capped to prevent prompt overflow) ---
-    skills_text = _load_skills_index(agent_id)
-    if len(skills_text) > 4000:
-        skills_text = skills_text[:4000] + "\n\n...(skill catalog truncated — use `load_skill` to see full details)"
+    skills_text = _load_skills_index(agent_id, budget_chars=max(skill_budget, 800))
+    if len(skills_text) > skill_budget:
+        skills_text = skills_text[:skill_budget] + "\n\n...(skill catalog truncated — use `load_skill` to see full details)"
 
     # --- Relationships ---
-    relationships = _read_file_safe(data_ws / "relationships.md", 2000)
+    relationships = _read_file_safe(data_ws / "relationships.md", relationships_budget)
     relationships = _strip_primary_heading(relationships)
 
     # --- Compose system prompt ---
@@ -273,8 +295,8 @@ async def build_agent_context(
 
             if company_intro:
                 # Cap to prevent unbounded prompt growth from large tenant metadata
-                if len(company_intro) > 5000:
-                    company_intro = company_intro[:5000] + "\n...(company info truncated)"
+                if len(company_intro) > company_info_budget:
+                    company_intro = company_intro[:company_info_budget] + "\n...(company info truncated)"
                 parts.append(f"\n## Company Information\n{company_intro}")
     except Exception as exc:
         logger.debug("Failed to load company intro for agent {}: {}", agent_id, exc)
@@ -283,7 +305,7 @@ async def build_agent_context(
     # --- Organization Structure (from synced workspace file) ---
     if _agent_tenant_id:
         org_path = PERSISTENT_DATA / f"enterprise_info_{_agent_tenant_id}" / "org_structure.md"
-        org_structure = _read_file_safe(org_path, 2000)
+        org_structure = _read_file_safe(org_path, org_structure_budget)
         if org_structure and "尚未同步" not in org_structure and "尚未填写" not in org_structure:
             if org_structure.startswith("# "):
                 org_structure = "\n".join(org_structure.split("\n")[1:]).strip()
@@ -304,11 +326,11 @@ async def build_agent_context(
 
     # --- Focus (working memory) ---
     focus = (
-        _read_file_safe(tool_ws / "focus.md", 3000)
-        or _read_file_safe(data_ws / "focus.md", 3000)
+        _read_file_safe(tool_ws / "focus.md", focus_budget)
+        or _read_file_safe(data_ws / "focus.md", focus_budget)
         # Backward compat: also check old name
-        or _read_file_safe(tool_ws / "agenda.md", 3000)
-        or _read_file_safe(data_ws / "agenda.md", 3000)
+        or _read_file_safe(tool_ws / "agenda.md", focus_budget)
+        or _read_file_safe(data_ws / "agenda.md", focus_budget)
     )
     if include_focus and focus and focus.strip() not in ("# Focus", "# Agenda", "（暂无）"):
         focus = _strip_primary_heading(focus)
@@ -329,6 +351,12 @@ async def build_agent_context(
 10. **Messaging**: To notify a human user, use `send_web_message`. To communicate with another digital employee (agent), use `send_message_to_agent`. Never confuse the two.""")
 
     if include_runtime_metadata:
-        parts.extend(await _build_runtime_metadata_sections(agent_id, current_user_name=current_user_name))
+        parts.extend(
+            await _build_runtime_metadata_sections(
+                agent_id,
+                current_user_name=current_user_name,
+                triggers_budget_chars=budget_profile.runtime_triggers_budget_chars if budget_profile else 3000,
+            )
+        )
 
     return "\n".join(parts)

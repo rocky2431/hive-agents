@@ -15,6 +15,7 @@ import json
 
 from app.memory.store import PersistentMemoryStore
 from app.memory.types import MemoryItem, MemoryKind, parse_utc_timestamp
+from app.runtime.context_budget import ContextBudget
 
 # Rerank: only trigger LLM side-query when semantic candidates exceed this count.
 _RERANK_THRESHOLD = 5
@@ -75,6 +76,8 @@ async def _rerank_semantic_items(
     items: list[MemoryItem],
     query: str,
     model_config: dict | None = None,
+    *,
+    max_select: int = _RERANK_MAX_SELECT,
 ) -> list[MemoryItem]:
     """Use a cheap LLM side-query to select the most relevant semantic memories.
 
@@ -86,12 +89,12 @@ async def _rerank_semantic_items(
             If None, rerank is skipped (graceful degradation).
     """
     if not model_config:
-        return items[:_RERANK_MAX_SELECT]
+        return items[:max_select]
 
     try:
         from app.services.llm_client import LLMMessage, create_llm_client
     except ImportError:
-        return items[:_RERANK_MAX_SELECT]
+        return items[:max_select]
 
     manifest_lines = [
         str(i) + ": " + item.content[:150] for i, item in enumerate(items)
@@ -103,7 +106,7 @@ async def _rerank_semantic_items(
         "Memories (index: content):",
         manifest,
         "",
-        "Select up to " + str(_RERANK_MAX_SELECT) + " memory indices most useful for this query. ",
+        "Select up to " + str(max_select) + " memory indices most useful for this query. ",
         'Return JSON: {"selected": [0, 2, 4]}',
     ]
     prompt_text = "\n".join(prompt_parts)
@@ -133,7 +136,7 @@ async def _rerank_semantic_items(
     except Exception as exc:
         logger.debug("[Retriever] Rerank failed, using original order: %s", exc)
 
-    return items[:_RERANK_MAX_SELECT]
+        return items[:max_select]
 
 
 class MemoryRetriever:
@@ -157,6 +160,7 @@ class MemoryRetriever:
         *,
         limit: int = 50,
         rerank_model_config: dict | None = None,
+        retrieval_profile: ContextBudget | None = None,
     ) -> list[MemoryItem]:
         """Retrieve memory items from all four layers.
 
@@ -167,15 +171,25 @@ class MemoryRetriever:
         """
         items: list[MemoryItem] = []
         items.extend(self._retrieve_working(agent_id))
-        items.extend(await self._retrieve_episodic(agent_id, session_id))
-        semantic_items = self._retrieve_semantic(agent_id, query, limit=limit)
+        episodic_limit = retrieval_profile.episodic_limit if retrieval_profile else 3
+        semantic_limit = retrieval_profile.semantic_limit if retrieval_profile else limit
+        external_limit = retrieval_profile.external_limit if retrieval_profile else 5
+        rerank_max_select = retrieval_profile.rerank_max_select if retrieval_profile else _RERANK_MAX_SELECT
+
+        items.extend(await self._retrieve_episodic(agent_id, session_id, previous_limit=episodic_limit))
+        semantic_items = self._retrieve_semantic(agent_id, query, limit=semantic_limit)
 
         # P1.6: Optional LLM-based rerank for semantic items
         if rerank_model_config and query and len(semantic_items) > _RERANK_THRESHOLD:
-            semantic_items = await _rerank_semantic_items(semantic_items, query, rerank_model_config)
+            semantic_items = await _rerank_semantic_items(
+                semantic_items,
+                query,
+                rerank_model_config,
+                max_select=rerank_max_select,
+            )
 
         items.extend(semantic_items)
-        items.extend(await self._retrieve_external(agent_id, query, tenant_id))
+        items.extend(await self._retrieve_external(agent_id, query, tenant_id, limit=external_limit))
         return items
 
     # -- Working layer: agent's focus.md --
@@ -196,7 +210,13 @@ class MemoryRetriever:
 
     # -- Episodic layer: session summaries from DB --
 
-    async def _retrieve_episodic(self, agent_id: uuid.UUID, session_id: str | None) -> list[MemoryItem]:
+    async def _retrieve_episodic(
+        self,
+        agent_id: uuid.UUID,
+        session_id: str | None,
+        *,
+        previous_limit: int = 3,
+    ) -> list[MemoryItem]:
         items: list[MemoryItem] = []
         try:
             from app.database import async_session
@@ -227,7 +247,7 @@ class MemoryRetriever:
                             )
                         )
 
-                # Previous session summaries — load up to 3 for continuity
+                # Previous session summaries — load a bounded continuity window
                 prev_query = (
                     select(ChatSession.summary, ChatSession.id, ChatSession.last_message_at)
                     .where(
@@ -235,7 +255,7 @@ class MemoryRetriever:
                         ChatSession.summary.isnot(None),
                     )
                     .order_by(ChatSession.last_message_at.desc(), ChatSession.created_at.desc())
-                    .limit(3)
+                    .limit(previous_limit)
                 )
                 if session_uuid:
                     prev_query = prev_query.where(ChatSession.id != session_uuid)
@@ -310,7 +330,14 @@ class MemoryRetriever:
 
     # -- External layer: OpenViking recall --
 
-    async def _retrieve_external(self, agent_id: uuid.UUID, query: str, tenant_id: str | None) -> list[MemoryItem]:
+    async def _retrieve_external(
+        self,
+        agent_id: uuid.UUID,
+        query: str,
+        tenant_id: str | None,
+        *,
+        limit: int = 5,
+    ) -> list[MemoryItem]:
         if not query or not tenant_id:
             return []
 
@@ -324,7 +351,7 @@ class MemoryRetriever:
                 query,
                 tenant_id=tenant_id,
                 agent_id=str(agent_id),
-                limit=5,
+                limit=limit,
             )
 
             items: list[MemoryItem] = []

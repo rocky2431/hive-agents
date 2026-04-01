@@ -355,6 +355,11 @@ def _build_restoration_context(
     parts: list[str] = []
     total = 0
     settings = _get_settings()
+    _budget_profile = None
+    if session_context is not None:
+        _budget_profile = getattr(session_context, "metadata", {}).get("context_budget")
+    _restore_budget = getattr(_budget_profile, "restore_budget_chars", _POST_COMPACT_RESTORE_BUDGET)
+    _per_file_cap = getattr(_budget_profile, "restore_per_file_cap_chars", _POST_COMPACT_PER_FILE_CAP)
 
     # ── 1+2: Soul + Focus (existing logic) ──
     for ws_root in [
@@ -371,9 +376,9 @@ def _build_restoration_context(
                 content = fpath.read_text(encoding="utf-8", errors="replace").strip()
                 if not content:
                     continue
-                if len(content) > _POST_COMPACT_PER_FILE_CAP:
-                    content = content[:_POST_COMPACT_PER_FILE_CAP] + "\n...(truncated)"
-                if total + len(content) > _POST_COMPACT_RESTORE_BUDGET:
+                if len(content) > _per_file_cap:
+                    content = content[:_per_file_cap] + "\n...(truncated)"
+                if total + len(content) > _restore_budget:
                     break
                 parts.append(f"### {label}\n{content}")
                 total += len(content)
@@ -384,9 +389,9 @@ def _build_restoration_context(
 
     # ── 3: Recently-read files ──
     if session_context and getattr(session_context, "recent_files", None):
-        _file_budget = 2000
+        _file_budget = min(max(_per_file_cap // 2, 2000), _per_file_cap)
         for fpath_str in reversed(session_context.recent_files[:3]):
-            if total >= _POST_COMPACT_RESTORE_BUDGET:
+            if total >= _restore_budget:
                 break
             try:
                 _fp = _Path(fpath_str)
@@ -402,7 +407,7 @@ def _build_restoration_context(
     # ── 4: Active skills summary ──
     if session_context and getattr(session_context, "active_skills", None):
         skills_line = ", ".join(session_context.active_skills)
-        if total + len(skills_line) < _POST_COMPACT_RESTORE_BUDGET:
+        if total + len(skills_line) < _restore_budget:
             parts.append(f"### Active Skills\n{skills_line}")
             total += len(skills_line)
 
@@ -411,7 +416,7 @@ def _build_restoration_context(
         pack_names = [p.get("name", "?") for p in session_context.active_packs if isinstance(p, dict)]
         if pack_names:
             packs_line = ", ".join(pack_names)
-            if total + len(packs_line) < _POST_COMPACT_RESTORE_BUDGET:
+            if total + len(packs_line) < _restore_budget:
                 parts.append(f"### Active Packs\n{packs_line}")
 
     if not parts:
@@ -592,6 +597,7 @@ class AgentKernel:
             from app.runtime.prompt_builder import assemble_runtime_prompt, build_dynamic_prompt_suffix
 
             session_ctx = request.session_context
+            budget_profile = session_ctx.metadata.get("context_budget") if session_ctx else None
             # Prompt cache: reuse frozen prefix if available AND still valid.
             # Rebuild if memory context changed (hash-based invalidation).
             _cache_valid = False
@@ -629,9 +635,13 @@ class AgentKernel:
                     active_packs=session_ctx.active_packs if session_ctx else [],
                     retrieval_context=resolved_retrieval_context,
                     system_prompt_suffix=_effective_suffix,
+                    budget_profile=budget_profile,
                 )
                 system_prompt = assemble_runtime_prompt(
-                    session_ctx.prompt_prefix, dynamic_suffix, context_window_tokens=_ctx_window,
+                    session_ctx.prompt_prefix,
+                    dynamic_suffix,
+                    context_window_tokens=_ctx_window,
+                    budget_profile=budget_profile,
                 )
             else:
                 # First call in session: build and cache the frozen prefix only.
@@ -651,9 +661,13 @@ class AgentKernel:
                     active_packs=session_ctx.active_packs if session_ctx else [],
                     retrieval_context=resolved_retrieval_context,
                     system_prompt_suffix=_effective_suffix,
+                    budget_profile=budget_profile,
                 )
                 system_prompt = assemble_runtime_prompt(
-                    prompt_prefix, dynamic_suffix, context_window_tokens=_ctx_window,
+                    prompt_prefix,
+                    dynamic_suffix,
+                    context_window_tokens=_ctx_window,
+                    budget_profile=budget_profile,
                 )
 
             tools_for_llm = request.initial_tools
@@ -886,10 +900,14 @@ class AgentKernel:
                                             active_packs=session_ctx.active_packs if session_ctx else [],
                                             retrieval_context=resolved_retrieval_context,
                                             system_prompt_suffix=_effective_suffix,
+                                            budget_profile=budget_profile,
                                         )
                                         _ptl_prefix = (session_ctx.prompt_prefix if session_ctx else None) or prompt_prefix
                                         _ptl_system = assemble_runtime_prompt(
-                                            _ptl_prefix, _ptl_dynamic, context_window_tokens=_ctx_window,
+                                            _ptl_prefix,
+                                            _ptl_dynamic,
+                                            context_window_tokens=_ctx_window,
+                                            budget_profile=budget_profile,
                                         )
                                         api_messages = [LLMMessage(role="system", content=_ptl_system)] + _dicts_to_llm_messages(compressed)
                                         logger.info(
@@ -1235,8 +1253,10 @@ class AgentKernel:
                                                     active_packs=session_context.active_packs,
                                                     retrieval_context=resolved_retrieval_context,
                                                     system_prompt_suffix=request.system_prompt_suffix,
+                                                    budget_profile=budget_profile,
                                                 ),
                                                 context_window_tokens=_ctx_window,
+                                                budget_profile=budget_profile,
                                             )
                                             api_messages[0] = LLMMessage(role="system", content=system_prompt)
                                     elif isinstance(expansion_payload, list):

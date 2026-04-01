@@ -17,9 +17,12 @@ The consolidation process:
 from __future__ import annotations
 
 import logging
+import json
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+
+from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -32,22 +35,64 @@ _last_dream_time: dict[str, datetime] = {}
 _sessions_since_dream: dict[str, int] = {}
 
 
+def _dream_state_path(agent_id: uuid.UUID) -> Path:
+    return Path(get_settings().AGENT_DATA_DIR) / str(agent_id) / "memory" / "auto_dream_state.json"
+
+
+def _load_dream_state(agent_id: uuid.UUID) -> tuple[datetime | None, int]:
+    key = agent_id.hex
+    if key in _sessions_since_dream or key in _last_dream_time:
+        return _last_dream_time.get(key), _sessions_since_dream.get(key, 0)
+
+    path = _dream_state_path(agent_id)
+    if not path.exists():
+        return None, 0
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None, 0
+
+    last_raw = payload.get("last_dream_time")
+    sessions = payload.get("sessions_since_dream", 0)
+    last = None
+    if isinstance(last_raw, str):
+        try:
+            last = datetime.fromisoformat(last_raw)
+        except ValueError:
+            last = None
+    if last is not None:
+        _last_dream_time[key] = last
+    _sessions_since_dream[key] = sessions if isinstance(sessions, int) else 0
+    return _last_dream_time.get(key), _sessions_since_dream.get(key, 0)
+
+
+def _persist_dream_state(agent_id: uuid.UUID) -> None:
+    key = agent_id.hex
+    path = _dream_state_path(agent_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "last_dream_time": _last_dream_time.get(key).isoformat() if _last_dream_time.get(key) else None,
+        "sessions_since_dream": _sessions_since_dream.get(key, 0),
+    }
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def record_session_end(agent_id: uuid.UUID) -> None:
     """Increment session counter for dream gate evaluation."""
     key = agent_id.hex
-    _sessions_since_dream[key] = _sessions_since_dream.get(key, 0) + 1
+    _, sessions = _load_dream_state(agent_id)
+    _sessions_since_dream[key] = sessions + 1
+    _persist_dream_state(agent_id)
 
 
 def should_dream(agent_id: uuid.UUID) -> bool:
     """Check if both time and session gates are met for consolidation."""
-    key = agent_id.hex
-    last = _last_dream_time.get(key)
+    last, sessions = _load_dream_state(agent_id)
     if last is not None:
         hours_since = (datetime.now(timezone.utc) - last).total_seconds() / 3600
         if hours_since < MIN_HOURS_BETWEEN_DREAMS:
             return False
 
-    sessions = _sessions_since_dream.get(key, 0)
     return sessions >= MIN_SESSIONS_SINCE_DREAM
 
 
@@ -56,7 +101,6 @@ async def run_dream(agent_id: uuid.UUID, tenant_id: uuid.UUID) -> dict:
 
     Returns a summary dict with keys: consolidated, removed, added.
     """
-    from app.config import get_settings
     from app.memory.store import PersistentMemoryStore
 
     key = agent_id.hex
@@ -102,6 +146,10 @@ async def run_dream(agent_id: uuid.UUID, tenant_id: uuid.UUID) -> dict:
 def _mark_dreamed(key: str) -> None:
     _last_dream_time[key] = datetime.now(timezone.utc)
     _sessions_since_dream[key] = 0
+    try:
+        _persist_dream_state(uuid.UUID(hex=key))
+    except Exception:
+        logger.debug("[AutoDream] Failed to persist dream state for %s", key)
 
 
 async def _load_recent_summaries(agent_id: uuid.UUID, *, limit: int = 10) -> list[str]:

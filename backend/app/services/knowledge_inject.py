@@ -22,6 +22,8 @@ async def fetch_relevant_knowledge(
     query: str,
     tenant_id: uuid.UUID | None = None,
     max_tokens: int = 500,
+    max_chars: int | None = None,
+    limit: int = 3,
     timeout: float = 2.0,
 ) -> str:
     """Search OpenViking for content relevant to the user's message.
@@ -45,7 +47,7 @@ async def fetch_relevant_knowledge(
         results = await viking_client.find(
             query,
             tenant_id=tid,
-            limit=3,
+            limit=limit,
         )
     except Exception as exc:
         logger.debug("OpenViking knowledge search failed: %s", exc)
@@ -56,7 +58,7 @@ async def fetch_relevant_knowledge(
 
     # Format results into a compact context block
     parts: list[str] = []
-    char_budget = max_tokens * 3 if max_tokens else _DEFAULT_CHAR_BUDGET
+    char_budget = max_chars if max_chars and max_chars > 0 else (max_tokens * 3 if max_tokens else _DEFAULT_CHAR_BUDGET)
     used = 0
 
     for item in results:

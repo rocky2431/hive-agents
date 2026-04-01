@@ -24,6 +24,7 @@ from app.memory import FileBackedMemoryStore, MemoryAssembler, MemoryRetriever, 
 from app.models.chat_session import ChatSession
 from app.models.llm import LLMModel
 from app.models.tenant_setting import TenantSetting
+from app.runtime.context_budget import ContextBudget, compute_context_budget
 from app.services.conversation_summarizer import estimate_tokens, _extract_summary
 
 logger = logging.getLogger(__name__)
@@ -50,6 +51,8 @@ async def build_memory_snapshot(
     tenant_id: uuid.UUID,
     *,
     session_id: str | None = None,
+    context_window_tokens: int | None = None,
+    budget_profile: ContextBudget | None = None,
 ) -> str:
     """Build a session-start memory snapshot for frozen prompt prefixes."""
     return await build_memory_context(
@@ -57,6 +60,8 @@ async def build_memory_snapshot(
         tenant_id,
         session_id=session_id,
         query="",
+        context_window_tokens=context_window_tokens,
+        budget_profile=budget_profile,
     )
 
 
@@ -66,26 +71,42 @@ async def build_memory_context(
     *,
     session_id: str | None = None,
     query: str = "",
+    context_window_tokens: int | None = None,
+    budget_profile: ContextBudget | None = None,
 ) -> str:
     """Build a self-consistent memory context for any runtime entrypoint.
 
     Uses the four-layer retrieval pipeline (working, episodic, semantic, external)
     followed by the assembler. Falls back to FileBackedMemoryStore on failure.
     """
+    retrieval_profile = budget_profile or compute_context_budget(
+        context_window_tokens=context_window_tokens,
+        query=query,
+        active_pack_count=0,
+    )
     try:
         retriever = MemoryRetriever(data_root=Path(get_settings().AGENT_DATA_DIR))
         rerank_model_config = None
         if query:
             rerank_model_config = await _maybe_await(_get_rerank_model_config(tenant_id))
+        retrieve_kwargs = {
+            "rerank_model_config": rerank_model_config,
+            "limit": max(50, retrieval_profile.semantic_limit * 2),
+        }
+        if "retrieval_profile" in inspect.signature(retriever.retrieve).parameters:
+            retrieve_kwargs["retrieval_profile"] = retrieval_profile
         items = await retriever.retrieve(
             agent_id,
             query,
             session_id,
             str(tenant_id) if tenant_id else None,
-            rerank_model_config=rerank_model_config,
+            **retrieve_kwargs,
         )
         assembler = MemoryAssembler()
-        result = assembler.assemble(items)
+        assemble_kwargs = {}
+        if "budget_chars" in inspect.signature(assembler.assemble).parameters:
+            assemble_kwargs["budget_chars"] = retrieval_profile.memory_budget_chars
+        result = assembler.assemble(items, **assemble_kwargs)
         if result:
             return result
     except Exception as exc:
@@ -426,13 +447,55 @@ def _extraction_cursor_key(agent_id: uuid.UUID, session_id: str | None = None) -
     return f"{agent_id.hex}:{session_id or 'runtime'}"
 
 
+def _extraction_cursor_state_path(agent_id: uuid.UUID) -> Path:
+    return Path(get_settings().AGENT_DATA_DIR) / str(agent_id) / "memory" / "extraction_cursors.json"
+
+
+def _load_extraction_cursor_state(agent_id: uuid.UUID) -> dict[str, int]:
+    path = _extraction_cursor_state_path(agent_id)
+    if not path.exists():
+        return {}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    state: dict[str, int] = {}
+    for key, value in raw.items():
+        if isinstance(key, str) and isinstance(value, int):
+            state[key] = value
+    return state
+
+
+def _persist_extraction_cursor_state(agent_id: uuid.UUID) -> None:
+    path = _extraction_cursor_state_path(agent_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    prefix = f"{agent_id.hex}:"
+    state = {
+        key[len(prefix):]: value
+        for key, value in _extraction_cursors.items()
+        if key.startswith(prefix)
+    }
+    path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def _get_extraction_cursor(agent_id: uuid.UUID, session_id: str | None = None) -> int:
-    """Load last extraction cursor (in-memory, reset on process restart)."""
-    return _extraction_cursors.get(_extraction_cursor_key(agent_id, session_id), 0)
+    """Load last extraction cursor, restoring from disk when necessary."""
+    key = _extraction_cursor_key(agent_id, session_id)
+    if key in _extraction_cursors:
+        return _extraction_cursors[key]
+
+    persisted = _load_extraction_cursor_state(agent_id)
+    if persisted:
+        for persisted_session, value in persisted.items():
+            _extraction_cursors[f"{agent_id.hex}:{persisted_session}"] = value
+    return _extraction_cursors.get(key, 0)
 
 
 def _set_extraction_cursor(agent_id: uuid.UUID, index: int, session_id: str | None = None) -> None:
     _extraction_cursors[_extraction_cursor_key(agent_id, session_id)] = index
+    _persist_extraction_cursor_state(agent_id)
 
 
 async def _update_agent_memory(

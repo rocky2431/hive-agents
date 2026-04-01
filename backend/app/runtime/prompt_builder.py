@@ -12,6 +12,7 @@ import inspect
 import uuid
 from typing import Any, Awaitable, Callable
 
+from app.runtime.context_budget import ContextBudget, compute_context_budget, compute_system_prompt_budget
 from app.runtime.context import RuntimeContext
 from app.services.agent_context import build_agent_context
 from app.services.knowledge_inject import fetch_relevant_knowledge
@@ -20,10 +21,9 @@ from app.services.knowledge_inject import fetch_relevant_knowledge
 BuildAgentContextFn = Callable[[uuid.UUID | None, str, str, str | None], Awaitable[str]]
 KnowledgeLookupFn = Callable[[str, uuid.UUID | None], Awaitable[str] | str]
 
-# Budgets as proportions of total system prompt budget (coordinated allocation)
-# Total: 60K chars → packs ~3%, retrieval ~5%, agent context ~72%, memory ~20%
-_ACTIVE_PACKS_CHAR_BUDGET = 2000   # ~3% of 60K
-_RETRIEVAL_CHAR_BUDGET = 3000      # ~5% of 60K
+# Default fallbacks when no task-aware budget profile is provided.
+_ACTIVE_PACKS_CHAR_BUDGET = 2000
+_RETRIEVAL_CHAR_BUDGET = 3000
 
 
 async def _maybe_await(value):
@@ -87,7 +87,7 @@ def build_frozen_prompt_prefix(
 # ── Dynamic Suffix (per-round) ──────────────────────────────────
 
 
-def _render_active_packs(active_packs: list[dict[str, Any]]) -> str:
+def _render_active_packs(active_packs: list[dict[str, Any]], *, budget_chars: int = _ACTIVE_PACKS_CHAR_BUDGET) -> str:
     if not active_packs:
         return ""
     lines = [
@@ -101,7 +101,7 @@ def _render_active_packs(active_packs: list[dict[str, Any]]) -> str:
         lines.append(f"- {pack.get('name', 'unknown_pack')}: {summary}")
         if tools:
             lines.append(f"  Tools: {tools}")
-    return _trim_block("\n".join(lines), budget_chars=_ACTIVE_PACKS_CHAR_BUDGET)
+    return _trim_block("\n".join(lines), budget_chars=budget_chars)
 
 
 def build_dynamic_prompt_suffix(
@@ -109,6 +109,7 @@ def build_dynamic_prompt_suffix(
     active_packs: list[dict[str, Any]] | None = None,
     retrieval_context: str = "",
     system_prompt_suffix: str = "",
+    budget_profile: ContextBudget | None = None,
 ) -> str:
     """Build the per-round dynamic suffix.
 
@@ -118,12 +119,24 @@ def build_dynamic_prompt_suffix(
     """
     parts: list[str] = []
 
-    packs_section = _render_active_packs(active_packs or [])
+    packs_budget = budget_profile.active_packs_budget_chars if budget_profile else _ACTIVE_PACKS_CHAR_BUDGET
+    retrieval_budget = budget_profile.retrieval_budget_chars if budget_profile else _RETRIEVAL_CHAR_BUDGET
+
+    packs_section = _render_active_packs(active_packs or [], budget_chars=packs_budget)
     if packs_section:
         parts.append(packs_section)
 
     if retrieval_context:
-        parts.append(_trim_block(retrieval_context, budget_chars=_RETRIEVAL_CHAR_BUDGET))
+        parts.append(_trim_block(retrieval_context, budget_chars=retrieval_budget))
+
+    if budget_profile and not active_packs and budget_profile.task_profile.suggested_pack_names:
+        hint_lines = [
+            "## Likely Capability Packs",
+            "These packs are likely useful for the current request. Activate them proactively when needed.",
+        ]
+        for pack_name in budget_profile.task_profile.suggested_pack_names:
+            hint_lines.append(f"- {pack_name}")
+        parts.append(_trim_block("\n".join(hint_lines), budget_chars=packs_budget))
 
     if system_prompt_suffix:
         parts.append(system_prompt_suffix)
@@ -134,32 +147,16 @@ def build_dynamic_prompt_suffix(
 # ── Assembly ────────────────────────────────────────────────────
 
 
-# Default system prompt budget when no model context window is known.
-_DEFAULT_SYSTEM_PROMPT_CHAR_BUDGET = 60000  # ~18K tokens — safe for 32K+ context models
-# System prompt should not exceed this proportion of the model's context window.
-_SYSTEM_PROMPT_CONTEXT_RATIO = 0.20  # 20% of effective context
-# Chars-per-token estimate (aligned with token_tracker.py: 3.5 chars/token).
-_CHARS_PER_TOKEN = 3.5
-# Hard floor/ceiling for dynamic budget (chars).
-_MIN_SYSTEM_PROMPT_BUDGET = 15000   # ~4.3K tokens — minimum for small models
-_MAX_SYSTEM_PROMPT_BUDGET = 120000  # ~34K tokens — ceiling for very large context
-
-
 def _compute_system_prompt_budget(context_window_tokens: int | None) -> int:
-    """Derive system prompt char budget from model context window.
-
-    Returns _DEFAULT_SYSTEM_PROMPT_CHAR_BUDGET when context window is unknown.
-    """
-    if not context_window_tokens or context_window_tokens <= 0:
-        return _DEFAULT_SYSTEM_PROMPT_CHAR_BUDGET
-    budget_chars = int(context_window_tokens * _SYSTEM_PROMPT_CONTEXT_RATIO * _CHARS_PER_TOKEN)
-    return max(_MIN_SYSTEM_PROMPT_BUDGET, min(budget_chars, _MAX_SYSTEM_PROMPT_BUDGET))
+    """Backward-compatible wrapper for existing imports/tests."""
+    return compute_system_prompt_budget(context_window_tokens)
 
 
 def assemble_runtime_prompt(
     frozen_prefix: str,
     dynamic_suffix: str,
     context_window_tokens: int | None = None,
+    budget_profile: ContextBudget | None = None,
 ) -> str:
     """Combine frozen prefix + dynamic suffix into final system prompt.
 
@@ -173,7 +170,7 @@ def assemble_runtime_prompt(
     import logging
     _logger = logging.getLogger(__name__)
 
-    budget = _compute_system_prompt_budget(context_window_tokens)
+    budget = budget_profile.system_prompt_budget_chars if budget_profile else _compute_system_prompt_budget(context_window_tokens)
     prompt = f"{frozen_prefix}\n\n{dynamic_suffix}" if dynamic_suffix else frozen_prefix
 
     # P0.4 Observability: log prompt budget metrics
@@ -235,20 +232,6 @@ async def build_runtime_prompt(
     build_context = build_agent_context_fn or build_agent_context
     fetch_knowledge = fetch_relevant_knowledge_fn or fetch_relevant_knowledge
 
-    agent_context = await build_context(
-        agent_id,
-        agent_name,
-        role_description,
-        current_user_name=current_user_name,
-    )
-
-    # Build frozen prefix
-    frozen = build_frozen_prompt_prefix(
-        agent_context=agent_context,
-        memory_snapshot=memory_context,
-    )
-
-    # Build dynamic suffix
     last_user_msg = next(
         (
             message["content"]
@@ -257,9 +240,44 @@ async def build_runtime_prompt(
         ),
         None,
     )
+    context_window_tokens = None
+    active_pack_count = 0
+    if runtime_context:
+        context_window_tokens = runtime_context.metadata.get("context_window_tokens")
+        active_pack_count = len(runtime_context.session.active_packs)
+    budget_profile = compute_context_budget(
+        context_window_tokens=context_window_tokens,
+        query=last_user_msg or "",
+        messages=messages,
+        active_pack_count=active_pack_count,
+    )
+
+    _build_kwargs = {"current_user_name": current_user_name}
+    if "budget_profile" in inspect.signature(build_context).parameters:
+        _build_kwargs["budget_profile"] = budget_profile
+    agent_context = await build_context(
+        agent_id,
+        agent_name,
+        role_description,
+        **_build_kwargs,
+    )
+
+    # Build frozen prefix
+    frozen = build_frozen_prompt_prefix(
+        agent_context=agent_context,
+        memory_snapshot=memory_context,
+    )
+
     retrieval = ""
     if agent_id and last_user_msg:
-        knowledge = await _maybe_await(fetch_knowledge(last_user_msg, tenant_id))
+        _knowledge_kwargs = {}
+        if "max_tokens" in inspect.signature(fetch_knowledge).parameters:
+            _knowledge_kwargs["max_tokens"] = max(500, budget_profile.knowledge_budget_chars // 3)
+        if "max_chars" in inspect.signature(fetch_knowledge).parameters:
+            _knowledge_kwargs["max_chars"] = budget_profile.knowledge_budget_chars
+        if "limit" in inspect.signature(fetch_knowledge).parameters:
+            _knowledge_kwargs["limit"] = budget_profile.external_limit
+        knowledge = await _maybe_await(fetch_knowledge(last_user_msg, tenant_id, **_knowledge_kwargs))
         if knowledge:
             retrieval = knowledge
 
@@ -271,6 +289,12 @@ async def build_runtime_prompt(
         active_packs=active_packs,
         retrieval_context=retrieval,
         system_prompt_suffix=system_prompt_suffix,
+        budget_profile=budget_profile,
     )
 
-    return assemble_runtime_prompt(frozen, dynamic)
+    return assemble_runtime_prompt(
+        frozen,
+        dynamic,
+        context_window_tokens=context_window_tokens,
+        budget_profile=budget_profile,
+    )

@@ -28,6 +28,7 @@ from app.kernel import (
 )
 from app.models.agent import Agent
 from app.models.user import User
+from app.runtime.context_budget import ContextBudget, compute_context_budget
 from app.runtime.prompt_builder import build_frozen_prompt_prefix
 from app.runtime.session import SessionContext
 from app.skills import SkillParser, SkillRegistry, WorkspaceSkillLoader
@@ -186,6 +187,7 @@ async def _build_system_prompt(
     if current_user_name is None:
         current_user_name = await _resolve_current_user_name(request.user_id)
     del tenant_id  # reserved for future prompt builders
+    budget_profile = _resolve_context_budget(request)
     agent_context = await build_agent_context(
         agent_id=request.agent_id,
         agent_name=request.agent_name,
@@ -194,6 +196,7 @@ async def _build_system_prompt(
         include_memory_file=False,
         include_runtime_metadata=False,
         include_focus=False,
+        budget_profile=budget_profile,
     )
     return build_frozen_prompt_prefix(
         agent_context=agent_context,
@@ -209,6 +212,21 @@ def _last_user_query(messages: list[dict]) -> str:
     return ""
 
 
+def _resolve_context_budget(request: AgentInvocationRequest) -> ContextBudget:
+    context_window_tokens = getattr(request.model, "max_input_tokens", None) if request.model else None
+    active_pack_count = len(request.session_context.active_packs) if request.session_context else 0
+    budget_profile = compute_context_budget(
+        context_window_tokens=context_window_tokens,
+        query=_last_user_query(request.messages),
+        messages=request.messages,
+        active_pack_count=active_pack_count,
+    )
+    if request.session_context is not None:
+        request.session_context.metadata["context_budget"] = budget_profile
+        request.session_context.metadata["context_window_tokens"] = context_window_tokens
+    return budget_profile
+
+
 async def _resolve_memory_context(
     request: AgentInvocationRequest,
     tenant_id: uuid.UUID | None,
@@ -220,13 +238,17 @@ async def _resolve_memory_context(
     session_id = request.memory_session_id
     if not session_id and request.session_context:
         session_id = request.session_context.session_id
+    budget_profile = _resolve_context_budget(request)
+    context_window_tokens = getattr(request.model, "max_input_tokens", None) if request.model else None
 
     if request.agent_id and tenant_id:
-        runtime_memory_context = await build_memory_snapshot(
-            request.agent_id,
-            tenant_id,
-            session_id=session_id,
-        )
+        _snapshot_kwargs = {"session_id": session_id}
+        _snapshot_sig = inspect.signature(build_memory_snapshot).parameters
+        if "context_window_tokens" in _snapshot_sig:
+            _snapshot_kwargs["context_window_tokens"] = context_window_tokens
+        if "budget_profile" in _snapshot_sig:
+            _snapshot_kwargs["budget_profile"] = budget_profile
+        runtime_memory_context = await build_memory_snapshot(request.agent_id, tenant_id, **_snapshot_kwargs)
         if runtime_memory_context:
             parts.append(runtime_memory_context)
 
@@ -245,29 +267,44 @@ async def _resolve_retrieval_context(
         return ""
 
     parts: list[str] = []
+    budget_profile = _resolve_context_budget(request)
+    context_window_tokens = getattr(request.model, "max_input_tokens", None) if request.model else None
     session_id = request.memory_session_id
     if not session_id and request.session_context:
         session_id = request.session_context.session_id
 
     if request.agent_id and tenant_id:
         current_user_name = await _resolve_current_user_name(request.user_id)
-        runtime_context = await build_agent_runtime_context(
-            request.agent_id,
-            current_user_name=current_user_name,
-        )
+        _runtime_kwargs = {"current_user_name": current_user_name}
+        _runtime_sig = inspect.signature(build_agent_runtime_context).parameters
+        if "budget_profile" in _runtime_sig:
+            _runtime_kwargs["budget_profile"] = budget_profile
+        runtime_context = await build_agent_runtime_context(request.agent_id, **_runtime_kwargs)
         if runtime_context:
             parts.append(runtime_context)
 
-        memory_recall = await build_memory_context(
-            request.agent_id,
-            tenant_id,
-            session_id=session_id,
-            query=query,
-        )
+        _memory_kwargs = {
+            "session_id": session_id,
+            "query": query,
+        }
+        _memory_sig = inspect.signature(build_memory_context).parameters
+        if "context_window_tokens" in _memory_sig:
+            _memory_kwargs["context_window_tokens"] = context_window_tokens
+        if "budget_profile" in _memory_sig:
+            _memory_kwargs["budget_profile"] = budget_profile
+        memory_recall = await build_memory_context(request.agent_id, tenant_id, **_memory_kwargs)
         if memory_recall:
             parts.append(memory_recall)
 
-    knowledge = await _maybe_await(fetch_relevant_knowledge(query, tenant_id))
+    _knowledge_kwargs = {}
+    _knowledge_sig = inspect.signature(fetch_relevant_knowledge).parameters
+    if "max_tokens" in _knowledge_sig:
+        _knowledge_kwargs["max_tokens"] = max(500, budget_profile.knowledge_budget_chars // 3)
+    if "max_chars" in _knowledge_sig:
+        _knowledge_kwargs["max_chars"] = budget_profile.knowledge_budget_chars
+    if "limit" in _knowledge_sig:
+        _knowledge_kwargs["limit"] = budget_profile.external_limit
+    knowledge = await _maybe_await(fetch_relevant_knowledge(query, tenant_id, **_knowledge_kwargs))
     if knowledge:
         parts.append(knowledge)
 

@@ -18,6 +18,7 @@ import AgentStatusSection from './agent-detail/AgentStatusSection';
 import AgentWorkspaceSection from './agent-detail/AgentWorkspaceSection';
 import RelationshipEditor from './agent-detail/RelationshipEditor';
 import ToolsManager from './agent-detail/ToolsManager';
+import { normalizeToolCallResult } from './agent-detail/toolResultEnvelope';
 import OpenClawSettings from './OpenClawSettings';
 import { agentApi } from '../api/domains/agents';
 import { activityApi } from '../api/domains/activity';
@@ -196,6 +197,7 @@ function AgentDetailInner() {
         const runtimeKey = buildSessionRuntimeKey(targetAgentId, String(sess.id));
         const runtimeState = sessionUiStateRef.current[runtimeKey] || { isWaiting: false, isStreaming: false };
         activeSessionIdRef.current = sess.id;
+        setCreatedAgentId(null);
         setChatMessages([]);
         setHistoryMsgs([]);
         setIsStreaming(runtimeState.isStreaming);
@@ -357,6 +359,7 @@ function AgentDetailInner() {
             setSettingsError('');
             setWmDraft('');
             setWmSaved(false);
+            setCreatedAgentId(null);
             // Invalidate all queries for the old agent to force fresh data
             queryClient.invalidateQueries({ queryKey: ['agent', id] });
             // Re-apply hash so refresh preserves the current tab
@@ -366,7 +369,15 @@ function AgentDetailInner() {
 
     // Load chat history + connect websocket when chat tab is active
     const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'];
+    const normalizeToolCallMessage = (msg: ChatMsg): ChatMsg => {
+        if (msg.role !== 'tool_call' || msg.toolName !== 'create_digital_employee' || !msg.toolResult) {
+            return msg;
+        }
+        const normalized = normalizeToolCallResult(msg.toolName, msg.toolResult);
+        return { ...msg, toolResult: normalized.displayResult };
+    };
     const parseChatMsg = (msg: ChatMsg): ChatMsg => {
+        if (msg.role === 'tool_call') return normalizeToolCallMessage(msg);
         if (msg.role !== 'user') return msg;
         let parsed = { ...msg };
         // Standard web chat format: [file:name.pdf]\ncontent
@@ -516,8 +527,16 @@ function AgentDetailInner() {
                     return [...prev, { role: 'assistant', content: '', thinking: d.content, _streaming: true } as any];
                 });
             } else if (d.type === 'tool_call') {
+                const normalizedResult = normalizeToolCallResult(d.name, d.result);
                 setChatMessages(prev => {
-                    const toolMsg: ChatMsg = { role: 'tool_call', content: '', toolName: d.name, toolArgs: d.args, toolStatus: d.status, toolResult: d.result };
+                    const toolMsg: ChatMsg = normalizeToolCallMessage({
+                        role: 'tool_call',
+                        content: '',
+                        toolName: d.name,
+                        toolArgs: d.args,
+                        toolStatus: d.status,
+                        toolResult: normalizedResult.displayResult,
+                    });
                     if (d.status === 'done') {
                         const lastIdx = prev.length - 1;
                         const last = prev[lastIdx];
@@ -525,9 +544,8 @@ function AgentDetailInner() {
                     }
                     return [...prev, toolMsg];
                 });
-                if (d.name === 'create_digital_employee' && d.status === 'done' && d.result) {
-                    const idMatch = d.result.match(/ID:\s*([0-9a-f-]{36})/i);
-                    if (idMatch) setCreatedAgentId(idMatch[1]);
+                if (normalizedResult.createdAgentId) {
+                    setCreatedAgentId(normalizedResult.createdAgentId);
                 }
             } else if (d.type === 'chunk') {
                 setChatMessages(prev => {

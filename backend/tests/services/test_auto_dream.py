@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 from app.services.auto_dream import (
-    MIN_HOURS_BETWEEN_DREAMS,
     MIN_SESSIONS_SINCE_DREAM,
     _simple_dedup,
     record_session_end,
@@ -61,6 +61,26 @@ class TestDreamGates:
             record_session_end(a1)
         assert should_dream(a1) is True
         assert should_dream(a2) is False
+
+    def test_gate_persists_across_in_memory_reset(self, monkeypatch, tmp_path) -> None:
+        import app.services.auto_dream as auto_dream
+
+        _reset_state()
+        monkeypatch.setattr(
+            auto_dream,
+            "get_settings",
+            lambda: SimpleNamespace(AGENT_DATA_DIR=str(tmp_path)),
+            raising=False,
+        )
+
+        agent_id = uuid.uuid4()
+        for _ in range(MIN_SESSIONS_SINCE_DREAM):
+            record_session_end(agent_id)
+
+        auto_dream._last_dream_time.clear()
+        auto_dream._sessions_since_dream.clear()
+
+        assert should_dream(agent_id) is True
 
 
 class TestSimpleDedup:

@@ -300,3 +300,90 @@ async def test_build_memory_context_passes_rerank_model_config(monkeypatch, tmp_
         "api_key": "test-key",
         "base_url": None,
     }
+
+
+def test_extraction_cursor_persists_to_disk(monkeypatch, tmp_path):
+    from app.services import memory_service
+
+    agent_id = uuid4()
+
+    monkeypatch.setattr(
+        memory_service,
+        "get_settings",
+        lambda: SimpleNamespace(AGENT_DATA_DIR=str(tmp_path)),
+    )
+
+    memory_service._extraction_cursors.clear()
+    memory_service._set_extraction_cursor(agent_id, 7, "session-1")
+
+    memory_service._extraction_cursors.clear()
+
+    assert memory_service._get_extraction_cursor(agent_id, "session-1") == 7
+
+
+@pytest.mark.asyncio
+async def test_build_memory_context_uses_adaptive_budget_profile(monkeypatch, tmp_path):
+    from app.services import memory_service
+
+    agent_id = uuid4()
+    tenant_id = uuid4()
+    captured = {}
+
+    class _FakeRetriever:
+        async def retrieve(
+            self,
+            _agent_id,
+            _query,
+            _session_id,
+            _tenant_id,
+            *,
+            rerank_model_config=None,
+            limit=20,
+            retrieval_profile=None,
+        ):
+            captured["rerank_model_config"] = rerank_model_config
+            captured["limit"] = limit
+            captured["retrieval_profile"] = retrieval_profile
+            return ["memory-item"]
+
+    class _FakeAssembler:
+        def assemble(self, items, budget_chars=20000):
+            captured["assembled_items"] = items
+            captured["budget_chars"] = budget_chars
+            return "ASSEMBLED"
+
+    monkeypatch.setattr(
+        memory_service,
+        "MemoryRetriever",
+        lambda **_kwargs: _FakeRetriever(),
+    )
+    monkeypatch.setattr(
+        memory_service,
+        "MemoryAssembler",
+        lambda: _FakeAssembler(),
+    )
+    monkeypatch.setattr(
+        memory_service,
+        "_get_rerank_model_config",
+        lambda _tenant_id: {
+            "provider": "openai",
+            "model": "gpt-4.1-mini",
+            "api_key": "test-key",
+            "base_url": None,
+        },
+        raising=False,
+    )
+
+    context = await memory_service.build_memory_context(
+        agent_id,
+        tenant_id,
+        session_id="session-1",
+        query="请研究最近的路线图变化并整理来源",
+        context_window_tokens=256000,
+    )
+
+    assert context == "ASSEMBLED"
+    assert captured["assembled_items"] == ["memory-item"]
+    assert captured["budget_chars"] >= 24000
+    assert captured["retrieval_profile"].semantic_limit >= 12
+    assert captured["retrieval_profile"].rerank_max_select >= 8
