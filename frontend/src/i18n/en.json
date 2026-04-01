@@ -670,7 +670,22 @@
       "quotas": "Quotas",
       "users": "Users",
       "invites": "Invitation Codes",
-      "hr": "HR Agent"
+      "hr": "HR Agent",
+      "memory": "Memory"
+    },
+    "memory": {
+      "title": "Memory Configuration",
+      "desc": "Configure how agents summarize conversations, extract facts, and rank memory relevance.",
+      "summaryModel": "Summary / Extraction Model",
+      "summaryModelDesc": "Used for session summaries, memory fact extraction, and conversation compression. Choose a fast, cheap model.",
+      "rerankModel": "Memory Rerank Model",
+      "rerankModelDesc": "Optional. Re-scores semantic memories by relevance before injection. Only triggers when candidates > 5.",
+      "noModel": "-- Not configured (rule-based fallback) --",
+      "noRerank": "-- Disabled (score-based only) --",
+      "compressThreshold": "Compression Threshold",
+      "compressThresholdDesc": "Compress conversation history when context usage exceeds this percentage. Default 82%.",
+      "keepRecent": "Keep Recent Messages",
+      "keepRecentDesc": "Always preserve this many recent messages during compression."
     },
     "invites": {
       "pageTitle": "Invitation Codes",

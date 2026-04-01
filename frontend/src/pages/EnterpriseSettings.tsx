@@ -19,6 +19,7 @@ import WorkspaceOrgSection from './workspace/WorkspaceOrgSection';
 import WorkspaceQuotasSection from './workspace/WorkspaceQuotasSection';
 import WorkspaceSkillsSection from './workspace/WorkspaceSkillsSection';
 import WorkspaceHrAgentSection from './workspace/WorkspaceHrAgentSection';
+import WorkspaceMemorySection from './workspace/WorkspaceMemorySection';
 import WorkspaceToolsSection from './workspace/WorkspaceToolsSection';
 import WorkspaceUsersSection from './workspace/WorkspaceUsersSection';
 
@@ -38,6 +39,7 @@ interface LLMProviderSpec {
 
 export type EnterpriseSettingsTab =
     | 'llm'
+    | 'memory'
     | 'org'
     | 'info'
     | 'hr'
@@ -684,6 +686,9 @@ export default function EnterpriseSettings({ forcedTab, hideTabs = false }: Ente
 
                 {/* ── Skills Tab ── */}
                 {activeTab === 'skills' && <WorkspaceSkillsSection />}
+
+                {/* ── Memory Config Tab ── */}
+                {activeTab === 'memory' && <WorkspaceMemorySection selectedTenantId={selectedTenantId} />}
 
                 {/* ── Invitation Codes Tab ── */}
                 {activeTab === 'invites' && <WorkspaceInvitesSection />}

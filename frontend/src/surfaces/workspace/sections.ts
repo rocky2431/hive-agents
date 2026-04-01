@@ -1,6 +1,7 @@
 export type WorkspaceSectionTab =
   | 'info'
   | 'llm'
+  | 'memory'
   | 'hr'
   | 'tools'
   | 'skills'
@@ -22,6 +23,7 @@ export interface WorkspaceSection {
 export const WORKSPACE_SECTIONS: WorkspaceSection[] = [
   { tab: 'info', slug: 'info', path: '/enterprise/info', labelKey: 'enterprise.tabs.info', fallbackLabel: 'Company Info' },
   { tab: 'llm', slug: 'llm', path: '/enterprise/llm', labelKey: 'enterprise.tabs.llm', fallbackLabel: 'Models' },
+  { tab: 'memory', slug: 'memory', path: '/enterprise/memory', labelKey: 'enterprise.tabs.memory', fallbackLabel: 'Memory' },
   { tab: 'hr', slug: 'hr', path: '/enterprise/hr', labelKey: 'enterprise.tabs.hr', fallbackLabel: 'HR Agent' },
   { tab: 'tools', slug: 'tools', path: '/enterprise/tools', labelKey: 'enterprise.tabs.tools', fallbackLabel: 'Tools' },
   { tab: 'skills', slug: 'skills', path: '/enterprise/skills', labelKey: 'enterprise.tabs.skills', fallbackLabel: 'Skills' },

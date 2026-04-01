@@ -715,7 +715,22 @@
       "quotas": "配额",
       "users": "用户",
       "invites": "邀请码",
-      "hr": "HR 助手"
+      "hr": "HR 助手",
+      "memory": "记忆配置"
+    },
+    "memory": {
+      "title": "记忆配置",
+      "desc": "配置数字员工的会话总结、记忆提取和相关性排序。",
+      "summaryModel": "总结 / 提取模型",
+      "summaryModelDesc": "用于会话摘要、记忆事实提取和上下文压缩。建议选一个快速、便宜的模型。",
+      "rerankModel": "记忆重排序模型",
+      "rerankModelDesc": "可选。在注入上下文前，用 LLM 对语义记忆做二次相关性排序。仅在候选 > 5 条时触发。",
+      "noModel": "-- 未配置（使用规则提取） --",
+      "noRerank": "-- 未启用（仅按分数排序） --",
+      "compressThreshold": "压缩阈值",
+      "compressThresholdDesc": "当上下文使用率超过此百分比时压缩对话历史。默认 82%。",
+      "keepRecent": "保留最近消息数",
+      "keepRecentDesc": "压缩时始终保留最近这么多条消息。"
     },
     "invites": {
       "pageTitle": "邀请码",
