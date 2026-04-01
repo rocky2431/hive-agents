@@ -425,8 +425,7 @@ async def _extract_facts_with_llm(messages: list[dict], model_config: dict) -> l
     if not conversation_text:
         return []
 
-    # Take last 30 messages (doubled from 15) to capture earlier feedback in long conversations
-    text = "\n".join(conversation_text[-30:])
+    text = "\n".join(conversation_text[-15:])
 
     client = create_llm_client(**model_config)
     try:
@@ -436,12 +435,8 @@ async def _extract_facts_with_llm(messages: list[dict], model_config: dict) -> l
                     role="system",
                     content=(
                         "Extract key facts from this conversation that would be useful to remember for future interactions. "
-                        "Return a JSON array of objects with 'content' and optional 'subject' fields. Extract 2-8 facts max. "
-                        "PRIORITY extraction targets (do NOT miss these):\n"
-                        "1. User feedback, corrections, or preferences (e.g., 'don't use emoji', 'reply in Chinese')\n"
-                        "2. Explicit instructions for future behavior\n"
-                        "3. Important decisions or project details\n"
-                        "4. Personal information shared\n"
+                        "Return a JSON array of objects with 'content' and optional 'subject' fields. Extract 2-5 facts max. "
+                        "Focus on: user preferences, important decisions, project details, personal information shared. "
                         "Respond ONLY with the JSON array, no other text."
                     ),
                 ),
@@ -471,17 +466,7 @@ async def _extract_facts_with_llm(messages: list[dict], model_config: dict) -> l
 
 
 def _extract_facts_simple(messages: list[dict]) -> list[dict]:
-    """Simple fact extraction without LLM — pull key user AND assistant statements.
-
-    Includes explicit detection of short user feedback/preferences that would
-    otherwise be lost due to the length filter (e.g., "别用emoji", "说中文").
-    """
-    # Patterns that indicate user feedback/preference, even in short messages
-    _FEEDBACK_KEYWORDS = (
-        "别", "不要", "不用", "请", "以后", "记住", "注意", "总是", "永远",
-        "don't", "stop", "please", "always", "never", "remember", "prefer",
-    )
-
+    """Simple fact extraction without LLM — pull key user AND assistant statements."""
     facts = []
     for msg in messages:
         role = msg.get("role", "")
@@ -490,17 +475,11 @@ def _extract_facts_simple(messages: list[dict]) -> list[dict]:
         content = msg.get("content", "")
         if not isinstance(content, str):
             continue
-        stripped = content.strip()
-        if not stripped or stripped.startswith("["):
-            continue
-        # Short user feedback: detect preference/correction patterns even under 30 chars
-        if role == "user" and len(stripped) < 30 and any(kw in stripped.lower() for kw in _FEEDBACK_KEYWORDS):
-            facts.append({"content": stripped, "subject": "user_preference", "source": "feedback_detection"})
-        # Standard: substantive messages between 30-500 chars
-        elif 30 < len(stripped) < 500:
-            facts.append({"content": stripped[:200], "source": f"{role}_message"})
+        # Keep substantive messages (not short greetings or error markers)
+        if len(content) > 30 and len(content) < 500 and not content.startswith("["):
+            facts.append({"content": content[:200], "source": f"{role}_message"})
 
-    return facts[-5:]
+    return facts[-5:]  # Keep at most 5 (increased from 3)
 
 
 def _parse_session_uuid(session_id: str | None) -> uuid.UUID | None:
