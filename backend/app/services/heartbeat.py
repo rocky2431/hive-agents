@@ -881,7 +881,7 @@ async def _heartbeat_tick():
         async with async_session() as db:
             result = await db.execute(
                 select(Agent).where(
-                    Agent.heartbeat_enabled == True,
+                    Agent.heartbeat_enabled.is_(True),
                     Agent.status.in_(["running", "idle"]),
                 )
             )
