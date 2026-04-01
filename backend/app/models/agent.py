@@ -61,6 +61,7 @@ class Agent(Base):
     tokens_used_total: Mapped[int] = mapped_column(Integer, default=0)
     context_window_size: Mapped[int] = mapped_column(Integer, default=100)
     max_tool_rounds: Mapped[int] = mapped_column(Integer, default=200)
+    execution_mode: Mapped[str] = mapped_column(String(30), default="standard", nullable=False, server_default="standard")
 
     # Trigger limits (per-agent, configurable from Settings UI)
     max_triggers: Mapped[int] = mapped_column(Integer, default=20)

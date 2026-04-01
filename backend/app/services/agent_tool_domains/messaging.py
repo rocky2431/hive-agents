@@ -18,6 +18,64 @@ A2A_SYSTEM_PROMPT_SUFFIX = (
 )
 
 
+async def _resolve_target_agent_runtime(from_agent_id: uuid.UUID, agent_name: str):
+    """Resolve source agent, target agent, and target model for A2A delegation."""
+    from app.models.agent import Agent
+    from app.models.llm import LLMModel
+
+    async with async_session() as db:
+        src_result = await db.execute(select(Agent).where(Agent.id == from_agent_id))
+        source_agent = src_result.scalar_one_or_none()
+        if not source_agent:
+            return None, None, None, "❌ Source agent not found"
+
+        target_result = await db.execute(
+            select(Agent).where(Agent.name.ilike(f"%{agent_name}%"), Agent.id != from_agent_id)
+        )
+        target = target_result.scalars().first()
+        if not target:
+            all_r = await db.execute(select(Agent).where(Agent.id != from_agent_id))
+            names = [a.name for a in all_r.scalars().all()]
+            return source_agent, None, None, (
+                f"❌ No agent found matching '{agent_name}'. "
+                f"Available: {', '.join(names) if names else 'none'}"
+            )
+
+        if target.status in ("expired", "stopped", "archived"):
+            return source_agent, target, None, (
+                f"⚠️ {target.name} is currently {target.status} and cannot receive messages."
+            )
+
+        if getattr(target, "agent_type", "native") == "openclaw":
+            return source_agent, target, None, (
+                f"⚠️ {target.name} is an OpenClaw agent and does not support async runtime delegation."
+            )
+
+        target_model = None
+        if target.primary_model_id:
+            model_r = await db.execute(
+                select(LLMModel).where(LLMModel.id == target.primary_model_id, LLMModel.tenant_id == target.tenant_id)
+            )
+            target_model = model_r.scalar_one_or_none()
+
+        if not target_model and target.fallback_model_id:
+            fb_r = await db.execute(
+                select(LLMModel).where(LLMModel.id == target.fallback_model_id, LLMModel.tenant_id == target.tenant_id)
+            )
+            target_model = fb_r.scalar_one_or_none()
+            if target_model:
+                logger.warning(
+                    "[A2A] Primary model unavailable for %s, using fallback: %s",
+                    target.name,
+                    target_model.model,
+                )
+
+        if not target_model:
+            return source_agent, target, None, f"⚠️ {target.name} has no LLM model configured"
+
+        return source_agent, target, target_model, None
+
+
 async def _send_feishu_message(agent_id: uuid.UUID, args: dict) -> str:
     """Send a Feishu message to a person in the agent's relationship list."""
     member_name = (args.get("member_name") or "").strip()
@@ -634,6 +692,110 @@ async def _send_message_to_agent(from_agent_id: uuid.UUID, args: dict) -> str:
         import traceback
         traceback.print_exc()
         return f"❌ Message send error: {str(e)[:200]}"
+
+
+async def _delegate_to_agent_async(from_agent_id: uuid.UUID, args: dict) -> str:
+    """Spawn an async subagent task and return a runtime handle."""
+    agent_name = args.get("agent_name", "").strip()
+    message_text = args.get("message", "").strip()
+
+    if not agent_name or not message_text:
+        return "❌ Please provide target agent name and message content"
+
+    try:
+        from app.agents.orchestrator import delegate_async
+
+        source_agent, target, target_model, error = await _resolve_target_agent_runtime(from_agent_id, agent_name)
+        if error:
+            return error
+        assert source_agent is not None
+        assert target is not None
+        assert target_model is not None
+
+        handle = await delegate_async(
+            target=target,
+            target_model=target_model,
+            conversation_messages=[{
+                "role": "user",
+                "content": f"[Delegated by {source_agent.name}] {message_text}",
+            }],
+            owner_id=source_agent.creator_id,
+            session_id=uuid.uuid4().hex,
+            parent_agent_id=from_agent_id,
+            parent_session_id=args.get("parent_session_id"),
+            max_tool_rounds=args.get("max_tool_rounds"),
+        )
+        return json.dumps({
+            "task_id": handle.task_id,
+            "status": "running",
+            "target_agent": handle.target_name,
+            "trace_id": handle.trace_id,
+            "next_action": "Use check_async_task with this task_id to inspect progress.",
+        }, ensure_ascii=False)
+    except Exception as e:
+        logger.error("delegate_to_agent failed: %s", e, exc_info=True)
+        return f"❌ Error delegating to agent: {e}"
+
+
+async def _check_async_task(from_agent_id: uuid.UUID, args: dict) -> str:
+    """Check a previously spawned async task."""
+    task_id = (args.get("task_id") or "").strip()
+    if not task_id:
+        return "❌ Please provide task_id"
+
+    try:
+        from app.agents.orchestrator import check_async_delegation
+        from app.services.runtime_task_service import get_runtime_task_record
+
+        try:
+            record = await get_runtime_task_record(task_id)
+        except Exception:
+            record = None
+        if record and record.get("parent_agent_id") not in {None, str(from_agent_id)}:
+            return "❌ This task does not belong to the current agent"
+
+        status = await check_async_delegation(task_id)
+        return json.dumps(status, ensure_ascii=False)
+    except Exception as e:
+        logger.error("check_async_task failed: %s", e, exc_info=True)
+        return f"❌ Error checking async task: {e}"
+
+
+async def _list_async_tasks(from_agent_id: uuid.UUID) -> str:
+    """List recent async runtime tasks created by the current agent."""
+    try:
+        from app.agents.orchestrator import list_async_delegations
+        from app.services.runtime_task_service import list_runtime_task_records
+
+        try:
+            tasks = await list_runtime_task_records(parent_agent_id=from_agent_id, limit=20)
+        except Exception:
+            tasks = []
+        if not tasks:
+            tasks = list_async_delegations()
+        return json.dumps(tasks, ensure_ascii=False)
+    except Exception as e:
+        logger.error("list_async_tasks failed: %s", e, exc_info=True)
+        return f"❌ Error listing async tasks: {e}"
+
+
+async def _get_current_time(agent_id: uuid.UUID, args: dict | None = None) -> str:
+    """Return the current time in the agent's effective timezone."""
+    try:
+        from app.services.timezone_utils import get_agent_timezone, now_in_timezone
+
+        requested_tz = (args or {}).get("timezone")
+        timezone_name = requested_tz or await get_agent_timezone(agent_id)
+        now = now_in_timezone(timezone_name)
+        return json.dumps({
+            "timezone": timezone_name,
+            "local_time": now.isoformat(),
+            "utc_time": now.astimezone(timezone.utc).isoformat(),
+            "weekday": now.strftime("%A"),
+        }, ensure_ascii=False)
+    except Exception as e:
+        logger.error("get_current_time failed: %s", e, exc_info=True)
+        return f"❌ Error getting current time: {e}"
 
 
 async def _feishu_user_search(agent_id: uuid.UUID, arguments: dict) -> str:

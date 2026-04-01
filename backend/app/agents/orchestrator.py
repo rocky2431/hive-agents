@@ -10,6 +10,11 @@ from typing import Any, Awaitable, Callable
 
 from app.runtime.invoker import AgentInvocationRequest, invoke_agent
 from app.runtime.session import SessionContext
+from app.services.runtime_task_service import (
+    create_runtime_task_record,
+    get_runtime_task_record,
+    update_runtime_task_record,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +30,15 @@ class OrchestrationPolicy:
 # ── Async delegation registry (in-process, per-worker) ──────────────
 _async_tasks: dict[str, asyncio.Task[AgentDelegationResult]] = {}
 _MAX_TRACKED_TASKS = 200
+
+
+def _maybe_uuid(value: str | uuid.UUID | None) -> uuid.UUID | None:
+    if value is None or isinstance(value, uuid.UUID):
+        return value
+    try:
+        return uuid.UUID(str(value))
+    except (TypeError, ValueError, AttributeError):
+        return None
 
 
 def _persist_delegation_event(
@@ -109,6 +123,7 @@ class AgentDelegationResult:
     depth: int
     timed_out: bool = False
     depth_limited: bool = False
+    failed: bool = False
 
 
 async def delegate_to_agent(
@@ -161,6 +176,7 @@ async def _delegate(request: AgentDelegationRequest) -> AgentDelegationResult:
             trace_id=trace_id,
             depth=request.depth,
             depth_limited=True,
+            failed=True,
         )
 
     invocation = AgentInvocationRequest(
@@ -207,6 +223,7 @@ async def _delegate(request: AgentDelegationRequest) -> AgentDelegationResult:
             trace_id=trace_id,
             depth=request.depth,
             timed_out=True,
+            failed=True,
         )
     except Exception as exc:
         # M-22: Log full stack server-side; return only safe summary to LLM
@@ -222,6 +239,7 @@ async def _delegate(request: AgentDelegationRequest) -> AgentDelegationResult:
             child_session_id=child_session_id,
             trace_id=trace_id,
             depth=request.depth,
+            failed=True,
         )
 
     return AgentDelegationResult(
@@ -271,16 +289,64 @@ async def delegate_async(
     task_id = uuid.uuid4().hex
     real_trace_id = trace_id or uuid.uuid4().hex
 
+    try:
+        await create_runtime_task_record(
+            task_id=task_id,
+            task_type="delegation",
+            status="running",
+            parent_agent_id=_maybe_uuid(parent_agent_id),
+            child_agent_id=getattr(target, "id", None),
+            child_agent_name=getattr(target, "name", None),
+            prompt=conversation_messages[-1].get("content", "") if conversation_messages else None,
+            trace_id=real_trace_id,
+            parent_session_id=parent_session_id,
+            child_session_id=session_id,
+            depth=depth,
+            metadata_json={
+                "message_count": len(conversation_messages),
+                "system_prompt_suffix": bool(system_prompt_suffix),
+            },
+        )
+    except Exception as exc:
+        logger.warning("[Orchestrator] Failed to create runtime task record %s: %s", task_id, exc)
+
     async def _run() -> AgentDelegationResult:
         try:
-            return await _delegate(request)
+            delegation_result = await _delegate(request)
+            try:
+                await update_runtime_task_record(
+                    task_id,
+                    status="failed" if delegation_result.failed else "completed",
+                    result_summary=delegation_result.content,
+                    trace_id=delegation_result.trace_id,
+                    child_session_id=delegation_result.child_session_id,
+                    metadata_json={
+                        "timed_out": delegation_result.timed_out,
+                        "depth_limited": delegation_result.depth_limited,
+                    },
+                )
+            except Exception as exc:
+                logger.warning("[Orchestrator] Failed to update runtime task %s: %s", task_id, exc)
+            return delegation_result
         except Exception as exc:
             logger.error("[Orchestrator] Async delegation %s failed: %s", task_id, exc)
+            try:
+                await update_runtime_task_record(
+                    task_id,
+                    status="failed",
+                    result_summary=f"Async task {task_id} failed: {exc}",
+                    trace_id=real_trace_id,
+                    child_session_id=session_id,
+                    metadata_json={"timed_out": False, "depth_limited": False},
+                )
+            except Exception as update_exc:
+                logger.warning("[Orchestrator] Failed to persist runtime task failure %s: %s", task_id, update_exc)
             return AgentDelegationResult(
                 content=f"Async task {task_id} failed: {exc}",
                 child_session_id=session_id,
                 trace_id=real_trace_id,
                 depth=depth,
+                failed=True,
             )
 
     task = asyncio.create_task(_run(), name="async-delegation-" + task_id)
@@ -302,7 +368,19 @@ async def check_async_delegation(task_id: str) -> dict[str, Any]:
     """Check status of an async delegation. Returns status + result if done."""
     task = _async_tasks.get(task_id)
     if task is None:
-        return {"task_id": task_id, "status": "not_found", "result": None}
+        try:
+            persisted = await get_runtime_task_record(task_id)
+        except Exception as exc:
+            logger.warning("[Orchestrator] Failed to load runtime task %s: %s", task_id, exc)
+            persisted = None
+        if persisted is None:
+            return {"task_id": task_id, "status": "not_found", "result": None}
+        return {
+            "task_id": task_id,
+            "status": persisted.get("status", "not_found"),
+            "result": persisted.get("result"),
+            "timed_out": bool((persisted.get("metadata") or {}).get("timed_out", False)),
+        }
     if not task.done():
         return {"task_id": task_id, "status": "running", "result": None}
     # Remove completed task from registry after reading
@@ -312,13 +390,13 @@ async def check_async_delegation(task_id: str) -> dict[str, Any]:
         # P1.8: Persist delegation completion
         _persist_delegation_event(
             task_id=task_id,
-            status="completed",
+            status="failed" if delegation_result.failed else "completed",
             result_preview=delegation_result.content[:300] if delegation_result.content else "",
             timed_out=delegation_result.timed_out,
         )
         return {
             "task_id": task_id,
-            "status": "completed",
+            "status": "failed" if delegation_result.failed else "completed",
             "result": delegation_result.content,
             "timed_out": delegation_result.timed_out,
         }

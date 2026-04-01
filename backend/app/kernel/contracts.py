@@ -52,6 +52,7 @@ class InvocationRequest:
     expand_tools: bool = True
     max_tool_rounds: int | None = None
     eviction_dir: Path | None = None
+    execution_mode: str | None = None
 
 
 @dataclass(slots=True)
@@ -67,3 +68,4 @@ class RuntimeConfig:
     tenant_id: uuid.UUID | None
     max_tool_rounds: int
     quota_message: str | None = None
+    execution_mode: str | None = None

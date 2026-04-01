@@ -205,6 +205,41 @@ async def test_invoke_agent_passes_cancel_and_fallback_to_kernel(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_invoke_agent_passes_execution_mode_to_kernel(monkeypatch):
+    from app.runtime.invoker import AgentInvocationRequest, invoke_agent
+
+    captured = {}
+
+    class _FakeKernel:
+        async def handle(self, request):
+            captured["request"] = request
+            return SimpleNamespace(content="ok", tokens_used=0, final_tools=None, parts=[])
+
+    monkeypatch.setattr("app.runtime.invoker.get_agent_kernel", lambda: _FakeKernel())
+
+    result = await invoke_agent(
+        AgentInvocationRequest(
+            model=SimpleNamespace(
+                provider="openai",
+                model="gpt-4.1",
+                api_key="key",
+                base_url=None,
+                max_output_tokens=None,
+            ),
+            messages=[{"role": "user", "content": "hello"}],
+            agent_name="Coordinator",
+            role_description="desc",
+            agent_id=uuid4(),
+            user_id=uuid4(),
+            execution_mode="coordinator",
+        )
+    )
+
+    assert result.content == "ok"
+    assert captured["request"].execution_mode == "coordinator"
+
+
+@pytest.mark.asyncio
 async def test_invoke_agent_without_agent_id_uses_collected_initial_tools(monkeypatch):
     from app.runtime.invoker import AgentInvocationRequest, invoke_agent
 

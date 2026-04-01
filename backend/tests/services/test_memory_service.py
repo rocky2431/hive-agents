@@ -94,6 +94,7 @@ async def test_persist_runtime_memory_updates_short_session_and_agent_memory(mon
 
     agent_id = uuid4()
     tenant_id = uuid4()
+    session_id = str(uuid4())
     chat_session = SimpleNamespace(summary=None)
     fake_session = _FakeSession([chat_session])
     update_calls = []
@@ -102,8 +103,8 @@ async def test_persist_runtime_memory_updates_short_session_and_agent_memory(mon
         assert len(messages) == 2
         return "rolled summary"
 
-    async def fake_update_agent_memory(_agent_id, messages, _tenant_id):
-        update_calls.append((_agent_id, messages, _tenant_id))
+    async def fake_update_agent_memory(_agent_id, messages, _tenant_id, *, session_id=None):
+        update_calls.append((_agent_id, messages, _tenant_id, session_id))
 
     async def fake_get_memory_config(_tenant_id):
         return {}
@@ -115,7 +116,7 @@ async def test_persist_runtime_memory_updates_short_session_and_agent_memory(mon
 
     await persist_runtime_memory(
         agent_id=agent_id,
-        session_id=str(uuid4()),
+        session_id=session_id,
         tenant_id=tenant_id,
         messages=[
             {"role": "user", "content": "我更喜欢咖啡而不是茶，请记住。"},
@@ -132,6 +133,7 @@ async def test_persist_runtime_memory_updates_short_session_and_agent_memory(mon
             {"role": "assistant", "content": "已记录你的偏好。"},
         ],
         tenant_id,
+        session_id,
     )]
 
 
@@ -191,3 +193,52 @@ async def test_update_agent_memory_dedupes_and_replaces_latest_fact(monkeypatch,
         "Works on Project X",
     ]
     assert all(fact.get("timestamp") for fact in facts)
+
+
+@pytest.mark.asyncio
+async def test_update_agent_memory_tracks_incremental_cursor_per_session(monkeypatch, tmp_path):
+    from app.services.memory_service import _extraction_cursors, _update_agent_memory
+
+    agent_id = uuid4()
+    tenant_id = uuid4()
+    extracted_batches: list[list[str]] = []
+
+    async def fake_get_summary_model_config(_tenant_id):
+        return None
+
+    def fake_extract(messages):
+        extracted_batches.append([m["content"] for m in messages if isinstance(m.get("content"), str)])
+        return [{"content": messages[-1]["content"]}] if messages else []
+
+    monkeypatch.setattr(
+        "app.services.memory_service.get_settings",
+        lambda: SimpleNamespace(AGENT_DATA_DIR=str(tmp_path)),
+    )
+    monkeypatch.setattr("app.services.memory_service._get_summary_model_config", fake_get_summary_model_config)
+    monkeypatch.setattr("app.services.memory_service._extract_facts_simple", fake_extract)
+    _extraction_cursors.clear()
+
+    await _update_agent_memory(
+        agent_id,
+        [
+            {"role": "user", "content": "session-1-msg-1"},
+            {"role": "assistant", "content": "session-1-msg-2"},
+        ],
+        tenant_id,
+        session_id="session-1",
+    )
+    await _update_agent_memory(
+        agent_id,
+        [
+            {"role": "user", "content": "session-2-msg-1"},
+            {"role": "assistant", "content": "session-2-msg-2"},
+            {"role": "user", "content": "session-2-msg-3"},
+        ],
+        tenant_id,
+        session_id="session-2",
+    )
+
+    assert extracted_batches == [
+        ["session-1-msg-1", "session-1-msg-2"],
+        ["session-2-msg-1", "session-2-msg-2", "session-2-msg-3"],
+    ]

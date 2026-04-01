@@ -12,6 +12,7 @@ import logging
 import re
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from sqlalchemy import select
@@ -84,6 +85,7 @@ class AgentInvocationRequest:
     core_tools_only: bool = True
     expand_tools: bool = True
     max_tool_rounds: int | None = None
+    execution_mode: str | None = None
 
 
 @dataclass(slots=True)
@@ -118,6 +120,7 @@ async def _resolve_runtime_config(agent_id: uuid.UUID | None) -> RuntimeConfig:
                 tenant_id=agent.tenant_id,
                 max_tool_rounds=agent.max_tool_rounds or 200,
                 quota_message=quota_message,
+                execution_mode=getattr(agent, "execution_mode", None),
             )
     except Exception as exc:
         logger.warning("Failed to resolve runtime config for agent %s: %s", agent_id, exc)
@@ -582,6 +585,7 @@ async def invoke_agent(request: AgentInvocationRequest) -> AgentInvocationResult
         expand_tools=request.expand_tools,
         max_tool_rounds=request.max_tool_rounds,
         eviction_dir=_resolve_eviction_dir(request.agent_id),
+        execution_mode=request.execution_mode,
     )
 
     result = await get_agent_kernel().handle(kernel_request)

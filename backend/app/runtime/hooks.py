@@ -81,31 +81,47 @@ class HookRegistry:
     async def emit(self, ctx: HookContext) -> HookResult | None:
         """Emit an event to all registered handlers.
 
-        For PRE_TOOL_USE: returns first blocking result (short-circuits).
+        For PRE_TOOL_USE: runs handlers in order, allowing each to rewrite
+        tool_args for downstream handlers. Returns the final effective HookResult
+        if args were modified, or the first blocking result.
         For all other events: runs all handlers, collects no results.
         """
         handlers = self._handlers.get(ctx.event, [])
         if not handlers:
             return None
 
+        final_result: HookResult | None = None
         for handler in handlers:
             try:
                 result = handler(ctx)
                 if asyncio.iscoroutine(result):
                     result = await result
 
-                if isinstance(result, HookResult) and result.block and ctx.event == HookEvent.PRE_TOOL_USE:
-                    logger.info(
-                        "[Hooks] %s blocked by handler: %s",
-                        ctx.tool_name, result.reason,
-                    )
-                    return result
+                if isinstance(result, HookResult):
+                    if ctx.event == HookEvent.PRE_TOOL_USE and result.modified_args is not None:
+                        ctx.tool_args = result.modified_args
+                        final_result = HookResult(
+                            block=False,
+                            reason=result.reason,
+                            modified_args=result.modified_args,
+                        )
+                    if result.block and ctx.event == HookEvent.PRE_TOOL_USE:
+                        blocked = HookResult(
+                            block=True,
+                            reason=result.reason,
+                            modified_args=ctx.tool_args,
+                        )
+                        logger.info(
+                            "[Hooks] %s blocked by handler: %s",
+                            ctx.tool_name, result.reason,
+                        )
+                        return blocked
             except Exception as exc:
                 logger.warning(
                     "[Hooks] Handler failed for %s: %s",
                     ctx.event, exc,
                 )
-        return None
+        return final_result
 
     def handler_count(self, event: HookEvent) -> int:
         return len(self._handlers.get(event, []))

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
-
 import pytest
 
 from app.runtime.hooks import HookContext, HookEvent, HookRegistry, HookResult
@@ -118,9 +116,31 @@ class TestHookRegistry:
             return HookResult(block=False, modified_args={"path": "/safe/path"})
 
         registry.register(HookEvent.PRE_TOOL_USE, modifier)
-        # Non-blocking modifier should not short-circuit
         result = await registry.emit(HookContext(event=HookEvent.PRE_TOOL_USE, tool_name="read_file"))
-        assert result is None  # Only blocking results are returned
+        assert result is not None
+        assert result.block is False
+        assert result.modified_args == {"path": "/safe/path"}
+
+    @pytest.mark.asyncio
+    async def test_pre_tool_use_modifiers_chain_in_order(self, registry) -> None:
+        def first(ctx: HookContext):
+            return HookResult(block=False, modified_args={"path": "/safe/path"})
+
+        def second(ctx: HookContext):
+            assert ctx.tool_args == {"path": "/safe/path"}
+            return HookResult(block=False, modified_args={"path": "/safer/path"})
+
+        registry.register(HookEvent.PRE_TOOL_USE, first)
+        registry.register(HookEvent.PRE_TOOL_USE, second)
+        result = await registry.emit(
+            HookContext(
+                event=HookEvent.PRE_TOOL_USE,
+                tool_name="read_file",
+                tool_args={"path": "/unsafe/path"},
+            )
+        )
+        assert result is not None
+        assert result.modified_args == {"path": "/safer/path"}
 
 
 class TestHookContext:

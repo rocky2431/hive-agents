@@ -475,3 +475,70 @@ async def test_parallel_batch_respects_semaphore_limit():
 
     assert result.content == "done"
     assert peak_concurrent <= _PARALLEL_SEMAPHORE_LIMIT
+
+
+@pytest.mark.asyncio
+async def test_parallel_batch_applies_pre_tool_hook_modifications():
+    """Parallel batches must respect pre-tool arg rewrites just like sequential path."""
+    from app.kernel.contracts import InvocationRequest
+    from app.kernel.engine import AgentKernel
+    from app.runtime.hooks import HookEvent, HookResult, hook_registry
+
+    seen_paths: list[str] = []
+
+    def rewrite_args(ctx):
+        return HookResult(block=False, modified_args={"path": f"safe::{ctx.tool_args['path']}"})
+
+    async def execute_tool(tool_name, args, request, emit_event):
+        del tool_name, request, emit_event
+        seen_paths.append(args["path"])
+        return args["path"]
+
+    hook_registry.clear()
+    hook_registry.register(HookEvent.PRE_TOOL_USE, rewrite_args)
+
+    fake_client = _FakeClient([
+        SimpleNamespace(
+            content="",
+            tool_calls=[
+                {
+                    "id": "call_1",
+                    "function": {"name": "read_file", "arguments": '{"path":"a.txt"}'},
+                },
+                {
+                    "id": "call_2",
+                    "function": {"name": "read_file", "arguments": '{"path":"b.txt"}'},
+                },
+            ],
+            reasoning_content=None,
+            usage={"total_tokens": 10},
+        ),
+        SimpleNamespace(
+            content="done",
+            tool_calls=[],
+            reasoning_content=None,
+            usage={"total_tokens": 5},
+        ),
+    ])
+
+    try:
+        kernel = AgentKernel(_make_deps(
+            execute_tool=execute_tool,
+            create_client=lambda _m: fake_client,
+        ))
+
+        result = await kernel.handle(
+            InvocationRequest(
+                model=_make_model(),
+                messages=[{"role": "user", "content": "read two files"}],
+                agent_name="Agent",
+                role_description="desc",
+                agent_id=uuid4(),
+                user_id=uuid4(),
+            )
+        )
+    finally:
+        hook_registry.clear()
+
+    assert result.content == "done"
+    assert seen_paths == ["safe::a.txt", "safe::b.txt"]

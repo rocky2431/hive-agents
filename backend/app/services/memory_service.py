@@ -286,7 +286,7 @@ async def persist_runtime_memory(
         if summary and session_id:
             await _save_session_summary(session_id, summary)
 
-        await _update_agent_memory(agent_id, messages, tenant_id)
+        await _update_agent_memory(agent_id, messages, tenant_id, session_id=session_id)
 
         config = await _get_memory_config(tenant_id)
         if config.get("extract_to_viking", False) and summary:
@@ -381,19 +381,29 @@ async def _generate_session_summary(messages: list[dict], tenant_id: uuid.UUID) 
 
 
 # P2.1: Cursor-based incremental extraction — only process new messages since last cursor.
-_extraction_cursors: dict[str, int] = {}  # agent_id_hex -> last_processed_message_index
+_extraction_cursors: dict[str, int] = {}  # agent_id_hex:session_id -> last_processed_message_index
 
 
-def _get_extraction_cursor(agent_id: uuid.UUID) -> int:
+def _extraction_cursor_key(agent_id: uuid.UUID, session_id: str | None = None) -> str:
+    return f"{agent_id.hex}:{session_id or 'runtime'}"
+
+
+def _get_extraction_cursor(agent_id: uuid.UUID, session_id: str | None = None) -> int:
     """Load last extraction cursor (in-memory, reset on process restart)."""
-    return _extraction_cursors.get(agent_id.hex, 0)
+    return _extraction_cursors.get(_extraction_cursor_key(agent_id, session_id), 0)
 
 
-def _set_extraction_cursor(agent_id: uuid.UUID, index: int) -> None:
-    _extraction_cursors[agent_id.hex] = index
+def _set_extraction_cursor(agent_id: uuid.UUID, index: int, session_id: str | None = None) -> None:
+    _extraction_cursors[_extraction_cursor_key(agent_id, session_id)] = index
 
 
-async def _update_agent_memory(agent_id: uuid.UUID, messages: list[dict], tenant_id: uuid.UUID) -> None:
+async def _update_agent_memory(
+    agent_id: uuid.UUID,
+    messages: list[dict],
+    tenant_id: uuid.UUID,
+    *,
+    session_id: str | None = None,
+) -> None:
     """Extract facts from conversation and update the persistent semantic store.
 
     Uses cursor-based incremental extraction: only processes messages added since
@@ -403,7 +413,7 @@ async def _update_agent_memory(agent_id: uuid.UUID, messages: list[dict], tenant
     semantic_store = PersistentMemoryStore(data_root=Path(settings.AGENT_DATA_DIR))
 
     # Incremental: only extract from messages since last cursor
-    cursor = _get_extraction_cursor(agent_id)
+    cursor = _get_extraction_cursor(agent_id, session_id)
     if cursor > 0 and cursor < len(messages):
         delta_messages = messages[cursor:]
         logger.debug(
@@ -430,12 +440,12 @@ async def _update_agent_memory(agent_id: uuid.UUID, messages: list[dict], tenant
         new_facts = _extract_facts_simple(delta_messages)
 
     if not new_facts:
-        _set_extraction_cursor(agent_id, len(messages))
+        _set_extraction_cursor(agent_id, len(messages), session_id)
         return
 
     all_facts = _merge_memory_facts(existing_facts, new_facts)
     semantic_store.replace_semantic_facts(agent_id, all_facts)
-    _set_extraction_cursor(agent_id, len(messages))
+    _set_extraction_cursor(agent_id, len(messages), session_id)
     logger.info("Updated semantic memory store for agent %s: %d facts (delta=%d msgs)", agent_id, len(all_facts), len(delta_messages))
 
 

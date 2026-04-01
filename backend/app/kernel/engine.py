@@ -218,6 +218,57 @@ def _can_parallelize_batch(tool_calls: list[dict]) -> bool:
     return True
 
 
+async def _execute_tool_with_hooks(
+    *,
+    execute_tool: ExecuteTool,
+    request: InvocationRequest,
+    tool_name: str,
+    tool_args: dict[str, Any],
+    emit_event: Callable[[dict], Awaitable[None]],
+) -> tuple[str, dict[str, Any], bool]:
+    """Execute a tool with consistent pre/post/failure hook semantics."""
+    from app.runtime.hooks import HookEvent, emit_hook
+
+    effective_args = dict(tool_args)
+    hook_result = await emit_hook(
+        HookEvent.PRE_TOOL_USE,
+        agent_id=request.agent_id,
+        session_id=request.memory_session_id,
+        tool_name=tool_name,
+        tool_args=effective_args,
+    )
+    if hook_result and hook_result.modified_args:
+        effective_args = hook_result.modified_args
+    if hook_result and hook_result.block:
+        return "Blocked by hook: " + (hook_result.reason or "policy"), effective_args, False
+
+    try:
+        result = await _maybe_await(
+            execute_tool(tool_name, effective_args, request, emit_event)
+        )
+    except Exception as exc:
+        err = f"[Tool execution error] {type(exc).__name__}: {str(exc)[:200]}"
+        await emit_hook(
+            HookEvent.POST_TOOL_FAILURE,
+            agent_id=request.agent_id,
+            session_id=request.memory_session_id,
+            tool_name=tool_name,
+            tool_args=effective_args,
+            error=err,
+        )
+        return err, effective_args, False
+
+    await emit_hook(
+        HookEvent.POST_TOOL_USE,
+        agent_id=request.agent_id,
+        session_id=request.memory_session_id,
+        tool_name=tool_name,
+        tool_args=effective_args,
+        tool_result=str(result)[:500] if result else "",
+    )
+    return str(result), effective_args, True
+
+
 def _fingerprint_prompt(prompt_prefix: str) -> str:
     return hashlib.sha256(prompt_prefix.encode("utf-8")).hexdigest()
 
@@ -594,7 +645,7 @@ class AgentKernel:
 
             # P3.4: Coordinator mode — filter tools and append coordinator prompt
             from app.runtime.coordinator import is_coordinator_mode, get_coordinator_prompt, filter_tools_for_coordinator
-            if is_coordinator_mode(request=request):
+            if is_coordinator_mode(agent=runtime_config, request=request):
                 tools_for_llm = filter_tools_for_coordinator(tools_for_llm)
                 system_prompt = system_prompt + "\n\n" + get_coordinator_prompt()
                 logger.info("[Kernel] Coordinator mode active for agent %s", request.agent_id)
@@ -1009,10 +1060,14 @@ class AgentKernel:
                         # 2. Execute all tools concurrently via asyncio.gather
                         sem = asyncio.Semaphore(_PARALLEL_SEMAPHORE_LIMIT)
 
-                        async def _run_tool(t_name: str, t_args: dict) -> str:
+                        async def _run_tool(t_name: str, t_args: dict) -> tuple[str, dict[str, Any], bool]:
                             async with sem:
-                                return await _maybe_await(
-                                    self._deps.execute_tool(t_name, t_args, request, _emit_event)
+                                return await _execute_tool_with_hooks(
+                                    execute_tool=self._deps.execute_tool,
+                                    request=request,
+                                    tool_name=t_name,
+                                    tool_args=t_args,
+                                    emit_event=_emit_event,
                                 )
 
                         results = await asyncio.gather(
@@ -1024,13 +1079,18 @@ class AgentKernel:
                             if isinstance(_r, BaseException):
                                 _tn = parsed_tool_calls[_i][1]
                                 logger.warning("[Kernel] Parallel tool %s failed: %s", _tn, _r)
-                                results[_i] = f"[Tool execution error] {type(_r).__name__}: {str(_r)[:200]}"
+                                results[_i] = (
+                                    f"[Tool execution error] {type(_r).__name__}: {str(_r)[:200]}",
+                                    parsed_tool_calls[_i][2],
+                                    False,
+                                )
 
                         # 3. Emit "done" events and append tool results in original order
-                        for (tc, tool_name, args), result in zip(parsed_tool_calls, results):
+                        for (tc, tool_name, _original_args), execution in zip(parsed_tool_calls, results):
+                            result, effective_args, _executed = execution
                             done_payload = {
                                 "name": tool_name,
-                                "args": args,
+                                "args": effective_args,
                                 "status": "done",
                                 "result": result,
                                 "reasoning_content": full_reasoning_content,
@@ -1083,33 +1143,16 @@ class AgentKernel:
                                     if _callback_failure_count == 3:
                                         logger.error("[Kernel] Multiple callback failures (%d) — client may be disconnected", _callback_failure_count)
 
-                            # P3.2: Pre-tool hook — can block execution
-                            from app.runtime.hooks import emit_hook, HookEvent
-                            _hook_result = await emit_hook(
-                                HookEvent.PRE_TOOL_USE,
-                                agent_id=request.agent_id,
+                            result, args, executed = await _execute_tool_with_hooks(
+                                execute_tool=self._deps.execute_tool,
+                                request=request,
                                 tool_name=tool_name,
                                 tool_args=args,
+                                emit_event=_emit_event,
                             )
-                            if _hook_result and _hook_result.block:
-                                result = "Blocked by hook: " + (_hook_result.reason or "policy")
-                            else:
-                                if _hook_result and _hook_result.modified_args:
-                                    args = _hook_result.modified_args
-                                result = await _maybe_await(
-                                    self._deps.execute_tool(tool_name, args, request, _emit_event)
-                                )
-                                # P3.2: Post-tool hook
-                                await emit_hook(
-                                    HookEvent.POST_TOOL_USE,
-                                    agent_id=request.agent_id,
-                                    tool_name=tool_name,
-                                    tool_args=args,
-                                    tool_result=str(result)[:500] if result else "",
-                                )
 
                             if request.expand_tools and request.agent_id:
-                                if _should_expand_tools(tool_name, args):
+                                if executed and _should_expand_tools(tool_name, args):
                                     expansion_payload: ToolExpansionResult | list[dict] | None = None
                                     if self._deps.resolve_tool_expansion:
                                         expansion_payload = await _maybe_await(
