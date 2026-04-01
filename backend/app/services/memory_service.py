@@ -473,10 +473,15 @@ async def _extract_facts_with_llm(messages: list[dict], model_config: dict) -> l
 def _extract_facts_simple(messages: list[dict]) -> list[dict]:
     """Simple fact extraction without LLM — pull key user AND assistant statements.
 
-    Short user messages (5-50 chars) are treated as high-signal: in a conversation
-    with an agent, short user turns are almost always instructions, corrections, or
-    preferences — not idle chat. Longer messages use the standard filter.
+    Includes explicit detection of short user feedback/preferences that would
+    otherwise be lost due to the length filter (e.g., "别用emoji", "说中文").
     """
+    # Patterns that indicate user feedback/preference, even in short messages
+    _FEEDBACK_KEYWORDS = (
+        "别", "不要", "不用", "请", "以后", "记住", "注意", "总是", "永远",
+        "don't", "stop", "please", "always", "never", "remember", "prefer",
+    )
+
     facts = []
     for msg in messages:
         role = msg.get("role", "")
@@ -488,13 +493,11 @@ def _extract_facts_simple(messages: list[dict]) -> list[dict]:
         stripped = content.strip()
         if not stripped or stripped.startswith("["):
             continue
-        # Short user messages (5-50 chars) are high-signal: almost always
-        # instructions/feedback/preferences, not greetings or noise.
-        # Skip very short (< 5 chars) as those are likely "ok"/"好" acknowledgements.
-        if role == "user" and 5 <= len(stripped) <= 50:
-            facts.append({"content": stripped, "subject": "user_preference", "source": "short_user_message"})
-        # Standard: substantive messages between 50-500 chars
-        elif 50 < len(stripped) < 500:
+        # Short user feedback: detect preference/correction patterns even under 30 chars
+        if role == "user" and len(stripped) < 30 and any(kw in stripped.lower() for kw in _FEEDBACK_KEYWORDS):
+            facts.append({"content": stripped, "subject": "user_preference", "source": "feedback_detection"})
+        # Standard: substantive messages between 30-500 chars
+        elif 30 < len(stripped) < 500:
             facts.append({"content": stripped[:200], "source": f"{role}_message"})
 
     return facts[-5:]
