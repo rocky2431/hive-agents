@@ -55,6 +55,10 @@ _TOOL_RESULT_PREVIEW_LENGTH = 2000  # chars to keep inline (CC: 2K)
 # Per-round aggregate budget: prevents N parallel tools from overloading context.
 # Aligned with Claude Code's MAX_TOOL_RESULTS_PER_MESSAGE_CHARS (200,000).
 _TOOL_RESULTS_AGGREGATE_BUDGET = 200000  # chars per round (CC: 200K)
+# Time-based microcompact: clear old tool results by round age to delay heavy compaction.
+_MICROCOMPACT_ROUND_AGE = 20  # rounds old — tool results older than this get cleared
+_MICROCOMPACT_CLEARED_MARKER = "[Old tool result cleared to save context space]"
+
 # Tools whose output should never be evicted (small, structural results).
 _EVICTION_EXEMPT_TOOLS = frozenset({
     "list_files", "read_file", "load_skill", "tool_search",
@@ -268,11 +272,18 @@ _POST_COMPACT_RESTORE_BUDGET = 20000  # chars
 _POST_COMPACT_PER_FILE_CAP = 5000    # chars per file (CC: 5K tokens)
 
 
-def _build_restoration_context(agent_id: Any) -> str:
+def _build_restoration_context(
+    agent_id: Any,
+    session_context: Any | None = None,
+) -> str:
     """Build critical context to re-inject after mid-loop compaction.
 
-    Mirrors CC's post-compaction restoration: re-inject soul + focus so
-    the agent doesn't lose its identity/working-memory after compression.
+    Restores (in priority order):
+    1. Soul (agent identity)
+    2. Focus (working memory)
+    3. Recently-read files (up to 3, 2K chars each)
+    4. Active skills summary
+    5. Active packs summary
     """
     from pathlib import Path as _Path
     from app.config import get_settings as _get_settings
@@ -281,13 +292,13 @@ def _build_restoration_context(agent_id: Any) -> str:
     total = 0
     settings = _get_settings()
 
+    # ── 1+2: Soul + Focus (existing logic) ──
     for ws_root in [
         _Path("/tmp/hive_workspaces") / str(agent_id),
         _Path(settings.AGENT_DATA_DIR) / str(agent_id),
     ]:
         if not ws_root.exists():
             continue
-        # Priority order: soul (identity), focus (working memory)
         for rel_path, label in [("soul.md", "Agent Identity"), ("focus.md", "Working Memory")]:
             fpath = ws_root / rel_path
             if not fpath.exists():
@@ -306,6 +317,38 @@ def _build_restoration_context(agent_id: Any) -> str:
                 continue
         if parts:
             break  # Use first workspace that has files
+
+    # ── 3: Recently-read files ──
+    if session_context and getattr(session_context, "recent_files", None):
+        _file_budget = 2000
+        for fpath_str in reversed(session_context.recent_files[:3]):
+            if total >= _POST_COMPACT_RESTORE_BUDGET:
+                break
+            try:
+                _fp = _Path(fpath_str)
+                if _fp.exists() and _fp.stat().st_size < 100_000:
+                    content = _fp.read_text(encoding="utf-8", errors="replace").strip()
+                    if content:
+                        content = content[:_file_budget]
+                        parts.append(f"### Recent File: {_fp.name}\n```\n{content}\n```")
+                        total += len(content)
+            except Exception:
+                continue
+
+    # ── 4: Active skills summary ──
+    if session_context and getattr(session_context, "active_skills", None):
+        skills_line = ", ".join(session_context.active_skills)
+        if total + len(skills_line) < _POST_COMPACT_RESTORE_BUDGET:
+            parts.append(f"### Active Skills\n{skills_line}")
+            total += len(skills_line)
+
+    # ── 5: Active packs summary ──
+    if session_context and getattr(session_context, "active_packs", None):
+        pack_names = [p.get("name", "?") for p in session_context.active_packs if isinstance(p, dict)]
+        if pack_names:
+            packs_line = ", ".join(pack_names)
+            if total + len(packs_line) < _POST_COMPACT_RESTORE_BUDGET:
+                parts.append(f"### Active Packs\n{packs_line}")
 
     if not parts:
         return ""
@@ -1116,7 +1159,39 @@ class AgentKernel:
                                 LLMMessage(role="tool", tool_call_id=tc["id"], content=_content)
                             )
 
-                    # ── Mid-loop context compaction ──────────────────────────
+                    # ── L1: Time-based microcompact — clear old tool results ──
+                    if round_i >= _MICROCOMPACT_ROUND_AGE and (round_i + 1) % _MIDLOOP_COMPACT_CHECK_INTERVAL == 0:
+                        _mc_cleared = 0
+                        _cutoff_round = round_i - _MICROCOMPACT_ROUND_AGE
+                        for _mi, _msg in enumerate(api_messages):
+                            if (
+                                _msg.role == "tool"
+                                and _mi < _cutoff_round * 3  # rough: ~3 messages per round
+                                and _msg.content != _MICROCOMPACT_CLEARED_MARKER
+                                and len(_msg.content or "") > 500
+                            ):
+                                # Check if the tool is exempt
+                                _tc_id = _msg.tool_call_id or ""
+                                _is_exempt = any(
+                                    prev.role == "assistant"
+                                    and any(
+                                        tc.get("function", {}).get("name", "") in _EVICTION_EXEMPT_TOOLS
+                                        for tc in (prev.tool_calls or [])
+                                        if tc.get("id") == _tc_id
+                                    )
+                                    for prev in api_messages[max(0, _mi - 5):_mi]
+                                )
+                                if not _is_exempt:
+                                    _msg.content = _MICROCOMPACT_CLEARED_MARKER
+                                    _mc_cleared += 1
+                        if _mc_cleared:
+                            logger.info(
+                                "[Kernel] Microcompact: cleared %d old tool results (round %d, cutoff round %d)",
+                                _mc_cleared, round_i + 1, _cutoff_round,
+                                extra={"metric": "microcompact", "cleared": _mc_cleared, "round": round_i + 1},
+                            )
+
+                    # ── L3: Mid-loop context compaction ──────────────────────────
                     if (round_i + 1) % _MIDLOOP_COMPACT_CHECK_INTERVAL == 0 and len(api_messages) > 6:
                         # Cancel check before potentially slow compression
                         if request.cancel_event and request.cancel_event.is_set():
@@ -1148,7 +1223,10 @@ class AgentKernel:
                             _restored = ""
                             if request.agent_id:
                                 try:
-                                    _restored = _build_restoration_context(request.agent_id)
+                                    _restored = _build_restoration_context(
+                                        request.agent_id,
+                                        session_context=request.session_context,
+                                    )
                                 except Exception as _restore_err:
                                     logger.debug("[Kernel] Post-compact restoration failed: %s", _restore_err)
                             restored_msgs = _dicts_to_llm_messages(compressed)

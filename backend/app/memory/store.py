@@ -16,6 +16,10 @@ SummaryLoader = Callable[[uuid.UUID, str | None], Awaitable[str | None]]
 MemoryLoader = Callable[[uuid.UUID], str]
 
 
+# Valid memory categories (aligned with Claude Code's 4-type taxonomy + general default).
+MEMORY_CATEGORIES = frozenset({"user", "feedback", "project", "reference", "general"})
+
+
 class PersistentMemoryStore:
     """Persistent semantic fact store backed by a per-agent SQLite database.
 
@@ -38,6 +42,9 @@ class PersistentMemoryStore:
                 content = str(payload.pop("content"))[:2000]  # Cap individual fact content
                 subject = payload.pop("subject", None)
                 timestamp = payload.pop("timestamp", payload.pop("created_at", None))
+                category = payload.pop("category", "general")
+                if category not in MEMORY_CATEGORIES:
+                    category = "general"
                 rows.append(
                     (
                         index,
@@ -45,12 +52,13 @@ class PersistentMemoryStore:
                         str(subject) if subject else None,
                         str(timestamp) if timestamp else None,
                         json.dumps(payload, ensure_ascii=False) if payload else None,
+                        category,
                     )
                 )
             conn.executemany(
                 """
-                INSERT INTO semantic_facts(position, content, subject, timestamp, metadata_json)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO semantic_facts(position, content, subject, timestamp, metadata_json, category)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 rows,
             )
@@ -64,7 +72,7 @@ class PersistentMemoryStore:
             self._ensure_schema(conn)
             self._import_legacy_json_if_needed(agent_id, conn)
             query = (
-                "SELECT content, subject, timestamp, metadata_json FROM semantic_facts "
+                "SELECT content, subject, timestamp, metadata_json, category FROM semantic_facts "
                 "ORDER BY position ASC"
             )
             params: tuple[object, ...] = ()
@@ -74,8 +82,10 @@ class PersistentMemoryStore:
             rows = conn.execute(query, params).fetchall()
 
         facts: list[dict] = []
-        for content, subject, timestamp, metadata_json in rows:
-            fact: dict = {"content": content}
+        for row in rows:
+            content, subject, timestamp, metadata_json = row[0], row[1], row[2], row[3]
+            category = row[4] if len(row) > 4 else "general"
+            fact: dict = {"content": content, "category": category or "general"}
             if subject:
                 fact["subject"] = subject
             if timestamp:
@@ -148,7 +158,7 @@ class PersistentMemoryStore:
             try:
                 rows = conn.execute(
                     """
-                    SELECT sf.content, sf.subject, sf.timestamp, sf.metadata_json
+                    SELECT sf.content, sf.subject, sf.timestamp, sf.metadata_json, sf.category
                     FROM semantic_facts_fts fts
                     JOIN semantic_facts sf ON sf.rowid = fts.rowid
                     WHERE fts MATCH ?
@@ -163,7 +173,7 @@ class PersistentMemoryStore:
                 like_pattern = f"%{query}%"
                 rows = conn.execute(
                     """
-                    SELECT content, subject, timestamp, metadata_json
+                    SELECT content, subject, timestamp, metadata_json, category
                     FROM semantic_facts
                     WHERE content LIKE ? OR subject LIKE ?
                     ORDER BY position DESC
@@ -173,8 +183,10 @@ class PersistentMemoryStore:
                 ).fetchall()
 
         facts: list[dict] = []
-        for content, subject, timestamp, metadata_json in rows:
-            fact: dict = {"content": content}
+        for row in rows:
+            content, subject, timestamp, metadata_json = row[0], row[1], row[2], row[3]
+            category = row[4] if len(row) > 4 else "general"
+            fact: dict = {"content": content, "category": category or "general"}
             if subject:
                 fact["subject"] = subject
             if timestamp:
@@ -197,10 +209,15 @@ class PersistentMemoryStore:
                 content TEXT NOT NULL,
                 subject TEXT,
                 timestamp TEXT,
-                metadata_json TEXT
+                metadata_json TEXT,
+                category TEXT DEFAULT 'general'
             )
             """
         )
+        # Migrate existing DBs: add category column if missing
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(semantic_facts)").fetchall()}
+        if "category" not in cols:
+            conn.execute("ALTER TABLE semantic_facts ADD COLUMN category TEXT DEFAULT 'general'")
         # Standalone FTS5 table — kept in sync manually via _rebuild_fts()
         try:
             conn.execute(
@@ -234,6 +251,9 @@ class PersistentMemoryStore:
             content = str(payload.pop("content"))
             subject = payload.pop("subject", None)
             timestamp = payload.pop("timestamp", payload.pop("created_at", None))
+            category = payload.pop("category", "general")
+            if category not in MEMORY_CATEGORIES:
+                category = "general"
             rows.append(
                 (
                     index,
@@ -241,12 +261,13 @@ class PersistentMemoryStore:
                     str(subject) if subject else None,
                     str(timestamp) if timestamp else None,
                     json.dumps(payload, ensure_ascii=False) if payload else None,
+                    category,
                 )
             )
         conn.executemany(
             """
-            INSERT INTO semantic_facts(position, content, subject, timestamp, metadata_json)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO semantic_facts(position, content, subject, timestamp, metadata_json, category)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
             rows,
         )

@@ -301,6 +301,51 @@ def _atomic_write(path: Path, content: str) -> None:
         raise
 
 
+def _write_evolution_to_memory(
+    agent_id: uuid.UUID,
+    outcome_type: str,
+    score: int | None,
+    summary: str,
+) -> None:
+    """Write heartbeat outcome as a typed feedback fact into semantic memory.
+
+    Only writes for meaningful outcomes: high-score successes (≥7) and failures (<3).
+    This turns evolution lineage into searchable, retrievable memory.
+    """
+    from app.config import get_settings
+    from app.memory.store import PersistentMemoryStore
+
+    if score is None:
+        return
+
+    if score >= 7 and outcome_type == "action_taken":
+        content = (
+            f"FEEDBACK: Heartbeat action succeeded (score {score}). "
+            f"Summary: {summary[:200]}. "
+            f"How to apply: prefer this approach pattern for similar autonomous tasks."
+        )
+    elif score < 3 or outcome_type in ("failure", "crash"):
+        content = (
+            f"FEEDBACK: Heartbeat action failed (score {score}, {outcome_type}). "
+            f"Summary: {summary[:200]}. "
+            f"How to apply: avoid this approach in similar contexts."
+        )
+    else:
+        return  # Mid-range scores — not worth persisting as feedback
+
+    settings = get_settings()
+    store = PersistentMemoryStore(data_root=Path(settings.AGENT_DATA_DIR))
+    existing = store.load_semantic_facts(agent_id)
+    existing.append({
+        "content": content[:2000],
+        "subject": f"heartbeat_{outcome_type}",
+        "category": "feedback",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    })
+    store.replace_semantic_facts(agent_id, existing)
+    logger.debug(f"[Heartbeat] Wrote feedback memory for agent {agent_id}: {outcome_type} score={score}")
+
+
 def _update_evolution_files(
     agent_id: uuid.UUID,
     outcome_type: str,
@@ -744,6 +789,13 @@ async def _execute_heartbeat(agent_id: uuid.UUID):
                 await asyncio.to_thread(_update_evolution_files, agent_id, outcome_type, heartbeat_score, summary)
             except Exception as _evo_err:
                 logger.warning(f"[Heartbeat] Evolution writeback failed for {agent_id}: {_evo_err}")
+
+            # P1.4: Write structured feedback into typed semantic memory
+            # so heartbeat lessons become searchable/retrievable in future conversations.
+            try:
+                _write_evolution_to_memory(agent_id, outcome_type, heartbeat_score, summary)
+            except Exception as _mem_err:
+                logger.debug(f"[Heartbeat] Evolution→memory write failed for {agent_id}: {_mem_err}")
 
             # Bootstrap validation: verify key files exist regardless of outcome
             # (cold_start agents need validation even on failure/noop)
