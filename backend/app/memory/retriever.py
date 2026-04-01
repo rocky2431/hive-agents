@@ -54,14 +54,21 @@ def _score_recency(timestamp: str | None) -> float:
     return 1.0 / (1.0 + (age_days / 90.0))
 
 
-def _score_semantic_item(content: str, query: str, timestamp: str | None) -> float:
+def _score_semantic_item(content: str, query: str, timestamp: str | None, category: str | None = None) -> float:
     lexical = _score_relevance(content, query) if query else 0.0
     recency = _score_recency(timestamp)
     if query:
-        return lexical * 0.85 + recency * 0.15
-    # Without query (session start): baseline 0.5 + recency bonus so all semantic
-    # facts surface with reasonable scores instead of pure recency ordering.
-    return 0.5 + recency * 0.3
+        base = lexical * 0.85 + recency * 0.15
+    else:
+        # Without query (session start): baseline 0.5 + recency bonus so all semantic
+        # facts surface with reasonable scores instead of pure recency ordering.
+        base = 0.5 + recency * 0.3
+    # B-07 fix: category-aware scoring — feedback and user facts are higher signal
+    if category == "feedback":
+        base = min(base * 1.5, 1.0)
+    elif category == "user":
+        base = min(base * 1.2, 1.0)
+    return base
 
 
 async def _rerank_semantic_items(
@@ -148,7 +155,7 @@ class MemoryRetriever:
         session_id: str | None,
         tenant_id: str | None,
         *,
-        limit: int = 20,
+        limit: int = 50,
         rerank_model_config: dict | None = None,
     ) -> list[MemoryItem]:
         """Retrieve memory items from all four layers.
@@ -267,7 +274,7 @@ class MemoryRetriever:
 
     # -- Semantic layer: memory.json facts scored by relevance --
 
-    def _retrieve_semantic(self, agent_id: uuid.UUID, query: str, *, limit: int = 20) -> list[MemoryItem]:
+    def _retrieve_semantic(self, agent_id: uuid.UUID, query: str, *, limit: int = 50) -> list[MemoryItem]:
         try:
             facts = self._persistent_store.load_semantic_facts(agent_id)
         except Exception as exc:
@@ -285,7 +292,8 @@ class MemoryRetriever:
             if not content:
                 continue
             timestamp = fact.get("timestamp") or fact.get("created_at")
-            score = _score_semantic_item(content, query, timestamp)
+            _category = fact.get("category")
+            score = _score_semantic_item(content, query, timestamp, category=_category)
             items.append(
                 MemoryItem(
                     kind=MemoryKind.SEMANTIC,

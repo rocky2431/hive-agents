@@ -195,31 +195,31 @@ class TestFreshnessSuffix:
         assert _freshness_suffix(item) == ""
 
     def test_old_memory_gets_warning(self) -> None:
-        old = (datetime.now(UTC) - timedelta(days=5)).isoformat()
+        old = (datetime.now(UTC) - timedelta(days=10)).isoformat()
         item = _make_item(MemoryKind.SEMANTIC, "fact", timestamp=old)
         suffix = _freshness_suffix(item)
-        assert "5d ago" in suffix
+        assert "10d ago" in suffix
         assert "verify before acting" in suffix
 
-    def test_exactly_one_day_no_warning(self) -> None:
-        one_day = (datetime.now(UTC) - timedelta(days=1)).isoformat()
-        item = _make_item(MemoryKind.SEMANTIC, "fact", timestamp=one_day)
+    def test_exactly_seven_days_no_warning(self) -> None:
+        seven_days = (datetime.now(UTC) - timedelta(days=7)).isoformat()
+        item = _make_item(MemoryKind.SEMANTIC, "fact", timestamp=seven_days)
         assert _freshness_suffix(item) == ""
 
-    def test_two_days_has_warning(self) -> None:
-        two_days = (datetime.now(UTC) - timedelta(days=2)).isoformat()
-        item = _make_item(MemoryKind.SEMANTIC, "fact", timestamp=two_days)
-        assert "2d ago" in _freshness_suffix(item)
+    def test_eight_days_has_warning(self) -> None:
+        eight_days = (datetime.now(UTC) - timedelta(days=8)).isoformat()
+        item = _make_item(MemoryKind.SEMANTIC, "fact", timestamp=eight_days)
+        assert "8d ago" in _freshness_suffix(item)
 
     def test_naive_datetime_does_not_crash(self) -> None:
         """Raw naive datetime in metadata should not raise TypeError."""
-        naive_old = datetime.now() - timedelta(days=5)
+        naive_old = datetime.now() - timedelta(days=10)
         item = MemoryItem(
             kind=MemoryKind.SEMANTIC, content="fact", score=0.5,
             source="test", metadata={"timestamp": naive_old},
         )
         suffix = _freshness_suffix(item)
-        # Age may be 4 or 5 depending on time-of-day and tz offset
+        # Age may vary by 1 day depending on time-of-day and tz offset
         assert "d ago" in suffix
         assert "verify before acting" in suffix
 
@@ -248,3 +248,16 @@ class TestAssembleFreshnessIntegration:
         assembler = MemoryAssembler()
         result = assembler.assemble(items)
         assert "verify before acting" not in result
+
+    def test_category_prefix_rendered(self) -> None:
+        """B-06: Non-general categories should appear as [type] prefix."""
+        items = [_make_item(MemoryKind.SEMANTIC, "Always run tests", category="feedback")]
+        assembler = MemoryAssembler()
+        result = assembler.assemble(items)
+        assert "[feedback]" in result
+
+    def test_general_category_no_prefix(self) -> None:
+        items = [_make_item(MemoryKind.SEMANTIC, "some fact", category="general")]
+        assembler = MemoryAssembler()
+        result = assembler.assemble(items)
+        assert "[general]" not in result

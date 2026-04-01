@@ -12,7 +12,8 @@ from datetime import UTC, datetime
 from app.memory.types import MemoryItem, MemoryKind, parse_utc_timestamp
 
 # Memories older than this threshold get a freshness warning appended.
-_FRESHNESS_WARNING_DAYS = 1
+# L-03: Increased from 1 to 7 days — 1 day was too aggressive for agents running periodically
+_FRESHNESS_WARNING_DAYS = 7
 
 # Display order and section headers for each memory kind.
 _SECTION_ORDER: list[tuple[MemoryKind, str]] = [
@@ -47,7 +48,7 @@ def _freshness_suffix(item: MemoryItem) -> str:
 class MemoryAssembler:
     """Assemble retrieved memory items into a prompt section."""
 
-    def assemble(self, items: list[MemoryItem], budget_chars: int = 12000) -> str:
+    def assemble(self, items: list[MemoryItem], budget_chars: int = 20000) -> str:
         """Render memory items grouped by kind, deduplicated and budget-trimmed.
 
         Returns a string with section headers ready to inject into a system prompt.
@@ -83,7 +84,10 @@ class MemoryAssembler:
             header_len = len(header) + 1
             for item in kind_items:
                 freshness = _freshness_suffix(item) if kind != MemoryKind.WORKING else ""
-                line = f"- {item.content}{freshness}" if kind != MemoryKind.WORKING else item.content
+                # B-06 fix: render category prefix for non-general types so LLM sees memory taxonomy
+                _cat = item.metadata.get("category", "")
+                _cat_prefix = f"[{_cat}] " if _cat and _cat != "general" and kind != MemoryKind.WORKING else ""
+                line = f"- {_cat_prefix}{item.content}{freshness}" if kind != MemoryKind.WORKING else item.content
                 line_len = len(line) + 1  # +1 for newline
                 if total_chars + line_len > budget_chars:
                     break

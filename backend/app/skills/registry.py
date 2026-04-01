@@ -37,7 +37,7 @@ class SkillRegistry:
     def load_body(self, name: str) -> str:
         return self.resolve(name).body
 
-    def render_catalog(self, *, budget_chars: int = 4000) -> str:
+    def render_catalog(self, *, budget_chars: int = 8000) -> str:
         """Render skill catalog with budget-aware truncation.
 
         Three degradation levels (aligned with Claude Code's skill listing strategy):

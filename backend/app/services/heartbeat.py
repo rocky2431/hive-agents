@@ -339,7 +339,7 @@ def _write_evolution_to_memory(
     if score is None:
         return
 
-    if score >= 7 and outcome_type == "action_taken":
+    if score >= 5 and outcome_type == "action_taken":  # L-06: lowered from 7 to capture incremental learnings
         content = (
             f"FEEDBACK: Heartbeat action succeeded (score {score}). "
             f"Summary: {summary[:200]}. "

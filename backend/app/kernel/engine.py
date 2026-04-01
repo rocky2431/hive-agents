@@ -266,6 +266,19 @@ async def _execute_tool_with_hooks(
         tool_args=effective_args,
         tool_result=str(result)[:500] if result else "",
     )
+
+    # B-05 fix: track file reads and skill loads for post-compact restoration
+    _session = request.session_context
+    if _session:
+        if tool_name == "read_file":
+            _path = effective_args.get("path", "") if isinstance(effective_args, dict) else ""
+            if _path:
+                _session.track_file_read(_path)
+        elif tool_name == "load_skill":
+            _skill = (effective_args.get("skill_name") or effective_args.get("name", "")) if isinstance(effective_args, dict) else ""
+            if _skill:
+                _session.track_skill_loaded(_skill)
+
     return str(result), effective_args, True
 
 
@@ -595,6 +608,13 @@ class AgentKernel:
             # Resolve model context window for dynamic prompt budget
             _ctx_window = getattr(request.model, "max_input_tokens", None) if request.model else None
 
+            # B-01 fix: detect coordinator mode early, include prompt in suffix BEFORE budget enforcement
+            from app.runtime.coordinator import is_coordinator_mode, get_coordinator_prompt, filter_tools_for_coordinator
+            _is_coordinator = is_coordinator_mode(agent=runtime_config, request=request)
+            _effective_suffix = request.system_prompt_suffix or ""
+            if _is_coordinator:
+                _effective_suffix = (_effective_suffix + "\n\n" + get_coordinator_prompt()).strip()
+
             # P0.4 Observability: prompt cache hit/miss
             logger.info(
                 "[Kernel] Prompt cache %s (agent=%s)",
@@ -608,7 +628,7 @@ class AgentKernel:
                 dynamic_suffix = build_dynamic_prompt_suffix(
                     active_packs=session_ctx.active_packs if session_ctx else [],
                     retrieval_context=resolved_retrieval_context,
-                    system_prompt_suffix=request.system_prompt_suffix,
+                    system_prompt_suffix=_effective_suffix,
                 )
                 system_prompt = assemble_runtime_prompt(
                     session_ctx.prompt_prefix, dynamic_suffix, context_window_tokens=_ctx_window,
@@ -630,7 +650,7 @@ class AgentKernel:
                 dynamic_suffix = build_dynamic_prompt_suffix(
                     active_packs=session_ctx.active_packs if session_ctx else [],
                     retrieval_context=resolved_retrieval_context,
-                    system_prompt_suffix=request.system_prompt_suffix,
+                    system_prompt_suffix=_effective_suffix,
                 )
                 system_prompt = assemble_runtime_prompt(
                     prompt_prefix, dynamic_suffix, context_window_tokens=_ctx_window,
@@ -643,11 +663,9 @@ class AgentKernel:
                 else:
                     tools_for_llm = []
 
-            # P3.4: Coordinator mode — filter tools and append coordinator prompt
-            from app.runtime.coordinator import is_coordinator_mode, get_coordinator_prompt, filter_tools_for_coordinator
-            if is_coordinator_mode(agent=runtime_config, request=request):
+            # B-01/B-04 fix: Coordinator mode — filter tools (prompt already in budget via suffix)
+            if _is_coordinator:
                 tools_for_llm = filter_tools_for_coordinator(tools_for_llm)
-                system_prompt = system_prompt + "\n\n" + get_coordinator_prompt()
                 logger.info("[Kernel] Coordinator mode active for agent %s", request.agent_id)
 
             collected_parts: list[dict[str, Any]] = []
@@ -863,7 +881,17 @@ class AgentKernel:
                                     _after_chars = sum(len(d.get("content", "") or "") for d in compressed)
                                     # Only retry if compression achieved meaningful reduction (>20%)
                                     if _after_chars < _before_chars * 0.8:
-                                        api_messages = [api_messages[0]] + _dicts_to_llm_messages(compressed)
+                                        # B-02 fix: rebuild system prompt with fresh dynamic suffix after compression
+                                        _ptl_dynamic = build_dynamic_prompt_suffix(
+                                            active_packs=session_ctx.active_packs if session_ctx else [],
+                                            retrieval_context=resolved_retrieval_context,
+                                            system_prompt_suffix=_effective_suffix,
+                                        )
+                                        _ptl_prefix = (session_ctx.prompt_prefix if session_ctx else None) or prompt_prefix
+                                        _ptl_system = assemble_runtime_prompt(
+                                            _ptl_prefix, _ptl_dynamic, context_window_tokens=_ctx_window,
+                                        )
+                                        api_messages = [LLMMessage(role="system", content=_ptl_system)] + _dicts_to_llm_messages(compressed)
                                         logger.info(
                                             "[Kernel] PTL retry: %d→%d chars, %d→%d msgs (attempt %d/%d)",
                                             _before_chars, _after_chars,
@@ -1217,7 +1245,8 @@ class AgentKernel:
                                         full_toolset = await _maybe_await(
                                             self._deps.get_tools(request.agent_id, False)
                                         )
-                                    tools_for_llm = full_toolset
+                                    # B-04 fix: re-filter expanded tools if coordinator mode active
+                                    tools_for_llm = filter_tools_for_coordinator(full_toolset) if _is_coordinator else full_toolset
 
                             done_payload = {
                                 "name": tool_name,

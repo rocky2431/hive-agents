@@ -524,12 +524,18 @@ async def _extract_facts_with_llm(messages: list[dict], model_config: dict) -> l
                     role="system",
                     content=(
                         "Extract key facts from this conversation that would be useful to remember for future interactions. "
-                        "Return a JSON array of objects with 'content' and optional 'subject' fields. Extract 2-8 facts max.\n"
+                        "Return a JSON array of objects with 'content', optional 'subject', and 'category' fields. Extract 2-8 facts max.\n"
+                        "CATEGORIES (assign one per fact):\n"
+                        "- user: preferences, role, knowledge, working style\n"
+                        "- feedback: corrections, confirmations, behavioral guidance\n"
+                        "- project: goals, deadlines, decisions, status updates\n"
+                        "- reference: pointers to external systems, URLs, tool names\n"
+                        "- general: anything else\n"
                         "PRIORITY extraction targets (do NOT miss these):\n"
-                        "1. User feedback, corrections, or preferences about how the agent should behave\n"
-                        "2. Explicit instructions for future behavior\n"
-                        "3. Important decisions or project context\n"
-                        "4. Personal information or working style preferences\n"
+                        "1. User feedback, corrections, or preferences → category: feedback\n"
+                        "2. Explicit instructions for future behavior → category: feedback\n"
+                        "3. Important decisions or project context → category: project\n"
+                        "4. Personal information or working style → category: user\n"
                         "Respond ONLY with the JSON array, no other text."
                     ),
                 ),
@@ -700,7 +706,7 @@ def _merge_memory_facts(
     existing_facts: list[dict],
     new_facts: list[dict],
     *,
-    max_facts: int = 50,
+    max_facts: int = 150,  # L-04: increased from 50 for 256K models
     expiry_days: int = 180,
     expiry_score_threshold: float = 0.3,
 ) -> list[dict]:
