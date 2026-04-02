@@ -39,6 +39,10 @@ class TestCoordinatorMode:
         assert "Coordinator Mode" in prompt
         assert "delegate_to_agent" in prompt
         assert "never delegate understanding" in prompt.lower()
+        assert "Use `read_file`, `write_file`, and `list_files` only for coordination artifacts" in prompt
+        assert "When workers are still running, give the user a status update" in prompt
+        assert "Status:" in prompt
+        assert "Synthesis:" in prompt
 
     def test_filter_keeps_only_allowed_tools(self) -> None:
         tools = [

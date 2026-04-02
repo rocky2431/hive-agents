@@ -11,7 +11,14 @@ from app.tools.decorator import ToolMeta, tool
 
 @tool(ToolMeta(
     name="load_skill",
-    description="Load the full instructions for a named skill from the skills/ directory. Use this when a task matches a known skill.",
+    description=(
+        "Load the full instructions for a named skill from the skills/ directory.\n\n"
+        "Usage:\n"
+        "- Use this when the current task clearly matches a known skill in the catalog.\n"
+        "- Load one relevant skill at a time, then follow its instructions.\n"
+        "- Do NOT load a skill speculatively if the task does not clearly match it.\n"
+        "- If no skill matches, use your builtin tools directly instead of guessing."
+    ),
     parameters={
         "type": "object",
         "properties": {
@@ -36,7 +43,13 @@ def load_skill(workspace: Path, arguments: dict, tenant_id: str | None = None) -
 
 @tool(ToolMeta(
     name="tool_search",
-    description="Search for delayed capability packs and skills that can be activated on demand. This only returns summaries and does not auto-load tools.",
+    description=(
+        "Search for delayed capability packs and skills that can be activated on demand.\n\n"
+        "Usage:\n"
+        "- Use this when you suspect a missing capability but do not yet know the exact skill or pack name.\n"
+        "- This only returns summaries and does not auto-load tools.\n"
+        "- After reading the summaries, call `load_skill` or the matching activation tool explicitly."
+    ),
     parameters={
         "type": "object",
         "properties": {

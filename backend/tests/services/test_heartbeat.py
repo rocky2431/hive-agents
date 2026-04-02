@@ -63,6 +63,16 @@ def test_parse_heartbeat_outcome_structured_tags():
     assert score == 7
 
 
+def test_compose_heartbeat_instruction_adds_strategy_boundary() -> None:
+    from app.services.heartbeat import _compose_heartbeat_instruction
+
+    text = _compose_heartbeat_instruction("Base heartbeat")
+
+    assert "Base heartbeat" in text
+    assert "evolution/lineage.md stores policy-level learning" in text
+    assert "Do NOT turn lineage into a raw task transcript" in text
+
+
 def test_parse_heartbeat_outcome_noop():
     from app.services.heartbeat import _parse_heartbeat_outcome
 

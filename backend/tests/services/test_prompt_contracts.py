@@ -88,6 +88,14 @@ def test_core_tool_descriptions_define_when_not_to_use_and_fallbacks() -> None:
     assert "check back later with `check_async_task`" in tools["delegate_to_agent"]
     assert "Do NOT use when you already have a specific URL" in tools["jina_search"]
     assert "If the page is too long" in tools["jina_read"]
+    assert "If you need to wait for a reply later, pair the message with an `on_message` trigger" in tools["send_feishu_message"]
+    assert "Do NOT use this for agent-to-agent collaboration" in tools["send_web_message"]
+    assert "Describe the capability you need, not a vendor name" in tools["discover_resources"]
+    assert "Use this to schedule future work" in tools["set_trigger"]
+    assert "Do NOT create a trigger without a clear reason" in tools["set_trigger"]
+    assert "Do NOT load a skill speculatively" in tools["load_skill"]
+    assert "This only returns summaries" in tools["tool_search"]
+    assert "Return skill slugs" in tools["search_clawhub"]
 
 
 def test_skill_catalog_footer_discourages_speculative_loading() -> None:
@@ -108,3 +116,44 @@ def test_skill_catalog_footer_discourages_speculative_loading() -> None:
 
     assert "Load only the skill that matches the current task" in rendered
     assert "Do NOT speculatively load multiple skills" in rendered
+
+
+def test_summarizer_prompt_distinguishes_session_state_from_durable_memory() -> None:
+    from app.services.conversation_summarizer import _SUMMARIZE_SYSTEM_PROMPT
+
+    assert "Session summaries preserve working state" in _SUMMARIZE_SYSTEM_PROMPT
+    assert "Do NOT rewrite this summary as long-term memory or policy" in _SUMMARIZE_SYSTEM_PROMPT
+    assert "Stable preferences, lessons, and policies can be extracted later" in _SUMMARIZE_SYSTEM_PROMPT
+
+
+def test_memory_extraction_prompt_distinguishes_facts_and_policy_layers() -> None:
+    from app.services.memory_service import (
+        _MEMORY_EXTRACTION_SYSTEM_PROMPT,
+        _build_memory_extraction_prompt,
+    )
+
+    prompt = _build_memory_extraction_prompt("user: remember this")
+
+    assert "long-term memory facts" in _MEMORY_EXTRACTION_SYSTEM_PROMPT
+    assert "Do NOT extract transient session state" in _MEMORY_EXTRACTION_SYSTEM_PROMPT
+    assert "Store durable reusable facts here" in _MEMORY_EXTRACTION_SYSTEM_PROMPT
+    assert "Session text:" in prompt
+    assert "policy-level evolution" in prompt
+
+
+def test_auto_dream_prompt_distinguishes_memory_from_evolution_policy() -> None:
+    from app.services.auto_dream import (
+        _AUTO_DREAM_SYSTEM_PROMPT,
+        _build_dream_consolidation_prompt,
+    )
+
+    prompt = _build_dream_consolidation_prompt(
+        facts=[{"content": "Use A", "category": "strategy"}],
+        summaries=["summary text"],
+    )
+
+    assert "deduplicated fact list" in _AUTO_DREAM_SYSTEM_PROMPT
+    assert "Do NOT preserve transient task state" in _AUTO_DREAM_SYSTEM_PROMPT
+    assert "Promote durable successful approaches to strategy" in prompt
+    assert "Promote repeated failed approaches to blocked_pattern" in prompt
+    assert "evolution files remain the home for active policy iteration" in prompt

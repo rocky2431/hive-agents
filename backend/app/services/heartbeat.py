@@ -42,6 +42,14 @@ _HEARTBEAT_PRIVACY_SUFFIX = """
 - Do NOT post trivial or repetitive content
 """
 
+_HEARTBEAT_STRATEGY_SUFFIX = """
+
+⚠️ STRATEGY BOUNDARY:
+- evolution/lineage.md stores policy-level learning and durable strategy changes.
+- Do NOT turn lineage into a raw task transcript or tool-by-tool log.
+- Record the strategy choice, action, outcome, learning, and next focus only.
+"""
+
 
 def _get_default_heartbeat_instruction() -> str:
     """Read default heartbeat instruction from templates/HEARTBEAT.md (single source of truth)."""
@@ -49,6 +57,10 @@ def _get_default_heartbeat_instruction() -> str:
         return _HEARTBEAT_TEMPLATE_PATH.read_text(encoding="utf-8").strip()
     except Exception:
         return "[Heartbeat] Check focus.md, do one useful thing, reply HEARTBEAT_OK if nothing needed."
+
+
+def _compose_heartbeat_instruction(base_instruction: str) -> str:
+    return base_instruction + _HEARTBEAT_STRATEGY_SUFFIX + _HEARTBEAT_PRIVACY_SUFFIX
 
 
 def _try_acquire_heartbeat_lease(
@@ -118,9 +130,9 @@ def _load_heartbeat_instruction(agent_id: uuid.UUID) -> str:
             custom = ""
         if not custom:
             break
-        return custom + _HEARTBEAT_PRIVACY_SUFFIX
+        return _compose_heartbeat_instruction(custom)
 
-    return _get_default_heartbeat_instruction() + _HEARTBEAT_PRIVACY_SUFFIX
+    return _compose_heartbeat_instruction(_get_default_heartbeat_instruction())
 
 
 

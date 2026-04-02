@@ -268,6 +268,9 @@ CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.
 - You already have all the context you need in the conversation below.
 - Tool calls will be REJECTED and will waste your only turn.
 - Your entire response must be plain text: an <analysis> block followed by a <summary> block.
+- Session summaries preserve working state so the next turn can continue safely.
+- Do NOT rewrite this summary as long-term memory or policy.
+- Stable preferences, lessons, and policies can be extracted later into memory and evolution systems.
 
 Your task is to create a detailed summary of the conversation, preserving critical context \
 for continuing work without losing state.

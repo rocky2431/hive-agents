@@ -11,7 +11,15 @@ from app.tools.decorator import ToolMeta, tool
 
 @tool(ToolMeta(
     name="set_trigger",
-    description="Set a new trigger to wake yourself up at a specific time or condition. Use this to schedule future actions, monitor changes, or wait for messages. The trigger will fire and invoke you with the reason text as context. Trigger types: 'cron' (recurring schedule), 'once' (fire once at a time), 'interval' (every N minutes), 'poll' (HTTP monitoring), 'on_message' (when another agent or a human user replies \u2014 use from_agent_name for agents, or from_user_name for human users on Feishu/Slack/Discord), 'webhook' (receive external HTTP POST \u2014 system generates a unique URL, give it to the user so they can configure it in external services like GitHub, Grafana, etc.).",
+    description=(
+        "Set a new trigger to wake yourself up at a specific time or condition.\n\n"
+        "Usage:\n"
+        "- Use this to schedule future work, monitor changes, or wait for a reply/event before continuing.\n"
+        "- The trigger will fire and invoke you with the `reason` text as your wake-up context.\n"
+        "- Write the `reason` as instructions to your future self: what changed, what to do, and what completion looks like.\n"
+        "- Do NOT create a trigger without a clear reason and expected follow-up action.\n"
+        "- Trigger types: 'cron' (recurring schedule), 'once' (fire once at a time), 'interval' (every N minutes), 'poll' (HTTP monitoring), 'on_message' (when another agent or a human user replies — use from_agent_name for agents, or from_user_name for human users on Feishu/Slack/Discord), 'webhook' (receive external HTTP POST — system generates a unique URL, give it to the user so they can configure it in external services like GitHub, Grafana, etc.)."
+    ),
     parameters={
         "type": "object",
         "properties": {
@@ -53,7 +61,13 @@ async def set_trigger(agent_id: uuid.UUID, arguments: dict) -> str:
 
 @tool(ToolMeta(
     name="update_trigger",
-    description="Update an existing trigger's configuration or reason. Use this to adjust timing, change parameters, etc. For example, change interval from 5 minutes to 30 minutes.",
+    description=(
+        "Update an existing trigger's configuration or reason.\n\n"
+        "Usage:\n"
+        "- Use this when the timing, monitored condition, or follow-up instructions changed.\n"
+        "- Update the `reason` when the next wake-up should do something different from the original plan.\n"
+        "- Do NOT create a second trigger when the current trigger should simply be adjusted."
+    ),
     parameters={
         "type": "object",
         "properties": {
@@ -86,7 +100,13 @@ async def update_trigger(agent_id: uuid.UUID, arguments: dict) -> str:
 
 @tool(ToolMeta(
     name="cancel_trigger",
-    description="Cancel (disable) a trigger by name. Use this when a task is completed and the trigger is no longer needed.",
+    description=(
+        "Cancel (disable) a trigger by name.\n\n"
+        "Usage:\n"
+        "- Use this when the task is completed, superseded, or should stop waking you up.\n"
+        "- Cancel stale waiting or reminder triggers as soon as they are no longer needed.\n"
+        "- Do NOT leave obsolete triggers running — they create noisy wake-ups and bad follow-through."
+    ),
     parameters={
         "type": "object",
         "properties": {
@@ -111,7 +131,13 @@ async def cancel_trigger(agent_id: uuid.UUID, arguments: dict) -> str:
 
 @tool(ToolMeta(
     name="list_triggers",
-    description="List all your active triggers. Shows name, type, config, reason, fire count, and status.",
+    description=(
+        "List all your active triggers.\n\n"
+        "Usage:\n"
+        "- Use this to inspect what future wake-ups already exist before creating or updating triggers.\n"
+        "- Results include name, type, config, reason, fire count, and status.\n"
+        "- Prefer reading the existing trigger set before scheduling overlapping reminders."
+    ),
     parameters={
         "type": "object",
         "properties": {},

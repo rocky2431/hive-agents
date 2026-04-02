@@ -34,6 +34,42 @@ MIN_SESSIONS_SINCE_DREAM = 5
 _last_dream_time: dict[str, datetime] = {}
 _sessions_since_dream: dict[str, int] = {}
 
+_AUTO_DREAM_SYSTEM_PROMPT = (
+    "You consolidate an agent's long-term memory into a clean, deduplicated fact list.\n"
+    "Do NOT preserve transient task state, temporary TODOs, or raw session transcripts.\n"
+    "Keep durable reusable facts, durable strategy lessons, and blocked patterns.\n"
+    "Return only a JSON array — no prose, no explanation."
+)
+
+
+def _build_dream_consolidation_prompt(*, facts: list[dict], summaries: list[str]) -> str:
+    facts_text = "\n".join(
+        str(i) + ". [" + f.get("category", "general") + "] " + f.get("content", "")[:200]
+        for i, f in enumerate(facts)
+    )
+    summaries_text = "\n---\n".join(s[:500] for s in summaries[:5])
+    return (
+        "You are consolidating an agent's long-term memory.\n\n"
+        "## Current Facts\n" + facts_text + "\n\n"
+        "## Recent Session Summaries\n" + summaries_text + "\n\n"
+        "## Instructions\n"
+        "1. Remove duplicate or contradictory facts (keep the newer/more specific one)\n"
+        "2. Merge related facts into single comprehensive statements\n"
+        "3. Add new facts from sessions that aren't already captured\n"
+        "4. Assign each fact a category: user, feedback, project, reference, constraint, strategy, blocked_pattern, or general\n"
+        "5. When facts contradict each other, keep the one from a more recent session summary\n"
+        "6. Each fact should be concise (under 200 characters) — merge verbose entries into crisp statements\n"
+        "7. Promote durable successful approaches to strategy\n"
+        "8. Promote repeated failed approaches to blocked_pattern\n"
+        "9. evolution files remain the home for active policy iteration; keep only the durable outcome here\n\n"
+        "## What NOT to consolidate\n"
+        "- Ephemeral task details (in-progress work, temporary state) — these belong in focus.md, not memory\n"
+        "- Code patterns or file paths that can be derived by reading the workspace\n"
+        "- Debugging solutions — the fix should be in the code, not in memory\n"
+        "- Exact tool call sequences — only outcomes and learnings matter\n\n"
+        "Return ONLY the JSON array, no other text."
+    )
+
 
 def _dream_state_path(agent_id: uuid.UUID) -> Path:
     return Path(get_settings().AGENT_DATA_DIR) / str(agent_id) / "memory" / "auto_dream_state.json"
@@ -194,31 +230,7 @@ async def _consolidate_with_llm(
     if not model_config:
         return None
 
-    facts_text = "\n".join(
-        str(i) + ". [" + f.get("category", "general") + "] " + f.get("content", "")[:200]
-        for i, f in enumerate(facts)
-    )
-    summaries_text = "\n---\n".join(s[:500] for s in summaries[:5])
-
-    prompt = (
-        "You are consolidating an agent's long-term memory.\n\n"
-        "## Current Facts\n" + facts_text + "\n\n"
-        "## Recent Session Summaries\n" + summaries_text + "\n\n"
-        "## Instructions\n"
-        "1. Remove duplicate or contradictory facts (keep the newer/more specific one)\n"
-        "2. Merge related facts into single comprehensive statements\n"
-        "3. Add new facts from sessions that aren't already captured\n"
-        "4. Assign each fact a category: user, feedback, project, reference, constraint, strategy, blocked_pattern, or general\n"
-        "5. When facts contradict each other, keep the one from a more recent session summary\n"
-        "6. Each fact should be concise (under 200 characters) — merge verbose entries into crisp statements\n"
-        "7. Return JSON array: [{\"content\": \"...\", \"category\": \"...\", \"subject\": \"...\"}]\n\n"
-        "## What NOT to consolidate\n"
-        "- Ephemeral task details (in-progress work, temporary state) — these belong in focus.md, not memory\n"
-        "- Code patterns or file paths that can be derived by reading the workspace\n"
-        "- Debugging solutions — the fix should be in the code, not in memory\n"
-        "- Exact tool call sequences — only outcomes and learnings matter\n\n"
-        "Return ONLY the JSON array, no other text."
-    )
+    prompt = _build_dream_consolidation_prompt(facts=facts, summaries=summaries)
 
     try:
         client = create_llm_client(**model_config)
@@ -226,11 +238,7 @@ async def _consolidate_with_llm(
             messages=[
                 LLMMessage(
                     role="system",
-                    content=(
-                        "You consolidate an agent's long-term memory into a clean, deduplicated fact list. "
-                        "Keep facts actionable and concise. Remove stale or ephemeral entries. "
-                        "Return only a JSON array — no prose, no explanation."
-                    ),
+                    content=_AUTO_DREAM_SYSTEM_PROMPT,
                 ),
                 LLMMessage(role="user", content=prompt),
             ],

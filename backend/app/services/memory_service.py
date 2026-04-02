@@ -567,6 +567,26 @@ def _load_agent_memory(agent_id: uuid.UUID) -> str:
         return ""
 
 
+_MEMORY_EXTRACTION_SYSTEM_PROMPT = (
+    "Extract long-term memory facts from the provided session text.\n"
+    "Store durable reusable facts here, not transient session state.\n"
+    "Do NOT extract transient session state, temporary TODOs, or raw task transcripts.\n"
+    "Use this layer for preferences, durable project context, reusable references, successful strategies, and blocked patterns.\n"
+)
+
+
+def _build_memory_extraction_prompt(session_text: str) -> str:
+    return (
+        "Session text:\n"
+        f"{session_text}\n\n"
+        "Layer boundaries:\n"
+        "- Session summaries hold short-lived working state.\n"
+        "- Long-term memory stores durable reusable facts.\n"
+        "- policy-level evolution belongs in heartbeat/evolution flows, not raw conversation memory.\n\n"
+        "Return a JSON array of memory facts."
+    )
+
+
 async def _extract_facts_with_llm(messages: list[dict], model_config: dict) -> list[dict]:
     """Use LLM to extract memorable facts from conversation."""
     from app.services.llm_client import LLMMessage, create_llm_client
@@ -608,6 +628,7 @@ async def _extract_facts_with_llm(messages: list[dict], model_config: dict) -> l
 
     # Was -40, too narrow for long conversations — tool results in early rounds got skipped
     text = "\n".join(conversation_text[-80:])
+    prompt_text = _build_memory_extraction_prompt(text)
 
     client = create_llm_client(**model_config)
     try:
@@ -616,12 +637,12 @@ async def _extract_facts_with_llm(messages: list[dict], model_config: dict) -> l
                 LLMMessage(
                     role="system",
                     content=(
-                        "Extract key facts from this conversation that would be useful to remember for future interactions. "
-                        "Return a JSON array of objects with 'content', optional 'subject', and 'category' fields. Extract 2-8 facts max.\n"
+                        _MEMORY_EXTRACTION_SYSTEM_PROMPT
+                        + "Return a JSON array of objects with 'content', optional 'subject', and 'category' fields. Extract 2-8 facts max.\n"
                         "CATEGORIES (assign one per fact):\n"
                         "- user: preferences, role, knowledge, working style\n"
                         "- feedback: corrections, confirmations, behavioral guidance\n"
-                        "- project: goals, deadlines, decisions, status updates\n"
+                        "- project: goals, deadlines, decisions, stable status updates\n"
                         "- reference: pointers to external systems, URLs, tool names\n"
                         "- constraint: hard rules the agent must follow\n"
                         "- strategy: successful approaches worth reusing\n"
@@ -630,7 +651,7 @@ async def _extract_facts_with_llm(messages: list[dict], model_config: dict) -> l
                         "PRIORITY extraction targets (do NOT miss these):\n"
                         "1. User feedback, corrections, or preferences → category: feedback\n"
                         "2. Explicit instructions for future behavior → category: feedback\n"
-                        "3. Important decisions or project context → category: project\n"
+                        "3. Important decisions or durable project context → category: project\n"
                         "4. Personal information or working style → category: user\n"
                         "5. Tool execution conclusions or discovered facts → category: reference\n"
                         "6. File write artifacts or created resources → category: project\n"
@@ -638,7 +659,7 @@ async def _extract_facts_with_llm(messages: list[dict], model_config: dict) -> l
                         "Respond ONLY with the JSON array, no other text."
                     ),
                 ),
-                LLMMessage(role="user", content=text),
+                LLMMessage(role="user", content=prompt_text),
             ],
             max_tokens=1000,
             temperature=0.3,

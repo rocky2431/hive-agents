@@ -230,9 +230,12 @@ async def discover_resources(arguments: dict) -> str:
 @tool(ToolMeta(
     name="search_clawhub",
     description=(
-        "Search the ClawHub skill marketplace for agent skills. Returns skill slugs "
-        "that can be passed to create_digital_employee's clawhub_slugs parameter. "
-        "Use this in Round 2 to find skills for the agent being created."
+        "Search the ClawHub skill marketplace for agent skills.\n\n"
+        "Usage:\n"
+        "- Return skill slugs that can be passed to `create_digital_employee(clawhub_slugs=[...])`.\n"
+        "- Use this when hiring a new agent and you need installable marketplace skills.\n"
+        "- Search with concise domain keywords rather than long natural-language requests.\n"
+        "- Do NOT use this for local workspace skills — inspect the local skill catalog instead."
     ),
     parameters={
         "type": "object",

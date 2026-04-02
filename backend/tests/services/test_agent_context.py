@@ -67,3 +67,51 @@ async def test_build_agent_context_limits_confirmation_rule_to_conversation_mode
     assert "confirm with the user first" in conversation_prompt
     assert "confirm with the user first" not in task_prompt
     assert "executing an assigned task autonomously" in task_prompt
+
+
+@pytest.mark.asyncio
+async def test_build_agent_context_limits_confirmation_rule_to_heartbeat_mode(monkeypatch, tmp_path):
+    from app.services.agent_context import build_agent_context
+
+    agent_id = uuid4()
+    sessions = [_FakeSession([[]]), _FakeSession([None])]
+
+    monkeypatch.setattr("app.database.async_session", lambda: sessions.pop(0))
+    monkeypatch.setattr("app.services.agent_context.TOOL_WORKSPACE", tmp_path)
+    monkeypatch.setattr("app.services.agent_context.PERSISTENT_DATA", tmp_path)
+    monkeypatch.setattr("app.services.agent_context._load_skills_index", lambda *_args, **_kwargs: "")
+
+    heartbeat_prompt = await build_agent_context(
+        agent_id,
+        "Ops Agent",
+        include_runtime_metadata=False,
+        include_focus=False,
+        execution_mode="heartbeat",
+    )
+
+    assert "confirm with the user first" not in heartbeat_prompt
+    assert "self-evolution mode" in heartbeat_prompt
+
+
+@pytest.mark.asyncio
+async def test_build_agent_context_keeps_confirmation_rule_for_coordinator_mode(monkeypatch, tmp_path):
+    from app.services.agent_context import build_agent_context
+
+    agent_id = uuid4()
+    sessions = [_FakeSession([[]]), _FakeSession([None])]
+
+    monkeypatch.setattr("app.database.async_session", lambda: sessions.pop(0))
+    monkeypatch.setattr("app.services.agent_context.TOOL_WORKSPACE", tmp_path)
+    monkeypatch.setattr("app.services.agent_context.PERSISTENT_DATA", tmp_path)
+    monkeypatch.setattr("app.services.agent_context._load_skills_index", lambda *_args, **_kwargs: "")
+
+    coordinator_prompt = await build_agent_context(
+        agent_id,
+        "Ops Agent",
+        include_runtime_metadata=False,
+        include_focus=False,
+        execution_mode="coordinator",
+    )
+
+    assert "confirm with the user first" in coordinator_prompt
+    assert "operating in coordinator mode" in coordinator_prompt
