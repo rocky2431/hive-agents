@@ -37,17 +37,22 @@ async def _get_email_config(agent_id: uuid.UUID) -> dict:
 
 async def _handle_email_tool(tool_name: str, agent_id: uuid.UUID, ws: Path, arguments: dict) -> str:
     """Dispatch email tool calls to the email_service module."""
-    from app.services.email_service import send_email, read_emails, reply_email
+    from app.services.email_service import (
+        send_email,
+        read_emails,
+        reply_email,
+        validate_email_tool_request,
+    )
 
     config = await _get_email_config(agent_id)
-    if not config.get("email_address") or not config.get("auth_code"):
-        return (
-            "❌ Email not configured for this agent.\n\n"
-            "Please go to Agent → Tools → Send Email → Config to set up your email:\n"
-            "1. Select your email provider\n"
-            "2. Enter your email address\n"
-            "3. Enter your authorization code (not your login password)"
-        )
+    preflight_error = validate_email_tool_request(
+        tool_name=tool_name,
+        config=config or {"email_provider": "email"},
+        arguments=arguments,
+        workspace_path=ws,
+    )
+    if preflight_error:
+        return preflight_error
 
     try:
         if tool_name == "send_email":

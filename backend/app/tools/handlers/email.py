@@ -10,7 +10,7 @@ from app.tools.runtime import ToolExecutionRequest
 
 @tool(ToolMeta(
     name="send_email",
-    description="Send an email to one or more recipients. Supports subject, body text, CC, and file attachments from workspace. Requires email configuration in tool settings.",
+    description="Send an email to one or more recipients. Supports subject, body text, CC, and file attachments from workspace. Use for external inbox delivery or when a message must land in email. For internal recurring notifications, prefer Feishu tools first. Requires email configuration in tool settings.",
     parameters={
         "type": "object",
         "properties": {
@@ -58,7 +58,7 @@ async def send_email(request: ToolExecutionRequest) -> str:
 
 @tool(ToolMeta(
     name="read_emails",
-    description="Read emails from your inbox. Can limit the number returned and search by criteria (e.g. FROM, SUBJECT, SINCE date). Requires email configuration in tool settings.",
+    description="Read emails from your inbox. Can limit the number returned and search by criteria (e.g. FROM, SUBJECT, SINCE date). Use this before reply_email so you can capture the exact Message-ID. Requires email configuration in tool settings.",
     parameters={
         "type": "object",
         "properties": {
