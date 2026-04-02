@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { enterpriseApi } from '../../api/domains/enterprise';
 import { toolsApi } from '../../api/domains/tools';
 
 interface WorkspaceToolsSectionProps {
@@ -413,18 +412,7 @@ export default function WorkspaceToolsSection({
                                           setEditingToolId(null);
                                         } else {
                                           setEditingToolId(tool.id);
-                                          const config = { ...tool.config };
-                                          if (tool.name === 'jina_search' || tool.name === 'jina_read') {
-                                            try {
-                                              const data = await enterpriseApi.getSetting('jina_api_key');
-                                              if (data.value?.api_key) {
-                                                config.api_key = data.value.api_key;
-                                              }
-                                            } catch {
-                                              // Keep the existing config if the key cannot be loaded.
-                                            }
-                                          }
-                                          setEditingConfig(config);
+                                          setEditingConfig({ ...tool.config });
                                         }
                                       }}
                                     >
@@ -499,13 +487,7 @@ export default function WorkspaceToolsSection({
                                       <button
                                         className="btn btn-primary"
                                         onClick={async () => {
-                                          if (tool.name === 'jina_search' || tool.name === 'jina_read') {
-                                            if (editingConfig.api_key) {
-                                              await enterpriseApi.updateSetting('jina_api_key', { api_key: editingConfig.api_key });
-                                            }
-                                          } else {
-                                            await toolsApi.updateGlobalTool(tool.id, { config: editingConfig });
-                                          }
+                                          await toolsApi.updateGlobalTool(tool.id, { config: editingConfig });
                                           setEditingToolId(null);
                                           loadAllTools();
                                         }}

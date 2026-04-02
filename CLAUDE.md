@@ -119,7 +119,7 @@ Skills are markdown files with YAML frontmatter that define agent capabilities:
 ---
 name: "Web Research"
 description: "Search and analyze web content"
-tools: [web_search, jina_read]
+tools: [web_search, web_fetch]
 ---
 # Instructions...
 ```
@@ -184,7 +184,7 @@ Both `en.json` and `zh.json` must be updated for any UI text. Use `t('key')` fro
 Feishu/Lark, Discord, Slack, DingTalk, WeChat Work, Microsoft Teams — each has its own router in `api/` and streaming service in `services/`. Channel configs are per-agent.
 
 ### Environment Variables
-Key vars (see `.env.example`): `DATABASE_URL`, `REDIS_URL`, `SECRET_KEY`, `JWT_SECRET_KEY`, `AGENT_DATA_DIR`, `JINA_API_KEY`, `FEISHU_APP_ID`/`FEISHU_APP_SECRET`.
+Key vars (see `.env.example`): `DATABASE_URL`, `REDIS_URL`, `SECRET_KEY`, `JWT_SECRET_KEY`, `AGENT_DATA_DIR`, `EXA_API_KEY`, `TAVILY_API_KEY`, `FIRECRAWL_API_KEY`, `XCRAWL_API_KEY`, `FEISHU_APP_ID`/`FEISHU_APP_SECRET`.
 
 ### Ports
 Frontend dev: 3008, Backend dev: 8008, PostgreSQL: 5432, Redis: 6379.

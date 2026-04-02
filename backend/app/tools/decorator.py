@@ -43,7 +43,7 @@ class ToolMeta:
     # Pack membership
     pack: str = ""  # e.g. "web_pack", "feishu_pack"
 
-    # Aliases (e.g. bing_search → jina_search)
+    # Aliases (e.g. bing_search → web_search)
     aliases: tuple[str, ...] = ()
 
     # Handler signature adapter (see adapters.py)

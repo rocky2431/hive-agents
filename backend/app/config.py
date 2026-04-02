@@ -90,8 +90,15 @@ class Settings(BaseSettings):
     OPENVIKING_URL: str = ""
     OPENVIKING_API_KEY: str = ""
 
-    # Jina AI (Reader + Search APIs)
-    JINA_API_KEY: str = ""
+    # Tavily Search API
+    TAVILY_API_KEY: str = ""
+
+    # Exa Search API
+    EXA_API_KEY: str = ""
+
+    # Firecrawl / XCrawl scraping APIs
+    FIRECRAWL_API_KEY: str = ""
+    XCRAWL_API_KEY: str = ""
 
     model_config = {
         "env_file": [".env", "../.env"],

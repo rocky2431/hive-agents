@@ -1,7 +1,7 @@
 ---
 name: create_employee
 description: Agent creation guide — skill catalog, trigger design, tool call sequence
-tools: [create_digital_employee, discover_resources, web_search, jina_search, jina_read, execute_code]
+tools: [create_digital_employee, discover_resources, web_search, web_fetch, firecrawl_fetch, execute_code]
 ---
 
 # Create Digital Employee — Guide

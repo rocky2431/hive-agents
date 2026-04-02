@@ -116,8 +116,10 @@ def _get_tool_runtime_service() -> ToolRuntimeService:
             return await _web_fetch(arguments)
         if tool_name == "web_search":
             return await _web_search(arguments)
-        if tool_name == "jina_search":
-            return await _jina_search(arguments)
+        if tool_name == "firecrawl_fetch":
+            return await _firecrawl_fetch(arguments)
+        if tool_name == "xcrawl_scrape":
+            return await _xcrawl_scrape(arguments)
         if tool_name == "send_feishu_message":
             return await _send_feishu_message(context.agent_id, arguments)
         if tool_name == "send_message_to_agent":
@@ -186,8 +188,8 @@ _HR_TOOL_NAMES = {
     "discover_resources",
     "search_clawhub",
     "web_search",
-    "jina_search",
-    "jina_read",
+    "firecrawl_fetch",
+    "xcrawl_scrape",
     "execute_code",
 }
 
@@ -213,9 +215,15 @@ async def _provider_available_tools(agent_id: uuid.UUID | None = None) -> set[st
     """Return provider-backed tools that are actually configured."""
     available: set[str] = set()
 
-    jina_key = await _get_jina_api_key()
-    if jina_key:
-        available |= {"jina_search", "jina_read"}
+    exa_key = await _get_exa_api_key()
+    firecrawl_key = await _get_firecrawl_api_key()
+    xcrawl_key = await _get_xcrawl_api_key()
+    if exa_key:
+        available.add("web_search")
+    if firecrawl_key:
+        available.add("firecrawl_fetch")
+    if xcrawl_key:
+        available.add("xcrawl_scrape")
 
     try:
         from app.services.resource_discovery import _get_modelscope_api_token, _get_smithery_api_key
@@ -232,7 +240,7 @@ async def _provider_available_tools(agent_id: uuid.UUID | None = None) -> set[st
 
 async def _filter_unavailable_tools(agent_id: uuid.UUID, tools: list[dict]) -> list[dict]:
     """Hide externally-backed tools that are not configured in production."""
-    provider_backed = {"jina_search", "jina_read", "discover_resources", "import_mcp_server"}
+    provider_backed = {"firecrawl_fetch", "xcrawl_scrape", "discover_resources", "import_mcp_server"}
     available = await _provider_available_tools(agent_id)
     return [
         tool for tool in tools
@@ -579,10 +587,12 @@ from app.services.agent_tool_domains.web_mcp import (  # noqa: E402
     _discover_resources as _discover_resources,
     _execute_mcp_tool as _execute_mcp_tool,
     _execute_via_smithery_connect as _execute_via_smithery_connect,
-    _get_jina_api_key as _get_jina_api_key,
+    _firecrawl_fetch as _firecrawl_fetch,
+    _get_exa_api_key as _get_exa_api_key,
+    _get_firecrawl_api_key as _get_firecrawl_api_key,
+    _get_xcrawl_api_key as _get_xcrawl_api_key,
     _import_mcp_server as _import_mcp_server,
-    _jina_read as _jina_read,
-    _jina_search as _jina_search,
+    _search_exa as _search_exa,
     _search_bing as _search_bing,
     _search_duckduckgo as _search_duckduckgo,
     _search_google as _search_google,
@@ -590,4 +600,5 @@ from app.services.agent_tool_domains.web_mcp import (  # noqa: E402
     _smithery_auto_recover as _smithery_auto_recover,
     _web_fetch as _web_fetch,
     _web_search as _web_search,
+    _xcrawl_scrape as _xcrawl_scrape,
 )

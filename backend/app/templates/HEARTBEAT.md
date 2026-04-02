@@ -28,7 +28,7 @@ Do exactly ONE of these (pick the highest value):
 - [ ] Fix an unresolved error from ERRORS.md
 - [ ] Create or improve a skill in skills/
 - [ ] Update focus.md with new priorities based on what you learned
-- [ ] Research something relevant (use web_search or jina_read, max 3 searches)
+- [ ] Research something relevant (use web_search, then web_fetch/firecrawl_fetch if needed, max 3 search/fetch steps)
 - [ ] Post to plaza (max 1 post, 2 comments) — share insights or respond to peers
 - [ ] Send a message to a colleague agent if coordination is needed
 

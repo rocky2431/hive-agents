@@ -178,7 +178,7 @@ def test_collect_skill_declared_packs_merges_explicit_and_inferred_packs():
             metadata=SkillMetadata(
                 name="Web Research",
                 description="",
-                declared_tools=("web_search", "jina_read"),
+                declared_tools=("web_search", "firecrawl_fetch"),
                 declared_packs=(),
             ),
             body="# Web Research",
@@ -198,6 +198,6 @@ def test_collect_skill_declared_packs_merges_explicit_and_inferred_packs():
         {
             "name": "web_pack",
             "skills": ["Web Research"],
-            "tools": ["jina_read", "web_search"],
+            "tools": ["firecrawl_fetch", "web_search"],
         },
     ]

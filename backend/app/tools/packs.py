@@ -22,7 +22,7 @@ TOOL_PACKS: tuple[ToolPackSpec, ...] = (
         summary="网页搜索与抓取能力，用于公开信息检索与网页内容提取。",
         source="system",
         activation_mode="通过 web research 等 skill 间接激活",
-        tools=("web_search", "jina_search", "jina_read", "web_fetch"),
+        tools=("web_search", "web_fetch", "firecrawl_fetch", "xcrawl_scrape"),
     ),
     ToolPackSpec(
         name="feishu_pack",

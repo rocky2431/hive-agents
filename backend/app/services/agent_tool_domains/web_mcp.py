@@ -10,6 +10,7 @@ from urllib.parse import quote, urlparse
 import httpx
 from sqlalchemy import select
 
+from app.config import get_settings
 from app.database import async_session
 from app.tools.result_envelope import classify_http_status, render_tool_error, render_tool_fallback
 
@@ -108,14 +109,17 @@ def _provider_failure_message(result: str, engine: str) -> str:
     return first_line.removeprefix("❌").strip() or f"web_search provider '{engine}' failed"
 
 
-async def _fallback_to_jina_search(query: str, max_results: int) -> str | None:
-    api_key = await _get_jina_api_key()
-    if not api_key:
-        return None
-    result = await _jina_search({"query": query, "max_results": max_results})
-    if _provider_result_failed(result):
-        return None
-    return result
+async def _get_tool_config(tool_name: str) -> dict:
+    try:
+        from app.models.tool import Tool
+
+        async with async_session() as db:
+            result = await db.execute(select(Tool).where(Tool.name == tool_name))
+            tool = result.scalar_one_or_none()
+            return dict(tool.config or {}) if tool and tool.config else {}
+    except Exception as e:
+        logger.debug("Suppressed: %s", e)
+        return {}
 
 
 async def _fallback_search_result(query: str, max_results: int) -> tuple[str, str] | None:
@@ -125,10 +129,6 @@ async def _fallback_search_result(query: str, max_results: int) -> tuple[str, st
             return ("web_search:duckduckgo", duckduckgo_result)
     except Exception:
         logger.debug("DuckDuckGo fallback failed", exc_info=True)
-
-    jina_result = await _fallback_to_jina_search(query, max_results)
-    if jina_result:
-        return ("jina_search", jina_result)
     return None
 
 
@@ -149,25 +149,40 @@ async def _web_search(arguments: dict) -> str:
             hint="Use web_fetch when you already have a specific URL.",
         )
 
-    config = {}
-    try:
-        from app.models.tool import Tool
+    config = await _get_tool_config("web_search")
 
-        async with async_session() as db:
-            r = await db.execute(select(Tool).where(Tool.name == "web_search"))
-            tool = r.scalar_one_or_none()
-            if tool and tool.config:
-                config = tool.config
-    except Exception as e:
-        logger.debug("web_search config load failed: %s", e)
-
-    engine = config.get("search_engine", "duckduckgo")
-    api_key = config.get("api_key", "")
+    configured_engine = config.get("search_engine") or "auto"
+    engine = configured_engine
     max_results = min(arguments.get("max_results", config.get("max_results", 5)), 10)
     language = config.get("language", "zh-CN")
     fallback_note = None
+    exa_api_key = config.get("exa_api_key") or config.get("api_key", "") or await _get_exa_api_key()
+    tavily_api_key = config.get("tavily_api_key") or config.get("api_key", "") or await _get_tavily_api_key()
+    google_api_key = config.get("google_api_key") or config.get("api_key", "")
+    bing_api_key = config.get("bing_api_key") or config.get("api_key", "")
 
-    if engine in {"tavily", "google", "bing"} and not api_key:
+    if engine == "auto":
+        if exa_api_key:
+            engine = "exa"
+        elif tavily_api_key:
+            engine = "tavily"
+        else:
+            engine = "duckduckgo"
+    elif engine == "duckduckgo" and exa_api_key:
+        # Backward compatibility for legacy seeded configs that still default to DuckDuckGo.
+        engine = "exa"
+
+    api_key = ""
+    if engine == "exa":
+        api_key = exa_api_key
+    elif engine == "tavily":
+        api_key = tavily_api_key
+    elif engine == "google":
+        api_key = google_api_key
+    elif engine == "bing":
+        api_key = bing_api_key
+
+    if engine in {"exa", "tavily", "google", "bing"} and not api_key:
         fallback_note = f"{engine} is configured but no API key is available, so web_search fell back to DuckDuckGo."
         engine = "duckduckgo"
     if engine == "google" and api_key and ":" not in api_key:
@@ -175,7 +190,9 @@ async def _web_search(arguments: dict) -> str:
         engine = "duckduckgo"
 
     try:
-        if engine == "tavily" and api_key:
+        if engine == "exa" and api_key:
+            result = await _search_exa(query, api_key, max_results)
+        elif engine == "tavily" and api_key:
             result = await _search_tavily(query, api_key, max_results)
         elif engine == "google" and api_key:
             result = await _search_google(query, api_key, max_results, language)
@@ -193,11 +210,7 @@ async def _web_search(arguments: dict) -> str:
                     message=_provider_failure_message(result, engine),
                     provider=engine,
                     retryable=True,
-                    actionable_hint=(
-                        "The configured provider returned an unusable response, so the tool fell back to DuckDuckGo."
-                        if fallback_tool == "web_search:duckduckgo"
-                        else "The configured provider and DuckDuckGo were unavailable, so the tool used Jina Search as a last-resort fallback."
-                    ),
+                    actionable_hint="The configured provider returned an unusable response, so the tool fell back to DuckDuckGo.",
                     fallback_tool=fallback_tool,
                     fallback_result=fallback_result,
                 )
@@ -225,26 +238,9 @@ async def _web_search(arguments: dict) -> str:
                     message=f"web_search provider '{engine}' failed: {str(e)[:200]}",
                     provider=engine,
                     retryable=True,
-                    actionable_hint=(
-                        "The configured provider failed, so the tool fell back to DuckDuckGo."
-                        if fallback_tool == "web_search:duckduckgo"
-                        else "The configured provider and DuckDuckGo failed, so the tool used Jina Search as a last-resort fallback."
-                    ),
+                    actionable_hint="The configured provider failed, so the tool fell back to DuckDuckGo.",
                     fallback_tool=fallback_tool,
                     fallback_result=fallback_result,
-                )
-        else:
-            jina_fallback = await _fallback_to_jina_search(query, max_results)
-            if jina_fallback:
-                return render_tool_fallback(
-                    tool_name="web_search",
-                    error_class="provider_error",
-                    message=f"web_search provider '{engine}' failed: {str(e)[:200]}",
-                    provider=engine,
-                    retryable=True,
-                    actionable_hint="DuckDuckGo failed, so the tool used Jina Search as a last-resort fallback.",
-                    fallback_tool="jina_search",
-                    fallback_result=jina_fallback,
                 )
         if engine == "duckduckgo":
             return render_tool_error(
@@ -298,192 +294,22 @@ async def _search_duckduckgo(query: str, max_results: int) -> str:
     return f'🔍 DuckDuckGo results for "{query}" ({len(results)} items):\n\n' + "\n\n---\n\n".join(results)
 
 
-async def _get_jina_api_key() -> str:
+async def _get_exa_api_key() -> str:
+    return get_settings().EXA_API_KEY
+
+
+async def _get_tavily_api_key() -> str:
     try:
         from app.models.system_settings import SystemSetting
 
         async with async_session() as db:
-            result = await db.execute(select(SystemSetting).where(SystemSetting.key == "jina_api_key"))
+            result = await db.execute(select(SystemSetting).where(SystemSetting.key == "tavily_api_key"))
             setting = result.scalar_one_or_none()
             if setting and setting.value.get("api_key"):
                 return setting.value["api_key"]
     except Exception as e:
         logger.debug("Suppressed: %s", e)
-    from app.config import get_settings
-
-    return get_settings().JINA_API_KEY
-
-
-async def _jina_search(arguments: dict) -> str:
-    query = arguments.get("query", "").strip()
-    if not query:
-        return _invalid_argument_error(
-            "jina_search",
-            "jina_search requires a non-empty query.",
-            provider="jina",
-            hint="Pass concise search keywords. If you already have a URL, use web_fetch.",
-        )
-    if _looks_like_url(query):
-        return _invalid_argument_error(
-            "jina_search",
-            "jina_search expects keywords, not a URL.",
-            provider="jina",
-            hint="Use web_fetch when you already have a URL.",
-        )
-
-    max_results = min(arguments.get("max_results", 5), 10)
-    api_key = await _get_jina_api_key()
-
-    headers: dict = {
-        "Accept": "application/json",
-        "X-Respond-With": "no-content",
-        "X-Return-Format": "markdown",
-    }
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-
-    try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
-            resp = await client.get(
-                f"https://s.jina.ai/{quote(query)}",
-                headers=headers,
-            )
-
-        if resp.status_code != 200:
-            if resp.status_code in {401, 402, 403, 429, 500, 502, 503, 504}:
-                fallback_result = await _web_search({"query": query, "max_results": max_results})
-                return render_tool_fallback(
-                    tool_name="jina_search",
-                    error_class=classify_http_status(resp.status_code)[0],
-                    message=f"jina_search failed with HTTP {resp.status_code}: {resp.text[:200]}",
-                    provider="jina",
-                    http_status=resp.status_code,
-                    retryable=classify_http_status(resp.status_code)[1],
-                    actionable_hint="Jina is unavailable or misconfigured, so the tool fell back to web_search.",
-                    fallback_tool="web_search",
-                    fallback_result=fallback_result,
-                )
-            return _http_error(
-                "jina_search",
-                provider="jina",
-                status_code=resp.status_code,
-                detail=resp.text,
-                hint="Retry with a shorter query or switch to web_search.",
-            )
-
-        data = resp.json()
-        items = data.get("data", [])[:max_results]
-        if not items:
-            return f'🔍 No results found for "{query}"'
-
-        parts = []
-        for i, item in enumerate(items, 1):
-            title = item.get("title", "Untitled")
-            url = item.get("url", "")
-            description = item.get("description", "") or item.get("content", "")[:500]
-            parts.append(f"**{i}. {title}**\n{url}\n{description}")
-
-        return f'🔍 Jina Search results for "{query}" ({len(items)} items):\n\n' + "\n\n---\n\n".join(parts)
-    except Exception as e:
-        fallback_result = await _web_search({"query": query, "max_results": max_results})
-        return render_tool_fallback(
-            tool_name="jina_search",
-            error_class="provider_error",
-            message=f"jina_search failed: {str(e)[:300]}",
-            provider="jina",
-            retryable=True,
-            actionable_hint="Jina failed unexpectedly, so the tool fell back to web_search.",
-            fallback_tool="web_search",
-            fallback_result=fallback_result,
-        )
-
-
-async def _jina_read(arguments: dict) -> str:
-    url = arguments.get("url", "").strip()
-    if not url:
-        return _invalid_argument_error(
-            "jina_read",
-            "jina_read requires a URL.",
-            provider="jina",
-            hint="Pass a fully-qualified URL or a domain-like URL such as example.com/path.",
-        )
-    normalized_url = _normalize_url(url)
-    if not normalized_url:
-        return _invalid_argument_error(
-            "jina_read",
-            f"jina_read received an invalid URL: {url}",
-            provider="jina",
-            hint="Use a valid URL. If you only have keywords, use web_search or jina_search first.",
-        )
-    url = normalized_url
-
-    max_chars = min(arguments.get("max_chars", 8000), 20000)
-    api_key = await _get_jina_api_key()
-
-    headers: dict = {
-        "Accept": "text/plain, text/markdown, */*",
-        "X-Return-Format": "markdown",
-        "X-Remove-Selector": "header, footer, nav, aside, .ads, .advertisement",
-    }
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-
-    try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
-            resp = await client.get(f"https://r.jina.ai/{quote(url, safe='')}", headers=headers)
-
-        if resp.status_code != 200:
-            if resp.status_code in {401, 402, 403, 429, 500, 502, 503, 504}:
-                fallback_result = await _web_fetch({"url": url, "max_chars": max_chars})
-                return render_tool_fallback(
-                    tool_name="jina_read",
-                    error_class=classify_http_status(resp.status_code)[0],
-                    message=f"jina_read failed with HTTP {resp.status_code}: {resp.text[:200]}",
-                    provider="jina",
-                    http_status=resp.status_code,
-                    retryable=classify_http_status(resp.status_code)[1],
-                    actionable_hint="Jina Reader is unavailable or misconfigured, so the tool fell back to web_fetch.",
-                    fallback_tool="web_fetch",
-                    fallback_result=fallback_result,
-                )
-            return _http_error(
-                "jina_read",
-                provider="jina",
-                status_code=resp.status_code,
-                detail=resp.text,
-                hint="Retry with a valid URL or switch to web_fetch.",
-            )
-
-        text = resp.text.strip()
-        if not text or len(text) < 100:
-            fallback_result = await _web_fetch({"url": url, "max_chars": max_chars})
-            return render_tool_fallback(
-                tool_name="jina_read",
-                error_class="provider_empty",
-                message=f"jina_read returned empty content for {url}",
-                provider="jina",
-                retryable=False,
-                actionable_hint="Jina returned no usable content, so the tool fell back to web_fetch.",
-                fallback_tool="web_fetch",
-                fallback_result=fallback_result,
-            )
-
-        if len(text) > max_chars:
-            text = text[:max_chars] + f"\n\n[... truncated at {max_chars} chars]"
-
-        return f"📄 **Content from: {url}**\n\n{text}"
-    except Exception as e:
-        fallback_result = await _web_fetch({"url": url, "max_chars": max_chars})
-        return render_tool_fallback(
-            tool_name="jina_read",
-            error_class="provider_error",
-            message=f"jina_read failed: {str(e)[:300]}",
-            provider="jina",
-            retryable=True,
-            actionable_hint="Jina Reader failed unexpectedly, so the tool fell back to web_fetch.",
-            fallback_tool="web_fetch",
-            fallback_result=fallback_result,
-        )
+    return get_settings().TAVILY_API_KEY
 
 
 async def _web_fetch(arguments: dict) -> str:
@@ -502,7 +328,7 @@ async def _web_fetch(arguments: dict) -> str:
             "web_fetch",
             f"web_fetch received an invalid URL: {url}",
             provider="web_fetch",
-            hint="Use a valid URL. If you only have keywords, use web_search or jina_search first.",
+            hint="Use a valid URL. If you only have keywords, use web_search first.",
         )
 
     max_chars = min(arguments.get("max_chars", 8000), 20000)
@@ -545,6 +371,243 @@ async def _web_fetch(arguments: dict) -> str:
             retryable=True,
             actionable_hint="Retry with another URL or use search to discover an alternate page.",
         )
+
+
+async def _get_firecrawl_api_key() -> str:
+    config = await _get_tool_config("firecrawl_fetch")
+    return config.get("api_key") or get_settings().FIRECRAWL_API_KEY
+
+
+async def _get_xcrawl_api_key() -> str:
+    config = await _get_tool_config("xcrawl_scrape")
+    return config.get("api_key") or get_settings().XCRAWL_API_KEY
+
+
+async def _firecrawl_fetch(arguments: dict) -> str:
+    url = arguments.get("url", "").strip()
+    if not url:
+        return _invalid_argument_error(
+            "firecrawl_fetch",
+            "firecrawl_fetch requires a URL.",
+            provider="firecrawl",
+            hint="Pass a fully-qualified URL or a domain-like URL such as example.com/path.",
+        )
+
+    normalized_url = _normalize_url(url)
+    if not normalized_url:
+        return _invalid_argument_error(
+            "firecrawl_fetch",
+            f"firecrawl_fetch received an invalid URL: {url}",
+            provider="firecrawl",
+            hint="Use a valid URL. If you only have keywords, use web_search first.",
+        )
+
+    api_key = await _get_firecrawl_api_key()
+    if not api_key:
+        return render_tool_error(
+            tool_name="firecrawl_fetch",
+            error_class="provider_not_configured",
+            message="Firecrawl API key is not configured.",
+            provider="firecrawl",
+            retryable=False,
+            actionable_hint="Configure Firecrawl before using this tool, or fall back to web_fetch.",
+        )
+
+    max_chars = min(int(arguments.get("max_chars", 12000)), 30000)
+    only_main_content = bool(arguments.get("only_main_content", True))
+
+    try:
+        async with httpx.AsyncClient(timeout=45, follow_redirects=True) as client:
+            resp = await client.post(
+                "https://api.firecrawl.dev/v1/scrape",
+                json={
+                    "url": normalized_url,
+                    "formats": ["markdown"],
+                    "onlyMainContent": only_main_content,
+                },
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+            )
+
+        data = resp.json() if "json" in (resp.headers.get("content-type", "") or "").lower() or resp.text.strip().startswith("{") else {}
+        if resp.status_code != 200:
+            fallback_result = await _web_fetch({"url": normalized_url, "max_chars": max_chars})
+            return render_tool_fallback(
+                tool_name="firecrawl_fetch",
+                error_class=classify_http_status(resp.status_code)[0],
+                message=f"firecrawl_fetch failed with HTTP {resp.status_code}: {str(data)[:200] or resp.text[:200]}",
+                provider="firecrawl",
+                http_status=resp.status_code,
+                retryable=classify_http_status(resp.status_code)[1],
+                actionable_hint="Firecrawl is unavailable or misconfigured, so the tool fell back to web_fetch.",
+                fallback_tool="web_fetch",
+                fallback_result=fallback_result,
+            )
+
+        payload = data.get("data", data)
+        text = (payload.get("markdown") or payload.get("content") or payload.get("text") or "").strip()
+        if not text:
+            fallback_result = await _web_fetch({"url": normalized_url, "max_chars": max_chars})
+            return render_tool_fallback(
+                tool_name="firecrawl_fetch",
+                error_class="empty_content",
+                message=f"firecrawl_fetch returned empty content for {normalized_url}",
+                provider="firecrawl",
+                retryable=False,
+                actionable_hint="Firecrawl returned no usable content, so the tool fell back to web_fetch.",
+                fallback_tool="web_fetch",
+                fallback_result=fallback_result,
+            )
+        if len(text) > max_chars:
+            text = text[:max_chars] + f"\n\n[... truncated at {max_chars} chars]"
+        return f"📄 **Firecrawl content from: {normalized_url}**\n\n{text}"
+    except Exception as e:
+        fallback_result = await _web_fetch({"url": normalized_url, "max_chars": max_chars})
+        return render_tool_fallback(
+            tool_name="firecrawl_fetch",
+            error_class="provider_error",
+            message=f"firecrawl_fetch failed: {str(e)[:300]}",
+            provider="firecrawl",
+            retryable=True,
+            actionable_hint="Firecrawl failed unexpectedly, so the tool fell back to web_fetch.",
+            fallback_tool="web_fetch",
+            fallback_result=fallback_result,
+        )
+
+
+async def _xcrawl_scrape(arguments: dict) -> str:
+    url = arguments.get("url", "").strip()
+    if not url:
+        return _invalid_argument_error(
+            "xcrawl_scrape",
+            "xcrawl_scrape requires a URL.",
+            provider="xcrawl",
+            hint="Pass a fully-qualified URL or a domain-like URL such as example.com/path.",
+        )
+
+    normalized_url = _normalize_url(url)
+    if not normalized_url:
+        return _invalid_argument_error(
+            "xcrawl_scrape",
+            f"xcrawl_scrape received an invalid URL: {url}",
+            provider="xcrawl",
+            hint="Use a valid URL. If you only have keywords, use web_search first.",
+        )
+
+    api_key = await _get_xcrawl_api_key()
+    if not api_key:
+        return render_tool_error(
+            tool_name="xcrawl_scrape",
+            error_class="provider_not_configured",
+            message="XCrawl API key is not configured.",
+            provider="xcrawl",
+            retryable=False,
+            actionable_hint="Configure XCrawl before using this tool, or fall back to firecrawl_fetch/web_fetch.",
+        )
+
+    max_chars = min(int(arguments.get("max_chars", 12000)), 30000)
+    js_render = bool(arguments.get("js_render", True))
+
+    try:
+        async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
+            resp = await client.post(
+                "https://run.xcrawl.com/v1/scrape",
+                json={
+                    "url": normalized_url,
+                    "markdown": True,
+                    "javascript": js_render,
+                },
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+            )
+
+        data = resp.json() if "json" in (resp.headers.get("content-type", "") or "").lower() or resp.text.strip().startswith("{") else {}
+        if resp.status_code != 200:
+            fallback_result = await _firecrawl_fetch({"url": normalized_url, "max_chars": max_chars})
+            return render_tool_fallback(
+                tool_name="xcrawl_scrape",
+                error_class=classify_http_status(resp.status_code)[0],
+                message=f"xcrawl_scrape failed with HTTP {resp.status_code}: {str(data)[:200] or resp.text[:200]}",
+                provider="xcrawl",
+                http_status=resp.status_code,
+                retryable=classify_http_status(resp.status_code)[1],
+                actionable_hint="XCrawl is unavailable or misconfigured, so the tool fell back to firecrawl_fetch.",
+                fallback_tool="firecrawl_fetch",
+                fallback_result=fallback_result,
+            )
+
+        payload = data.get("data", data)
+        text = (
+            payload.get("markdown")
+            or payload.get("content")
+            or payload.get("text")
+            or payload.get("html")
+            or ""
+        ).strip()
+        if not text:
+            fallback_result = await _firecrawl_fetch({"url": normalized_url, "max_chars": max_chars})
+            return render_tool_fallback(
+                tool_name="xcrawl_scrape",
+                error_class="empty_content",
+                message=f"xcrawl_scrape returned empty content for {normalized_url}",
+                provider="xcrawl",
+                retryable=False,
+                actionable_hint="XCrawl returned no usable content, so the tool fell back to firecrawl_fetch.",
+                fallback_tool="firecrawl_fetch",
+                fallback_result=fallback_result,
+            )
+        if len(text) > max_chars:
+            text = text[:max_chars] + f"\n\n[... truncated at {max_chars} chars]"
+        return f"📄 **XCrawl content from: {normalized_url}**\n\n{text}"
+    except Exception as e:
+        fallback_result = await _firecrawl_fetch({"url": normalized_url, "max_chars": max_chars})
+        return render_tool_fallback(
+            tool_name="xcrawl_scrape",
+            error_class="provider_error",
+            message=f"xcrawl_scrape failed: {str(e)[:300]}",
+            provider="xcrawl",
+            retryable=True,
+            actionable_hint="XCrawl failed unexpectedly, so the tool fell back to firecrawl_fetch.",
+            fallback_tool="firecrawl_fetch",
+            fallback_result=fallback_result,
+        )
+
+
+async def _search_exa(query: str, api_key: str, max_results: int) -> str:
+    async with httpx.AsyncClient(timeout=20) as client:
+        resp = await client.post(
+            "https://api.exa.ai/search",
+            json={
+                "query": query,
+                "numResults": max_results,
+                "contents": {
+                    "text": {"maxCharacters": 400},
+                },
+            },
+            headers={
+                "x-api-key": api_key,
+                "Content-Type": "application/json",
+            },
+        )
+        data = resp.json()
+
+    if resp.status_code != 200:
+        detail = data.get("error") if isinstance(data, dict) else None
+        return f"❌ Exa search failed: HTTP {resp.status_code}: {str(detail or data)[:200]}"
+    if "results" not in data:
+        return f"❌ Exa search failed: {data.get('error', str(data)[:200])}"
+
+    results = []
+    for item in data["results"][:max_results]:
+        summary = item.get("text") or item.get("summary") or ""
+        results.append(f"**{item.get('title', '')}**\n{item.get('url', '')}\n{summary[:200]}")
+    if not results:
+        return f'🔍 No results found for "{query}"'
+    return f'🔍 Exa search for "{query}" ({len(results)} items):\n\n' + "\n\n---\n\n".join(results)
 
 
 async def _search_tavily(query: str, api_key: str, max_results: int) -> str:

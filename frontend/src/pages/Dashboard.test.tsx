@@ -39,10 +39,10 @@ describe('Dashboard tool failure overview', () => {
         summary: makeSummary({
           total_errors: 3,
           by_tool: [
-            { tool_name: 'jina_search', count: 2 },
+            { tool_name: 'firecrawl_fetch', count: 2 },
             { tool_name: 'web_search', count: 1 },
           ],
-          by_provider: [{ provider: 'jina', count: 2 }],
+          by_provider: [{ provider: 'firecrawl', count: 2 }],
           by_error_class: [{ error_class: 'quota_or_billing', count: 1 }],
           by_http_status: [{ http_status: 402, count: 2 }],
         }),
@@ -63,7 +63,7 @@ describe('Dashboard tool failure overview', () => {
     expect(overview.totalErrors).toBe(5);
     expect(overview.byAgent[0]).toMatchObject({ agentId: 'agent-1', agentName: 'Ops Bot', count: 3 });
     expect(overview.byTool[0]).toMatchObject({ label: 'web_search', count: 3 });
-    expect(overview.byProvider[0]).toMatchObject({ label: 'jina', count: 2 });
+    expect(overview.byProvider[0]).toMatchObject({ label: 'firecrawl', count: 2 });
     expect(overview.byErrorClass[0]).toMatchObject({ label: 'provider_error', count: 2 });
     expect(overview.byHttpStatus[0]).toMatchObject({ label: '402', count: 2 });
   });
@@ -77,8 +77,8 @@ describe('Dashboard tool failure overview', () => {
             agentName: 'Ops Bot',
             summary: makeSummary({
               total_errors: 3,
-              by_tool: [{ tool_name: 'jina_search', count: 2 }],
-              by_provider: [{ provider: 'jina', count: 2 }],
+              by_tool: [{ tool_name: 'firecrawl_fetch', count: 2 }],
+              by_provider: [{ provider: 'firecrawl', count: 2 }],
               by_error_class: [{ error_class: 'quota_or_billing', count: 2 }],
               by_http_status: [{ http_status: 402, count: 2 }],
             }),
@@ -90,7 +90,7 @@ describe('Dashboard tool failure overview', () => {
 
     expect(markup).toContain('toolFailuresTitle');
     expect(markup).toContain('Ops Bot');
-    expect(markup).toContain('jina_search');
+    expect(markup).toContain('firecrawl_fetch');
     expect(markup).toContain('quota_or_billing');
     expect(markup).toContain('402');
   });

@@ -3,8 +3,9 @@ name: Find Skills
 description: 帮助发现和安装新技能。当用户问"怎么做X"、"有没有关于X的技能"时自动触发。搜索 → 排序 → 安全审查 → 安装。
 tools:
   - execute_code
-  - jina_search
-  - jina_read
+  - web_search
+  - web_fetch
+  - firecrawl_fetch
 is_system: false
 is_default: true
 ---
@@ -39,7 +40,7 @@ npx skills find [关键词]
 
 ### 方式二：网页搜索
 
-用 `jina_search` 搜索 `site:skills.sh <关键词>` 或用 `jina_read` 读取 https://skills.sh/ 排行榜。
+用 `web_search` 搜索 `site:skills.sh <关键词>`，找到候选页面后用 `web_fetch` 读取 skills.sh 排行榜或 skill 详情页。
 
 ---
 
@@ -62,7 +63,7 @@ npx skills find [关键词]
 
 ## 第三步：安全审查（必须）
 
-**安装任何 skill 之前，必须执行安全审查。** 使用 `jina_read` 读取 skill 的源码（GitHub SKILL.md），按以下清单检查：
+**安装任何 skill 之前，必须执行安全审查。** 使用 `web_fetch` 读取 skill 的源码（GitHub SKILL.md）；如果页面抓取不完整，再升级到 `firecrawl_fetch`。按以下清单检查：
 
 ### 3.1 来源验证
 - [ ] 作者是否为已知可信组织或有大量 follower

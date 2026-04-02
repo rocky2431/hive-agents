@@ -84,13 +84,15 @@ def test_core_tool_descriptions_define_when_not_to_use_and_fallbacks() -> None:
 
     tools = {tool["function"]["name"]: tool["function"]["description"] for tool in get_combined_openai_tools()}
 
+    assert "jina_search" not in tools
+    assert "jina_read" not in tools
     assert "Do NOT use this for long-running delegated work" in tools["send_message_to_agent"]
     assert "check back later with `check_async_task`" in tools["delegate_to_agent"]
     assert "follow up with `web_fetch`" in tools["web_search"]
-    assert "Do NOT use when you already have a specific URL" in tools["jina_search"]
-    assert "call `web_fetch` directly" in tools["jina_search"]
-    assert "If the page is too long" in tools["jina_read"]
+    assert "Prefer Exa" in tools["web_search"]
     assert "Prefer this after `web_search` identifies the right page" in tools["web_fetch"]
+    assert "Use this after `web_search`" in tools["firecrawl_fetch"]
+    assert "JS-rendered" in tools["xcrawl_scrape"]
     assert "If you need to wait for a reply later, pair the message with an `on_message` trigger" in tools["send_feishu_message"]
     assert "Do NOT use this for agent-to-agent collaboration" in tools["send_web_message"]
     assert "Describe the capability you need, not a vendor name" in tools["discover_resources"]
@@ -162,3 +164,53 @@ def test_auto_dream_prompt_distinguishes_memory_from_evolution_policy() -> None:
     assert "Promote durable successful approaches to strategy" in prompt
     assert "Promote repeated failed approaches to blocked_pattern" in prompt
     assert "evolution files remain the home for active policy iteration" in prompt
+
+
+def test_runtime_templates_no_longer_reference_jina() -> None:
+    project_root = Path(__file__).resolve().parents[3]
+    app_root = project_root / "backend" / "app"
+    web_research_guide = (app_root / "templates" / "system_skills" / "web-research-guide" / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    find_skills = (app_root / "templates" / "skills" / "find-skills" / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    skill_vetter = (app_root / "templates" / "skills" / "skill-vetter" / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    heartbeat = (app_root / "templates" / "HEARTBEAT.md").read_text(encoding="utf-8")
+
+    assert "jina_" not in web_research_guide.lower()
+    assert "firecrawl_fetch" in web_research_guide
+    assert "xcrawl_scrape" in web_research_guide
+    assert "web_fetch" in web_research_guide
+    assert "jina_" not in find_skills.lower()
+    assert "web_search" in find_skills
+    assert "web_fetch" in find_skills
+    assert "jina_" not in skill_vetter.lower()
+    assert "web_fetch" in skill_vetter
+    assert "jina_" not in heartbeat.lower()
+    assert "web_fetch" in heartbeat
+
+
+def test_settings_no_longer_define_jina_api_key() -> None:
+    from app.config import Settings
+
+    assert "JINA_API_KEY" not in Settings.model_fields
+
+
+def test_hr_templates_and_root_docs_no_longer_reference_jina() -> None:
+    project_root = Path(__file__).resolve().parents[3]
+    hr_create_employee = (project_root / "backend" / "hr_agent_template" / "skills" / "CREATE_EMPLOYEE.md").read_text(
+        encoding="utf-8"
+    )
+    hr_soul = (project_root / "backend" / "hr_agent_template" / "soul.md").read_text(encoding="utf-8")
+    agents_doc = (project_root / "AGENTS.md").read_text(encoding="utf-8")
+    readme_doc = (project_root / "README.md").read_text(encoding="utf-8")
+    claude_doc = (project_root / "CLAUDE.md").read_text(encoding="utf-8")
+
+    assert "jina" not in hr_create_employee.lower()
+    assert "jina" not in hr_soul.lower()
+    assert "jina" not in agents_doc.lower()
+    assert "jina" not in readme_doc.lower()
+    assert "jina" not in claude_doc.lower()

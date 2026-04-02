@@ -45,7 +45,7 @@ def test_skill_parser_and_registry_preserve_declared_tools(tmp_path):
             "description: Search and synthesize web information\n"
             "tools:\n"
             "  - web_search\n"
-            "  - jina_read\n"
+            "  - firecrawl_fetch\n"
             "---\n"
             "# Web Research\n"
             "Use this skill.\n"
@@ -59,7 +59,7 @@ def test_skill_parser_and_registry_preserve_declared_tools(tmp_path):
 
     skill = registry.resolve("Web Research")
     assert skill.metadata.name == "Web Research"
-    assert skill.metadata.declared_tools == ("web_search", "jina_read")
+    assert skill.metadata.declared_tools == ("web_search", "firecrawl_fetch")
     assert registry.load_body("Web Research").startswith("# Web Research")
 
 

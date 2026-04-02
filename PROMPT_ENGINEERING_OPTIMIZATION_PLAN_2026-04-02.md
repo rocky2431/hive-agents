@@ -92,7 +92,7 @@
 问题：
 
 - `filesystem` 和 `web_search` 提升明显
-- 但 `communication`、`trigger`、`skills catalog`、`jina_search`、`jina_read`、`discover_resources` 仍偏“功能说明”
+- 但 `communication`、`trigger`、`skills catalog`、`firecrawl_fetch`、`xcrawl_scrape`、`discover_resources` 仍偏“功能说明”
 - 还没有系统性写出：
   - 何时使用
   - 何时不使用
@@ -187,8 +187,8 @@
 - `send_web_message`
 - `send_message_to_agent`
 - `delegate_to_agent`
-- `jina_search`
-- `jina_read`
+- `firecrawl_fetch`
+- `xcrawl_scrape`
 - `discover_resources`
 - `SkillRegistry.render_catalog()`
 

@@ -36,10 +36,10 @@ CAPABILITY_MAP: dict[str, str] = {
     "send_message_to_agent": "agent.message.send",
     "create_digital_employee": "agent.employee.create",
     "web_search": "external.web.search",
-    "jina_search": "external.web.search",
     "bing_search": "external.web.search",
-    "jina_read": "external.web.read",
     "web_fetch": "external.web.read",
+    "firecrawl_fetch": "external.web.read",
+    "xcrawl_scrape": "external.web.read",
     "read_webpage": "external.web.read",
 }
 

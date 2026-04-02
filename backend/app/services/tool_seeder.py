@@ -18,6 +18,14 @@ def _load_builtin_tools() -> list[dict]:
 BUILTIN_TOOLS = _load_builtin_tools()
 
 
+def _current_builtin_tool_names() -> set[str]:
+    return {tool["name"] for tool in BUILTIN_TOOLS}
+
+
+def _names_of_stale_builtin_tools(existing_names: set[str]) -> set[str]:
+    return {name for name in existing_names if name not in _current_builtin_tool_names()}
+
+
 async def seed_builtin_tools():
     """Insert or update builtin tools in the database."""
     from app.models.agent import Agent
@@ -92,13 +100,17 @@ async def seed_builtin_tools():
                         db.add(AgentTool(agent_id=agent_id, tool_id=tool_id, enabled=True))
             logger.info(f"[ToolSeeder] Auto-assigned {len(new_tool_ids)} new tools to {len(agent_ids)} agents")
 
-        obsolete_tools = ["bing_search", "read_webpage", "manage_tasks"]
-        for obsolete_name in obsolete_tools:
-            result = await db.execute(select(Tool).where(Tool.name == obsolete_name))
-            obsolete = result.scalar_one_or_none()
-            if obsolete:
+        existing_builtin_rows = await db.execute(
+            select(Tool).where(Tool.type == "builtin", Tool.tenant_id.is_(None))
+        )
+        stale_builtin_names = _names_of_stale_builtin_tools({tool.name for tool in existing_builtin_rows.scalars().all()})
+        if stale_builtin_names:
+            stale_rows = await db.execute(
+                select(Tool).where(Tool.type == "builtin", Tool.tenant_id.is_(None), Tool.name.in_(stale_builtin_names))
+            )
+            for obsolete in stale_rows.scalars().all():
                 await db.delete(obsolete)
-                logger.info(f"[ToolSeeder] Removed obsolete tool: {obsolete_name}")
+                logger.info(f"[ToolSeeder] Removed stale builtin tool: {obsolete.name}")
 
         await db.commit()
         logger.info("[ToolSeeder] Builtin tools seeded")

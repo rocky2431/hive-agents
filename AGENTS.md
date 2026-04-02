@@ -138,7 +138,7 @@ Key vars in `.env` (see `.env.example`):
 - `REDIS_URL` — Redis connection
 - `SECRET_KEY`, `JWT_SECRET_KEY` — security keys
 - `AGENT_DATA_DIR` — agent workspace root (default: `~/.hive/data/agents` local, `/data/agents` in Docker)
-- `JINA_API_KEY` — for web search/read tools (optional, works without but rate-limited)
+- `EXA_API_KEY`, `TAVILY_API_KEY`, `FIRECRAWL_API_KEY`, `XCRAWL_API_KEY` — optional web/search provider keys
 - `FEISHU_APP_ID`, `FEISHU_APP_SECRET` — Feishu SSO (optional)
 
 ### Ports

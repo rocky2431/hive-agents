@@ -84,8 +84,8 @@ discover_resources(query="[keywords based on user answers, in English]")
 - Platform built-in: 飞书→`feishu-integration`, 钉钉→`dingtalk-integration`, Jira→`atlassian-rovo`
 - ClawHub: note the `slug` values from search_clawhub results
 - MCP: note the server IDs from discover_resources results
-- ClawHub skills are platform-vetted — mark ✅ SAFE (no jina_read needed)
-- MCP servers: optionally check Smithery page with jina_read
+- ClawHub skills are platform-vetted — mark ✅ SAFE unless the listing looks inconsistent
+- MCP servers: optionally inspect the Smithery page with `web_fetch`; if the page is hard to read, escalate to `firecrawl_fetch`
 
 **Step 2.5** — Present the capability plan to user. Ask to confirm.
 
@@ -197,4 +197,4 @@ create_digital_employee(
 7. **NEVER use `send_message_to_agent`** during creation. Use `create_digital_employee` directly.
 8. **Heartbeat ≠ Trigger.** Heartbeat = self-awareness cycle. Trigger = scheduled business task.
 9. **trigger config format**: `{"expr": "0 9 * * *"}` for cron, `{"minutes": 30}` for interval. NEVER pass bare string.
-10. **ClawHub skills are platform-vetted** — do NOT jina_read clawhub.ai URLs (returns empty).
+10. **ClawHub skills are platform-vetted** — do NOT spend extra fetch rounds on clawhub.ai unless the listing looks inconsistent.

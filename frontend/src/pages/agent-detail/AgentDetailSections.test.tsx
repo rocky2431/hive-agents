@@ -232,15 +232,15 @@ describe('AgentDetail extracted sections', () => {
         ]}
         toolFailureSummary={{
           total_errors: 3,
-          by_tool: [{ tool_name: 'jina_search', count: 2 }],
-          by_provider: [{ provider: 'jina', count: 2 }],
+          by_tool: [{ tool_name: 'firecrawl_fetch', count: 2 }],
+          by_provider: [{ provider: 'firecrawl', count: 2 }],
           by_error_class: [{ error_class: 'quota_or_billing', count: 2 }],
           by_http_status: [{ http_status: 402, count: 2 }],
           recent_errors: [
             {
-              summary: 'Jina billing issue',
-              tool_name: 'jina_search',
-              provider: 'jina',
+              summary: 'Firecrawl billing issue',
+              tool_name: 'firecrawl_fetch',
+              provider: 'firecrawl',
               error_class: 'quota_or_billing',
               http_status: 402,
               created_at: '2026-03-27T09:16:00Z',
@@ -258,7 +258,7 @@ describe('AgentDetail extracted sections', () => {
     expect(markup).toContain('Heartbeat completed');
     expect(markup).toContain('cycle');
     expect(markup).toContain('Tool Failure Summary');
-    expect(markup).toContain('jina_search');
+    expect(markup).toContain('firecrawl_fetch');
     expect(markup).toContain('quota_or_billing');
   });
 

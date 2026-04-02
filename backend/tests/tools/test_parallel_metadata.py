@@ -75,8 +75,9 @@ def test_all_parallel_safe_tools():
         "list_files",
         "list_triggers",
         "web_search",
-        "jina_search",
-        "jina_read",
+        "web_fetch",
+        "firecrawl_fetch",
+        "xcrawl_scrape",
     ]
     non_parallel_names = ["write_file", "edit_file", "delete_file", "execute_code"]
     registry = _build_registry(*(parallel_names + non_parallel_names))

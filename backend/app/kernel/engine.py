@@ -65,7 +65,7 @@ _EVICTION_EXEMPT_TOOLS = frozenset({
     "discover_resources", "list_triggers", "list_tasks", "get_task",
     "get_current_time", "check_async_task", "list_async_tasks",
     # Content-critical tools — already have their own internal truncation.
-    "web_search", "jina_read", "read_document",
+    "web_search", "firecrawl_fetch", "xcrawl_scrape", "read_document",
 })
 
 logger = logging.getLogger(__name__)
@@ -324,7 +324,7 @@ async def _execute_tool_with_hooks(
             if _path:
                 _session.track_file_write(_path)
                 _session.track_tool_outcome(tool_name, "Wrote " + _path)
-        elif tool_name in ("web_search", "jina_read", "read_document", "read_mcp_resource"):
+        elif tool_name in ("web_search", "firecrawl_fetch", "xcrawl_scrape", "read_document", "read_mcp_resource"):
             _ref = _args_dict.get("url") or _args_dict.get("query") or _args_dict.get("path", "")
             if _ref:
                 _session.track_external_ref(str(_ref)[:200])

@@ -3,7 +3,8 @@ name: Skill Vetter
 description: 安全审查协议。安装任何第三方 skill 之前必须执行此审查流程，检测恶意代码、权限越界和安全风险。
 tools:
   - execute_code
-  - jina_read
+  - web_fetch
+  - firecrawl_fetch
 is_system: false
 is_default: true
 ---
@@ -38,7 +39,7 @@ curl -s "https://api.github.com/repos/OWNER/REPO" | jq '{stars: .stargazers_coun
 
 ### 第二步：代码审查（必须）
 
-用 `jina_read` 读取 skill 的所有文件。检查以下红旗：
+用 `web_fetch` 读取 skill 的所有文件；如果页面抓取不完整，再升级到 `firecrawl_fetch`。检查以下红旗：
 
 **发现以下任何一项 → 立即拒绝安装：**
 

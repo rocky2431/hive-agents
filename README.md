@@ -189,7 +189,7 @@ npm test          # Structure validation tests
 | `JWT_SECRET_KEY` | JWT signing key |
 | `AGENT_DATA_DIR` | Agent workspace root directory |
 | `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | Feishu bot credentials |
-| `JINA_API_KEY` | Jina AI for web reading |
+| `EXA_API_KEY` / `TAVILY_API_KEY` / `FIRECRAWL_API_KEY` / `XCRAWL_API_KEY` | Search and advanced web extraction providers |
 
 ---
 

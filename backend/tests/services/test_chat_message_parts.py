@@ -181,7 +181,7 @@ def test_stream_event_builders_include_structured_parts():
         "packs": [{
             "name": "web_pack",
             "summary": "网页搜索与抓取能力",
-            "tools": ["web_search", "jina_read"],
+            "tools": ["web_search", "firecrawl_fetch"],
         }],
         "message": "Activated web_pack",
         "status": "info",
@@ -190,7 +190,7 @@ def test_stream_event_builders_include_structured_parts():
         "packs": [{
             "name": "web_pack",
             "summary": "网页搜索与抓取能力",
-            "tools": ["web_search", "jina_read"],
+            "tools": ["web_search", "firecrawl_fetch"],
         }],
         "message": "Activated web_pack",
         "status": "info",
@@ -203,7 +203,7 @@ def test_stream_event_builders_include_structured_parts():
             "packs": [{
                 "name": "web_pack",
                 "summary": "网页搜索与抓取能力",
-                "tools": ["web_search", "jina_read"],
+                "tools": ["web_search", "firecrawl_fetch"],
             }],
         },
     }

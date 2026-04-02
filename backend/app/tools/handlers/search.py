@@ -1,4 +1,4 @@
-"""Search tools — web search, Jina search/read, resource discovery."""
+"""Search tools — web search, direct fetch, and advanced page extraction."""
 
 from __future__ import annotations
 
@@ -9,12 +9,13 @@ from app.tools.decorator import ToolMeta, tool
 @tool(ToolMeta(
     name="web_search",
     description=(
-        "Search the internet via DuckDuckGo for public information.\n\n"
+        "Search the internet for public information. Prefer Exa when it is configured; otherwise fall back to Tavily or DuckDuckGo.\n\n"
         "Usage:\n"
         "- Use specific, well-formed search queries — not full sentences. Good: 'Python pandas groupby multiple columns'. Bad: 'How do I group by multiple columns in pandas?'\n"
         "- Results include titles, URLs, and snippets. To read full page content, follow up with `web_fetch` after you pick the best URL.\n"
-        "- When you need richer search ranking and Jina is configured, `jina_search` is an optional enhancement path, not the default reading path.\n"
-        "- May be unavailable on some networks. If search fails, try `jina_search` only when it is configured and you specifically want provider-backed search.\n"
+        "- In cloud deployments, Exa is the preferred provider-backed search path. Tavily is the secondary provider-backed option.\n"
+        "- Do NOT rely on provider-specific search tools first; use this generic search entrypoint unless you are debugging provider behavior.\n"
+        "- May be unavailable on some networks. If search fails, retry with a narrower query or read a known URL with `web_fetch`.\n"
         "- Do NOT search for information already available in your workspace files or loaded skills."
     ),
     parameters={
@@ -32,19 +33,23 @@ from app.tools.decorator import ToolMeta, tool
         "required": ["query"],
     },
     category="search",
-    display_name="DuckDuckGo Search",
+    display_name="Web Search",
     icon="\U0001f986",
     is_default=True,
     read_only=True,
     parallel_safe=True,
     governance="safe",
     pack="web_pack",
+    aliases=("bing_search",),
     adapter="args_only",
     config={
-        "search_engine": "duckduckgo",
+        "search_engine": "auto",
         "max_results": 5,
         "language": "en",
-        "api_key": "",
+        "exa_api_key": "",
+        "tavily_api_key": "",
+        "google_api_key": "",
+        "bing_api_key": "",
     },
     config_schema={
         "fields": [
@@ -53,20 +58,46 @@ from app.tools.decorator import ToolMeta, tool
                 "label": "Search Engine",
                 "type": "select",
                 "options": [
+                    {"value": "auto", "label": "Auto (prefer Exa, then Tavily, then DuckDuckGo)"},
+                    {"value": "exa", "label": "Exa (preferred search API, needs API key)"},
+                    {"value": "tavily", "label": "Tavily (secondary search API, needs API key)"},
                     {"value": "duckduckgo", "label": "DuckDuckGo (free, no API key)"},
-                    {"value": "tavily", "label": "Tavily (AI search, needs API key)"},
                     {"value": "google", "label": "Google Custom Search (needs API key)"},
                     {"value": "bing", "label": "Bing Search API (needs API key)"},
                 ],
-                "default": "duckduckgo",
+                "default": "auto",
             },
             {
-                "key": "api_key",
-                "label": "API Key",
+                "key": "exa_api_key",
+                "label": "Exa API Key",
                 "type": "password",
                 "default": "",
-                "placeholder": "Required for engines that need an API key",
-                "depends_on": {"search_engine": ["tavily", "google", "bing"]},
+                "placeholder": "exk_...",
+                "depends_on": {"search_engine": ["auto", "exa"]},
+            },
+            {
+                "key": "tavily_api_key",
+                "label": "Tavily API Key",
+                "type": "password",
+                "default": "",
+                "placeholder": "tvly-...",
+                "depends_on": {"search_engine": ["auto", "tavily"]},
+            },
+            {
+                "key": "google_api_key",
+                "label": "Google API Key",
+                "type": "password",
+                "default": "",
+                "placeholder": "API_KEY:SEARCH_ENGINE_ID",
+                "depends_on": {"search_engine": ["google"]},
+            },
+            {
+                "key": "bing_api_key",
+                "label": "Bing API Key",
+                "type": "password",
+                "default": "",
+                "placeholder": "bing_key",
+                "depends_on": {"search_engine": ["bing"]},
             },
             {
                 "key": "max_results",
@@ -95,105 +126,17 @@ async def web_search(arguments: dict) -> str:
     return await _web_search(arguments)
 
 
-# ── jina_search ──────────────────────────────────────────────────────
-
-@tool(ToolMeta(
-    name="jina_search",
-    description=(
-        "Search the internet using Jina AI Search (s.jina.ai).\n\n"
-        "Usage:\n"
-        "- Use this for research, news, technical docs, and other real-time lookups when you need richer provider-backed results than standard search snippets.\n"
-        "- Use focused search queries instead of full questions.\n"
-        "- Results may already include substantial content; for the final page read, prefer `web_fetch` once you have the right URL.\n"
-        "- Do NOT use when you already have a specific URL — call `web_fetch` directly.\n"
-        "- Use `jina_read` only when you explicitly want Jina Reader's cleaned markdown and the provider is configured.\n"
-        "- Do NOT use for information already available in your workspace or loaded skills."
-    ),
-    parameters={
-        "type": "object",
-        "properties": {
-            "query": {
-                "type": "string",
-                "description": "Search query, e.g. 'Python asyncio best practices' or '苏州通道人工智能科技有限公司'",
-            },
-            "max_results": {
-                "type": "integer",
-                "description": "Number of results to return, default 5, max 10",
-            },
-        },
-        "required": ["query"],
-    },
-    category="search",
-    display_name="Jina Search",
-    icon="\U0001f50e",
-    read_only=True,
-    parallel_safe=True,
-    governance="safe",
-    pack="web_pack",
-    aliases=("bing_search",),
-    adapter="args_only",
-    config_schema={"fields": [{"key": "api_key", "label": "Jina AI API Key", "type": "password", "default": "", "placeholder": "jina_xxx"}]},
-))
-async def jina_search(arguments: dict) -> str:
-    from app.services.agent_tool_domains.web_mcp import _jina_search
-    return await _jina_search(arguments)
-
-
-# ── jina_read ────────────────────────────────────────────────────────
-
-@tool(ToolMeta(
-    name="jina_read",
-    description=(
-        "Read and extract the full content from a web page URL using Jina AI Reader (r.jina.ai).\n\n"
-        "Usage:\n"
-        "- Use this when you already have a specific URL and need the full article or page content.\n"
-        "- Use this only when you specifically want Jina Reader's cleaned markdown output and the provider is configured.\n"
-        "- For the default direct URL path, prefer `web_fetch` after `web_search` or `jina_search` identifies the right page.\n"
-        "- The output is clean markdown with article text, tables, and key information.\n"
-        "- If the page is too long, set `max_chars` and read only what you need first.\n"
-        "- Do NOT use this as a search tool; if you do not have a URL yet, search first."
-    ),
-    parameters={
-        "type": "object",
-        "properties": {
-            "url": {
-                "type": "string",
-                "description": "The full URL of the web page to read, e.g. 'https://example.com/article'",
-            },
-            "max_chars": {
-                "type": "integer",
-                "description": "Max characters to return (default 8000, max 20000)",
-            },
-        },
-        "required": ["url"],
-    },
-    category="search",
-    display_name="Jina Read",
-    icon="\U0001f4d6",
-    read_only=True,
-    parallel_safe=True,
-    governance="safe",
-    pack="web_pack",
-    aliases=("read_webpage",),
-    adapter="args_only",
-    config_schema={"fields": [{"key": "api_key", "label": "Jina AI API Key", "type": "password", "default": "", "placeholder": "jina_xxx"}]},
-))
-async def jina_read(arguments: dict) -> str:
-    from app.services.agent_tool_domains.web_mcp import _jina_read
-    return await _jina_read(arguments)
-
-
 # ── web_fetch ───────────────────────────────────────────────────────
 
 @tool(ToolMeta(
     name="web_fetch",
     description=(
-        "Fetch and extract readable content directly from a specific URL without relying on Jina.\n\n"
+        "Fetch and extract readable content directly from a specific URL without relying on third-party reader services.\n\n"
         "Usage:\n"
         "- Use this when you already have a URL and want a direct, deterministic fetch path.\n"
         "- Prefer this after `web_search` identifies the right page, or as the default known-URL path in cloud deployments.\n"
-        "- Prefer this as a fallback when `jina_read` fails or when you want raw page text extraction.\n"
-        "- This tool is for known URLs, not keyword search. Use `web_search` or `jina_search` first if needed.\n"
+        "- Prefer this before heavier providers when the page is simple and directly fetchable.\n"
+        "- This tool is for known URLs, not keyword search. Use `web_search` first if needed.\n"
         "- The result may be truncated for very long pages."
     ),
     parameters={
@@ -223,6 +166,80 @@ async def jina_read(arguments: dict) -> str:
 async def web_fetch(arguments: dict) -> str:
     from app.services.agent_tool_domains.web_mcp import _web_fetch
     return await _web_fetch(arguments)
+
+
+# ── firecrawl_fetch ──────────────────────────────────────────────────
+
+@tool(ToolMeta(
+    name="firecrawl_fetch",
+    description=(
+        "Fetch a known URL with Firecrawl for heavier page extraction, JS-heavy pages, or cleaner markdown than a raw fetch.\n\n"
+        "Usage:\n"
+        "- Use this after `web_search` or when you already have a specific URL and `web_fetch` is not sufficient.\n"
+        "- Prefer this for complex pages, PDFs, or sites where a plain fetch misses the main content.\n"
+        "- Do NOT use this for keyword search. If you do not have a URL yet, search first.\n"
+        "- This tool is provider-backed and requires Firecrawl configuration."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "url": {"type": "string", "description": "The URL to fetch and extract."},
+            "max_chars": {"type": "integer", "description": "Max characters to return (default 12000, max 30000)"},
+            "only_main_content": {"type": "boolean", "description": "Prefer extracting just the main article/body content. Default true."},
+        },
+        "required": ["url"],
+    },
+    category="search",
+    display_name="Firecrawl Fetch",
+    icon="\U0001f525",
+    read_only=True,
+    parallel_safe=True,
+    governance="safe",
+    pack="web_pack",
+    adapter="args_only",
+    config={"api_key": ""},
+    config_schema={"fields": [{"key": "api_key", "label": "Firecrawl API Key", "type": "password", "default": "", "placeholder": "fc-..."}]},
+))
+async def firecrawl_fetch(arguments: dict) -> str:
+    from app.services.agent_tool_domains.web_mcp import _firecrawl_fetch
+    return await _firecrawl_fetch(arguments)
+
+
+# ── xcrawl_scrape ────────────────────────────────────────────────────
+
+@tool(ToolMeta(
+    name="xcrawl_scrape",
+    description=(
+        "Scrape a known URL with XCrawl for JS-rendered, anti-bot, or otherwise difficult pages.\n\n"
+        "Usage:\n"
+        "- Use this when `web_fetch` and `firecrawl_fetch` are insufficient, especially for highly dynamic or anti-bot-heavy pages.\n"
+        "- Prefer this only for hard pages because it is a heavier provider-backed path.\n"
+        "- Do NOT use this for keyword search. If you do not have a URL yet, search first.\n"
+        "- This tool is provider-backed and requires XCrawl configuration."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "url": {"type": "string", "description": "The URL to scrape."},
+            "max_chars": {"type": "integer", "description": "Max characters to return (default 12000, max 30000)"},
+            "js_render": {"type": "boolean", "description": "Enable JS rendering. Default true."},
+        },
+        "required": ["url"],
+    },
+    category="search",
+    display_name="XCrawl Scrape",
+    icon="\U0001f577\ufe0f",
+    read_only=True,
+    parallel_safe=True,
+    governance="safe",
+    pack="web_pack",
+    adapter="args_only",
+    config={"api_key": ""},
+    config_schema={"fields": [{"key": "api_key", "label": "XCrawl API Key", "type": "password", "default": "", "placeholder": "xcr_..."}]},
+))
+async def xcrawl_scrape(arguments: dict) -> str:
+    from app.services.agent_tool_domains.web_mcp import _xcrawl_scrape
+    return await _xcrawl_scrape(arguments)
 
 
 # ── discover_resources ───────────────────────────────────────────────

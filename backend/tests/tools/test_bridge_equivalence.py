@@ -34,12 +34,11 @@ def test_combined_openai_tools_matches_canonical_surface():
         "import_mcp_server",
         "check_async_task",
         "cancel_async_task",
+        "firecrawl_fetch",
         "get_current_time",
         "list_mcp_resources",
         "list_async_tasks",
         "read_mcp_resource",
-        "jina_read",
-        "jina_search",
         "list_files",
         "list_triggers",
         "load_skill",
@@ -63,6 +62,7 @@ def test_combined_openai_tools_matches_canonical_surface():
         "web_fetch",
         "web_search",
         "write_file",
+        "xcrawl_scrape",
     }
 
 
@@ -96,9 +96,10 @@ def test_read_only_and_parallel_safe_sets_include_canonical_metadata_without_run
     assert "read_file" in READ_ONLY_TOOL_NAMES
     assert "web_search" in READ_ONLY_TOOL_NAMES
     assert "web_fetch" in READ_ONLY_TOOL_NAMES
+    assert "firecrawl_fetch" in READ_ONLY_TOOL_NAMES
     assert "discover_resources" in READ_ONLY_TOOL_NAMES
     assert "read_file" in PARALLEL_SAFE_TOOL_NAMES
-    assert "jina_search" in PARALLEL_SAFE_TOOL_NAMES
+    assert "xcrawl_scrape" in PARALLEL_SAFE_TOOL_NAMES
 
 
 def test_alias_metadata_available_without_runtime_registry_init():
@@ -106,4 +107,4 @@ def test_alias_metadata_available_without_runtime_registry_init():
     from app.tools.registry import is_parallel_safe_tool, is_read_only_tool
 
     assert is_parallel_safe_tool("bing_search")
-    assert is_read_only_tool("read_webpage")
+    assert is_read_only_tool("bing_search")

@@ -14,10 +14,10 @@ def test_summarize_tool_failure_logs_groups_by_tool_provider_and_error_class() -
     logs = [
         SimpleNamespace(
             action_type="error",
-            summary="Tool jina_search failed",
+            summary="Tool firecrawl_fetch failed",
             detail_json={
-                "tool_name": "jina_search",
-                "provider": "jina",
+                "tool_name": "firecrawl_fetch",
+                "provider": "firecrawl",
                 "error_class": "quota_or_billing",
                 "http_status": 402,
                 "retryable": False,
@@ -26,10 +26,10 @@ def test_summarize_tool_failure_logs_groups_by_tool_provider_and_error_class() -
         ),
         SimpleNamespace(
             action_type="error",
-            summary="Tool jina_search failed again",
+            summary="Tool firecrawl_fetch failed again",
             detail_json={
-                "tool_name": "jina_search",
-                "provider": "jina",
+                "tool_name": "firecrawl_fetch",
+                "provider": "firecrawl",
                 "error_class": "quota_or_billing",
                 "http_status": 402,
                 "retryable": False,
@@ -58,11 +58,11 @@ def test_summarize_tool_failure_logs_groups_by_tool_provider_and_error_class() -
     summary = summarize_tool_failure_logs(logs)
 
     assert summary["total_errors"] == 3
-    assert summary["by_tool"][0] == {"tool_name": "jina_search", "count": 2}
-    assert summary["by_provider"][0] == {"provider": "jina", "count": 2}
+    assert summary["by_tool"][0] == {"tool_name": "firecrawl_fetch", "count": 2}
+    assert summary["by_provider"][0] == {"provider": "firecrawl", "count": 2}
     assert summary["by_error_class"][0] == {"error_class": "quota_or_billing", "count": 2}
     assert summary["by_http_status"][0] == {"http_status": 402, "count": 2}
-    assert summary["recent_errors"][0]["tool_name"] == "jina_search"
+    assert summary["recent_errors"][0]["tool_name"] == "firecrawl_fetch"
 
 
 class _ListResult:

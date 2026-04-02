@@ -102,7 +102,7 @@ async def test_prompt_builder_includes_active_packs_section(monkeypatch):
                 active_packs=[{
                     "name": "web_pack",
                     "summary": "网页搜索与抓取能力",
-                    "tools": ["web_search", "jina_read"],
+                    "tools": ["web_search", "firecrawl_fetch"],
                 }]
             )
         ),
@@ -110,7 +110,7 @@ async def test_prompt_builder_includes_active_packs_section(monkeypatch):
 
     assert "## Active Capability Packs" in prompt
     assert "web_pack" in prompt
-    assert "web_search, jina_read" in prompt
+    assert "web_search, firecrawl_fetch" in prompt
 
 
 class TestModelAwareBudget:

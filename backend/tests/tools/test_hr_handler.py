@@ -37,8 +37,8 @@ def test_hr_tool_included_in_hr_tools_set():
     names = [t["function"]["name"] for t in hr_tools]
     assert "create_digital_employee" in names
     assert "web_search" in names
-    assert "jina_search" in names
-    assert "jina_read" in names
+    assert "firecrawl_fetch" in names
+    assert "xcrawl_scrape" in names
     assert "execute_code" in names
     assert "discover_resources" in names
     assert "search_clawhub" in names

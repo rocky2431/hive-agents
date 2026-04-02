@@ -35,10 +35,10 @@ async def test_get_agent_tool_failure_summary_returns_aggregated_payload(monkeyp
         [
             SimpleNamespace(
                 action_type="error",
-                summary="Tool jina_search failed",
+                summary="Tool firecrawl_fetch failed",
                 detail_json={
-                    "tool_name": "jina_search",
-                    "provider": "jina",
+                    "tool_name": "firecrawl_fetch",
+                    "provider": "firecrawl",
                     "error_class": "quota_or_billing",
                     "http_status": 402,
                     "retryable": False,
@@ -65,4 +65,4 @@ async def test_get_agent_tool_failure_summary_returns_aggregated_payload(monkeyp
     )
 
     assert payload["total_errors"] == 1
-    assert payload["by_provider"] == [{"provider": "jina", "count": 1}]
+    assert payload["by_provider"] == [{"provider": "firecrawl", "count": 1}]

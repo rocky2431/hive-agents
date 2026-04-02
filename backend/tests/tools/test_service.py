@@ -280,7 +280,7 @@ async def test_tool_runtime_service_exception_returns_structured_error():
 
     try:
         result = await service.execute(
-            "jina_search",
+            "firecrawl_fetch",
             {"query": "test"},
             agent_id=context.agent_id,
             user_id=context.user_id,
@@ -289,7 +289,7 @@ async def test_tool_runtime_service_exception_returns_structured_error():
         monkeypatch.undo()
 
     payload = _extract_tool_error_payload(result)
-    assert payload["tool_name"] == "jina_search"
+    assert payload["tool_name"] == "firecrawl_fetch"
     assert payload["error_class"] == "tool_execution_error"
     assert payload["retryable"] is False
     assert payload["provider"] == "runtime"
@@ -315,7 +315,7 @@ async def test_tool_runtime_service_logs_structured_tool_errors():
         return (
             "❌ sample failure\n\n"
             '<tool_error>{"ok": false, "tool_name": "web_search", "error_class": "quota_or_billing", '
-            '"message": "quota hit", "provider": "jina", "http_status": 402, "retryable": false}</tool_error>'
+            '"message": "quota hit", "provider": "exa", "http_status": 402, "retryable": false}</tool_error>'
         )
 
     service = ToolRuntimeService(

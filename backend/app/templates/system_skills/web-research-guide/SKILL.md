@@ -3,8 +3,9 @@ name: Web Research Guide
 description: 网络搜索和网页阅读工具使用指南
 tools:
   - web_search
-  - jina_search
-  - jina_read
+  - web_fetch
+  - firecrawl_fetch
+  - xcrawl_scrape
 is_system: true
 ---
 
@@ -14,9 +15,10 @@ is_system: true
 
 | Tool | Use Case |
 |------|----------|
-| `jina_search` | Search the internet for any topic. Returns high-quality results with content. **This is your primary search tool.** |
-| `web_search` | Alternative search via DuckDuckGo/Bing/Tavily. |
-| `jina_read` | Read full content from a specific URL. Use when you have a link and need the page content. |
+| `web_search` | Search the internet for public information. Prefer Exa, then Tavily, and use DuckDuckGo as the free fallback. **This is your primary search tool.** |
+| `web_fetch` | Read full content from a specific URL with a direct fetch path. Use this first when you already have a link. |
+| `firecrawl_fetch` | Provider-backed fetch for heavier pages, PDFs, or pages where `web_fetch` misses the main content. |
+| `xcrawl_scrape` | Escalation path for JS-heavy or anti-bot pages when lighter fetch tools fail. |
 
 ## When to Search
 

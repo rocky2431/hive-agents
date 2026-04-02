@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 EventCallback = Callable[[dict[str, Any]], Awaitable[None] | None]
 
 _STATIC_SENSITIVE_TOOLS = {
+    "create_digital_employee",
     "send_feishu_message",
     "send_email",
     "delete_file",
@@ -30,10 +31,10 @@ _STATIC_SAFE_TOOLS = {
     "list_files",
     "read_file",
     "load_skill",
-    "jina_search",
-    "jina_read",
     "web_fetch",
     "web_search",
+    "firecrawl_fetch",
+    "xcrawl_scrape",
     "read_document",
     "list_tasks",
     "get_task",

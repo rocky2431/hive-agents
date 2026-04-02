@@ -164,7 +164,13 @@ async def test_get_agent_tools_for_llm_hides_unavailable_external_providers(monk
     def broken_async_session():
         return BrokenSession()
 
-    async def no_jina_key() -> str:
+    async def no_exa_key() -> str:
+        return ""
+
+    async def no_firecrawl_key() -> str:
+        return ""
+
+    async def no_xcrawl_key() -> str:
         return ""
 
     async def no_smithery_key(_agent_id=None) -> str:
@@ -174,7 +180,9 @@ async def test_get_agent_tools_for_llm_hides_unavailable_external_providers(monk
         return ""
 
     monkeypatch.setattr(agent_tools_module, "async_session", broken_async_session)
-    monkeypatch.setattr(agent_tools_module, "_get_jina_api_key", no_jina_key)
+    monkeypatch.setattr(agent_tools_module, "_get_exa_api_key", no_exa_key)
+    monkeypatch.setattr(agent_tools_module, "_get_firecrawl_api_key", no_firecrawl_key)
+    monkeypatch.setattr(agent_tools_module, "_get_xcrawl_api_key", no_xcrawl_key)
     monkeypatch.setattr("app.services.resource_discovery._get_smithery_api_key", no_smithery_key)
     monkeypatch.setattr("app.services.resource_discovery._get_modelscope_api_token", no_modelscope_token)
 
@@ -182,7 +190,7 @@ async def test_get_agent_tools_for_llm_hides_unavailable_external_providers(monk
     names = {tool["function"]["name"] for tool in tools}
 
     assert "web_fetch" in names
-    assert "jina_search" not in names
-    assert "jina_read" not in names
+    assert "firecrawl_fetch" not in names
+    assert "xcrawl_scrape" not in names
     assert "discover_resources" not in names
     assert "import_mcp_server" not in names
