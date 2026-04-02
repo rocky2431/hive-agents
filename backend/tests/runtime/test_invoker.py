@@ -219,8 +219,8 @@ async def test_invoke_agent_composes_system_prompt_once(monkeypatch):
 
     assert result.content == "done"
     system_prompt = fake_client.calls[0]["messages"][0].content
-    # Memory is in frozen prefix (before knowledge); knowledge is in dynamic suffix
-    assert system_prompt == "BASE_PROMPT\n\nMEMORY_CONTEXT\n\nKB_CONTEXT"
+    # Memory is in frozen prefix; boundary marker; knowledge is in dynamic suffix
+    assert system_prompt == "BASE_PROMPT\n\nMEMORY_CONTEXT\n\n__PROMPT_DYNAMIC_BOUNDARY__\n\nKB_CONTEXT"
 
 
 @pytest.mark.asyncio

@@ -13,8 +13,12 @@ logger = logging.getLogger(__name__)
 
 A2A_SYSTEM_PROMPT_SUFFIX = (
     "--- Agent-to-Agent Message ---\n"
-    "You are receiving a message from another digital employee. "
-    "Reply concisely and helpfully. Focus on the request and provide a clear answer."
+    "You are receiving a message from another digital employee.\n"
+    "Rules:\n"
+    "- Reply concisely and helpfully. Focus on the request and provide a clear answer.\n"
+    "- Do NOT delegate to another agent — handle the request directly (no nested delegation).\n"
+    "- If you cannot complete the request, explain specifically what is missing or blocked.\n"
+    "- Do NOT share private workspace data (memory.md, tasks.json) unless explicitly asked."
 )
 
 

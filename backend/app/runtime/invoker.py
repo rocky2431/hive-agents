@@ -197,6 +197,7 @@ async def _build_system_prompt(
         include_runtime_metadata=False,
         include_focus=False,
         budget_profile=budget_profile,
+        execution_mode=request.execution_mode or "conversation",
     )
     return build_frozen_prompt_prefix(
         agent_context=agent_context,

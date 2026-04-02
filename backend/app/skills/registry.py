@@ -57,7 +57,8 @@ class SkillRegistry:
             "with the Skill name above to load the full instructions.\n"
             "Do NOT guess what the skill contains — always read it first.\n"
             "Folder-based skills may contain auxiliary files. "
-            "Use `read_file` on the skill folder when needed."
+            "Use `read_file` on the skill folder when needed.\n"
+            "If no skill matches the current task, use your tools directly without loading a skill."
         )
         table_header = "\n| Skill | Description | File |\n|-------|-------------|------|\n"
         overhead = len(header) + len(footer) + len(table_header) + 10

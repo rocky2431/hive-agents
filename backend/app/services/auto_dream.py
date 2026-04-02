@@ -209,7 +209,14 @@ async def _consolidate_with_llm(
         "2. Merge related facts into single comprehensive statements\n"
         "3. Add new facts from sessions that aren't already captured\n"
         "4. Assign each fact a category: user, feedback, project, reference, constraint, strategy, blocked_pattern, or general\n"
-        "5. Return JSON array: [{\"content\": \"...\", \"category\": \"...\", \"subject\": \"...\"}]\n"
+        "5. When facts contradict each other, keep the one from a more recent session summary\n"
+        "6. Each fact should be concise (under 200 characters) — merge verbose entries into crisp statements\n"
+        "7. Return JSON array: [{\"content\": \"...\", \"category\": \"...\", \"subject\": \"...\"}]\n\n"
+        "## What NOT to consolidate\n"
+        "- Ephemeral task details (in-progress work, temporary state) — these belong in focus.md, not memory\n"
+        "- Code patterns or file paths that can be derived by reading the workspace\n"
+        "- Debugging solutions — the fix should be in the code, not in memory\n"
+        "- Exact tool call sequences — only outcomes and learnings matter\n\n"
         "Return ONLY the JSON array, no other text."
     )
 
@@ -217,7 +224,14 @@ async def _consolidate_with_llm(
         client = create_llm_client(**model_config)
         response = await client.stream(
             messages=[
-                LLMMessage(role="system", content="You consolidate memories. Return only JSON array."),
+                LLMMessage(
+                    role="system",
+                    content=(
+                        "You consolidate an agent's long-term memory into a clean, deduplicated fact list. "
+                        "Keep facts actionable and concise. Remove stale or ephemeral entries. "
+                        "Return only a JSON array — no prose, no explanation."
+                    ),
+                ),
                 LLMMessage(role="user", content=prompt),
             ],
             max_tokens=4000,

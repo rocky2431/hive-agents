@@ -242,62 +242,110 @@ def _extract_summary(messages: list[dict]) -> str:
     )
 
 
+def _extract_summary_from_response(content: str) -> str | None:
+    """Extract <summary> content, stripping <analysis> scratchpad.
+
+    The LLM is instructed to use <analysis> as a reasoning scratchpad and
+    <summary> for the final output.  Only the <summary> block is persisted
+    into context — the analysis is discarded to save tokens.
+    """
+    if not content:
+        return None
+    summary_match = re.search(r"<summary>(.*?)</summary>", content, re.DOTALL)
+    if summary_match:
+        return summary_match.group(1).strip()
+    # Fallback: strip <analysis> block if model didn't wrap in <summary>
+    stripped = re.sub(r"<analysis>.*?</analysis>", "", content, flags=re.DOTALL).strip()
+    return stripped if stripped else content.strip()
+
+
+# Summarization system prompt — uses <analysis>/<summary> scratchpad pattern.
+# The <analysis> block is stripped by _extract_summary_from_response() before
+# the summary reaches context, letting the model reason without wasting tokens.
+_SUMMARIZE_SYSTEM_PROMPT = """\
+CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.
+- Do NOT use read_file, write_file, web_search, execute_code, or ANY other tool.
+- You already have all the context you need in the conversation below.
+- Tool calls will be REJECTED and will waste your only turn.
+- Your entire response must be plain text: an <analysis> block followed by a <summary> block.
+
+Your task is to create a detailed summary of the conversation, preserving critical context \
+for continuing work without losing state.
+
+First, wrap your detailed analysis in <analysis> tags:
+1. Chronologically analyze each message — identify user requests, your approach, and outcomes
+2. Note ALL file paths, code snippets, function signatures, and technical decisions
+3. Pay special attention to user corrections and feedback
+4. Identify errors encountered and how they were resolved
+
+Then provide your final summary in <summary> tags using EXACTLY this format:
+
+**Task Ledger:** [what was being worked on — be specific about the goal and current status]
+**Decision Ledger:** [decisions made, user corrections, constraints learned]
+**Artifact Ledger:** [file paths, URLs, IDs, resource handles — list each on its own line]
+**Code Snapshot:** [key code changes, function signatures, or config values — include short snippets for critical changes]
+**Tool Ledger:** [tools called and their key results — focus on outcomes, not individual calls]
+**User Messages:** [ALL non-trivial user messages summarized — these are critical for understanding changing intent]
+**Preference Ledger:** [stable user preferences or instructions for future behavior]
+**Error Ledger:** [errors encountered, root causes, and resolutions]
+**Pending Ledger:** [incomplete items and next steps — include direct quotes from recent messages showing where work left off]
+**Narrative Snapshot:** [1-2 line recap of the current state]
+
+Be thorough in preserving technical details — code snippets and file paths are more valuable than prose.
+Respond in the same language as the conversation.\
+"""
+
+
 async def _llm_summarize(messages: list[dict], model_config: dict) -> str | None:
-    """Use LLM to create a concise summary of old messages."""
+    """Use LLM to create a detailed summary of old messages.
+
+    Uses <analysis>/<summary> scratchpad pattern: LLM reasons in <analysis>
+    tags (stripped before persistence), outputs clean summary in <summary> tags.
+    """
     from app.services.llm_client import LLMMessage, create_llm_client
 
-    # Build a condensed version of the conversation for the summarizer
-    # Include tool calls and results alongside user/assistant messages
-    conversation_text = []
+    # Build conversation text with higher fidelity for code context
+    conversation_text: list[str] = []
     for msg in messages:
         role = msg.get("role", "")
         content = msg.get("content", "")
 
         if msg.get("tool_calls"):
-            tool_names = [tc.get("function", {}).get("name", "?") for tc in msg["tool_calls"]]
-            conversation_text.append(f"assistant: [called tools: {', '.join(tool_names)}]")
+            for tc in msg["tool_calls"]:
+                fn = tc.get("function", {})
+                name = fn.get("name", "?")
+                args_preview = fn.get("arguments", "")[:300]
+                conversation_text.append(f"assistant: [called {name}({args_preview})]")
             continue
 
         if role == "tool":
             if isinstance(content, str) and content.strip():
-                conversation_text.append(f"tool_result: {content[:1000]}")
+                conversation_text.append(f"tool_result: {content[:1500]}")
             continue
 
         if not isinstance(content, str) or not content.strip():
             continue
-        if role in ("user", "assistant"):
-            conversation_text.append(f"{role}: {content[:500]}")
+        if role == "user":
+            # Preserve user messages at higher fidelity — they encode intent
+            conversation_text.append(f"user: {content[:800]}")
+        elif role == "assistant":
+            conversation_text.append(f"assistant: {content[:800]}")
 
     if not conversation_text:
         return None
 
-    text = "\n".join(conversation_text[-30:])  # At most 30 messages (increased for tool pairs)
+    text = "\n".join(conversation_text[-40:])
 
     client = create_llm_client(**model_config)
     try:
         response = await client.stream(
             messages=[
-                LLMMessage(
-                    role="system",
-                    content=(
-                        "Summarize this conversation into a structured snapshot. "
-                        "Use EXACTLY this format (keep headers, fill in content, omit empty sections):\n\n"
-                        "**Task Ledger:** [what was being worked on]\n"
-                        "**Decision Ledger:** [decisions made, user corrections, constraints]\n"
-                        "**Artifact Ledger:** [file paths, URLs, IDs, resource handles]\n"
-                        "**Tool Ledger:** [which tools were called and key results]\n"
-                        "**Preference Ledger:** [stable user preferences or instructions for future behavior]\n"
-                        "**Pending Ledger:** [incomplete items, next steps]\n"
-                        "**Narrative Snapshot:** [short 1-2 line recap]\n\n"
-                        "Be concise — each field 1-2 lines max. "
-                        "Respond in the same language as the conversation."
-                    ),
-                ),
+                LLMMessage(role="system", content=_SUMMARIZE_SYSTEM_PROMPT),
                 LLMMessage(role="user", content=text),
             ],
-            max_tokens=1000,
+            max_tokens=2500,
             temperature=0.3,
         )
-        return response.content
+        return _extract_summary_from_response(response.content)
     finally:
         await client.close()

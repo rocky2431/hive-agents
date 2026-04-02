@@ -38,7 +38,16 @@ def list_files(workspace: Path, arguments: dict, tenant_id: str | None = None) -
 
 @tool(ToolMeta(
     name="read_file",
-    description="Read file contents from the workspace. Can read tasks.json for tasks, soul.md for personality, memory/memory.md for memory, skills/ for skill files, and enterprise_info/ for shared company info.",
+    description=(
+        "Read file contents from the workspace.\n\n"
+        "Usage:\n"
+        "- Common files: soul.md (personality), memory/memory.md (memory), focus.md (current priorities), "
+        "tasks.json (tasks), skills/*.md (skill files), enterprise_info/ (shared company info)\n"
+        "- For large files, the output may be truncated. Check if the result ends with a truncation marker.\n"
+        "- You can read office documents (PDF, Word, Excel) via the separate `read_document` tool.\n"
+        "- If the file does not exist, an error will be returned — this is normal, do not retry.\n"
+        "- Prefer reading a file before editing it with `edit_file` to understand its current contents."
+    ),
     parameters={
         "type": "object",
         "properties": {
@@ -66,7 +75,16 @@ def read_file(workspace: Path, arguments: dict, tenant_id: str | None = None) ->
 
 @tool(ToolMeta(
     name="write_file",
-    description="Write or update a file in the workspace. Can update memory/memory.md, focus.md, task_history.md, create documents in workspace/, create skills in skills/.",
+    description=(
+        "Write or create a file in the workspace.\n\n"
+        "Usage:\n"
+        "- For modifying existing files, prefer `edit_file` instead — it only changes a specific snippet "
+        "without rewriting the entire file, which is safer and preserves content you didn't intend to change.\n"
+        "- Use `write_file` when creating new files or when the entire file content needs to be replaced.\n"
+        "- Common targets: memory/memory.md, focus.md, workspace/*.md (reports/documents), skills/*.md (new skills)\n"
+        "- Protected paths: soul.md can be written but should only be modified carefully as it defines your personality.\n"
+        "- This tool overwrites the file completely — if you only need to change part of a file, use `edit_file`."
+    ),
     parameters={
         "type": "object",
         "properties": {
@@ -96,7 +114,15 @@ def write_file(workspace: Path, arguments: dict, tenant_id: str | None = None) -
 
 @tool(ToolMeta(
     name="edit_file",
-    description="Edit an existing text file by replacing a specific snippet. Use this for precise changes instead of rewriting the full file.",
+    description=(
+        "Edit an existing text file by replacing a specific text snippet.\n\n"
+        "Usage:\n"
+        "- You SHOULD read the file with `read_file` first to understand its current contents before editing.\n"
+        "- The `old_text` must be an exact match of text currently in the file — including whitespace and newlines.\n"
+        "- The edit will FAIL if `old_text` is not found or matches multiple locations. Provide enough surrounding "
+        "context to make your match unique, or use `replace_all: true` to change every occurrence.\n"
+        "- Prefer this over `write_file` for existing files — it only changes what you specify, preserving the rest."
+    ),
     parameters={
         "type": "object",
         "properties": {
@@ -210,7 +236,13 @@ def grep_search(workspace: Path, arguments: dict, tenant_id: str | None = None) 
 
 @tool(ToolMeta(
     name="delete_file",
-    description="Delete a file from the workspace. Cannot delete soul.md or tasks.json.",
+    description=(
+        "Delete a file from the workspace. This is a DESTRUCTIVE operation — the file cannot be recovered.\n\n"
+        "Usage:\n"
+        "- Protected files (soul.md, tasks.json) cannot be deleted.\n"
+        "- Before deleting, consider whether the user explicitly requested deletion.\n"
+        "- If you need to clear file contents without deleting, use `write_file` with empty content instead."
+    ),
     parameters={
         "type": "object",
         "properties": {
@@ -264,7 +296,18 @@ async def read_document(workspace: Path, arguments: dict, tenant_id: str | None 
 
 @tool(ToolMeta(
     name="execute_code",
-    description="Execute code (Python, Bash, or Node.js) in a sandboxed environment within the agent's workspace directory. Useful for data processing, calculations, file transformations, and automation scripts. Code runs with the workspace as the working directory. Security restrictions apply: no network access commands, no system-level operations, 30-second timeout.",
+    description=(
+        "Execute code (Python, Bash, or Node.js) in a sandboxed environment within your workspace directory.\n\n"
+        "Usage:\n"
+        "- Working directory is your workspace/ — file paths in code are relative to it.\n"
+        "- Python: standard libraries available (json, csv, math, re, collections, pathlib, etc.).\n"
+        "- Default timeout: 30 seconds (max 60). Long-running code will be killed.\n"
+        "- SECURITY: No network access, no system-level operations (rm -rf, chmod, etc.). "
+        "Never include credentials, API keys, or user secrets in code.\n"
+        "- If code fails, read the error output carefully before retrying — fix the root cause, "
+        "do not blindly retry the same code.\n"
+        "- For file operations, prefer dedicated tools (read_file, write_file) over code-based I/O."
+    ),
     parameters={
         "type": "object",
         "properties": {

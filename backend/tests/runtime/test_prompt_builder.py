@@ -42,8 +42,8 @@ async def test_prompt_builder_merges_agent_context_knowledge_memory_and_suffix(m
         ),
     )
 
-    # Memory is in frozen prefix (before knowledge); knowledge + suffix are in dynamic suffix
-    assert prompt == "BASE_PROMPT\n\nMEMORY\n\nKNOWLEDGE\n\nSUFFIX"
+    # Memory is in frozen prefix; boundary marker; then knowledge + suffix in dynamic suffix
+    assert prompt == "BASE_PROMPT\n\nMEMORY\n\n__PROMPT_DYNAMIC_BOUNDARY__\n\nKNOWLEDGE\n\nSUFFIX"
 
 
 @pytest.mark.asyncio
@@ -144,13 +144,14 @@ class TestModelAwareBudget:
         assert budget == 44800
 
     def test_assemble_trims_frozen_when_over_budget(self) -> None:
-        from app.runtime.prompt_builder import assemble_runtime_prompt
+        from app.runtime.prompt_builder import PROMPT_CACHE_BOUNDARY, assemble_runtime_prompt
         frozen = "A" * 20000
         dynamic = "B" * 100
         # 8K model → budget 15000 → 20000 + 100 > 15000 → should trim
         result = assemble_runtime_prompt(frozen, dynamic, context_window_tokens=8000)
         assert len(result) <= 15200  # budget + truncation notice
         assert "B" * 100 in result  # dynamic preserved
+        assert PROMPT_CACHE_BOUNDARY.strip() in result  # cache split preserved even when trimmed
 
     def test_assemble_no_trim_when_within_budget(self) -> None:
         from app.runtime.prompt_builder import assemble_runtime_prompt

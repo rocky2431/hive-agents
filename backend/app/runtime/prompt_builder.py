@@ -21,6 +21,11 @@ from app.services.knowledge_inject import fetch_relevant_knowledge
 BuildAgentContextFn = Callable[[uuid.UUID | None, str, str, str | None], Awaitable[str]]
 KnowledgeLookupFn = Callable[[str, uuid.UUID | None], Awaitable[str] | str]
 
+# Boundary marker between frozen (cacheable) and dynamic (volatile) prompt sections.
+# apply_prompt_cache_hints() in llm_client splits at this marker to create two
+# content blocks: frozen gets cache_control, dynamic does not.
+PROMPT_CACHE_BOUNDARY = "__PROMPT_DYNAMIC_BOUNDARY__"
+
 # Default fallbacks when no task-aware budget profile is provided.
 _ACTIVE_PACKS_CHAR_BUDGET = 2000
 _RETRIEVAL_CHAR_BUDGET = 3000
@@ -144,6 +149,12 @@ def build_dynamic_prompt_suffix(
     return "\n\n".join(parts)
 
 
+def _join_prompt_sections(frozen_prefix: str, dynamic_suffix: str) -> str:
+    if not dynamic_suffix:
+        return frozen_prefix
+    return f"{frozen_prefix}\n\n{PROMPT_CACHE_BOUNDARY}\n\n{dynamic_suffix}"
+
+
 # ── Assembly ────────────────────────────────────────────────────
 
 
@@ -171,7 +182,7 @@ def assemble_runtime_prompt(
     _logger = logging.getLogger(__name__)
 
     budget = budget_profile.system_prompt_budget_chars if budget_profile else _compute_system_prompt_budget(context_window_tokens)
-    prompt = f"{frozen_prefix}\n\n{dynamic_suffix}" if dynamic_suffix else frozen_prefix
+    prompt = _join_prompt_sections(frozen_prefix, dynamic_suffix)
 
     # P0.4 Observability: log prompt budget metrics
     _frozen_len = len(frozen_prefix)
@@ -196,14 +207,25 @@ def assemble_runtime_prompt(
             "[PromptBuilder] System prompt exceeds budget: %d chars (budget=%d, ctx_window=%s, overshoot=%d) — trimming frozen prefix",
             len(prompt), budget, context_window_tokens or "default", overshoot,
         )
-        # Trim frozen prefix from the end, preserve dynamic suffix
-        dynamic_len = len(dynamic_suffix) + 2 if dynamic_suffix else 0  # +2 for "\n\n"
-        max_frozen = budget - dynamic_len
-        if max_frozen > 0:
-            trimmed_frozen = frozen_prefix[:max_frozen] + "\n\n...(system prompt truncated to fit context window)"
-            prompt = f"{trimmed_frozen}\n\n{dynamic_suffix}" if dynamic_suffix else trimmed_frozen
+        # Trim frozen prefix from the end, preserve the cache boundary + dynamic suffix.
+        if dynamic_suffix:
+            dynamic_block = f"\n\n{PROMPT_CACHE_BOUNDARY}\n\n{dynamic_suffix}"
+            truncation_notice = "\n\n...(system prompt truncated to fit context window)"
         else:
-            prompt = dynamic_suffix[:budget]
+            dynamic_block = ""
+            truncation_notice = "\n\n...(system prompt truncated to fit context window)"
+
+        max_frozen = budget - len(dynamic_block) - len(truncation_notice)
+        if max_frozen > 0:
+            trimmed_frozen = frozen_prefix[:max_frozen].rstrip()
+            prompt = f"{trimmed_frozen}{truncation_notice}{dynamic_block}"
+        else:
+            if dynamic_suffix:
+                boundary_prefix = f"{PROMPT_CACHE_BOUNDARY}\n\n"
+                available_dynamic = max(budget - len(boundary_prefix), 0)
+                prompt = f"{boundary_prefix}{dynamic_suffix[:available_dynamic]}"
+            else:
+                prompt = frozen_prefix[:budget]
     return prompt
 
 

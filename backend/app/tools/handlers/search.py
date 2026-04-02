@@ -9,9 +9,12 @@ from app.tools.decorator import ToolMeta, tool
 @tool(ToolMeta(
     name="web_search",
     description=(
-        "Search the internet via DuckDuckGo. May be unavailable on some networks. "
-        "Use this as a general web search tool when you need public information and "
-        "do not specifically need Jina full-page retrieval."
+        "Search the internet via DuckDuckGo for public information.\n\n"
+        "Usage:\n"
+        "- Use specific, well-formed search queries — not full sentences. Good: 'Python pandas groupby multiple columns'. Bad: 'How do I group by multiple columns in pandas?'\n"
+        "- Results include titles, URLs, and snippets. To read full page content, follow up with `jina_read`.\n"
+        "- May be unavailable on some networks. If search fails, try `jina_search` as an alternative.\n"
+        "- Do NOT search for information already available in your workspace files or loaded skills."
     ),
     parameters={
         "type": "object",
