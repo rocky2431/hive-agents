@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
+import type { CSSProperties } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { agentApi } from '../api/domains/agents';
 import { taskApi } from '../api/domains/tasks';
 import { activityApi } from '../api/domains/activity';
+import type { ToolFailureSummary } from '../api/domains/activity';
 import type { Agent, Task } from '../types';
 
 /* ────── Inline SVG Icons (monochrome) ────── */
@@ -105,6 +107,185 @@ const formatTokens = (n: number) => {
     if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
     return String(n);
 };
+
+type CountRow = {
+    label: string;
+    count: number;
+};
+
+type AgentCountRow = CountRow & {
+    agentId: string;
+    agentName: string;
+};
+
+export type AgentToolFailureSnapshot = {
+    agentId: string;
+    agentName: string;
+    summary: ToolFailureSummary;
+};
+
+export type CrossAgentToolFailureOverview = {
+    totalErrors: number;
+    byAgent: AgentCountRow[];
+    byTool: CountRow[];
+    byProvider: CountRow[];
+    byErrorClass: CountRow[];
+    byHttpStatus: CountRow[];
+};
+
+const sortCountRows = <T extends { count: number }>(rows: T[]) =>
+    rows.sort((a, b) => b.count - a.count);
+
+const accumulateCount = (target: Map<string, number>, label: string | undefined, count: number) => {
+    if (!label || count <= 0) return;
+    target.set(label, (target.get(label) || 0) + count);
+};
+
+const toCountRows = (counts: Map<string, number>): CountRow[] =>
+    sortCountRows(Array.from(counts.entries()).map(([label, count]) => ({ label, count })));
+
+export function summarizeCrossAgentToolFailures(
+    summaries: AgentToolFailureSnapshot[],
+): CrossAgentToolFailureOverview {
+    const toolCounts = new Map<string, number>();
+    const providerCounts = new Map<string, number>();
+    const errorClassCounts = new Map<string, number>();
+    const httpStatusCounts = new Map<string, number>();
+
+    const byAgent = sortCountRows(
+        summaries
+            .filter(({ summary }) => summary.total_errors > 0)
+            .map(({ agentId, agentName, summary }) => ({
+                agentId,
+                agentName,
+                label: agentName,
+                count: summary.total_errors,
+            })),
+    );
+
+    summaries.forEach(({ summary }) => {
+        summary.by_tool.forEach(row => accumulateCount(toolCounts, row.tool_name, row.count));
+        summary.by_provider.forEach(row => accumulateCount(providerCounts, row.provider, row.count));
+        summary.by_error_class.forEach(row => accumulateCount(errorClassCounts, row.error_class, row.count));
+        summary.by_http_status.forEach(row => accumulateCount(httpStatusCounts, row.http_status ? String(row.http_status) : undefined, row.count));
+    });
+
+    return {
+        totalErrors: summaries.reduce((sum, { summary }) => sum + summary.total_errors, 0),
+        byAgent,
+        byTool: toCountRows(toolCounts),
+        byProvider: toCountRows(providerCounts),
+        byErrorClass: toCountRows(errorClassCounts),
+        byHttpStatus: toCountRows(httpStatusCounts),
+    };
+}
+
+export function ToolFailureOverview({
+    summaries,
+    onSelectAgent,
+}: {
+    summaries: AgentToolFailureSnapshot[];
+    onSelectAgent?: (agentId: string) => void;
+}) {
+    const { t } = useTranslation();
+    const overview = summarizeCrossAgentToolFailures(summaries);
+
+    const pillStyle: CSSProperties = {
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '6px',
+        padding: '4px 8px',
+        borderRadius: 'var(--radius-sm)',
+        background: 'var(--bg-tertiary)',
+        color: 'var(--text-secondary)',
+        fontSize: '12px',
+        fontWeight: 500,
+        border: '1px solid var(--border-subtle)',
+    };
+
+    const renderCountList = <T extends CountRow>(
+        title: string,
+        rows: T[],
+        emptyLabel: string,
+        rowRenderer?: (row: T, index: number) => React.ReactNode,
+    ) => (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                {title}
+            </div>
+            {rows.length === 0 ? (
+                <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{emptyLabel}</div>
+            ) : (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                    {rows.slice(0, 5).map((row, index) => rowRenderer ? rowRenderer(row, index) : (
+                        <span key={`${row.label}-${index}`} style={pillStyle}>
+                            <span>{row.label}</span>
+                            <span style={{ color: 'var(--text-tertiary)' }}>{row.count}</span>
+                        </span>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+
+    return (
+        <div style={{
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 'var(--radius-lg)',
+            overflow: 'hidden',
+            marginBottom: '32px',
+        }}>
+            <div style={{
+                padding: '12px 16px',
+                borderBottom: '1px solid var(--border-subtle)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+            }}>
+                <h3 style={{
+                    margin: 0,
+                    fontSize: '13px',
+                    fontWeight: 500,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    color: 'var(--text-secondary)',
+                }}>
+                    <span style={{ display: 'flex', opacity: 0.6 }}>{Icons.activity}</span>
+                    {t('dashboard.toolFailuresTitle')}
+                </h3>
+                <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                    {t('dashboard.toolFailuresWindow', { count: 24 })}: {overview.totalErrors}
+                </span>
+            </div>
+            <div style={{ padding: '16px', display: 'grid', gap: '16px' }}>
+                {renderCountList(
+                    t('dashboard.topFailingAgents'),
+                    overview.byAgent,
+                    t('dashboard.noToolFailures'),
+                    (row, index) => (
+                        <button
+                            key={`${row.label}-${index}`}
+                            type="button"
+                            style={{
+                                ...pillStyle,
+                                cursor: onSelectAgent ? 'pointer' : 'default',
+                            }}
+                            onClick={() => onSelectAgent?.(row.agentId)}
+                        >
+                            <span>{row.label}</span>
+                            <span style={{ color: 'var(--text-tertiary)' }}>{row.count}</span>
+                        </button>
+                    ),
+                )}
+                {renderCountList(t('dashboard.topFailingTools'), overview.byTool, t('dashboard.noToolFailures'))}
+                {renderCountList(t('dashboard.topProviders'), overview.byProvider, t('dashboard.noToolFailures'))}
+                {renderCountList(t('dashboard.topErrorClasses'), overview.byErrorClass, t('dashboard.noToolFailures'))}
+                {renderCountList(t('dashboard.topHttpStatuses'), overview.byHttpStatus, t('dashboard.noToolFailures'))}
+            </div>
+        </div>
+    );
+}
 
 /* ────── Summary Stats Bar ────── */
 
@@ -367,6 +548,7 @@ export default function Dashboard() {
     const [allTasks, setAllTasks] = useState<Task[]>([]);
     const [allActivities, setAllActivities] = useState<any[]>([]);
     const [agentActivities, setAgentActivities] = useState<Record<string, any[]>>({});
+    const [agentToolFailures, setAgentToolFailures] = useState<Record<string, ToolFailureSummary>>({});
 
 
     useEffect(() => {
@@ -393,6 +575,17 @@ export default function Dashboard() {
                 setAllActivities(activities.slice(0, 20));
                 setAgentActivities(perAgent);
             } catch (e) { console.error('Failed to fetch activities:', e); }
+
+            try {
+                const summaryResults = await Promise.allSettled(agents.map(a => activityApi.getToolFailureSummary(a.id, 24, 200)));
+                const perAgentSummary: Record<string, ToolFailureSummary> = {};
+                summaryResults.forEach((r, i) => {
+                    if (r.status === 'fulfilled') {
+                        perAgentSummary[agents[i].id] = r.value;
+                    }
+                });
+                setAgentToolFailures(perAgentSummary);
+            } catch (e) { console.error('Failed to fetch tool failure summaries:', e); }
         };
         fetchData();
         const interval = setInterval(fetchData, 30000);
@@ -409,6 +602,13 @@ export default function Dashboard() {
     // Greeting
     const hour = new Date().getHours();
     const greeting = hour < 6 ? '🌙 ' + t('dashboard.greeting.lateNight') : hour < 12 ? '☀️ ' + t('dashboard.greeting.morning') : hour < 18 ? '🌤️ ' + t('dashboard.greeting.afternoon') : '🌙 ' + t('dashboard.greeting.evening');
+    const toolFailureSnapshots = agents
+        .filter(agent => agentToolFailures[agent.id])
+        .map(agent => ({
+            agentId: agent.id,
+            agentName: agent.name,
+            summary: agentToolFailures[agent.id],
+        }));
 
     return (
         <div>
@@ -454,6 +654,11 @@ export default function Dashboard() {
                 <>
                     {/* Stats Bar */}
                     <StatsBar agents={agents} allTasks={allTasks} />
+
+                    <ToolFailureOverview
+                        summaries={toolFailureSnapshots}
+                        onSelectAgent={(agentId) => navigate(`/agents/${agentId}`)}
+                    />
 
                     {/* Agent List Card */}
                     <div style={{

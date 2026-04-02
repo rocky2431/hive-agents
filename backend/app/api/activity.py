@@ -10,6 +10,7 @@ from app.core.permissions import check_agent_access
 from app.database import get_db
 from app.models.activity_log import AgentActivityLog
 from app.models.user import User
+from app.services.tool_telemetry import collect_agent_tool_failure_summary
 
 router = APIRouter(tags=["activity"])
 
@@ -43,6 +44,24 @@ async def get_agent_activity(
         }
         for log in logs
     ]
+
+
+@router.get("/agents/{agent_id}/activity/tool-failures")
+async def get_agent_tool_failure_summary(
+    agent_id: uuid.UUID,
+    hours: int = Query(24, ge=1, le=24 * 30),
+    limit: int = Query(500, ge=10, le=2000),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get aggregated tool failure telemetry for an agent."""
+    await check_agent_access(db, current_user, agent_id)
+    return await collect_agent_tool_failure_summary(
+        db,
+        agent_id=agent_id,
+        hours=hours,
+        limit=limit,
+    )
 
 
 # ─── Chat History (per-agent) ─────────────────────────────────
@@ -128,7 +147,7 @@ async def list_conversations(
             # Extract sender name from [发送者: xxx] prefix
             import re
             sender_match = re.search(r'\[发送者:\s*([^\]]+?)(?:\s*\(ID:.*?\))?\]', first_msg)
-            display_name = f"📱 {sender_match.group(1)}" if sender_match else f"📱 飞书用户"
+            display_name = f"📱 {sender_match.group(1)}" if sender_match else "📱 飞书用户"
         else:
             display_name = "👥 飞书群聊"
 
@@ -256,7 +275,6 @@ async def get_conversation_messages(
     elif conv_id.startswith("agent_") or len(conv_id) == 36:
         # Agent-to-agent conversation — conv_id is the ChatSession UUID
         from app.models.audit import ChatMessage
-        from app.models.agent import Agent
         from app.models.participant import Participant
 
         result = await db.execute(

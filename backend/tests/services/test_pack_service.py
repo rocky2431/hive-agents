@@ -13,6 +13,7 @@ from app.services.pack_service import (
     get_pack_catalog,
 )
 from app.skills.types import ParsedSkill, SkillMetadata
+from app.tools.packs import iter_tool_packs
 
 
 def test_pack_catalog_returns_all_packs():
@@ -53,6 +54,21 @@ def test_pack_catalog_system_pack_no_channel_dependency():
     web = next(p for p in catalog if p["name"] == "web_pack")
     assert web["source"] == "system"
     assert web["requires_channel"] is None
+
+
+def test_iter_tool_packs_hides_mcp_admin_pack_from_generic_queries():
+    packs = iter_tool_packs()
+    names = {pack.name for pack in packs}
+
+    assert "web_pack" in names
+    assert "mcp_admin_pack" not in names
+
+
+def test_iter_tool_packs_returns_mcp_admin_pack_for_explicit_admin_queries():
+    packs = iter_tool_packs("mcp")
+    names = {pack.name for pack in packs}
+
+    assert "mcp_admin_pack" in names
 
 
 def test_plaza_pack_only_contains_real_shared_feed_tools():

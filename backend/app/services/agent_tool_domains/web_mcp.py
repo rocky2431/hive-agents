@@ -95,6 +95,43 @@ def _extract_text_from_html(markup: str) -> str:
     return parser.get_text()
 
 
+def _provider_result_failed(result: str) -> bool:
+    normalized = (result or "").strip()
+    return normalized.startswith("❌") or "<tool_error>" in normalized
+
+
+def _provider_failure_message(result: str, engine: str) -> str:
+    normalized = (result or "").strip()
+    if not normalized:
+        return f"web_search provider '{engine}' returned no usable content"
+    first_line = normalized.splitlines()[0].strip()
+    return first_line.removeprefix("❌").strip() or f"web_search provider '{engine}' failed"
+
+
+async def _fallback_to_jina_search(query: str, max_results: int) -> str | None:
+    api_key = await _get_jina_api_key()
+    if not api_key:
+        return None
+    result = await _jina_search({"query": query, "max_results": max_results})
+    if _provider_result_failed(result):
+        return None
+    return result
+
+
+async def _fallback_search_result(query: str, max_results: int) -> tuple[str, str] | None:
+    try:
+        duckduckgo_result = await _search_duckduckgo(query, max_results)
+        if not _provider_result_failed(duckduckgo_result):
+            return ("web_search:duckduckgo", duckduckgo_result)
+    except Exception:
+        logger.debug("DuckDuckGo fallback failed", exc_info=True)
+
+    jina_result = await _fallback_to_jina_search(query, max_results)
+    if jina_result:
+        return ("jina_search", jina_result)
+    return None
+
+
 async def _web_search(arguments: dict) -> str:
     query = arguments.get("query", "")
     if not query:
@@ -102,14 +139,14 @@ async def _web_search(arguments: dict) -> str:
             "web_search",
             "web_search requires a non-empty query.",
             provider="web_search",
-            hint="Pass concise search keywords. If you already have a URL, use web_fetch or jina_read instead.",
+            hint="Pass concise search keywords. If you already have a URL, use web_fetch instead.",
         )
     if _looks_like_url(query):
         return _invalid_argument_error(
             "web_search",
             "web_search expects search keywords, not a URL.",
             provider="web_search",
-            hint="Use web_fetch or jina_read when you already have a specific URL.",
+            hint="Use web_fetch when you already have a specific URL.",
         )
 
     config = {}
@@ -146,29 +183,85 @@ async def _web_search(arguments: dict) -> str:
             result = await _search_bing(query, api_key, max_results, language)
         else:
             result = await _search_duckduckgo(query, max_results)
+        if engine != "duckduckgo" and _provider_result_failed(result):
+            fallback = await _fallback_search_result(query, max_results)
+            if fallback:
+                fallback_tool, fallback_result = fallback
+                return render_tool_fallback(
+                    tool_name="web_search",
+                    error_class="provider_error",
+                    message=_provider_failure_message(result, engine),
+                    provider=engine,
+                    retryable=True,
+                    actionable_hint=(
+                        "The configured provider returned an unusable response, so the tool fell back to DuckDuckGo."
+                        if fallback_tool == "web_search:duckduckgo"
+                        else "The configured provider and DuckDuckGo were unavailable, so the tool used Jina Search as a last-resort fallback."
+                    ),
+                    fallback_tool=fallback_tool,
+                    fallback_result=fallback_result,
+                )
+            return render_tool_fallback(
+                tool_name="web_search",
+                error_class="provider_error",
+                message=_provider_failure_message(result, engine),
+                provider=engine,
+                retryable=True,
+                actionable_hint="The configured provider returned an unusable response and no fallback provider was available.",
+                fallback_tool="web_search:duckduckgo",
+                fallback_result="❌ No fallback search provider was available.",
+            )
         if fallback_note:
             return f"⚠️ {fallback_note}\n\n{result}"
         return result
     except Exception as e:
         if engine != "duckduckgo":
-            fallback_result = await _search_duckduckgo(query, max_results)
-            return render_tool_fallback(
+            fallback = await _fallback_search_result(query, max_results)
+            if fallback:
+                fallback_tool, fallback_result = fallback
+                return render_tool_fallback(
+                    tool_name="web_search",
+                    error_class="provider_error",
+                    message=f"web_search provider '{engine}' failed: {str(e)[:200]}",
+                    provider=engine,
+                    retryable=True,
+                    actionable_hint=(
+                        "The configured provider failed, so the tool fell back to DuckDuckGo."
+                        if fallback_tool == "web_search:duckduckgo"
+                        else "The configured provider and DuckDuckGo failed, so the tool used Jina Search as a last-resort fallback."
+                    ),
+                    fallback_tool=fallback_tool,
+                    fallback_result=fallback_result,
+                )
+        else:
+            jina_fallback = await _fallback_to_jina_search(query, max_results)
+            if jina_fallback:
+                return render_tool_fallback(
+                    tool_name="web_search",
+                    error_class="provider_error",
+                    message=f"web_search provider '{engine}' failed: {str(e)[:200]}",
+                    provider=engine,
+                    retryable=True,
+                    actionable_hint="DuckDuckGo failed, so the tool used Jina Search as a last-resort fallback.",
+                    fallback_tool="jina_search",
+                    fallback_result=jina_fallback,
+                )
+        if engine == "duckduckgo":
+            return render_tool_error(
                 tool_name="web_search",
                 error_class="provider_error",
-                message=f"web_search provider '{engine}' failed: {str(e)[:200]}",
+                message=f"web_search failed: {str(e)[:200]}",
                 provider=engine,
                 retryable=True,
-                actionable_hint="The configured provider failed, so the tool fell back to DuckDuckGo.",
-                fallback_tool="web_search:duckduckgo",
-                fallback_result=fallback_result,
+                actionable_hint="Retry with a more specific query or switch to another search provider.",
             )
         return render_tool_error(
             tool_name="web_search",
             error_class="provider_error",
-            message=f"web_search failed: {str(e)[:200]}",
+            message=f"web_search provider '{engine}' failed: {str(e)[:200]}",
             provider=engine,
             retryable=True,
-            actionable_hint="Retry with a more specific query or switch to another search provider.",
+            actionable_hint="Retry later or switch to a different search provider.",
         )
 
 
@@ -228,14 +321,14 @@ async def _jina_search(arguments: dict) -> str:
             "jina_search",
             "jina_search requires a non-empty query.",
             provider="jina",
-            hint="Pass concise search keywords. If you already have a URL, use web_fetch or jina_read.",
+            hint="Pass concise search keywords. If you already have a URL, use web_fetch.",
         )
     if _looks_like_url(query):
         return _invalid_argument_error(
             "jina_search",
             "jina_search expects keywords, not a URL.",
             provider="jina",
-            hint="Use web_fetch or jina_read when you already have a URL.",
+            hint="Use web_fetch when you already have a URL.",
         )
 
     max_results = min(arguments.get("max_results", 5), 10)
@@ -466,6 +559,9 @@ async def _search_tavily(query: str, api_key: str, max_results: int) -> str:
         )
         data = resp.json()
 
+    if resp.status_code != 200:
+        detail = data.get("error") if isinstance(data, dict) else None
+        return f"❌ Tavily search failed: HTTP {resp.status_code}: {str(detail or data)[:200]}"
     if "results" not in data:
         return f"❌ Tavily search failed: {data.get('error', str(data)[:200])}"
 
@@ -494,6 +590,14 @@ async def _search_google(query: str, api_key: str, max_results: int, language: s
         )
         data = resp.json()
 
+    if resp.status_code != 200:
+        error = data.get("error") if isinstance(data, dict) else None
+        detail = error.get("message") if isinstance(error, dict) else error
+        return f"❌ Google search failed: HTTP {resp.status_code}: {str(detail or data)[:200]}"
+    if isinstance(data, dict) and data.get("error"):
+        error = data["error"]
+        detail = error.get("message") if isinstance(error, dict) else error
+        return f"❌ Google search failed: {str(detail)[:200]}"
     results = [
         f"**{item.get('title', '')}**\n{item.get('link', '')}\n{item.get('snippet', '')}"
         for item in data.get("items", [])[:max_results]
@@ -515,6 +619,14 @@ async def _search_bing(query: str, api_key: str, max_results: int, language: str
         )
         data = resp.json()
 
+    if resp.status_code != 200:
+        error = data.get("error") if isinstance(data, dict) else None
+        detail = error.get("message") if isinstance(error, dict) else error
+        return f"❌ Bing search failed: HTTP {resp.status_code}: {str(detail or data)[:200]}"
+    if isinstance(data, dict) and data.get("error"):
+        error = data["error"]
+        detail = error.get("message") if isinstance(error, dict) else error
+        return f"❌ Bing search failed: {str(detail)[:200]}"
     results = [
         f"**{item.get('name', '')}**\n{item.get('url', '')}\n{item.get('snippet', '')}"
         for item in data.get("webPages", {}).get("value", [])[:max_results]

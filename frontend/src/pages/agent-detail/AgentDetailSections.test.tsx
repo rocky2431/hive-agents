@@ -230,6 +230,23 @@ describe('AgentDetail extracted sections', () => {
             detail: { cycle: 'morning' },
           },
         ]}
+        toolFailureSummary={{
+          total_errors: 3,
+          by_tool: [{ tool_name: 'jina_search', count: 2 }],
+          by_provider: [{ provider: 'jina', count: 2 }],
+          by_error_class: [{ error_class: 'quota_or_billing', count: 2 }],
+          by_http_status: [{ http_status: 402, count: 2 }],
+          recent_errors: [
+            {
+              summary: 'Jina billing issue',
+              tool_name: 'jina_search',
+              provider: 'jina',
+              error_class: 'quota_or_billing',
+              http_status: 402,
+              created_at: '2026-03-27T09:16:00Z',
+            },
+          ],
+        }}
         logFilter="heartbeat"
         expandedLogId="log-1"
         onFilterChange={() => {}}
@@ -240,6 +257,9 @@ describe('AgentDetail extracted sections', () => {
     expect(markup).toContain('User Actions');
     expect(markup).toContain('Heartbeat completed');
     expect(markup).toContain('cycle');
+    expect(markup).toContain('Tool Failure Summary');
+    expect(markup).toContain('jina_search');
+    expect(markup).toContain('quota_or_billing');
   });
 
   it('renders AgentApprovalsSection as a standalone approvals module', () => {

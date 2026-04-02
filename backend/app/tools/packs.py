@@ -58,7 +58,7 @@ TOOL_PACKS: tuple[ToolPackSpec, ...] = (
         name="mcp_admin_pack",
         summary="MCP 资源发现、导入与资源读取能力。",
         source="mcp",
-        activation_mode="通过 tool_search 后显式选择，或 import_mcp_server 激活",
+        activation_mode="仅在明确进行平台扩展或外部能力安装时显式启用",
         tools=(
             "discover_resources",
             "import_mcp_server",
@@ -68,14 +68,34 @@ TOOL_PACKS: tuple[ToolPackSpec, ...] = (
     ),
 )
 
+_ADMIN_PACK_QUERY_KEYWORDS = (
+    "mcp",
+    "server",
+    "servers",
+    "resource",
+    "resources",
+    "import",
+    "oauth",
+    "smithery",
+    "modelscope",
+)
+
+
+def _query_targets_admin_pack(query: str) -> bool:
+    normalized = query.strip().lower()
+    if not normalized:
+        return False
+    return any(keyword in normalized for keyword in _ADMIN_PACK_QUERY_KEYWORDS)
+
 
 def iter_tool_packs(query: str = "") -> tuple[ToolPackSpec, ...]:
     normalized = query.strip().lower()
     if not normalized:
-        return TOOL_PACKS
+        return tuple(pack for pack in TOOL_PACKS if pack.source != "mcp")
     return tuple(
         pack
         for pack in TOOL_PACKS
+        if (pack.source != "mcp" or _query_targets_admin_pack(normalized))
         if normalized in pack.name.lower()
         or normalized in pack.summary.lower()
         or any(normalized in tool.lower() for tool in pack.tools)

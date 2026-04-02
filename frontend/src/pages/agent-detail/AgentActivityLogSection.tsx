@@ -1,9 +1,11 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
+import type { ToolFailureSummary } from '../../api/domains/activity';
 
 type AgentActivityLogSectionProps = {
   agentType?: string;
   activityLogs: any[];
+  toolFailureSummary?: ToolFailureSummary;
   logFilter: string;
   expandedLogId: string | null;
   onFilterChange: (value: string) => void;
@@ -13,6 +15,7 @@ type AgentActivityLogSectionProps = {
 export default function AgentActivityLogSection({
   agentType,
   activityLogs,
+  toolFailureSummary,
   logFilter,
   expandedLogId,
   onFilterChange,
@@ -62,6 +65,79 @@ export default function AgentActivityLogSection({
   return (
     <div>
       <h3 style={{ marginBottom: '12px' }}>{t('agent.activityLog.title')}</h3>
+
+      {toolFailureSummary && (
+        <div
+          className="card"
+          style={{ marginBottom: '16px', padding: '14px', display: 'flex', flexDirection: 'column', gap: '10px' }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '12px', flexWrap: 'wrap' }}>
+            <div style={{ fontWeight: 600 }}>
+              {t('agent.activityLog.toolFailuresTitle', 'Tool Failure Summary')}
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+              {t('agent.activityLog.last24h', 'Last 24h')}: {toolFailureSummary.total_errors}
+            </div>
+          </div>
+
+          {toolFailureSummary.total_errors > 0 ? (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+                <div style={{ padding: '10px', borderRadius: '8px', background: 'var(--bg-secondary)' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>
+                    {t('agent.activityLog.topTool', 'Top Tool')}
+                  </div>
+                  <div style={{ fontWeight: 600 }}>{toolFailureSummary.by_tool[0]?.tool_name || '—'}</div>
+                </div>
+                <div style={{ padding: '10px', borderRadius: '8px', background: 'var(--bg-secondary)' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>
+                    {t('agent.activityLog.topProvider', 'Top Provider')}
+                  </div>
+                  <div style={{ fontWeight: 600 }}>{toolFailureSummary.by_provider[0]?.provider || '—'}</div>
+                </div>
+                <div style={{ padding: '10px', borderRadius: '8px', background: 'var(--bg-secondary)' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>
+                    {t('agent.activityLog.topErrorClass', 'Top Error')}
+                  </div>
+                  <div style={{ fontWeight: 600 }}>{toolFailureSummary.by_error_class[0]?.error_class || '—'}</div>
+                </div>
+                <div style={{ padding: '10px', borderRadius: '8px', background: 'var(--bg-secondary)' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>
+                    {t('agent.activityLog.topHttpStatus', 'Top HTTP Status')}
+                  </div>
+                  <div style={{ fontWeight: 600 }}>
+                    {toolFailureSummary.by_http_status[0]?.http_status ?? '—'}
+                  </div>
+                </div>
+              </div>
+
+              {toolFailureSummary.recent_errors.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                    {t('agent.activityLog.recentToolFailures', 'Recent Tool Failures')}
+                  </div>
+                  {toolFailureSummary.recent_errors.slice(0, 3).map((entry, index) => (
+                    <div
+                      key={`${entry.tool_name || 'tool'}-${entry.created_at || index}`}
+                      style={{ padding: '10px', borderRadius: '8px', background: 'var(--bg-secondary)', fontSize: '12px' }}
+                    >
+                      <div style={{ fontWeight: 600 }}>{entry.tool_name || 'unknown_tool'}</div>
+                      <div style={{ color: 'var(--text-secondary)', marginTop: '2px' }}>
+                        {entry.provider || 'unknown_provider'} · {entry.error_class || 'unknown_error'}
+                        {entry.http_status ? ` · HTTP ${entry.http_status}` : ''}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          ) : (
+            <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+              {t('agent.activityLog.noToolFailures', 'No recent tool failures')}
+            </div>
+          )}
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: '6px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
         {filterButton('user', `👤 ${t('agent.activityLog.userActions', 'User Actions')}`)}

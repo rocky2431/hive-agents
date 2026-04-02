@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -39,6 +40,28 @@ class _FakeAsyncClient:
 
     async def post(self, *args, **kwargs):
         return self._response
+
+
+class _ScalarResult:
+    def __init__(self, value):
+        self._value = value
+
+    def scalar_one_or_none(self):
+        return self._value
+
+
+class _FakeSession:
+    def __init__(self, value):
+        self._value = value
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+    async def execute(self, _query):
+        return _ScalarResult(self._value)
 
 
 @pytest.mark.asyncio
@@ -99,3 +122,121 @@ async def test_web_fetch_extracts_html_content(monkeypatch):
     assert "Hello" in result
     assert "World" in result
     assert "<tool_error>" not in result
+
+
+@pytest.mark.asyncio
+async def test_web_search_falls_back_to_duckduckgo_when_provider_returns_error_string(monkeypatch):
+    from app.services.agent_tool_domains import web_mcp
+
+    tool = SimpleNamespace(config={"search_engine": "tavily", "api_key": "tvly-key", "max_results": 5, "language": "en"})
+    monkeypatch.setattr(web_mcp, "async_session", lambda: _FakeSession(tool))
+
+    async def fake_tavily(query: str, api_key: str, max_results: int) -> str:
+        assert query == "openai sdk"
+        assert api_key == "tvly-key"
+        assert max_results == 5
+        return "❌ Tavily search failed: upstream 400"
+
+    async def fake_duckduckgo(query: str, max_results: int) -> str:
+        assert query == "openai sdk"
+        assert max_results == 5
+        return "duckduckgo fallback results"
+
+    monkeypatch.setattr(web_mcp, "_search_tavily", fake_tavily)
+    monkeypatch.setattr(web_mcp, "_search_duckduckgo", fake_duckduckgo)
+
+    result = await web_mcp._web_search({"query": "openai sdk"})
+
+    assert "duckduckgo fallback results" in result
+    payload = _extract_tool_error_payload(result)
+    assert payload["provider"] == "tavily"
+    assert payload["fallback_tool"] == "web_search:duckduckgo"
+
+
+@pytest.mark.asyncio
+async def test_web_search_falls_back_to_jina_when_duckduckgo_fails(monkeypatch):
+    from app.services.agent_tool_domains import web_mcp
+
+    tool = SimpleNamespace(config={"search_engine": "duckduckgo", "max_results": 5, "language": "en"})
+    monkeypatch.setattr(web_mcp, "async_session", lambda: _FakeSession(tool))
+
+    async def fake_get_jina_api_key() -> str:
+        return "jina-key"
+
+    async def fake_duckduckgo(query: str, max_results: int) -> str:
+        assert query == "python asyncio"
+        raise RuntimeError("duckduckgo blocked")
+
+    async def fake_jina_search(arguments: dict) -> str:
+        assert arguments == {"query": "python asyncio", "max_results": 5}
+        return "jina fallback results"
+
+    monkeypatch.setattr(web_mcp, "_get_jina_api_key", fake_get_jina_api_key)
+    monkeypatch.setattr(web_mcp, "_search_duckduckgo", fake_duckduckgo)
+    monkeypatch.setattr(web_mcp, "_jina_search", fake_jina_search)
+
+    result = await web_mcp._web_search({"query": "python asyncio", "max_results": 5})
+
+    assert "jina fallback results" in result
+    payload = _extract_tool_error_payload(result)
+    assert payload["provider"] == "duckduckgo"
+    assert payload["fallback_tool"] == "jina_search"
+
+
+@pytest.mark.asyncio
+async def test_web_search_falls_back_to_jina_when_primary_and_duckduckgo_both_fail(monkeypatch):
+    from app.services.agent_tool_domains import web_mcp
+
+    tool = SimpleNamespace(config={"search_engine": "tavily", "api_key": "tvly-key", "max_results": 5, "language": "en"})
+    monkeypatch.setattr(web_mcp, "async_session", lambda: _FakeSession(tool))
+
+    async def fake_get_jina_api_key() -> str:
+        return "jina-key"
+
+    async def fake_tavily(query: str, api_key: str, max_results: int) -> str:
+        raise RuntimeError("tavily down")
+
+    async def fake_duckduckgo(query: str, max_results: int) -> str:
+        raise RuntimeError("duckduckgo blocked")
+
+    async def fake_jina_search(arguments: dict) -> str:
+        return "jina tertiary fallback results"
+
+    monkeypatch.setattr(web_mcp, "_get_jina_api_key", fake_get_jina_api_key)
+    monkeypatch.setattr(web_mcp, "_search_tavily", fake_tavily)
+    monkeypatch.setattr(web_mcp, "_search_duckduckgo", fake_duckduckgo)
+    monkeypatch.setattr(web_mcp, "_jina_search", fake_jina_search)
+
+    result = await web_mcp._web_search({"query": "python asyncio", "max_results": 5})
+
+    assert "jina tertiary fallback results" in result
+    payload = _extract_tool_error_payload(result)
+    assert payload["provider"] == "tavily"
+    assert payload["fallback_tool"] == "jina_search"
+
+
+@pytest.mark.asyncio
+async def test_web_search_falls_back_when_google_returns_auth_error(monkeypatch):
+    from app.services.agent_tool_domains import web_mcp
+
+    tool = SimpleNamespace(config={"search_engine": "google", "api_key": "key:cx", "max_results": 5, "language": "en"})
+    monkeypatch.setattr(web_mcp, "async_session", lambda: _FakeSession(tool))
+
+    async def fake_duckduckgo(query: str, max_results: int) -> str:
+        assert query == "cloud deploy"
+        return "duckduckgo fallback results"
+
+    monkeypatch.setattr(web_mcp, "_search_duckduckgo", fake_duckduckgo)
+    monkeypatch.setattr(
+        "httpx.AsyncClient",
+        lambda *args, **kwargs: _FakeAsyncClient(
+            _FakeResponse(status_code=403, json_data={"error": {"message": "bad key"}}),
+        ),
+    )
+
+    result = await web_mcp._web_search({"query": "cloud deploy"})
+
+    assert "duckduckgo fallback results" in result
+    payload = _extract_tool_error_payload(result)
+    assert payload["provider"] == "google"
+    assert payload["fallback_tool"] == "web_search:duckduckgo"

@@ -15,6 +15,7 @@ describe('workspace section routing', () => {
     expect(WORKSPACE_SECTIONS.map((section) => section.path)).toEqual([
       '/enterprise/info',
       '/enterprise/llm',
+      '/enterprise/memory',
       '/enterprise/hr',
       '/enterprise/tools',
       '/enterprise/skills',

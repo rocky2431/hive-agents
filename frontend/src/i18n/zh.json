@@ -146,6 +146,14 @@
     "daysAgo": "{{count}}天前",
     "globalActivity": "全局活动",
     "recentCount": "最近 {{count}} 条",
+    "toolFailuresTitle": "工具失败摘要",
+    "toolFailuresWindow": "最近 {{count}} 小时",
+    "topFailingAgents": "失败最多的 Agent",
+    "topFailingTools": "失败最多的工具",
+    "topProviders": "失败最多的 Provider",
+    "topErrorClasses": "最高频错误类别",
+    "topHttpStatuses": "最高频 HTTP 状态",
+    "noToolFailures": "最近没有工具失败",
     "noAgents": "还没有数字员工，创建你的第一个吧",
     "createFirst": "创建第一个数字员工"
   },
@@ -358,7 +366,15 @@
       "userActions": "用户操作",
       "backendServices": "后端服务",
       "scheduleCron": "定时任务",
-      "messages": "消息"
+      "messages": "消息",
+      "toolFailuresTitle": "工具失败摘要",
+      "last24h": "近 24 小时",
+      "topTool": "最高频工具",
+      "topProvider": "最高频提供方",
+      "topErrorClass": "最高频错误",
+      "topHttpStatus": "最高频 HTTP 状态",
+      "recentToolFailures": "最近工具失败",
+      "noToolFailures": "最近没有工具失败"
     },
     "settings": {
       "title": "数字员工设置",

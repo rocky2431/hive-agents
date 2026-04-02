@@ -135,6 +135,14 @@
     "daysAgo": "{{count}}d ago",
     "globalActivity": "Global Activity",
     "recentCount": "Last {{count}}",
+    "toolFailuresTitle": "Tool Failure Summary",
+    "toolFailuresWindow": "Last {{count}}h",
+    "topFailingAgents": "Top Failing Agents",
+    "topFailingTools": "Top Failing Tools",
+    "topProviders": "Top Providers",
+    "topErrorClasses": "Top Error Classes",
+    "topHttpStatuses": "Top HTTP Statuses",
+    "noToolFailures": "No recent tool failures",
     "noAgents": "No digital employees yet, create your first one",
     "createFirst": "Create first digital employee"
   },
@@ -347,7 +355,15 @@
       "userActions": "User Actions",
       "backendServices": "Backend Services",
       "scheduleCron": "Schedule/Cron",
-      "messages": "Messages"
+      "messages": "Messages",
+      "toolFailuresTitle": "Tool Failure Summary",
+      "last24h": "Last 24h",
+      "topTool": "Top Tool",
+      "topProvider": "Top Provider",
+      "topErrorClass": "Top Error",
+      "topHttpStatus": "Top HTTP Status",
+      "recentToolFailures": "Recent Tool Failures",
+      "noToolFailures": "No recent tool failures"
     },
     "settings": {
       "title": "Agent Settings",

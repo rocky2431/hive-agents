@@ -97,6 +97,13 @@ function AgentDetailInner() {
         refetchInterval: activeTab === 'activityLog' ? 10000 : false,
     });
 
+    const { data: toolFailureSummary } = useQuery({
+        queryKey: ['activity', 'tool-failures', id],
+        queryFn: () => activityApi.getToolFailureSummary(id!, 24, 200),
+        enabled: !!id && activeTab === 'activityLog',
+        refetchInterval: activeTab === 'activityLog' ? 10000 : false,
+    });
+
     // Chat history
     // ── Session state (replaces old conversations query) ──────────────────
     const [sessions, setSessions] = useState<any[]>([]);
@@ -1212,6 +1219,7 @@ function AgentDetailInner() {
                         <AgentActivityLogSection
                             agentType={(agent as any)?.agent_type}
                             activityLogs={activityLogs}
+                            toolFailureSummary={toolFailureSummary}
                             logFilter={logFilter}
                             expandedLogId={expandedLogId}
                             onFilterChange={setLogFilter}

@@ -86,15 +86,20 @@ def test_core_tool_descriptions_define_when_not_to_use_and_fallbacks() -> None:
 
     assert "Do NOT use this for long-running delegated work" in tools["send_message_to_agent"]
     assert "check back later with `check_async_task`" in tools["delegate_to_agent"]
+    assert "follow up with `web_fetch`" in tools["web_search"]
     assert "Do NOT use when you already have a specific URL" in tools["jina_search"]
+    assert "call `web_fetch` directly" in tools["jina_search"]
     assert "If the page is too long" in tools["jina_read"]
+    assert "Prefer this after `web_search` identifies the right page" in tools["web_fetch"]
     assert "If you need to wait for a reply later, pair the message with an `on_message` trigger" in tools["send_feishu_message"]
     assert "Do NOT use this for agent-to-agent collaboration" in tools["send_web_message"]
     assert "Describe the capability you need, not a vendor name" in tools["discover_resources"]
+    assert "Only use this after builtin tools, loaded skills, and direct web/file tools still cannot complete the task" in tools["discover_resources"]
     assert "Use this to schedule future work" in tools["set_trigger"]
     assert "Do NOT create a trigger without a clear reason" in tools["set_trigger"]
     assert "Do NOT load a skill speculatively" in tools["load_skill"]
     assert "This only returns summaries" in tools["tool_search"]
+    assert "Do NOT use this as a general way to browse admin-only MCP extensions" in tools["tool_search"]
     assert "Return skill slugs" in tools["search_clawhub"]
 
 

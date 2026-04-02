@@ -12,8 +12,9 @@ from app.tools.decorator import ToolMeta, tool
         "Search the internet via DuckDuckGo for public information.\n\n"
         "Usage:\n"
         "- Use specific, well-formed search queries — not full sentences. Good: 'Python pandas groupby multiple columns'. Bad: 'How do I group by multiple columns in pandas?'\n"
-        "- Results include titles, URLs, and snippets. To read full page content, follow up with `jina_read`.\n"
-        "- May be unavailable on some networks. If search fails, try `jina_search` as an alternative.\n"
+        "- Results include titles, URLs, and snippets. To read full page content, follow up with `web_fetch` after you pick the best URL.\n"
+        "- When you need richer search ranking and Jina is configured, `jina_search` is an optional enhancement path, not the default reading path.\n"
+        "- May be unavailable on some networks. If search fails, try `jina_search` only when it is configured and you specifically want provider-backed search.\n"
         "- Do NOT search for information already available in your workspace files or loaded skills."
     ),
     parameters={
@@ -101,10 +102,11 @@ async def web_search(arguments: dict) -> str:
     description=(
         "Search the internet using Jina AI Search (s.jina.ai).\n\n"
         "Usage:\n"
-        "- Use this for research, news, technical docs, and other real-time lookups when you need richer results than standard search snippets.\n"
+        "- Use this for research, news, technical docs, and other real-time lookups when you need richer provider-backed results than standard search snippets.\n"
         "- Use focused search queries instead of full questions.\n"
-        "- Results may already include substantial content; follow up with `jina_read` only for the specific pages you need in full.\n"
-        "- Do NOT use when you already have a specific URL — call `jina_read` directly.\n"
+        "- Results may already include substantial content; for the final page read, prefer `web_fetch` once you have the right URL.\n"
+        "- Do NOT use when you already have a specific URL — call `web_fetch` directly.\n"
+        "- Use `jina_read` only when you explicitly want Jina Reader's cleaned markdown and the provider is configured.\n"
         "- Do NOT use for information already available in your workspace or loaded skills."
     ),
     parameters={
@@ -145,7 +147,8 @@ async def jina_search(arguments: dict) -> str:
         "Read and extract the full content from a web page URL using Jina AI Reader (r.jina.ai).\n\n"
         "Usage:\n"
         "- Use this when you already have a specific URL and need the full article or page content.\n"
-        "- Prefer this after `web_search` or `jina_search` identifies the right page.\n"
+        "- Use this only when you specifically want Jina Reader's cleaned markdown output and the provider is configured.\n"
+        "- For the default direct URL path, prefer `web_fetch` after `web_search` or `jina_search` identifies the right page.\n"
         "- The output is clean markdown with article text, tables, and key information.\n"
         "- If the page is too long, set `max_chars` and read only what you need first.\n"
         "- Do NOT use this as a search tool; if you do not have a URL yet, search first."
@@ -188,6 +191,7 @@ async def jina_read(arguments: dict) -> str:
         "Fetch and extract readable content directly from a specific URL without relying on Jina.\n\n"
         "Usage:\n"
         "- Use this when you already have a URL and want a direct, deterministic fetch path.\n"
+        "- Prefer this after `web_search` identifies the right page, or as the default known-URL path in cloud deployments.\n"
         "- Prefer this as a fallback when `jina_read` fails or when you want raw page text extraction.\n"
         "- This tool is for known URLs, not keyword search. Use `web_search` or `jina_search` first if needed.\n"
         "- The result may be truncated for very long pages."
@@ -228,7 +232,8 @@ async def web_fetch(arguments: dict) -> str:
     description=(
         "Search public MCP registries (Smithery + ModelScope) for tools and capabilities that can extend your abilities.\n\n"
         "Usage:\n"
-        "- Use this when your current toolset cannot perform the required operation.\n"
+        "- Only use this after builtin tools, loaded skills, and direct web/file tools still cannot complete the task.\n"
+        "- Treat this as an explicit platform-extension/admin workflow, not a normal task-execution path.\n"
         "- Describe the capability you need, not a vendor name unless that vendor is required.\n"
         "- Review discovered capabilities before importing them into your runtime.\n"
         "- Do NOT use this if an existing builtin tool, loaded skill, or active pack already solves the task."

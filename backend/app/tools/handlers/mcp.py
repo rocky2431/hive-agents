@@ -113,7 +113,7 @@ async def read_mcp_resource(agent_id: uuid.UUID, arguments: dict) -> str:
 
 @tool(ToolMeta(
     name="import_mcp_server",
-    description="Import an MCP server from Smithery registry into the platform. The server's tools become available for use. Use discover_resources first to find the server ID. If previously imported tools stopped working (e.g. OAuth expired), set reauthorize=true to re-run the authorization flow.",
+    description="Import an MCP server from Smithery registry into the platform. Treat this as an explicit platform-extension workflow, not a normal task-execution step. Use discover_resources first to find the server ID. If previously imported tools stopped working (e.g. OAuth expired), set reauthorize=true to re-run the authorization flow.",
     parameters={
         "type": "object",
         "properties": {

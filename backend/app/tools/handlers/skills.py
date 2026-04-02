@@ -48,6 +48,8 @@ def load_skill(workspace: Path, arguments: dict, tenant_id: str | None = None) -
         "Usage:\n"
         "- Use this when you suspect a missing capability but do not yet know the exact skill or pack name.\n"
         "- This only returns summaries and does not auto-load tools.\n"
+        "- Prefer builtin tools, loaded skills, and direct web/file workflows before reaching for admin-only MCP extensions.\n"
+        "- Do NOT use this as a general way to browse admin-only MCP extensions during ordinary task execution.\n"
         "- After reading the summaries, call `load_skill` or the matching activation tool explicitly."
     ),
     parameters={

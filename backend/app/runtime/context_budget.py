@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import re
 
 
 _DEFAULT_SYSTEM_PROMPT_CHAR_BUDGET = 60000
@@ -68,6 +67,23 @@ _OPERATIONS_HINTS = (
     "automation", "ops", "runbook", "queue", "worker", "dashboard",
     "告警", "触发器", "心跳", "自动化", "运维", "部署", "监控",
 )
+_MCP_EXTENSION_HINTS = (
+    "mcp",
+    "import_mcp_server",
+    "discover_resources",
+    "smithery",
+    "modelscope",
+    "install tool",
+    "install tools",
+    "install capability",
+    "platform extension",
+    "扩展能力",
+    "导入 mcp",
+    "导入一个 mcp",
+    "安装 mcp",
+    "安装工具",
+    "安装能力",
+)
 
 
 def infer_task_profile(query: str, messages: list[dict] | None = None) -> TaskProfile:
@@ -99,11 +115,13 @@ def infer_task_profile(query: str, messages: list[dict] | None = None) -> TaskPr
     else:
         complexity = "low"
 
+    explicit_mcp_extension = any(hint in haystack for hint in _MCP_EXTENSION_HINTS)
+
     suggested_packs: tuple[str, ...] = ()
-    if name == "research":
-        suggested_packs = ("web_pack",)
-    elif name == "operations" and re.search(r"\bmcp|resource|server\b|资源|服务\b", haystack):
+    if explicit_mcp_extension:
         suggested_packs = ("mcp_admin_pack",)
+    elif name == "research":
+        suggested_packs = ("web_pack",)
 
     return TaskProfile(name=name, complexity=complexity, suggested_pack_names=suggested_packs)
 

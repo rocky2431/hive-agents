@@ -57,3 +57,24 @@ def test_compute_context_budget_small_model_stays_bounded():
     assert budget.retrieval_budget_chars >= 3000
     assert budget.retrieval_budget_chars <= 6000
     assert budget.restore_budget_chars <= 30000
+
+
+def test_infer_task_profile_does_not_suggest_mcp_pack_for_generic_operations():
+    from app.runtime.context_budget import infer_task_profile
+
+    profile = infer_task_profile(
+        "请排查 deployment server 的 incident，查看监控、trigger 和 worker 日志",
+    )
+
+    assert profile.name == "operations"
+    assert "mcp_admin_pack" not in profile.suggested_pack_names
+
+
+def test_infer_task_profile_suggests_mcp_pack_for_explicit_platform_extension():
+    from app.runtime.context_budget import infer_task_profile
+
+    profile = infer_task_profile(
+        "请帮我导入一个 MCP server 扩展能力，并读取它暴露的 resource",
+    )
+
+    assert "mcp_admin_pack" in profile.suggested_pack_names
