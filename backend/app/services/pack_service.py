@@ -10,9 +10,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.agent import Agent
 from app.models.channel_config import ChannelConfig
+from app.models.llm import LLMModel
 from app.services.agent_tools import CORE_TOOL_NAMES, get_combined_openai_tools
 from app.services.capability_gate import CAPABILITY_MAP
+from app.services.llm_client import get_provider_spec
 from app.services.pack_policy_service import get_tenant_pack_policies, is_pack_enabled
+from app.services.token_tracker import estimate_tokens_from_chars
 from app.skills.types import ParsedSkill
 from app.tools import ensure_workspace
 from app.tools.packs import TOOL_PACKS, ToolPackSpec, infer_static_pack_names, pack_for_name
@@ -136,6 +139,7 @@ def _summarize_chat_messages(messages: list) -> dict:
     used_tools: set[str] = set()
     blocked_capabilities: list[dict] = []
     compaction_count = 0
+    last_compaction: dict | None = None
 
     for msg in messages:
         if getattr(msg, "role", None) == "tool_call":
@@ -172,13 +176,42 @@ def _summarize_chat_messages(messages: list) -> dict:
 
         if event_type == "session_compact":
             compaction_count += 1
+            last_compaction = {
+                "summary": event_data.get("summary"),
+                "original_message_count": event_data.get("original_message_count"),
+                "kept_message_count": event_data.get("kept_message_count"),
+                "created_at": getattr(msg, "created_at", None).isoformat() if getattr(msg, "created_at", None) else None,
+            }
 
     return {
         "activated_packs": activated_packs,
         "used_tools": sorted(used_tools),
         "blocked_capabilities": blocked_capabilities,
         "compaction_count": compaction_count,
+        "last_compaction": last_compaction,
     }
+
+
+def _estimate_session_input_tokens(messages: list) -> int:
+    total_chars = 0
+    for msg in messages:
+        total_chars += len(getattr(msg, "content", "") or "")
+        total_chars += len(getattr(msg, "thinking", "") or "")
+    if total_chars <= 0:
+        return 0
+    return estimate_tokens_from_chars(total_chars)
+
+
+def _resolve_context_window_tokens(model: LLMModel | None, agent: Agent | None) -> int | None:
+    if model and getattr(model, "max_input_tokens", None):
+        return model.max_input_tokens
+    provider_spec = get_provider_spec(getattr(model, "provider", "")) if model else None
+    if provider_spec and getattr(provider_spec, "max_input_tokens", None):
+        return provider_spec.max_input_tokens
+    context_window = getattr(agent, "context_window_size", None) if agent else None
+    if isinstance(context_window, int) and context_window > 0:
+        return context_window
+    return None
 
 
 def collect_skill_declared_packs(skills: list[ParsedSkill]) -> list[dict]:
@@ -381,7 +414,21 @@ async def get_session_runtime_summary(db: AsyncSession, session_id: uuid.UUID) -
     sess_result = await db.execute(select(ChatSession).where(ChatSession.id == session_id))
     session = sess_result.scalar_one_or_none()
     if not session:
-        return {"activated_packs": [], "used_tools": [], "blocked_capabilities": [], "compaction_count": 0}
+        return {
+            "activated_packs": [],
+            "used_tools": [],
+            "blocked_capabilities": [],
+            "compaction_count": 0,
+            "last_compaction": None,
+        }
+
+    agent_result = await db.execute(select(Agent).where(Agent.id == session.agent_id))
+    agent = agent_result.scalar_one_or_none()
+
+    model = None
+    if agent and getattr(agent, "primary_model_id", None):
+        model_result = await db.execute(select(LLMModel).where(LLMModel.id == agent.primary_model_id))
+        model = model_result.scalar_one_or_none()
 
     conv_id = _resolve_session_conversation_id(session)
     result = await db.execute(
@@ -393,4 +440,23 @@ async def get_session_runtime_summary(db: AsyncSession, session_id: uuid.UUID) -
         .order_by(ChatMessage.created_at)
     )
     messages = result.scalars().all()
-    return _summarize_chat_messages(messages)
+    summary = _summarize_chat_messages(messages)
+    context_window_tokens = _resolve_context_window_tokens(model, agent)
+    estimated_input_tokens = _estimate_session_input_tokens(messages)
+
+    summary["model"] = {
+        "label": getattr(model, "label", None),
+        "provider": getattr(model, "provider", None),
+        "name": getattr(model, "model", None),
+        "supports_vision": getattr(model, "supports_vision", None),
+        "context_window_tokens": context_window_tokens,
+    }
+    summary["runtime"] = {
+        "estimated_input_tokens": estimated_input_tokens,
+        "remaining_tokens_estimate": (
+            max(context_window_tokens - estimated_input_tokens, 0)
+            if isinstance(context_window_tokens, int)
+            else None
+        ),
+    }
+    return summary

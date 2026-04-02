@@ -209,6 +209,7 @@ _ALWAYS_INCLUDE_CORE = set(CORE_TOOL_NAMES)
 # - office read tools: may also run via optional lark-cli auth in cloud environments
 _HR_TOOL_NAMES = {
     "create_digital_employee",
+    "preview_agent_blueprint",
     "discover_resources",
     "search_clawhub",
     "web_search",

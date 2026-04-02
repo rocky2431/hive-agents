@@ -206,6 +206,21 @@ describe('AgentDetail extracted sections', () => {
         activityLogs={[
           { id: 'log-1', created_at: '2026-03-27T09:15:00Z', summary: 'Sent release reminder', action_type: 'chat_reply' },
         ]}
+        capabilityInstalls={[
+          {
+            id: 'install-1',
+            kind: 'mcp_server',
+            display_name: 'smithery/github',
+            status: 'failed',
+            error_message: 'OAuth required',
+          },
+          {
+            id: 'install-2',
+            kind: 'platform_skill',
+            display_name: 'feishu-integration',
+            status: 'installed',
+          },
+        ]}
         statusKey="active"
         onSelectTab={() => {}}
       />,
@@ -215,6 +230,9 @@ describe('AgentDetail extracted sections', () => {
     expect(markup).toContain('GPT-5.4');
     expect(markup).toContain('Handles release coordination.');
     expect(markup).toContain('Sent release reminder');
+    expect(markup).toContain('Capability Install Status');
+    expect(markup).toContain('smithery/github');
+    expect(markup).toContain('OAuth required');
   });
 
   it('renders AgentActivityLogSection as a standalone activity module', () => {
@@ -468,6 +486,29 @@ describe('AgentDetail extracted sections', () => {
         chatMessages={[
           { role: 'assistant', content: 'Ship it' },
         ]}
+        runtimeSummary={{
+          model: {
+            label: 'GPT-5.4',
+            provider: 'openai',
+            name: 'gpt-5.4',
+            context_window_tokens: 128000,
+          },
+          runtime: {
+            connected: true,
+            estimated_input_tokens: 18400,
+            remaining_tokens_estimate: 109600,
+          },
+          activated_packs: ['web-research'],
+          used_tools: ['search_query'],
+          blocked_capabilities: [],
+          compaction_count: 2,
+          last_compaction: {
+            summary: 'Compacted older turns and kept the active work context.',
+            original_message_count: 26,
+            kept_message_count: 8,
+          },
+        }}
+        transportNotice={null}
         isWaiting={false}
         chatEndRef={React.createRef<HTMLDivElement>()}
         showScrollBtn={false}
@@ -482,7 +523,7 @@ describe('AgentDetail extracted sections', () => {
         uploading={false}
         uploadProgress={-1}
         uploadAbortRef={{ current: null }}
-        chatInputRef={React.createRef<HTMLInputElement>()}
+        chatInputRef={React.createRef<HTMLTextAreaElement>()}
         chatInput="Can you summarize?"
         onSetChatInput={vi.fn()}
         onHandlePaste={vi.fn()}
@@ -495,6 +536,7 @@ describe('AgentDetail extracted sections', () => {
     expect(markup).toContain('Launch sync');
     expect(markup).toContain('Ship it');
     expect(markup).toContain('notes.md');
+    expect(markup).toContain('chat-input');
     expect(markup).toContain('send');
   });
 });

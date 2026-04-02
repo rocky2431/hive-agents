@@ -16,6 +16,7 @@ from app.database import get_db
 from app.models.agent import Agent
 from app.models.tool import AgentTool, Tool
 from app.models.user import User
+from app.services.agent_tool_assignment_service import ensure_agent_tool_assignment
 from app.services.email_service import test_connection as test_email_connection
 from app.services.mcp_client import MCPClient
 
@@ -187,22 +188,15 @@ async def _upsert_tenant_tool_assignments(
     config: dict | None = None,
 ) -> None:
     for agent_id in await _get_tenant_agent_ids(db, tenant_id):
-        assignment = await _get_agent_tool(db, agent_id, tool.id)
-        if assignment is None:
-            assignment = AgentTool(
-                id=uuid.uuid4(),
-                agent_id=agent_id,
-                tool_id=tool.id,
-                enabled=tool.enabled if enabled is None else enabled,
-                config=config or {},
-                source="system",
-            )
-            db.add(assignment)
-        else:
-            if enabled is not None:
-                assignment.enabled = enabled
-            if config is not None:
-                assignment.config = config
+        await ensure_agent_tool_assignment(
+            db,
+            agent_id=agent_id,
+            tool_id=tool.id,
+            enabled=tool.enabled if enabled is None else enabled,
+            config=config if config is not None else None,
+            source="system",
+            merge_config=False,
+        )
 
 
 async def _serialize_tool_for_tenant(db: AsyncSession, tool: Tool, tenant_id: uuid.UUID | None) -> dict:
@@ -389,15 +383,14 @@ async def create_tool(
     await db.flush()
 
     for agent_id in await _get_tenant_agent_ids(db, current_user.tenant_id):
-        db.add(
-            AgentTool(
-                id=uuid.uuid4(),
-                agent_id=agent_id,
-                tool_id=tool.id,
-                enabled=data.enabled,
-                config=data.config or {},
-                source="system",
-            )
+        await ensure_agent_tool_assignment(
+            db,
+            agent_id=agent_id,
+            tool_id=tool.id,
+            enabled=data.enabled,
+            config=data.config or {},
+            source="system",
+            merge_config=False,
         )
 
     await db.commit()
@@ -619,19 +612,16 @@ async def update_tool_config(
     db: AsyncSession = Depends(get_db),
 ):
     await _require_manage_access(db, current_user, agent_id)
-    assignment = await _get_agent_tool(db, agent_id, tool_id)
-    if assignment is None:
-        assignment = AgentTool(
-            id=uuid.uuid4(),
-            agent_id=agent_id,
-            tool_id=tool_id,
-            enabled=True,
-            config=data.config,
-            source="system",
-        )
-        db.add(assignment)
-    else:
-        assignment.config = data.config
+    assignment, _ = await ensure_agent_tool_assignment(
+        db,
+        agent_id=agent_id,
+        tool_id=tool_id,
+        enabled=True,
+        config=data.config,
+        source="system",
+        merge_config=False,
+    )
+    assignment.config = data.config
     await db.commit()
     return {"ok": True}
 

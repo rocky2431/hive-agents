@@ -170,7 +170,15 @@
       "llmCallsToday": "🤖 今日 LLM 调用",
       "max": "上限",
       "totalToken": "📊 总 Token",
-      "pending": "⏳ 待处理"
+      "pending": "⏳ 待处理",
+      "capabilityInstallTitle": "能力安装状态",
+      "capabilityItems": "项",
+      "installedCount": "已安装",
+      "pendingCount": "待完成",
+      "failedCount": "失败",
+      "installIssues": "安装问题",
+      "installFailed": "安装失败",
+      "installHealthy": "当前请求的能力均已安装或仍在处理中。"
     },
     "tabs": {
       "status": "状态",
@@ -358,7 +366,16 @@
       "attachment": "附件",
       "uploadFailed": "上传失败",
       "askAboutFile": "关于 {{name}} 的问题...",
-      "thinking": "思考中..."
+      "thinking": "思考中...",
+      "runtime": {
+        "model": "模型",
+        "remaining": "剩余上下文",
+        "compactions": "压缩次数",
+        "showTrace": "显示内部轨迹",
+        "hideTrace": "隐藏内部轨迹",
+        "eventTitle": "运行时事件",
+        "compactionMeta": "保留 {{kept}} / {{original}} 条"
+      }
     },
     "activityLog": {
       "title": "工作日志",

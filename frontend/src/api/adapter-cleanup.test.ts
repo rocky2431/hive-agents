@@ -264,6 +264,23 @@ describe('request cleanup adapters', () => {
     expect(patch).toHaveBeenCalledWith('/agents/agent-1', { execution_mode: 'coordinator' });
   });
 
+  it('routes capability install reads through agentApi', async () => {
+    vi.doMock('./core/request', async () => {
+      const actual = await vi.importActual<typeof import('./core/request')>('./core/request');
+      return {
+        ...actual,
+        get: vi.fn(),
+      };
+    });
+    const { agentApi } = await import('./domains/agents');
+    const { get } = await import('./core/request');
+    vi.mocked(get).mockResolvedValue([]);
+
+    await agentApi.getCapabilityInstalls('agent-1');
+
+    expect(get).toHaveBeenCalledWith('/agents/agent-1/capability-installs');
+  });
+
   it('routes user management through usersApi', async () => {
     vi.doMock('./core/request', async () => {
       const actual = await vi.importActual<typeof import('./core/request')>('./core/request');

@@ -3,27 +3,17 @@ import { useTranslation } from 'react-i18next';
 
 import MarkdownRenderer from '../../components/MarkdownRenderer';
 import CopyMessageButton from './CopyMessageButton';
+import {
+  computeComposerHeight,
+  type AgentChatMessage,
+  type ChatRuntimeSummary,
+} from './chatRuntime';
 
 type AttachedFile = {
   name: string;
   text: string;
   path?: string;
   imageUrl?: string;
-};
-
-type ChatMessage = {
-  role: string;
-  content: string;
-  fileName?: string;
-  imageUrl?: string;
-  thinking?: string;
-  sender_name?: string;
-  toolName?: string;
-  toolArgs?: Record<string, unknown>;
-  toolStatus?: 'running' | 'done';
-  toolResult?: string;
-  timestamp?: string;
-  participant_id?: string | null;
 };
 
 interface AgentChatSectionProps {
@@ -46,12 +36,14 @@ interface AgentChatSectionProps {
   onDeleteSession: (sessionId: string) => void;
   historyContainerRef: React.RefObject<HTMLDivElement | null>;
   onHistoryScroll: () => void;
-  historyMsgs: ChatMessage[];
+  historyMsgs: AgentChatMessage[];
   showHistoryScrollBtn: boolean;
   onScrollHistoryToBottom: () => void;
   chatContainerRef: React.RefObject<HTMLDivElement | null>;
   onChatScroll: () => void;
-  chatMessages: ChatMessage[];
+  chatMessages: AgentChatMessage[];
+  runtimeSummary: ChatRuntimeSummary | null;
+  transportNotice: string | null;
   isWaiting: boolean;
   chatEndRef: React.RefObject<HTMLDivElement | null>;
   showScrollBtn: boolean;
@@ -64,10 +56,10 @@ interface AgentChatSectionProps {
   uploading: boolean;
   uploadProgress: number;
   uploadAbortRef: React.RefObject<(() => void) | null>;
-  chatInputRef: React.RefObject<HTMLInputElement | null>;
+  chatInputRef: React.RefObject<HTMLTextAreaElement | null>;
   chatInput: string;
   onSetChatInput: (value: string) => void;
-  onHandlePaste: (e: React.ClipboardEvent<HTMLInputElement>) => void;
+  onHandlePaste: (e: React.ClipboardEvent<HTMLTextAreaElement>) => void;
   onSendChatMsg: () => void;
   isStreaming: boolean;
   onAbortGeneration: () => void;
@@ -99,6 +91,8 @@ export default function AgentChatSection({
   chatContainerRef,
   onChatScroll,
   chatMessages,
+  runtimeSummary,
+  transportNotice,
   isWaiting,
   chatEndRef,
   showScrollBtn,
@@ -137,9 +131,78 @@ export default function AgentChatSection({
     wecom: t('common.channels.wecom'),
   };
 
+  const [showInternalTrace, setShowInternalTrace] = React.useState(false);
+
+  React.useEffect(() => {
+    const input = chatInputRef.current;
+    if (!input) return;
+    input.style.height = '0px';
+    const nextHeight = computeComposerHeight(input.scrollHeight);
+    input.style.height = `${nextHeight}px`;
+    input.style.overflowY = nextHeight >= 160 ? 'auto' : 'hidden';
+  }, [chatInput, chatInputRef]);
+
+  const formatCompactNumber = React.useCallback((value?: number | null) => {
+    if (typeof value !== 'number' || Number.isNaN(value)) return '—';
+    if (Math.abs(value) >= 1000) {
+      const compact = value / 1000;
+      const digits = Math.abs(compact) >= 100 ? 0 : 1;
+      return `${compact.toFixed(digits)}K`;
+    }
+    return `${value}`;
+  }, []);
+
+  const renderEventMessage = React.useCallback(
+    (msg: AgentChatMessage, index: number) => {
+      const statusColor =
+        msg.eventStatus === 'blocked' || msg.eventStatus === 'capability_denied'
+          ? 'var(--error)'
+          : msg.eventStatus === 'approval_required'
+            ? 'var(--warning)'
+            : 'var(--accent-primary)';
+      const metaParts: string[] = [];
+      if (typeof msg.originalMessageCount === 'number' && typeof msg.keptMessageCount === 'number') {
+        metaParts.push(
+          t('agent.chat.runtime.compactionMeta', {
+            original: msg.originalMessageCount,
+            kept: msg.keptMessageCount,
+            defaultValue: `Kept ${msg.keptMessageCount} of ${msg.originalMessageCount}`,
+          }),
+        );
+      }
+      if (msg.activatedPacks?.length) metaParts.push(msg.activatedPacks.join(', '));
+      if (msg.eventToolName) metaParts.push(msg.eventToolName);
+
+      return (
+        <div key={`event-${index}`} style={{ paddingLeft: '36px', marginBottom: '8px' }}>
+          <div
+            style={{
+              borderRadius: '10px',
+              border: `1px solid color-mix(in srgb, ${statusColor} 30%, transparent)`,
+              background: `color-mix(in srgb, ${statusColor} 10%, var(--bg-secondary))`,
+              padding: '10px 12px',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+              <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: statusColor, flexShrink: 0 }} />
+              <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                {msg.eventTitle || t('agent.chat.runtime.eventTitle', 'Runtime Event')}
+              </span>
+            </div>
+            <div style={{ fontSize: '12px', lineHeight: 1.6, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>{msg.content}</div>
+            {metaParts.length > 0 && (
+              <div style={{ marginTop: '6px', fontSize: '11px', color: 'var(--text-tertiary)' }}>{metaParts.join(' · ')}</div>
+            )}
+          </div>
+        </div>
+      );
+    },
+    [t],
+  );
+
   const ChatMessageItem = React.useMemo(
     () =>
-      React.memo(({ msg, i, isLeft }: { msg: ChatMessage; i: number; isLeft: boolean }) => {
+      React.memo(({ msg, i, isLeft }: { msg: AgentChatMessage; i: number; isLeft: boolean }) => {
         const extension = msg.fileName?.split('.').pop()?.toLowerCase() ?? '';
         const fileIcon =
           extension === 'pdf'
@@ -312,7 +375,7 @@ export default function AgentChatSection({
     [t],
   );
 
-  const renderToolCall = (msg: ChatMessage, index: number, running = false) => (
+  const renderToolCall = (msg: AgentChatMessage, index: number, running = false) => (
     <div key={index} style={{ display: 'flex', gap: '8px', marginBottom: '6px', paddingLeft: '36px', minWidth: 0 }}>
       <details
         style={{
@@ -381,6 +444,81 @@ export default function AgentChatSection({
       </details>
     </div>
   );
+
+  const renderThinkingCard = (thinking: string, key: string | number) => (
+    <div key={key} style={{ paddingLeft: '36px', marginBottom: '6px' }}>
+      <details
+        style={{
+          fontSize: '12px',
+          background: 'rgba(147, 130, 220, 0.08)',
+          borderRadius: '6px',
+          border: '1px solid rgba(147, 130, 220, 0.15)',
+        }}
+      >
+        <summary
+          style={{
+            padding: '6px 10px',
+            cursor: 'pointer',
+            color: 'rgba(147, 130, 220, 0.9)',
+            fontWeight: 500,
+            userSelect: 'none',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+          }}
+        >
+          Thinking
+        </summary>
+        <div
+          style={{
+            padding: '4px 10px 8px',
+            fontSize: '12px',
+            lineHeight: '1.6',
+            color: 'var(--text-secondary)',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            maxHeight: '300px',
+            overflow: 'auto',
+          }}
+        >
+          {thinking}
+        </div>
+      </details>
+    </div>
+  );
+
+  const renderConversationMessage = (message: AgentChatMessage, index: number, isLeft: boolean) => {
+    if (message.role === 'event') {
+      return renderEventMessage(message, index);
+    }
+    if (message.role === 'tool_call') {
+      if (!showInternalTrace) return null;
+      return renderToolCall(message, index, message.toolStatus === 'running');
+    }
+    if (message.role === 'assistant' && !message.content?.trim()) {
+      if (!message.thinking) return null;
+      return renderThinkingCard(message.thinking, index);
+    }
+    return <ChatMessageItem key={index} msg={message} i={index} isLeft={isLeft} />;
+  };
+
+  const runtimeInfoItems = [
+    {
+      label: t('agent.chat.runtime.model', 'Model'),
+      value: runtimeSummary?.model?.label || '—',
+    },
+    {
+      label: t('agent.chat.runtime.remaining', 'Remaining'),
+      value: formatCompactNumber(runtimeSummary?.runtime?.remaining_tokens_estimate),
+    },
+    {
+      label: t('agent.chat.runtime.compactions', 'Compactions'),
+      value: `${runtimeSummary?.compaction_count ?? 0}`,
+    },
+  ];
+
+  const visibleTimeline = isReadOnlySession ? historyMsgs : chatMessages;
+  const hasInternalTrace = visibleTimeline.some((message) => message.role === 'tool_call');
 
   return (
     <div style={{ display: 'flex', gap: '0', flex: 1, minHeight: 0, height: 'calc(100vh - 206px)' }}>
@@ -679,6 +817,62 @@ export default function AgentChatSection({
       </div>
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative', minWidth: 0, overflow: 'hidden' }}>
+        {activeSession && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '12px',
+              padding: '10px 16px',
+              borderBottom: '1px solid var(--border-subtle)',
+              background: 'var(--bg-elevated)',
+              flexWrap: 'wrap',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              {runtimeInfoItems.map((item) => (
+                <div
+                  key={item.label}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '5px 8px',
+                    borderRadius: '999px',
+                    background: 'var(--bg-secondary)',
+                    border: '1px solid var(--border-subtle)',
+                    fontSize: '11px',
+                  }}
+                >
+                  <span style={{ color: 'var(--text-tertiary)' }}>{item.label}</span>
+                  <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{item.value}</span>
+                </div>
+              ))}
+              {runtimeSummary?.last_compaction?.summary && (
+                <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{runtimeSummary.last_compaction.summary}</span>
+              )}
+            </div>
+            {hasInternalTrace && (
+              <button
+                onClick={() => setShowInternalTrace((value) => !value)}
+                style={{
+                  background: 'none',
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: '999px',
+                  padding: '5px 10px',
+                  fontSize: '11px',
+                  color: 'var(--text-secondary)',
+                  cursor: 'pointer',
+                }}
+              >
+                {showInternalTrace
+                  ? t('agent.chat.runtime.hideTrace', 'Hide internal trace')
+                  : t('agent.chat.runtime.showTrace', 'Show internal trace')}
+              </button>
+            )}
+          </div>
+        )}
         {!activeSession ? (
           <div
             style={{
@@ -719,82 +913,7 @@ export default function AgentChatSection({
                 const thisAgentPid = isA2A && thisAgentName ? historyMsgs.find((message) => message.sender_name === thisAgentName)?.participant_id : null;
                 return historyMsgs.map((message, index) => {
                   const isLeft = isA2A && thisAgentPid ? message.participant_id !== thisAgentPid : message.role === 'assistant';
-                  if (message.role === 'tool_call') {
-                    return renderToolCall(
-                      {
-                        ...message,
-                        toolName: message.toolName || (() => {
-                          try {
-                            return JSON.parse(message.content || '{}').name;
-                          } catch {
-                            return 'tool';
-                          }
-                        })(),
-                        toolArgs: message.toolArgs || (() => {
-                          try {
-                            return JSON.parse(message.content || '{}').args;
-                          } catch {
-                            return {};
-                          }
-                        })(),
-                        toolResult:
-                          message.toolResult ??
-                          (() => {
-                            try {
-                              return JSON.parse(message.content || '{}').result;
-                            } catch {
-                              return '';
-                            }
-                          })(),
-                      },
-                      index,
-                    );
-                  }
-                  if (message.role === 'assistant' && !message.content?.trim()) {
-                    if (!message.thinking) return null;
-                    return (
-                      <div key={index} style={{ paddingLeft: '36px', marginBottom: '6px' }}>
-                        <details
-                          style={{
-                            fontSize: '12px',
-                            background: 'rgba(147, 130, 220, 0.08)',
-                            borderRadius: '6px',
-                            border: '1px solid rgba(147, 130, 220, 0.15)',
-                          }}
-                        >
-                          <summary
-                            style={{
-                              padding: '6px 10px',
-                              cursor: 'pointer',
-                              color: 'rgba(147, 130, 220, 0.9)',
-                              fontWeight: 500,
-                              userSelect: 'none',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                            }}
-                          >
-                            Thinking
-                          </summary>
-                          <div
-                            style={{
-                              padding: '4px 10px 8px',
-                              fontSize: '12px',
-                              lineHeight: '1.6',
-                              color: 'var(--text-secondary)',
-                              whiteSpace: 'pre-wrap',
-                              wordBreak: 'break-word',
-                              maxHeight: '300px',
-                              overflow: 'auto',
-                            }}
-                          >
-                            {message.thinking}
-                          </div>
-                        </details>
-                      </div>
-                    );
-                  }
-                  return <ChatMessageItem key={index} msg={message} i={index} isLeft={isLeft} />;
+                  return renderConversationMessage(message, index, isLeft);
                 });
               })()}
             </div>
@@ -836,54 +955,7 @@ export default function AgentChatSection({
                 </div>
               )}
               {chatMessages.map((message, index) => {
-                if (message.role === 'tool_call') {
-                  return renderToolCall(message, index, message.toolStatus === 'running');
-                }
-                if (message.role === 'assistant' && !message.content?.trim()) {
-                  if (!message.thinking) return null;
-                  return (
-                    <div key={index} style={{ paddingLeft: '36px', marginBottom: '6px' }}>
-                      <details
-                        style={{
-                          fontSize: '12px',
-                          background: 'rgba(147, 130, 220, 0.08)',
-                          borderRadius: '6px',
-                          border: '1px solid rgba(147, 130, 220, 0.15)',
-                        }}
-                      >
-                        <summary
-                          style={{
-                            padding: '6px 10px',
-                            cursor: 'pointer',
-                            color: 'rgba(147, 130, 220, 0.9)',
-                            fontWeight: 500,
-                            userSelect: 'none',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                          }}
-                        >
-                          Thinking
-                        </summary>
-                        <div
-                          style={{
-                            padding: '4px 10px 8px',
-                            fontSize: '12px',
-                            lineHeight: '1.6',
-                            color: 'var(--text-secondary)',
-                            whiteSpace: 'pre-wrap',
-                            wordBreak: 'break-word',
-                            maxHeight: '300px',
-                            overflow: 'auto',
-                          }}
-                        >
-                          {message.thinking}
-                        </div>
-                      </details>
-                    </div>
-                  );
-                }
-                return <ChatMessageItem key={index} msg={message} i={index} isLeft={message.role === 'assistant'} />;
+                return renderConversationMessage(message, index, message.role === 'assistant');
               })}
               {isWaiting && (
                 <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', animation: 'fadeIn .2s ease' }}>
@@ -962,6 +1034,18 @@ export default function AgentChatSection({
                   This Agent has <strong>expired</strong> and is off duty. Contact your admin to extend its service.
                 </span>
               </div>
+            ) : transportNotice ? (
+              <div
+                style={{
+                  padding: '7px 16px',
+                  borderTop: '1px solid rgba(245,158,11,0.25)',
+                  background: 'rgba(245,158,11,0.08)',
+                  fontSize: '12px',
+                  color: 'rgb(180,100,0)',
+                }}
+              >
+                {transportNotice}
+              </div>
             ) : !wsConnected ? (
               <div style={{ padding: '3px 16px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: 'var(--text-tertiary)' }}>
                 <span
@@ -1022,7 +1106,7 @@ export default function AgentChatSection({
                 ))}
               </div>
             )}
-            <div style={{ display: 'flex', gap: '8px', padding: '6px 12px', borderTop: '1px solid var(--border-subtle)' }}>
+            <div style={{ display: 'flex', gap: '8px', padding: '8px 12px', borderTop: '1px solid var(--border-subtle)', alignItems: 'flex-end' }}>
               <input type="file" multiple ref={fileInputRef} onChange={onHandleChatFile} style={{ display: 'none' }} />
               <button
                 className="btn btn-secondary"
@@ -1072,7 +1156,7 @@ export default function AgentChatSection({
                   </button>
                 </div>
               )}
-              <input
+              <textarea
                 ref={chatInputRef}
                 className="chat-input"
                 value={chatInput}
@@ -1092,7 +1176,15 @@ export default function AgentChatSection({
                       : t('chat.placeholder')
                 }
                 disabled={!wsConnected}
-                style={{ flex: 1 }}
+                rows={1}
+                style={{
+                  flex: 1,
+                  minHeight: '44px',
+                  maxHeight: '160px',
+                  resize: 'none',
+                  padding: '10px 14px',
+                  lineHeight: 1.5,
+                }}
                 autoFocus
               />
               {isStreaming || isWaiting ? (

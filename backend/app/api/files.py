@@ -1,11 +1,10 @@
 """File management API routes for agent workspaces."""
 
-import os
 import uuid
 from pathlib import Path
 
 import aiofiles
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File as FastFile, HTTPException, UploadFile as UploadFileType, status
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
@@ -210,7 +209,7 @@ async def import_skill_to_agent(
     await check_agent_access(db, current_user, agent_id)
 
     from sqlalchemy.orm import selectinload
-    from app.models.skill import Skill, SkillFile
+    from app.models.skill import Skill
 
     # Load the global skill with its files
     result = await db.execute(
@@ -245,10 +244,6 @@ async def import_skill_to_agent(
         "files_written": len(written),
         "files": written,
     }
-
-
-# Separate router for file uploads (binary) since we need UploadFile
-from fastapi import File as FastFile, UploadFile as UploadFileType
 
 
 upload_router = APIRouter(prefix="/agents/{agent_id}/files", tags=["files"])
@@ -375,7 +370,6 @@ async def upload_enterprise_kb_file(
     current_user: User = Depends(get_current_user),
 ):
     """Upload a file to enterprise knowledge base (tenant-scoped)."""
-    from app.core.security import require_role
     # Only admin can upload to enterprise KB
     if current_user.role not in ("platform_admin", "org_admin"):
         raise HTTPException(status_code=403, detail="Only admins can upload to enterprise knowledge base")
@@ -524,11 +518,21 @@ async def agent_import_from_clawhub(
     await check_agent_access(db, current_user, agent_id)
 
     from app.api.skills import (
-        CLAWHUB_BASE, _fetch_github_directory, _parse_skill_md_frontmatter, _get_github_token,
+        CLAWHUB_BASE, _fetch_github_directory, _get_github_token,
     )
     import httpx
 
     slug = body.slug
+    base = _agent_base_dir(agent_id)
+    folder_name = slug
+    existing_skill_md = base / "skills" / folder_name / "SKILL.md"
+    if existing_skill_md.exists():
+        return {
+            "status": "already_installed",
+            "folder_name": folder_name,
+            "files_written": 0,
+            "files": [],
+        }
 
     # 1. Fetch metadata from ClawHub
     try:
@@ -557,8 +561,6 @@ async def agent_import_from_clawhub(
     files = await _fetch_github_directory("openclaw", "skills", github_path, "main", token)
 
     # 3. Write to agent workspace: skills/<slug>/
-    base = _agent_base_dir(agent_id)
-    folder_name = slug
     skill_dir = base / "skills" / folder_name
     skill_dir.mkdir(parents=True, exist_ok=True)
 
@@ -597,17 +599,25 @@ async def agent_import_from_url(
         raise HTTPException(400, "Invalid GitHub URL")
 
     owner, repo, branch, path = parsed["owner"], parsed["repo"], parsed["branch"], parsed["path"]
+    # Derive folder name
+    folder_name = path.rstrip("/").split("/")[-1] if path else repo
+    base = _agent_base_dir(agent_id)
+    existing_skill_md = base / "skills" / folder_name / "SKILL.md"
+    if existing_skill_md.exists():
+        return {
+            "status": "already_installed",
+            "folder_name": folder_name,
+            "files_written": 0,
+            "files": [],
+        }
+
     tenant_id = str(current_user.tenant_id) if current_user.tenant_id else None
     token = await _get_github_token(tenant_id)
     files = await _fetch_github_directory(owner, repo, path, branch, token)
     if not files:
         raise HTTPException(404, "No files found")
 
-    # Derive folder name
-    folder_name = path.rstrip("/").split("/")[-1] if path else repo
-
     # Write to agent workspace
-    base = _agent_base_dir(agent_id)
     skill_dir = base / "skills" / folder_name
     skill_dir.mkdir(parents=True, exist_ok=True)
 

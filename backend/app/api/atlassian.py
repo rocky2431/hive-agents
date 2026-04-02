@@ -17,6 +17,7 @@ from app.core.security import get_current_user
 from app.database import get_db
 from app.models.channel_config import ChannelConfig
 from app.models.user import User
+from app.services.agent_tool_assignment_service import ensure_agent_tool_assignment
 
 router = APIRouter(tags=["atlassian"])
 
@@ -179,7 +180,7 @@ async def _sync_atlassian_tools_for_agent(agent_id: uuid.UUID, api_key: str) -> 
     and creates AgentTool assignments for this specific agent.
     """
     from app.services.mcp_client import MCPClient
-    from app.models.tool import Tool, AgentTool
+    from app.models.tool import Tool
     from app.database import async_session
     from sqlalchemy import select as sa_select
 
@@ -244,25 +245,17 @@ async def _sync_atlassian_tools_for_agent(agent_id: uuid.UUID, api_key: str) -> 
 
             # Assign to this specific agent (api_key stored per-agent via channel config,
             # but we also put it in AgentTool.config as fallback for _execute_mcp_tool)
-            at_r = await db.execute(
-                sa_select(AgentTool).where(
-                    AgentTool.agent_id == agent_id,
-                    AgentTool.tool_id == tool.id,
-                )
+            _assignment, created = await ensure_agent_tool_assignment(
+                db,
+                agent_id=agent_id,
+                tool_id=tool.id,
+                enabled=True,
+                source="user_installed",
+                installed_by_agent_id=agent_id,
+                config={"api_key": api_key},
+                merge_config=False,
             )
-            at = at_r.scalar_one_or_none()
-            if at:
-                at.enabled = True
-                at.config = {"api_key": api_key}
-            else:
-                db.add(AgentTool(
-                    agent_id=agent_id,
-                    tool_id=tool.id,
-                    enabled=True,
-                    source="user_installed",
-                    installed_by_agent_id=agent_id,
-                    config={"api_key": api_key},
-                ))
+            if created:
                 assigned += 1
 
         await db.commit()
@@ -278,7 +271,7 @@ async def get_atlassian_api_key_for_agent(agent_id: uuid.UUID, db=None) -> str |
             select(ChannelConfig).where(
                 ChannelConfig.agent_id == agent_id,
                 ChannelConfig.channel_type == "atlassian",
-                ChannelConfig.is_configured == True,
+                ChannelConfig.is_configured,
             )
         )
         config = result.scalar_one_or_none()

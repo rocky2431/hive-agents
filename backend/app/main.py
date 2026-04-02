@@ -116,6 +116,7 @@ async def lifespan(app: FastAPI):
         import app.models.feature_flag    # noqa
         import app.models.security_audit  # noqa
         import app.models.capability_policy  # noqa
+        import app.models.capability_install  # noqa
         import app.models.refresh_token  # noqa
         import app.models.guard_policy  # noqa
         import app.models.tenant_channel_config  # noqa

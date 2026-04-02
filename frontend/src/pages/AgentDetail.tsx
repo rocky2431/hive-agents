@@ -16,11 +16,19 @@ import AgentSettingsSection from './agent-detail/AgentSettingsSection';
 import AgentSkillsSection from './agent-detail/AgentSkillsSection';
 import AgentStatusSection from './agent-detail/AgentStatusSection';
 import AgentWorkspaceSection from './agent-detail/AgentWorkspaceSection';
+import {
+    buildRuntimeSummary,
+    getRuntimeEventMessage,
+    getTransportNotice,
+    normalizeStoredChatMessage,
+    type AgentChatMessage,
+    type ChatRuntimeSummary,
+} from './agent-detail/chatRuntime';
 import RelationshipEditor from './agent-detail/RelationshipEditor';
 import ToolsManager from './agent-detail/ToolsManager';
 import { normalizeToolCallResult } from './agent-detail/toolResultEnvelope';
 import OpenClawSettings from './OpenClawSettings';
-import { agentApi } from '../api/domains/agents';
+import { agentApi, type AgentCapabilityInstall } from '../api/domains/agents';
 import { activityApi } from '../api/domains/activity';
 import { enterpriseApi } from '../api/domains/enterprise';
 import { fileApi } from '../api/domains/files';
@@ -97,6 +105,13 @@ function AgentDetailInner() {
         refetchInterval: activeTab === 'activityLog' ? 10000 : false,
     });
 
+    const { data: capabilityInstalls = [] } = useQuery<AgentCapabilityInstall[]>({
+        queryKey: ['agent-capability-installs', id],
+        queryFn: () => agentApi.getCapabilityInstalls(id!),
+        enabled: !!id && activeTab === 'status',
+        staleTime: 30_000,
+    });
+
     const { data: toolFailureSummary } = useQuery({
         queryKey: ['activity', 'tool-failures', id],
         queryFn: () => activityApi.getToolFailureSummary(id!, 24, 200),
@@ -111,7 +126,7 @@ function AgentDetailInner() {
     const [activeSession, setActiveSession] = useState<any | null>(null);
     const [chatScope, setChatScope] = useState<'mine' | 'all'>('mine');
     const [allUserFilter, setAllUserFilter] = useState<string>('');  // filter by username in All Users
-    const [historyMsgs, setHistoryMsgs] = useState<any[]>([]);
+    const [historyMsgs, setHistoryMsgs] = useState<AgentChatMessage[]>([]);
     const [sessionsLoading, setSessionsLoading] = useState(false);
     const [allSessionsLoading, setAllSessionsLoading] = useState(false);
     const [agentExpired, setAgentExpired] = useState(false);
@@ -207,6 +222,7 @@ function AgentDetailInner() {
         setCreatedAgentId(null);
         setChatMessages([]);
         setHistoryMsgs([]);
+        setTransportNotice(null);
         setIsStreaming(runtimeState.isStreaming);
         setIsWaiting(runtimeState.isWaiting);
         setActiveSession(sess);
@@ -224,13 +240,7 @@ function AgentDetailInner() {
             if (currentAgentIdRef.current !== targetAgentId) return;
             if (activeSessionIdRef.current !== sess.id) return;
             const isAgentSession = sess.source_channel === 'agent' || sess.participant_type === 'agent';
-            const preParsed = msgs.map((m: any) => parseChatMsg({
-                role: m.role, content: m.content || '',
-                ...(m.toolName && { toolName: m.toolName, toolArgs: m.toolArgs, toolStatus: m.toolStatus, toolResult: m.toolResult }),
-                ...(m.thinking && { thinking: m.thinking }),
-                ...(m.created_at && { timestamp: m.created_at }),
-                ...(m.id && { id: m.id }),
-            }));
+            const preParsed = msgs.map((m: any) => parseChatMsg(normalizeStoredChatMessage(m)));
             
             if (!isAgentSession && sess.user_id === String(currentUser?.id)) {
                 setChatMessages(preParsed);
@@ -268,6 +278,7 @@ function AgentDetailInner() {
                 setActiveSession(null);
                 setChatMessages([]);
                 setHistoryMsgs([]);
+                setTransportNotice(null);
                 setWsConnected(false);
                 setIsStreaming(false);
                 setIsWaiting(false);
@@ -307,13 +318,13 @@ function AgentDetailInner() {
         } catch (e) { alert('Failed: ' + e); }
         setExpirySaving(false);
     };
-    interface ChatMsg { role: 'user' | 'assistant' | 'tool_call'; content: string; fileName?: string; toolName?: string; toolArgs?: any; toolStatus?: 'running' | 'done'; toolResult?: string; thinking?: string; imageUrl?: string; timestamp?: string; }
-    const [chatMessages, setChatMessages] = useState<ChatMsg[]>([]);
+    const [chatMessages, setChatMessages] = useState<AgentChatMessage[]>([]);
     const [chatInput, setChatInput] = useState('');
     const [wsConnected, setWsConnected] = useState(false);
     const [uploading, setUploading] = useState(false);
     const [isWaiting, setIsWaiting] = useState(false);
     const [isStreaming, setIsStreaming] = useState(false);
+    const [transportNotice, setTransportNotice] = useState<string | null>(null);
     const [uploadProgress, setUploadProgress] = useState(-1);
     const uploadAbortRef = useRef<(() => void) | null>(null);
     const [attachedFiles, setAttachedFiles] = useState<{ name: string; text: string; path?: string; imageUrl?: string }[]>([]);
@@ -321,7 +332,7 @@ function AgentDetailInner() {
     const wsRef = useRef<WebSocket | null>(null);
     const chatEndRef = useRef<HTMLDivElement>(null);
     const chatContainerRef = useRef<HTMLDivElement>(null);
-    const chatInputRef = useRef<HTMLInputElement>(null);
+    const chatInputRef = useRef<HTMLTextAreaElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     // Settings form local state
@@ -376,14 +387,14 @@ function AgentDetailInner() {
 
     // Load chat history + connect websocket when chat tab is active
     const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'];
-    const normalizeToolCallMessage = (msg: ChatMsg): ChatMsg => {
+    const normalizeToolCallMessage = (msg: AgentChatMessage): AgentChatMessage => {
         if (msg.role !== 'tool_call' || msg.toolName !== 'create_digital_employee' || !msg.toolResult) {
             return msg;
         }
         const normalized = normalizeToolCallResult(msg.toolName, msg.toolResult);
         return { ...msg, toolResult: normalized.displayResult };
     };
-    const parseChatMsg = (msg: ChatMsg): ChatMsg => {
+    const parseChatMsg = (msg: AgentChatMessage): AgentChatMessage => {
         if (msg.role === 'tool_call') return normalizeToolCallMessage(msg);
         if (msg.role !== 'user') return msg;
         let parsed = { ...msg };
@@ -426,6 +437,7 @@ function AgentDetailInner() {
         setActiveSession(null);
         setChatMessages([]);
         setHistoryMsgs([]);
+        setTransportNotice(null);
         setIsStreaming(false);
         setIsWaiting(false);
         setWsConnected(false);
@@ -519,10 +531,22 @@ function AgentDetailInner() {
                 return;
             }
 
+            const transportMessage = getTransportNotice(d);
+            if (transportMessage) {
+                setTransportNotice(transportMessage);
+                return;
+            }
+
             if (['thinking', 'chunk', 'tool_call', 'done', 'error', 'quota_exceeded'].includes(d.type)) {
                 setIsWaiting(false);
                 if (['thinking', 'chunk', 'tool_call'].includes(d.type)) setIsStreaming(true);
                 if (['done', 'error', 'quota_exceeded'].includes(d.type)) setIsStreaming(false);
+            }
+
+            const runtimeEvent = getRuntimeEventMessage({ ...d, timestamp: new Date().toISOString() });
+            if (runtimeEvent) {
+                setChatMessages(prev => [...prev, parseChatMsg(runtimeEvent)]);
+                return;
             }
 
             if (d.type === 'thinking') {
@@ -536,7 +560,7 @@ function AgentDetailInner() {
             } else if (d.type === 'tool_call') {
                 const normalizedResult = normalizeToolCallResult(d.name, d.result);
                 setChatMessages(prev => {
-                    const toolMsg: ChatMsg = normalizeToolCallMessage({
+                    const toolMsg: AgentChatMessage = normalizeToolCallMessage({
                         role: 'tool_call',
                         content: '',
                         toolName: d.name,
@@ -582,7 +606,7 @@ function AgentDetailInner() {
             } else if (d.type === 'trigger_notification') {
                 setChatMessages(prev => [...prev, parseChatMsg({ role: 'assistant', content: d.content })]);
                 fetchMySessions(true, agentId);
-            } else {
+            } else if (typeof d.content === 'string' && (d.role === 'assistant' || d.role === 'user')) {
                 setChatMessages(prev => [...prev, parseChatMsg({ role: d.role, content: d.content })]);
             }
         };
@@ -720,6 +744,7 @@ function AgentDetailInner() {
 
         setIsWaiting(true);
         setIsStreaming(false);
+        setTransportNotice(null);
         setSessionUiState(activeRuntimeKey, { isWaiting: true, isStreaming: false });
         setChatMessages(prev => [...prev, parseChatMsg({ 
             role: 'user', 
@@ -772,7 +797,7 @@ function AgentDetailInner() {
     };
 
     // Clipboard paste handler — auto-upload pasted images
-    const handlePaste = async (e: React.ClipboardEvent) => {
+    const handlePaste = async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
         const items = e.clipboardData?.items;
         if (!items) return;
         
@@ -834,9 +859,31 @@ function AgentDetailInner() {
         enabled: activeTab === 'settings' || activeTab === 'status' || activeTab === 'chat',
     });
 
+    const { data: persistedRuntimeSummary } = useQuery({
+        queryKey: ['chat-runtime-summary', id, activeSession?.id],
+        queryFn: () => chatApi.getRuntimeSummary(String(activeSession!.id)),
+        enabled: !!id && activeTab === 'chat' && !!activeSession?.id,
+        refetchInterval: activeTab === 'chat' && activeSession?.id ? 10000 : false,
+    });
+
     const supportsVision = !!agent?.primary_model_id && llmModels.some(
         (m: any) => m.id === agent.primary_model_id && m.supports_vision
     );
+
+    const activeTimelineMessages = activeSession && isWritableSession(activeSession) ? chatMessages : historyMsgs;
+
+    const runtimeSummary: ChatRuntimeSummary | null = React.useMemo(() => {
+        if (!activeSession) return null;
+        const activeModel = llmModels.find((model: any) => model.id === agent?.primary_model_id);
+        return buildRuntimeSummary({
+            persistedSummary: persistedRuntimeSummary,
+            activeModel,
+            agentPrimaryModelId: agent?.primary_model_id,
+            agentContextWindowSize: agent?.context_window_size,
+            messages: activeTimelineMessages,
+            connected: isWritableSession(activeSession) ? wsConnected : false,
+        });
+    }, [activeSession, activeTimelineMessages, agent?.context_window_size, agent?.primary_model_id, llmModels, persistedRuntimeSummary, wsConnected]);
 
     const { data: permData } = useQuery({
         queryKey: ['agent-permissions', id],
@@ -1068,6 +1115,7 @@ function AgentDetailInner() {
                         llmModels={llmModels}
                         metrics={metrics}
                         activityLogs={activityLogs}
+                        capabilityInstalls={capabilityInstalls}
                         statusKey={statusKey}
                         onSelectTab={setActiveTab}
                     />
@@ -1161,6 +1209,8 @@ function AgentDetailInner() {
                             chatContainerRef={chatContainerRef}
                             onChatScroll={handleChatScroll}
                             chatMessages={chatMessages}
+                            runtimeSummary={runtimeSummary}
+                            transportNotice={transportNotice}
                             isWaiting={isWaiting}
                             chatEndRef={chatEndRef}
                             showScrollBtn={showScrollBtn}

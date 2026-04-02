@@ -455,6 +455,19 @@ async def get_agent(
     return out
 
 
+@router.get("/{agent_id}/capability-installs")
+async def get_agent_capability_installs(
+    agent_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List persistent capability install records for one agent."""
+    await check_agent_access(db, current_user, agent_id)
+    from app.services.capability_install_service import list_capability_installs
+
+    return await list_capability_installs(agent_id=agent_id)
+
+
 @router.get("/{agent_id}/permissions")
 async def get_agent_permissions(
     agent_id: uuid.UUID,

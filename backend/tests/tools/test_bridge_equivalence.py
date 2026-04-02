@@ -56,6 +56,7 @@ def test_combined_openai_tools_matches_canonical_surface():
         "plaza_add_comment",
         "plaza_create_post",
         "plaza_get_new_posts",
+        "preview_agent_blueprint",
         "read_document",
         "read_emails",
         "read_file",

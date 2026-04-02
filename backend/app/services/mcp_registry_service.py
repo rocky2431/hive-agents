@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.agent import Agent
 from app.models.tool import AgentTool, Tool
+from app.services.agent_tool_assignment_service import ensure_agent_tool_assignment
 from app.services.resource_discovery import import_mcp_direct, import_mcp_from_smithery
 
 
@@ -118,18 +119,13 @@ async def _assign_tools_to_tenant_agents(
         if tool:
             tool.tenant_id = tenant_id
         for agent_id in agent_ids:
-            check = await db.execute(
-                select(AgentTool).where(AgentTool.agent_id == agent_id, AgentTool.tool_id == tool_id)
+            await ensure_agent_tool_assignment(
+                db,
+                agent_id=agent_id,
+                tool_id=tool_id,
+                enabled=True,
+                source="system",
             )
-            if not check.scalar_one_or_none():
-                db.add(
-                    AgentTool(
-                        agent_id=agent_id,
-                        tool_id=tool_id,
-                        enabled=True,
-                        source="system",
-                    )
-                )
 
 
 async def import_tenant_mcp_server(

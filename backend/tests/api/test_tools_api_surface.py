@@ -71,6 +71,8 @@ async def test_create_tool_assigns_new_tool_to_current_tenant_agents():
     agent_two = SimpleNamespace(id=uuid4(), tenant_id=tenant_id)
     db = _FakeDB([
         _ListResult([agent_one, agent_two]),
+        _ScalarResult(None),
+        _ScalarResult(None),
     ])
 
     payload = tools_api.ToolCreateIn(

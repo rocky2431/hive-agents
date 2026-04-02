@@ -1,22 +1,20 @@
 """Seed default agents (Morty & Meeseeks) on first platform startup."""
 
-import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 
 from loguru import logger
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.database import async_session
 from app.models.agent import Agent, AgentPermission
 from app.models.org import AgentAgentRelationship
-from app.models.skill import Skill, SkillFile
-from app.models.tool import Tool, AgentTool
+from app.models.skill import Skill
+from app.models.tool import Tool
 from app.models.user import User
 from app.config import get_settings
+from app.services.agent_tool_assignment_service import ensure_agent_tool_assignment
 
 settings = get_settings()
 
@@ -226,13 +224,18 @@ async def seed_default_agents():
 
         # ── Assign all default tools ──
         default_tools_result = await db.execute(
-            select(Tool).where(Tool.is_default == True)
+            select(Tool).where(Tool.is_default)
         )
         default_tools = default_tools_result.scalars().all()
 
         for agent in [morty, meeseeks]:
             for tool in default_tools:
-                db.add(AgentTool(agent_id=agent.id, tool_id=tool.id, enabled=True))
+                await ensure_agent_tool_assignment(
+                    db,
+                    agent_id=agent.id,
+                    tool_id=tool.id,
+                    enabled=True,
+                )
 
         # ── Mutual relationships ──
         db.add(AgentAgentRelationship(

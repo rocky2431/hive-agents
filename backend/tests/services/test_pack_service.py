@@ -158,6 +158,12 @@ def test_summarize_chat_messages_extracts_runtime_events_and_tool_usage():
             "capability": "channel.feishu.message",
         }],
         "compaction_count": 1,
+        "last_compaction": {
+            "summary": "Older context compacted.",
+            "original_message_count": None,
+            "kept_message_count": None,
+            "created_at": None,
+        },
     }
 
 

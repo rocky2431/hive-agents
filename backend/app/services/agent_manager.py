@@ -19,6 +19,158 @@ from app.models.llm import LLMModel
 settings = get_settings()
 
 
+def _clean_contract_line(value: str) -> str:
+    return value.strip().lstrip("-*•").strip()
+
+
+def _lines_from_text(value: str | None) -> list[str]:
+    if not value:
+        return []
+    return [line for line in (_clean_contract_line(item) for item in value.splitlines()) if line]
+
+
+def _markdown_bullets(lines: list[str], fallback: list[str] | None = None) -> str:
+    items = lines or (fallback or [])
+    if not items:
+        return "- None specified"
+    return "\n".join(f"- {item}" for item in items)
+
+
+def _render_agent_soul_from_blueprint(
+    *,
+    agent_name: str,
+    role_description: str,
+    creator_name: str,
+    created_at: str,
+    personality: str = "",
+    boundaries: str = "",
+    blueprint: dict | None = None,
+) -> str:
+    """Render a richer soul contract from blueprint-like inputs."""
+    blueprint = blueprint or {}
+    personality_lines = _lines_from_text(personality)
+    boundary_lines = _lines_from_text(boundaries)
+    focus_lines = _lines_from_text(str(blueprint.get("focus_content", "")))
+    heartbeat_lines = _lines_from_text(str(blueprint.get("heartbeat_topics", "")))
+    skill_names = [str(item) for item in blueprint.get("skill_names", []) if str(item).strip()]
+    mcp_server_ids = [str(item) for item in blueprint.get("mcp_server_ids", []) if str(item).strip()]
+
+    mission = role_description.strip() or "执行明确业务任务并持续维护高质量工作产出"
+    operating_style = personality_lines or [
+        "Work in a structured, detail-oriented way.",
+        "State assumptions and risks explicitly when information is incomplete.",
+        "Keep updates concise and action-oriented.",
+    ]
+    tool_preferences = [
+        "Start with builtin tools, workspace context, and installed default skills.",
+        "Use extra skills only when they clearly match the task.",
+        "Escalate to MCP or marketplace installs only when builtin paths are insufficient.",
+    ]
+    if skill_names:
+        tool_preferences.append(f"Installed extra platform skills: {', '.join(skill_names)}.")
+    if mcp_server_ids:
+        tool_preferences.append(f"Requested MCP extensions: {', '.join(mcp_server_ids)}.")
+
+    parts = [
+        f"# Soul — {agent_name}",
+        "",
+        "## Identity & Mission",
+        f"- **Name**: {agent_name}",
+        f"- **Role**: {mission}",
+        f"- **Creator**: {creator_name}",
+        f"- **Created**: {created_at}",
+        "",
+        "## What Good Looks Like",
+        _markdown_bullets([
+            f"Produce outputs that directly support this mission: {mission}.",
+            "Keep artifacts, findings, and next actions explicit enough for fast review.",
+            "Do not present half-configured capabilities as ready-to-use.",
+        ]),
+        "",
+        "## Operating Style",
+        _markdown_bullets(operating_style),
+        "",
+        "## Decision Rules",
+        _markdown_bullets([
+            "Prefer builtin tools and installed skills before requesting new extensions.",
+            "If an external install is required, explain why the builtin path is insufficient.",
+            "When blocked, state the blocker, impact, and next best action instead of improvising.",
+        ]),
+        "",
+        "## Tool Preferences",
+        _markdown_bullets(tool_preferences),
+        "",
+        "## Communication Contract",
+        _markdown_bullets([
+            "Summaries should be concise, concrete, and traceable to artifacts.",
+            "Highlight warnings, missing setup, and follow-up actions explicitly.",
+            "Do not claim success until the current environment has validated the path.",
+        ]),
+        "",
+        "## Boundaries & Red Lines",
+        _markdown_bullets(
+            boundary_lines,
+            fallback=[
+                "Do not fabricate sources, facts, or completion status.",
+                "Flag sensitive or external side effects before proceeding when approval is required.",
+                "Treat unavailable integrations as blocked until verified.",
+            ],
+        ),
+        "",
+        "## Early Focus",
+        _markdown_bullets(
+            focus_lines + heartbeat_lines,
+            fallback=["Review focus.md, verify installed capabilities, and deliver the first visible win."],
+        ),
+    ]
+    return "\n".join(parts).rstrip() + "\n"
+
+
+def _render_focus_from_blueprint(
+    *,
+    focus_content: str = "",
+    heartbeat_topics: str = "",
+    ready_now: list[str] | None = None,
+    manual_steps: list[str] | None = None,
+) -> str:
+    """Render onboarding focus.md from structured creation inputs."""
+    focus_lines = _lines_from_text(focus_content)
+    heartbeat_lines = _lines_from_text(heartbeat_topics)
+    pending_steps = manual_steps or []
+    parts = [
+        "# Focus",
+        "",
+        "## Initial Mission",
+        (focus_lines[0] if focus_lines else "Understand the mission, verify capabilities, and deliver a first visible outcome."),
+        "",
+        "## First 3 Tasks",
+        _markdown_bullets(
+            focus_lines[:3],
+            fallback=[
+                "Read soul.md and confirm the mission and decision rules.",
+                "Verify the currently available capabilities end-to-end.",
+                "Produce one concrete deliverable that proves the agent is operational.",
+            ],
+        ),
+        "",
+        "## Required Capabilities Already Installed",
+        _markdown_bullets(ready_now or ["builtin tools + 14 default skills"]),
+        "",
+        "## Capabilities Still Needing Human Setup",
+        (_markdown_bullets(pending_steps) if pending_steps else "- None currently."),
+        "",
+        "## Heartbeat Exploration Topics",
+        _markdown_bullets(
+            heartbeat_lines,
+            fallback=["Review recent work, refine priorities, and surface the next best opportunity."],
+        ),
+        "",
+        "## First Success Check",
+        "- Confirm the first task can be completed end-to-end using currently available capabilities.",
+    ]
+    return "\n".join(parts).rstrip() + "\n"
+
+
 class AgentManager:
     """Manage OpenClaw Gateway Docker containers for digital employees."""
 
@@ -39,8 +191,14 @@ class AgentManager:
     def _uses_openclaw_container(agent: Agent) -> bool:
         return getattr(agent, "agent_type", "native") == "openclaw"
 
-    async def initialize_agent_files(self, db: AsyncSession, agent: Agent,
-                                      personality: str = "", boundaries: str = "") -> None:
+    async def initialize_agent_files(
+        self,
+        db: AsyncSession,
+        agent: Agent,
+        personality: str = "",
+        boundaries: str = "",
+        blueprint: dict | None = None,
+    ) -> None:
         """Copy template files and customize for this agent."""
         agent_dir = self._agent_dir(agent.id)
         template_dir = self._template_dir()
@@ -75,27 +233,15 @@ class AgentManager:
         creator = result.scalar_one_or_none()
         creator_name = creator.display_name if creator else "Unknown"
 
-        if soul_path.exists():
-            template_content = soul_path.read_text()
-            soul_content = template_content.replace("{{agent_name}}", agent.name)
-            soul_content = soul_content.replace("{{role_description}}", agent.role_description or "通用助手")
-            soul_content = soul_content.replace("{{creator_name}}", creator_name)
-            soul_content = soul_content.replace("{{created_at}}", datetime.now(timezone.utc).strftime("%Y-%m-%d"))
-            if personality:
-                soul_content += f"\n\n## Personality\n{personality}\n"
-            if boundaries:
-                soul_content += f"\n## Boundaries\n{boundaries}\n"
-        else:
-            # No template — build soul.md from scratch (single Personality section)
-            role = agent.role_description or "a digital assistant"
-            parts = [f"# Soul — {agent.name}\n"]
-            parts.append(f"## Identity\n- Name: {agent.name}\n- Role: {role}\n- Creator: {creator_name}\n- Created: {datetime.now(timezone.utc).strftime('%Y-%m-%d')}\n")
-            if personality:
-                parts.append(f"## Personality\n{personality}\n")
-            if boundaries:
-                parts.append(f"## Boundaries\n{boundaries}\n")
-            soul_content = "\n".join(parts)
-
+        soul_content = _render_agent_soul_from_blueprint(
+            agent_name=agent.name,
+            role_description=agent.role_description or "通用助手",
+            creator_name=creator_name,
+            created_at=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+            personality=personality,
+            boundaries=boundaries,
+            blueprint=blueprint,
+        )
         soul_path.write_text(soul_content, encoding="utf-8")
 
         # Ensure memory.md exists
@@ -136,6 +282,18 @@ class AgentManager:
             except Exception:
                 rel_lines.append("_暂无关系信息。_")
             rel_path.write_text("\n".join(rel_lines), encoding="utf-8")
+
+        if blueprint:
+            focus_path = agent_dir / "focus.md"
+            focus_path.write_text(
+                _render_focus_from_blueprint(
+                    focus_content=str(blueprint.get("focus_content", "")),
+                    heartbeat_topics=str(blueprint.get("heartbeat_topics", "")),
+                    ready_now=[str(item) for item in blueprint.get("ready_now", []) if str(item).strip()],
+                    manual_steps=[str(item) for item in blueprint.get("manual_steps", []) if str(item).strip()],
+                ),
+                encoding="utf-8",
+            )
 
         # Customize state.json
         state_path = agent_dir / "state.json"

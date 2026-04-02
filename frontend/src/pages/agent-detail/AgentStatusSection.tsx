@@ -1,11 +1,13 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
+import type { AgentCapabilityInstall } from '../../api/domains/agents';
 
 type AgentStatusSectionProps = {
   agent: any;
   llmModels: any[];
   metrics?: any;
   activityLogs?: any[];
+  capabilityInstalls?: AgentCapabilityInstall[];
   statusKey: string;
   onSelectTab: (tab: string) => void;
 };
@@ -30,6 +32,7 @@ export default function AgentStatusSection({
   llmModels,
   metrics,
   activityLogs = [],
+  capabilityInstalls = [],
   statusKey,
   onSelectTab,
 }: AgentStatusSectionProps) {
@@ -37,6 +40,9 @@ export default function AgentStatusSection({
   const primaryModel = llmModels.find((model: any) => model.id === agent.primary_model_id);
   const modelLabel = primaryModel ? primaryModel.label || primaryModel.model : '—';
   const modelProvider = primaryModel ? primaryModel.provider : '—';
+  const installedCount = capabilityInstalls.filter((item) => item.status === 'installed').length;
+  const pendingCount = capabilityInstalls.filter((item) => item.status === 'pending').length;
+  const failedItems = capabilityInstalls.filter((item) => item.status === 'failed');
 
   return (
     <div>
@@ -188,6 +194,65 @@ export default function AgentStatusSection({
           </div>
         )}
       </div>
+
+      {capabilityInstalls.length > 0 && (
+        <div className="card" style={{ marginBottom: '24px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '12px', marginBottom: '12px', flexWrap: 'wrap' }}>
+            <h3 style={{ fontSize: '14px', fontWeight: 600, margin: 0 }}>
+              {t('agent.status.capabilityInstallTitle', 'Capability Install Status')}
+            </h3>
+            <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
+              {capabilityInstalls.length} {t('agent.status.capabilityItems', 'items')}
+            </span>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '10px', marginBottom: '14px' }}>
+            <div style={{ padding: '10px', borderRadius: '8px', background: 'var(--bg-secondary)' }}>
+              <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>
+                {t('agent.status.installedCount', 'Installed')}
+              </div>
+              <div style={{ fontWeight: 600, fontSize: '18px' }}>{installedCount}</div>
+            </div>
+            <div style={{ padding: '10px', borderRadius: '8px', background: 'var(--bg-secondary)' }}>
+              <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>
+                {t('agent.status.pendingCount', 'Pending')}
+              </div>
+              <div style={{ fontWeight: 600, fontSize: '18px' }}>{pendingCount}</div>
+            </div>
+            <div style={{ padding: '10px', borderRadius: '8px', background: 'var(--bg-secondary)' }}>
+              <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>
+                {t('agent.status.failedCount', 'Failed')}
+              </div>
+              <div style={{ fontWeight: 600, fontSize: '18px', color: failedItems.length > 0 ? 'var(--danger)' : 'inherit' }}>
+                {failedItems.length}
+              </div>
+            </div>
+          </div>
+
+          {failedItems.length > 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                {t('agent.status.installIssues', 'Install Issues')}
+              </div>
+              {failedItems.slice(0, 3).map((item) => (
+                <div
+                  key={item.id}
+                  style={{ padding: '10px', borderRadius: '8px', background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)' }}
+                >
+                  <div style={{ fontSize: '13px', fontWeight: 600 }}>{item.display_name || item.source_key || item.kind}</div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                    {item.error_message || t('agent.status.installFailed', 'Installation failed')}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+              {t('agent.status.installHealthy', 'All requested capabilities are currently installed or pending.')}
+            </div>
+          )}
+        </div>
+      )}
 
       {activityLogs.length > 0 && (
         <div className="card">

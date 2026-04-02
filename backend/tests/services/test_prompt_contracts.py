@@ -214,3 +214,19 @@ def test_hr_templates_and_root_docs_no_longer_reference_jina() -> None:
     assert "jina" not in agents_doc.lower()
     assert "jina" not in readme_doc.lower()
     assert "jina" not in claude_doc.lower()
+
+
+def test_hr_templates_use_blueprint_flow_instead_of_five_round_protocol() -> None:
+    project_root = Path(__file__).resolve().parents[3]
+    hr_create_employee = (project_root / "backend" / "hr_agent_template" / "skills" / "CREATE_EMPLOYEE.md").read_text(
+        encoding="utf-8"
+    )
+    hr_soul = (project_root / "backend" / "hr_agent_template" / "soul.md").read_text(encoding="utf-8")
+    hr_focus = (project_root / "backend" / "hr_agent_template" / "focus.md").read_text(encoding="utf-8")
+
+    assert "preview_agent_blueprint" in hr_create_employee
+    assert "preview_agent_blueprint" in hr_soul
+    assert "Round 1" not in hr_soul
+    assert "5-round" not in hr_focus.lower()
+    assert "Blueprint" in hr_soul
+    assert "Phase A" in hr_soul

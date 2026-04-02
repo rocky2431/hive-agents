@@ -7,6 +7,7 @@ from sqlalchemy import select
 
 from app.database import async_session
 from app.models.tool import Tool
+from app.services.agent_tool_assignment_service import ensure_agent_tool_assignment
 from app.tools.collector import collect_tools
 
 
@@ -29,7 +30,6 @@ def _names_of_stale_builtin_tools(existing_names: set[str]) -> set[str]:
 async def seed_builtin_tools():
     """Insert or update builtin tools in the database."""
     from app.models.agent import Agent
-    from app.models.tool import AgentTool
 
     async with async_session() as db:
         new_tool_ids = []
@@ -90,14 +90,12 @@ async def seed_builtin_tools():
             agent_ids = [row[0] for row in agents_result.fetchall()]
             for agent_id in agent_ids:
                 for tool_id in new_tool_ids:
-                    check = await db.execute(
-                        select(AgentTool).where(
-                            AgentTool.agent_id == agent_id,
-                            AgentTool.tool_id == tool_id,
-                        )
+                    await ensure_agent_tool_assignment(
+                        db,
+                        agent_id=agent_id,
+                        tool_id=tool_id,
+                        enabled=True,
                     )
-                    if not check.scalar_one_or_none():
-                        db.add(AgentTool(agent_id=agent_id, tool_id=tool_id, enabled=True))
             logger.info(f"[ToolSeeder] Auto-assigned {len(new_tool_ids)} new tools to {len(agent_ids)} agents")
 
         existing_builtin_rows = await db.execute(
@@ -126,21 +124,18 @@ async def assign_default_tools_to_agent(db, agent_id) -> int:
     Excludes HR-only tools (create_digital_employee) from normal agents.
     Returns the number of tools assigned.
     """
-    from app.models.tool import AgentTool
-
     result = await db.execute(select(Tool).where(Tool.is_default.is_(True)))
     count = 0
     for tool in result.scalars():
         if tool.name in _HR_ONLY_TOOLS:
             continue
-        existing = await db.execute(
-            select(AgentTool).where(
-                AgentTool.agent_id == agent_id,
-                AgentTool.tool_id == tool.id,
-            )
+        _, created = await ensure_agent_tool_assignment(
+            db,
+            agent_id=agent_id,
+            tool_id=tool.id,
+            enabled=True,
         )
-        if not existing.scalar_one_or_none():
-            db.add(AgentTool(agent_id=agent_id, tool_id=tool.id, enabled=True))
+        if created:
             count += 1
     return count
 

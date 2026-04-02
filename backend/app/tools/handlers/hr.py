@@ -11,6 +11,143 @@ from app.tools.runtime import ToolExecutionRequest
 
 logger = logging.getLogger(__name__)
 
+_DEFAULT_READY_NOW = [
+    "builtin tools + 14 default skills",
+    "workspace, memory, heartbeat scaffolding",
+]
+
+
+def _parse_list(value) -> list:
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        raw = value.strip()
+        if raw.startswith("["):
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, list):
+                    return parsed
+            except (ValueError, TypeError):
+                logger.debug("[HR] Failed to parse JSON list: %s", raw[:80])
+    return []
+
+
+def _dedupe_strings(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for value in values:
+        item = str(value).strip()
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        deduped.append(item)
+    return deduped
+
+
+def _collect_trigger_reasons(triggers: list[dict]) -> str:
+    return " ".join(str(trigger.get("reason", "")).strip() for trigger in triggers if trigger.get("reason"))
+
+
+def _derive_manual_steps(
+    *,
+    skill_names: list[str],
+    mcp_server_ids: list[str],
+    clawhub_slugs: list[str],
+    triggers: list[dict],
+    role_description: str,
+    focus_content: str,
+    heartbeat_topics: str,
+    welcome_message: str,
+) -> list[str]:
+    text_blob = " ".join(
+        [
+            role_description.lower(),
+            focus_content.lower(),
+            heartbeat_topics.lower(),
+            welcome_message.lower(),
+            _collect_trigger_reasons(triggers).lower(),
+        ]
+    )
+    steps: list[str] = []
+    if "feishu-integration" in skill_names or "飞书" in text_blob or "lark" in text_blob:
+        steps.append("完成 Feishu 渠道绑定或 Feishu CLI 认证，验证消息与办公工具是否可用。")
+    if "email" in text_blob or "邮件" in text_blob:
+        steps.append("完成 Email SMTP/IMAP 配置，并先用 Test Connection 验证发送链路。")
+    if mcp_server_ids:
+        steps.append("准备并验证所选 MCP server 所需的 API key / OAuth 授权。")
+    if clawhub_slugs:
+        steps.append("确认 ClawHub 技能来源可信，并在创建后手动验证首个真实任务。")
+    if triggers:
+        steps.append("在启用自动触发器前，先手动跑一次同类任务，确认输出链路可用。")
+    return _dedupe_strings(steps)
+
+
+def _build_blueprint_preview_payload(arguments: dict) -> dict:
+    """Build a structured HR blueprint preview from raw arguments."""
+    name = str(arguments.get("name", "")).strip()
+    role_description = str(arguments.get("role_description", "")).strip()
+    personality = str(arguments.get("personality", "")).strip()
+    boundaries = str(arguments.get("boundaries", "")).strip()
+    skill_names = _dedupe_strings([item for item in _parse_list(arguments.get("skill_names")) if isinstance(item, str)])
+    mcp_server_ids = _dedupe_strings([item for item in _parse_list(arguments.get("mcp_server_ids")) if isinstance(item, str)])
+    clawhub_slugs = _dedupe_strings([item for item in _parse_list(arguments.get("clawhub_slugs")) if isinstance(item, str)])
+    permission_scope = str(arguments.get("permission_scope", "company") or "company").strip() or "company"
+    focus_content = str(arguments.get("focus_content", "")).strip()
+    heartbeat_topics = str(arguments.get("heartbeat_topics", "")).strip()
+    welcome_message = str(arguments.get("welcome_message", "")).strip()
+    raw_triggers = arguments.get("triggers") or []
+    if isinstance(raw_triggers, str):
+        try:
+            parsed = json.loads(raw_triggers)
+            raw_triggers = parsed if isinstance(parsed, list) else []
+        except (ValueError, TypeError):
+            raw_triggers = []
+    triggers = [item for item in raw_triggers if isinstance(item, dict)]
+
+    will_install: list[str] = []
+    will_install.extend(f"extra skill: {skill_name}" for skill_name in skill_names)
+    will_install.extend(f"mcp: {server_id}" for server_id in mcp_server_ids)
+    will_install.extend(f"clawhub skill: {slug}" for slug in clawhub_slugs)
+
+    warnings: list[str] = []
+    if not role_description:
+        warnings.append("role_description is empty — the created soul contract will be generic.")
+    if not focus_content:
+        warnings.append("focus_content is empty — the new agent will need an initial mission seed after creation.")
+
+    manual_steps = _derive_manual_steps(
+        skill_names=skill_names,
+        mcp_server_ids=mcp_server_ids,
+        clawhub_slugs=clawhub_slugs,
+        triggers=triggers,
+        role_description=role_description,
+        focus_content=focus_content,
+        heartbeat_topics=heartbeat_topics,
+        welcome_message=welcome_message,
+    )
+
+    return {
+        "status": "preview",
+        "blueprint": {
+            "name": name,
+            "role_description": role_description,
+            "personality": personality,
+            "boundaries": boundaries,
+            "skill_names": skill_names,
+            "mcp_server_ids": mcp_server_ids,
+            "clawhub_slugs": clawhub_slugs,
+            "permission_scope": permission_scope,
+            "triggers": triggers,
+            "welcome_message": welcome_message,
+            "focus_content": focus_content,
+            "heartbeat_topics": heartbeat_topics,
+        },
+        "ready_now": list(_DEFAULT_READY_NOW),
+        "will_install": will_install,
+        "manual_steps": manual_steps,
+        "warnings": warnings,
+    }
+
 
 def _build_create_employee_result(
     *,
@@ -18,7 +155,12 @@ def _build_create_employee_result(
     agent_name: str,
     features: list[str],
     skills_dir: str,
+    creation_state: str = "ready",
+    warnings: list[str] | None = None,
+    manual_steps: list[str] | None = None,
 ) -> str:
+    warnings = warnings or []
+    manual_steps = manual_steps or []
     message = (
         f"Successfully created digital employee '{agent_name}' (ID: {agent_id}). "
         f"Config: {', '.join(features)}. "
@@ -29,10 +171,13 @@ def _build_create_employee_result(
     return json.dumps(
         {
             "status": "success",
+            "creation_state": creation_state,
             "agent_id": agent_id,
             "agent_name": agent_name,
             "features": features,
             "skills_dir": skills_dir,
+            "warnings": warnings,
+            "manual_steps": manual_steps,
             "message": message,
         },
         ensure_ascii=False,
@@ -148,25 +293,9 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
     personality = args.get("personality", "")
     boundaries = args.get("boundaries", "")
 
-    # LLM often passes arrays as JSON strings — parse all array params defensively
-    def _parse_list(val) -> list:
-        if isinstance(val, list):
-            return val
-        if isinstance(val, str):
-            val = val.strip()
-            if val.startswith("["):
-                try:
-                    import json as _j
-                    parsed = _j.loads(val)
-                    if isinstance(parsed, list):
-                        return parsed
-                except (ValueError, TypeError):
-                    logger.debug("[HR] Failed to parse JSON string array: %s", val[:50])
-        return []
-
-    skill_names = [s for s in _parse_list(args.get("skill_names")) if isinstance(s, str)]
-    mcp_server_ids = [s for s in _parse_list(args.get("mcp_server_ids")) if isinstance(s, str)]
-    clawhub_slugs = [s for s in _parse_list(args.get("clawhub_slugs")) if isinstance(s, str) and s.strip()]
+    skill_names = _dedupe_strings([s for s in _parse_list(args.get("skill_names")) if isinstance(s, str)])
+    mcp_server_ids = _dedupe_strings([s for s in _parse_list(args.get("mcp_server_ids")) if isinstance(s, str)])
+    clawhub_slugs = _dedupe_strings([s for s in _parse_list(args.get("clawhub_slugs")) if isinstance(s, str)])
     permission_scope = args.get("permission_scope", "company")
 
     # Heartbeat config (self-awareness cycle) — LLM may pass strings for numeric fields
@@ -202,8 +331,10 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
         logger.warning("[HR] All %d triggers dropped (not dict): %s", len(raw_triggers), str(raw_triggers)[:200])
     # New customization params
     welcome_message = args.get("welcome_message", "")
-    focus_content = args.get("focus_content", "")
-    heartbeat_topics = args.get("heartbeat_topics", "")
+    preview_payload = _build_blueprint_preview_payload(args)
+    manual_steps = list(preview_payload["manual_steps"])
+    warnings = list(preview_payload["warnings"])
+    install_plan = []
 
     from sqlalchemy import select
 
@@ -213,6 +344,15 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
     from app.models.skill import Skill
     from app.models.user import User
     from app.services.agent_manager import agent_manager
+    from app.services.capability_install_service import (
+        build_capability_install_plan,
+        record_capability_install,
+        record_capability_install_plan,
+    )
+    from app.services.capability_reuse_service import (
+        reuse_existing_mcp_server_for_agent,
+        reuse_existing_skill_for_agent,
+    )
 
     try:
         async with async_session() as db:
@@ -252,6 +392,42 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
                     f"❌ Cannot create agent '{name}': no LLM model configured for this tenant. "
                     "Please add at least one enabled LLM model in Enterprise Settings → LLM Pool."
                 )
+
+            install_plan = build_capability_install_plan(
+                skill_names=skill_names,
+                mcp_server_ids=mcp_server_ids,
+                clawhub_slugs=clawhub_slugs,
+            )
+
+            resolved_extra_skills: list[Skill] = []
+            if skill_names:
+                from sqlalchemy import or_
+                from sqlalchemy.orm import selectinload
+
+                missing_skill_names: list[str] = []
+                for sname in skill_names:
+                    sr = await db.execute(
+                        select(Skill)
+                        .where(
+                            Skill.folder_name == sname,
+                            or_(
+                                Skill.tenant_id == effective_tenant_id,
+                                Skill.tenant_id.is_(None),
+                            ),
+                        )
+                        .options(selectinload(Skill.files))
+                    )
+                    skill = sr.scalar_one_or_none()
+                    if skill is None:
+                        missing_skill_names.append(sname)
+                    else:
+                        resolved_extra_skills.append(skill)
+                if missing_skill_names:
+                    return (
+                        "❌ Cannot create this digital employee because some requested extra skills are not available: "
+                        + ", ".join(missing_skill_names)
+                        + ". Please revise the plan or install those skills into the platform registry first."
+                    )
 
             # Resolve tenant defaults
             default_max_triggers = 20
@@ -322,18 +498,14 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
                 db, agent,
                 personality=personality,
                 boundaries=boundaries,
+                blueprint={
+                    **preview_payload["blueprint"],
+                    "ready_now": list(_DEFAULT_READY_NOW),
+                    "manual_steps": manual_steps,
+                },
             )
 
             agent_dir = agent_manager._agent_dir(agent.id)
-
-            # Write focus.md (initial working agenda + exploration topics)
-            focus_parts = ["# Focus\n"]
-            if focus_content:
-                focus_parts.append(focus_content)
-            if heartbeat_topics:
-                focus_parts.append(f"\n## Exploration Directions\n{heartbeat_topics}")
-            if len(focus_parts) > 1:
-                (agent_dir / "focus.md").write_text("\n".join(focus_parts), encoding="utf-8")
 
             # Create triggers (scheduled tasks)
             if triggers:
@@ -387,23 +559,9 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
             )
             all_skills_to_copy: list[Skill] = list(default_skill_result.scalars().all())
 
-            if skill_names:
-                from sqlalchemy import or_
-                for sname in skill_names:
-                    sr = await db.execute(
-                        select(Skill)
-                        .where(
-                            Skill.folder_name == sname,
-                            or_(
-                                Skill.tenant_id == effective_tenant_id,
-                                Skill.tenant_id.is_(None),
-                            ),
-                        )
-                        .options(selectinload(Skill.files))
-                    )
-                    skill = sr.scalar_one_or_none()
-                    if skill and skill not in all_skills_to_copy:
-                        all_skills_to_copy.append(skill)
+            for skill in resolved_extra_skills:
+                if skill not in all_skills_to_copy:
+                    all_skills_to_copy.append(skill)
 
             skills_dir = agent_dir / "skills"
             skills_dir.mkdir(parents=True, exist_ok=True)
@@ -443,6 +601,30 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
 
             await db.commit()
 
+            if install_plan:
+                try:
+                    await record_capability_install_plan(
+                        agent_id=agent.id,
+                        plan=install_plan,
+                        installed_via="hr_agent",
+                    )
+                except Exception as install_plan_err:
+                    logger.warning("[HR] Failed to persist capability install plan: %s", install_plan_err)
+
+            for skill in resolved_extra_skills:
+                try:
+                    await record_capability_install(
+                        agent_id=agent.id,
+                        kind="platform_skill",
+                        source_key=skill.folder_name,
+                        status="installed",
+                        installed_via="hr_agent",
+                        display_name=skill.name,
+                        metadata_json={"phase": "copied_to_agent"},
+                    )
+                except Exception as skill_record_err:
+                    logger.warning("[HR] Failed to record installed skill %s: %s", skill.folder_name, skill_record_err)
+
             # Install MCP servers (after commit, so agent exists in DB)
             logger.info(f"[HR] Post-commit install phase: mcp={mcp_server_ids}, clawhub={clawhub_slugs}")
             mcp_results = []
@@ -452,19 +634,78 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
                 _smithery_key = await _get_smithery_api_key(None)
                 for server_id in mcp_server_ids:
                     try:
+                        reused = await reuse_existing_mcp_server_for_agent(
+                            agent_id=agent.id,
+                            tenant_id=effective_tenant_id,
+                            server_id=server_id,
+                            config={"smithery_api_key": _smithery_key} if _smithery_key else None,
+                        )
+                        if reused is not None:
+                            mcp_results.append(f"⏭️ {server_id}: reused existing tenant MCP tools")
+                            await record_capability_install(
+                                agent_id=agent.id,
+                                kind="mcp_server",
+                                source_key=server_id,
+                                status="installed",
+                                installed_via="hr_agent",
+                                metadata_json={"phase": "reused_existing_tenant_tools", "tool_count": reused["tool_count"]},
+                            )
+                            logger.info(f"[HR] Reused existing MCP {server_id} for agent {agent.id}")
+                            continue
                         _mcp_config = {"smithery_api_key": _smithery_key} if _smithery_key else None
                         result = await import_mcp_from_smithery(server_id, agent.id, config=_mcp_config)
                         if isinstance(result, str) and "❌" in result:
                             mcp_results.append(f"⚠️ {server_id}: {result[:100]}")
+                            warnings.append(f"MCP install not ready: {server_id}")
+                            await record_capability_install(
+                                agent_id=agent.id,
+                                kind="mcp_server",
+                                source_key=server_id,
+                                status="failed",
+                                installed_via="hr_agent",
+                                error_code="install_rejected",
+                                error_message=result[:300],
+                            )
                             logger.warning(f"[HR] MCP install rejected for {server_id}: {result[:100]}")
                         elif isinstance(result, dict) and result.get("error"):
                             mcp_results.append(f"⚠️ {server_id}: {result['error'][:100]}")
+                            warnings.append(f"MCP install not ready: {server_id}")
+                            await record_capability_install(
+                                agent_id=agent.id,
+                                kind="mcp_server",
+                                source_key=server_id,
+                                status="failed",
+                                installed_via="hr_agent",
+                                error_code="install_error",
+                                error_message=str(result["error"])[:300],
+                            )
                             logger.warning(f"[HR] MCP install error for {server_id}: {result['error'][:100]}")
                         else:
                             mcp_results.append(f"✅ {server_id}")
+                            await record_capability_install(
+                                agent_id=agent.id,
+                                kind="mcp_server",
+                                source_key=server_id,
+                                status="installed",
+                                installed_via="hr_agent",
+                                metadata_json={"phase": "post_commit"},
+                            )
                             logger.info(f"[HR] Installed MCP {server_id} for agent {agent.id}")
                     except Exception as mcp_err:
                         mcp_results.append(f"⚠️ {server_id}: {mcp_err}")
+                        warnings.append(f"MCP install failed: {server_id}")
+                        try:
+                            await record_capability_install(
+                                agent_id=agent.id,
+                                kind="mcp_server",
+                                source_key=server_id,
+                                status="failed",
+                                installed_via="hr_agent",
+                                error_code="exception",
+                                error_message=str(mcp_err)[:300],
+                            )
+                        except Exception as record_err:
+                            logger.warning("[HR] Failed to record MCP install failure for %s: %s", server_id, record_err)
                         logger.warning(f"[HR] MCP install failed for {server_id}: {mcp_err}")
 
             # Install ClawHub skills (after commit, so agent exists on disk)
@@ -481,6 +722,23 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
                 ch_token = await _get_github_token(ch_tenant)
                 for slug in clawhub_slugs:
                     try:
+                        reused_skill = await reuse_existing_skill_for_agent(
+                            agent_id=agent.id,
+                            tenant_id=effective_tenant_id,
+                            folder_name=slug,
+                        )
+                        if reused_skill is not None:
+                            clawhub_results.append(f"⏭️ {slug}: reused existing platform skill")
+                            await record_capability_install(
+                                agent_id=agent.id,
+                                kind="clawhub_skill",
+                                source_key=slug,
+                                status="installed",
+                                installed_via="hr_agent",
+                                metadata_json={"phase": "reused_existing_registry_skill"},
+                            )
+                            logger.info(f"[HR] Reused existing skill {slug} for agent {agent.id}")
+                            continue
                         async with httpx.AsyncClient(timeout=15) as client:
                             resp = await client.get(f"{CLAWHUB_BASE}/v1/skills/{slug}")
                             if resp.status_code == 429:
@@ -489,6 +747,16 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
                                 resp = await client.get(f"{CLAWHUB_BASE}/v1/skills/{slug}")
                             if resp.status_code != 200:
                                 clawhub_results.append(f"⚠️ {slug}: ClawHub HTTP {resp.status_code}")
+                                warnings.append(f"ClawHub install not ready: {slug}")
+                                await record_capability_install(
+                                    agent_id=agent.id,
+                                    kind="clawhub_skill",
+                                    source_key=slug,
+                                    status="failed",
+                                    installed_via="hr_agent",
+                                    error_code=f"http_{resp.status_code}",
+                                    error_message=f"ClawHub HTTP {resp.status_code}",
+                                )
                                 logger.warning(f"[HR] ClawHub API returned {resp.status_code} for {slug}")
                                 continue
                             try:
@@ -496,10 +764,30 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
                             except Exception as _json_err:
                                 logger.warning("[HR] ClawHub JSON parse failed for %s: %s", slug, _json_err)
                                 clawhub_results.append(f"⚠️ {slug}: invalid ClawHub response")
+                                warnings.append(f"ClawHub install not ready: {slug}")
+                                await record_capability_install(
+                                    agent_id=agent.id,
+                                    kind="clawhub_skill",
+                                    source_key=slug,
+                                    status="failed",
+                                    installed_via="hr_agent",
+                                    error_code="invalid_response",
+                                    error_message=str(_json_err)[:300],
+                                )
                                 continue
                         handle = meta.get("owner", {}).get("handle", "").lower()
                         if not handle:
                             clawhub_results.append(f"⚠️ {slug}: no owner handle")
+                            warnings.append(f"ClawHub install not ready: {slug}")
+                            await record_capability_install(
+                                agent_id=agent.id,
+                                kind="clawhub_skill",
+                                source_key=slug,
+                                status="failed",
+                                installed_via="hr_agent",
+                                error_code="missing_owner_handle",
+                                error_message="ClawHub metadata missing owner handle",
+                            )
                             continue
                         github_path = f"skills/{handle}/{slug}"
                         files = await _fetch_github_directory("openclaw", "skills", github_path, "main", ch_token)
@@ -512,9 +800,30 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
                             fp.parent.mkdir(parents=True, exist_ok=True)
                             fp.write_text(f["content"], encoding="utf-8")
                         clawhub_results.append(f"✅ {slug}")
+                        await record_capability_install(
+                            agent_id=agent.id,
+                            kind="clawhub_skill",
+                            source_key=slug,
+                            status="installed",
+                            installed_via="hr_agent",
+                            metadata_json={"phase": "downloaded_to_agent"},
+                        )
                         logger.info(f"[HR] Installed ClawHub skill {slug} for agent {agent.id}")
                     except Exception as ch_err:
                         clawhub_results.append(f"⚠️ {slug}: {ch_err}")
+                        warnings.append(f"ClawHub install failed: {slug}")
+                        try:
+                            await record_capability_install(
+                                agent_id=agent.id,
+                                kind="clawhub_skill",
+                                source_key=slug,
+                                status="failed",
+                                installed_via="hr_agent",
+                                error_code="exception",
+                                error_message=str(ch_err)[:300],
+                            )
+                        except Exception as record_err:
+                            logger.warning("[HR] Failed to record ClawHub install failure for %s: %s", slug, record_err)
                         logger.warning(f"[HR] ClawHub install failed for {slug}: {ch_err}")
 
             # Build response
@@ -536,8 +845,48 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
                 agent_name=agent.name,
                 features=features,
                 skills_dir=str(agent_dir / "skills"),
+                creation_state="ready_with_warnings" if warnings or manual_steps else "ready",
+                warnings=_dedupe_strings(warnings),
+                manual_steps=manual_steps,
             )
 
     except Exception as e:
         logger.error(f"[HR] create_digital_employee failed: {e}", exc_info=True)
         return "Error: failed to create the digital employee. Please try again or contact support."
+
+
+@tool(ToolMeta(
+    name="preview_agent_blueprint",
+    description=(
+        "Preview a structured digital-employee blueprint before creation. "
+        "Use this after clarifying the role and capability plan, then present the preview before calling create_digital_employee."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "Proposed agent name."},
+            "role_description": {"type": "string", "description": "Core responsibilities and mission."},
+            "personality": {"type": "string", "description": "Desired operating style, one trait per line if helpful."},
+            "boundaries": {"type": "string", "description": "Risk boundaries or red lines, one per line if helpful."},
+            "skill_names": {"type": "array", "items": {"type": "string"}, "description": "Extra platform skills beyond defaults."},
+            "mcp_server_ids": {"type": "array", "items": {"type": "string"}, "description": "Requested MCP servers, if any."},
+            "clawhub_slugs": {"type": "array", "items": {"type": "string"}, "description": "Requested ClawHub skills, if any."},
+            "permission_scope": {"type": "string", "enum": ["company", "self"], "description": "Who should be allowed to use the agent."},
+            "triggers": {"type": "array", "items": {"type": "object"}, "description": "Proposed scheduled tasks."},
+            "welcome_message": {"type": "string", "description": "Planned greeting."},
+            "focus_content": {"type": "string", "description": "Initial work agenda."},
+            "heartbeat_topics": {"type": "string", "description": "Exploration topics for heartbeat."},
+        },
+        "required": ["name"],
+    },
+    category="hr",
+    display_name="Preview Agent Blueprint",
+    icon="🧭",
+    is_default=False,
+    read_only=True,
+    parallel_safe=True,
+    governance="safe",
+    adapter="request",
+))
+async def preview_agent_blueprint(request: ToolExecutionRequest) -> str:
+    return json.dumps(_build_blueprint_preview_payload(request.arguments), ensure_ascii=False)

@@ -240,18 +240,24 @@ async def _save_skill_to_db(
     category: str, icon: str, files: list[dict],
     source_url: str | None = None,
     tenant_id: str | None = None,
+    on_conflict: str = "error",
 ) -> dict:
     """Create a Skill + SkillFile records in the database."""
     import uuid as _uuid
+
     async with async_session() as db:
-        # Check for folder_name conflict (scoped by tenant)
-        conflict_q = select(Skill).where(Skill.folder_name == folder_name)
-        if tenant_id:
-            conflict_q = conflict_q.where(Skill.tenant_id == _uuid.UUID(tenant_id))
-        else:
-            conflict_q = conflict_q.where(Skill.tenant_id.is_(None))
-        existing = await db.execute(conflict_q)
-        if existing.scalar_one_or_none():
+        # folder_name is globally unique at the schema level, so conflict checks
+        # must also be global rather than tenant-scoped.
+        existing = await db.execute(select(Skill).where(Skill.folder_name == folder_name))
+        existing_skill = existing.scalar_one_or_none()
+        if existing_skill:
+            if on_conflict == "return_existing":
+                return {
+                    "id": str(existing_skill.id),
+                    "name": existing_skill.name,
+                    "folder_name": existing_skill.folder_name,
+                    "status": "already_installed",
+                }
             raise HTTPException(
                 409, f"A skill with folder name '{folder_name}' already exists. "
                      "Delete it first or use a different name."
@@ -276,6 +282,14 @@ async def _save_skill_to_db(
 
         await db.commit()
         return {"id": str(skill.id), "name": skill.name, "folder_name": skill.folder_name}
+
+
+async def _find_existing_skill_by_folder_name(folder_name: str, tenant_id: str | None = None) -> Skill | None:
+    """Return an existing skill by folder name within the current scope."""
+    async with async_session() as db:
+        _ = tenant_id
+        result = await db.execute(select(Skill).where(Skill.folder_name == folder_name))
+        return result.scalar_one_or_none()
 
 
 # ─── ClawHub Integration ─────────────────────────────
@@ -331,6 +345,16 @@ async def install_from_clawhub(body: ClawhubInstallIn, current_user: User = Depe
     tenant_id = str(current_user.tenant_id) if current_user.tenant_id else None
     token = await _get_github_token(tenant_id)
     slug = body.slug
+
+    existing = await _find_existing_skill_by_folder_name(slug, tenant_id)
+    if existing is not None:
+        return {
+            "id": str(existing.id),
+            "name": existing.name,
+            "folder_name": existing.folder_name,
+            "status": "already_installed",
+            "source": "clawhub",
+        }
 
     # 1. Fetch metadata from ClawHub (with retry for rate limits)
     api_key = await _get_clawhub_key(tenant_id)
@@ -410,6 +434,7 @@ async def install_from_clawhub(body: ClawhubInstallIn, current_user: User = Depe
         files=files,
         source_url=f"https://clawhub.ai/skills/{slug}",
         tenant_id=tenant_id,
+        on_conflict="return_existing",
     )
 
     result["tier"] = tier
@@ -449,6 +474,16 @@ async def import_from_url(body: UrlImportIn, current_user: User = Depends(get_cu
     # Derive folder_name from the last path segment
     folder_name = path.rstrip("/").split("/")[-1] if path else repo
 
+    existing = await _find_existing_skill_by_folder_name(folder_name, tenant_id)
+    if existing is not None:
+        return {
+            "id": str(existing.id),
+            "name": existing.name,
+            "folder_name": existing.folder_name,
+            "status": "already_installed",
+            "source": "url",
+        }
+
     tier = classify_portability(skill_md["content"])
     tier_labels = {1: "url-import-tier1", 2: "url-import-tier2", 3: "url-import-tier3"}
 
@@ -461,6 +496,7 @@ async def import_from_url(body: UrlImportIn, current_user: User = Depends(get_cu
         files=files,
         source_url=body.url,
         tenant_id=tenant_id,
+        on_conflict="return_existing",
     )
 
     result["tier"] = tier

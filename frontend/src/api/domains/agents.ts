@@ -56,10 +56,25 @@ export interface HrAgentInfo {
   status: string;
 }
 
+export interface AgentCapabilityInstall {
+  id: string;
+  agent_id?: string;
+  kind: 'platform_skill' | 'mcp_server' | 'clawhub_skill' | string;
+  source_key?: string | null;
+  normalized_key?: string | null;
+  display_name?: string | null;
+  status: 'pending' | 'installed' | 'failed' | string;
+  installed_via?: string | null;
+  error_code?: string | null;
+  error_message?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
 export const agentApi = {
   getHrAgent: () => get<HrAgentInfo>('/agents/system/hr'),
   list: (tenantId?: string) => get<Agent[]>(`/agents/${tenantId ? `?tenant_id=${tenantId}` : ''}`),
   getById: (id: string) => get<Agent>(`/agents/${id}`),
+  getCapabilityInstalls: (id: string) => get<AgentCapabilityInstall[]>(`/agents/${id}/capability-installs`),
   create: (data: AgentCreateParams) => post<Agent>('/agents/', data),
   update: (id: string, data: AgentUpdateParams) => patch<Agent>(`/agents/${id}`, data),
   remove: (id: string) => del(`/agents/${id}`),

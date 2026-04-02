@@ -24,6 +24,35 @@ export interface UploadedChatFile {
   image_data_url?: string;
 }
 
+export interface SessionRuntimeSummary {
+  model?: {
+    label?: string;
+    provider?: string;
+    name?: string;
+    supports_vision?: boolean;
+    context_window_tokens?: number | null;
+  };
+  runtime?: {
+    connected?: boolean;
+    estimated_input_tokens?: number | null;
+    remaining_tokens_estimate?: number | null;
+  };
+  activated_packs: string[];
+  used_tools: string[];
+  blocked_capabilities: Array<{
+    tool?: string | null;
+    status?: string | null;
+    capability?: string | null;
+  }>;
+  compaction_count: number;
+  last_compaction?: {
+    summary?: string | null;
+    original_message_count?: number | null;
+    kept_message_count?: number | null;
+    created_at?: string | null;
+  } | null;
+}
+
 export const chatApi = {
   getHistory: (agentId: string, conversationId?: string) => {
     const qs = conversationId ? `?conversation_id=${conversationId}` : '';
@@ -39,4 +68,6 @@ export const chatApi = {
   deleteSession: (agentId: string, sessionId: string) => del(`/agents/${agentId}/sessions/${sessionId}`),
   getSessionMessages: (agentId: string, sessionId: string, options?: RequestOptions) =>
     get<ChatMessage[]>(`/agents/${agentId}/sessions/${sessionId}/messages`, options),
+  getRuntimeSummary: (sessionId: string, options?: RequestOptions) =>
+    get<SessionRuntimeSummary>(`/chat/sessions/${sessionId}/runtime-summary`, options),
 };

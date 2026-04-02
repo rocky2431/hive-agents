@@ -7,6 +7,7 @@ from sqlalchemy import delete, select
 from app.database import async_session
 from app.models.agent import Agent
 from app.models.tool import Tool, AgentTool
+from app.services.agent_tool_assignment_service import ensure_agent_tool_assignment
 
 
 async def _resolve_agent_tenant_id(agent_id: uuid.UUID) -> uuid.UUID | None:
@@ -300,14 +301,13 @@ async def import_mcp_from_smithery(
                 if at:
                     at.config = {**(at.config or {}), "smithery_api_key": api_key}
                 else:
-                    db.add(
-                        AgentTool(
-                            agent_id=agent_id,
-                            tool_id=tool.id,
-                            enabled=True,
-                            source="system",
-                            config={"smithery_api_key": api_key},
-                        )
+                    await ensure_agent_tool_assignment(
+                        db,
+                        agent_id=agent_id,
+                        tool_id=tool.id,
+                        enabled=True,
+                        source="system",
+                        config={"smithery_api_key": api_key},
                     )
             await db.commit()
     except Exception as exc:
@@ -454,26 +454,15 @@ async def import_mcp_from_smithery(
 
         # Helper: ensure AgentTool link exists and save config
         async def _ensure_agent_tool(tool_id: uuid.UUID):
-            agent_check = await db.execute(
-                select(AgentTool).where(
-                    AgentTool.agent_id == agent_id,
-                    AgentTool.tool_id == tool_id,
-                )
+            await ensure_agent_tool_assignment(
+                db,
+                agent_id=agent_id,
+                tool_id=tool_id,
+                enabled=True,
+                source="user_installed",
+                installed_by_agent_id=agent_id,
+                config=agent_tool_config,
             )
-            at = agent_check.scalar_one_or_none()
-            if at:
-                at.config = {**(at.config or {}), **agent_tool_config}
-            else:
-                db.add(
-                    AgentTool(
-                        agent_id=agent_id,
-                        tool_id=tool_id,
-                        enabled=True,
-                        source="user_installed",
-                        installed_by_agent_id=agent_id,
-                        config=agent_tool_config,
-                    )
-                )
 
         # On re-import/reauthorize: update ALL existing tools for this server
         if config or reauthorize:
@@ -644,26 +633,15 @@ async def import_mcp_direct(
         imported_tools = []
 
         async def _ensure_agent_tool(tool_id: uuid.UUID):
-            agent_check = await db.execute(
-                select(AgentTool).where(
-                    AgentTool.agent_id == agent_id,
-                    AgentTool.tool_id == tool_id,
-                )
+            await ensure_agent_tool_assignment(
+                db,
+                agent_id=agent_id,
+                tool_id=tool_id,
+                enabled=True,
+                source="user_installed",
+                installed_by_agent_id=agent_id,
+                config=agent_tool_config,
             )
-            at = agent_check.scalar_one_or_none()
-            if at:
-                at.config = {**(at.config or {}), **agent_tool_config}
-            else:
-                db.add(
-                    AgentTool(
-                        agent_id=agent_id,
-                        tool_id=tool_id,
-                        enabled=True,
-                        source="user_installed",
-                        installed_by_agent_id=agent_id,
-                        config=agent_tool_config,
-                    )
-                )
 
         # Tenant-scoped dedup filter
         _tenant_filter = Tool.tenant_id == agent_tenant_id if agent_tenant_id else Tool.tenant_id.is_(None)

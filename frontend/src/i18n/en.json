@@ -159,7 +159,15 @@
       "llmCallsToday": "🤖 LLM Calls Today",
       "max": "Max",
       "totalToken": "📊 Total Token",
-      "pending": "⏳ Pending"
+      "pending": "⏳ Pending",
+      "capabilityInstallTitle": "Capability Install Status",
+      "capabilityItems": "items",
+      "installedCount": "Installed",
+      "pendingCount": "Pending",
+      "failedCount": "Failed",
+      "installIssues": "Install Issues",
+      "installFailed": "Installation failed",
+      "installHealthy": "All requested capabilities are currently installed or pending."
     },
     "tabs": {
       "status": "Status",
@@ -347,7 +355,16 @@
       "attachment": "Attachment",
       "uploadFailed": "Upload failed",
       "askAboutFile": "Ask about {{name}}...",
-      "thinking": "Thinking..."
+      "thinking": "Thinking...",
+      "runtime": {
+        "model": "Model",
+        "remaining": "Remaining",
+        "compactions": "Compactions",
+        "showTrace": "Show internal trace",
+        "hideTrace": "Hide internal trace",
+        "eventTitle": "Runtime Event",
+        "compactionMeta": "Kept {{kept}} of {{original}}"
+      }
     },
     "activityLog": {
       "title": "Activity Log",

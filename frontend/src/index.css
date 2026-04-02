@@ -1519,15 +1519,16 @@ select:focus {
 
 .chat-input {
   flex: 1;
-  height: 40px;
+  min-height: 44px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-default);
   border-radius: 10px;
-  padding: 0 14px;
+  padding: 10px 14px;
   font-size: 14px;
   color: var(--text-primary);
   transition: border-color 150ms ease, box-shadow 150ms ease;
   outline: none;
+  font-family: inherit;
 }
 
 .chat-input::placeholder {
