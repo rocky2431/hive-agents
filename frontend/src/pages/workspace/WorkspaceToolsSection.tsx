@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { toolsApi } from '../../api/domains/tools';
+import type { FeishuRuntimeStatus } from '../../api/domains/tools';
+import FeishuRuntimeStatusCard from '../../components/FeishuRuntimeStatusCard';
 
 interface WorkspaceToolsSectionProps {
   selectedTenantId: string;
@@ -14,6 +16,10 @@ const GLOBAL_CATEGORY_CONFIG_SCHEMAS: Record<string, { title: string; fields: an
     fields: [
       { key: 'api_key', label: 'API Key (from AgentBay)', type: 'password', placeholder: 'Enter your AgentBay API key' },
     ],
+  },
+  feishu: {
+    title: 'Feishu / Lark Runtime',
+    fields: [],
   },
 };
 
@@ -48,6 +54,8 @@ export default function WorkspaceToolsSection({
   const [configCategory, setConfigCategory] = useState<string | null>(null);
   const [toolsView, setToolsView] = useState<'global' | 'agent-installed'>('global');
   const [agentInstalledTools, setAgentInstalledTools] = useState<any[]>([]);
+  const [feishuRuntimeStatus, setFeishuRuntimeStatus] = useState<FeishuRuntimeStatus | null>(null);
+  const [collapsedServers, setCollapsedServers] = useState<Set<string>>(new Set());
 
   const loadAllTools = async () => {
     const data = await toolsApi.listCatalog(selectedTenantId || undefined);
@@ -63,9 +71,19 @@ export default function WorkspaceToolsSection({
     }
   };
 
+  const loadFeishuRuntimeStatus = async () => {
+    try {
+      const data = await toolsApi.getFeishuRuntimeStatus();
+      setFeishuRuntimeStatus(data);
+    } catch {
+      setFeishuRuntimeStatus(null);
+    }
+  };
+
   useEffect(() => {
     loadAllTools();
     loadAgentInstalledTools();
+    loadFeishuRuntimeStatus();
   }, [selectedTenantId]);
 
   return (
@@ -155,6 +173,15 @@ export default function WorkspaceToolsSection({
               + {t('enterprise.tools.addMcpServer', 'Add MCP Server')}
             </button>
           </div>
+
+          <div className="card" style={{ padding: '12px 14px', marginBottom: '16px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+            {t(
+              'enterprise.tools.feishuCliHint',
+              'Feishu office tools in cloud deployments use lark-cli. Docs/Wiki/Sheets can fall back to channel auth; Base/Tasks require lark-cli auth inside the container.',
+            )}
+          </div>
+
+          {feishuRuntimeStatus ? <FeishuRuntimeStatusCard status={feishuRuntimeStatus} /> : null}
 
           {showAddMCP ? (
             <div className="card" style={{ padding: '16px', marginBottom: '16px' }}>
@@ -376,134 +403,217 @@ export default function WorkspaceToolsSection({
                       </div>
 
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                        {categoryTools.map((tool) => {
-                          const hasOwnConfig = tool.config_schema?.fields?.length > 0 && !hasCategoryConfig;
-                          const isEditing = editingToolId === tool.id;
+                        {(() => {
+                          // Split MCP tools into server groups; non-MCP tools render flat
+                          const nonMcpTools = categoryTools.filter((tool) => tool.type !== 'mcp');
+                          const mcpTools = categoryTools.filter((tool) => tool.type === 'mcp');
+                          const mcpByServer: Record<string, any[]> = {};
+                          for (const tool of mcpTools) {
+                            const server = tool.mcp_server_name || 'MCP';
+                            (mcpByServer[server] = mcpByServer[server] || []).push(tool);
+                          }
 
-                          return (
-                            <div key={tool.id} className="card" style={{ padding: '0', overflow: 'hidden' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: 0 }}>
-                                  <span style={{ fontSize: '18px' }}>{tool.icon}</span>
-                                  <div style={{ minWidth: 0 }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                      <span style={{ fontWeight: 500, fontSize: '13px' }}>{tool.display_name}</span>
-                                      <span style={{ fontSize: '10px', background: tool.type === 'mcp' ? 'var(--primary)' : 'var(--bg-tertiary)', color: tool.type === 'mcp' ? '#fff' : 'var(--text-secondary)', borderRadius: '4px', padding: '1px 5px' }}>
-                                        {tool.type === 'mcp' ? 'MCP' : 'Built-in'}
-                                      </span>
-                                      {tool.is_default ? (
-                                        <span style={{ fontSize: '10px', background: 'rgba(0,200,100,0.15)', color: 'var(--success)', borderRadius: '4px', padding: '1px 5px' }}>Default</span>
-                                      ) : null}
-                                    </div>
-                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                      {tool.description?.slice(0, 80)}
-                                      {tool.mcp_server_name ? <span> · {tool.mcp_server_name}</span> : null}
+                          const renderToolRow = (tool: any) => {
+                            const hasOwnConfig = tool.config_schema?.fields?.length > 0 && !hasCategoryConfig;
+                            const isEditing = editingToolId === tool.id;
+                            // Strip "ServerName: " prefix for MCP tools shown inside a server group
+                            const shortName = tool.type === 'mcp' && tool.mcp_server_name && tool.display_name.startsWith(tool.mcp_server_name + ': ')
+                              ? tool.display_name.slice(tool.mcp_server_name.length + 2)
+                              : tool.display_name;
+
+                            return (
+                              <div key={tool.id} className="card" style={{ padding: '0', overflow: 'hidden' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: 0 }}>
+                                    <span style={{ fontSize: '18px' }}>{tool.icon}</span>
+                                    <div style={{ minWidth: 0 }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <span style={{ fontWeight: 500, fontSize: '13px' }}>{shortName}</span>
+                                        {tool.type !== 'mcp' ? (
+                                          <span style={{ fontSize: '10px', background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', borderRadius: '4px', padding: '1px 5px' }}>
+                                            Built-in
+                                          </span>
+                                        ) : null}
+                                        {tool.is_default ? (
+                                          <span style={{ fontSize: '10px', background: 'rgba(0,200,100,0.15)', color: 'var(--success)', borderRadius: '4px', padding: '1px 5px' }}>Default</span>
+                                        ) : null}
+                                      </div>
+                                      <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                        {tool.description?.slice(0, 80)}
+                                      </div>
                                     </div>
                                   </div>
-                                </div>
 
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-                                  {hasOwnConfig ? (
-                                    <button
-                                      className="btn btn-secondary"
-                                      style={{ padding: '4px 8px', fontSize: '11px' }}
-                                      onClick={async () => {
-                                        if (isEditing) {
-                                          setEditingToolId(null);
-                                        } else {
-                                          setEditingToolId(tool.id);
-                                          setEditingConfig({ ...tool.config });
-                                        }
-                                      }}
-                                    >
-                                      {isEditing ? t('enterprise.tools.collapse', 'Collapse') : t('enterprise.tools.configure', 'Configure')}
-                                    </button>
-                                  ) : null}
-
-                                  {tool.type !== 'builtin' ? (
-                                    <button
-                                      className="btn btn-danger"
-                                      style={{ padding: '4px 8px', fontSize: '11px' }}
-                                      onClick={async () => {
-                                        if (!confirm(`${t('common.delete', 'Delete')} ${tool.display_name}?`)) return;
-                                        await toolsApi.deleteGlobalTool(tool.id);
-                                        loadAllTools();
-                                        loadAgentInstalledTools();
-                                      }}
-                                    >
-                                      {t('common.delete', 'Delete')}
-                                    </button>
-                                  ) : null}
-
-                                  <label style={{ position: 'relative', display: 'inline-block', width: '40px', height: '22px', cursor: 'pointer', flexShrink: 0 }}>
-                                    <input
-                                      type="checkbox"
-                                      checked={tool.enabled}
-                                      onChange={async (event) => {
-                                        await toolsApi.updateGlobalTool(tool.id, { enabled: event.target.checked });
-                                        loadAllTools();
-                                      }}
-                                      style={{ opacity: 0, width: 0, height: 0 }}
-                                    />
-                                    <span style={{ position: 'absolute', inset: 0, background: tool.enabled ? '#22c55e' : 'var(--bg-tertiary)', borderRadius: '11px', transition: 'background 0.2s' }}>
-                                      <span style={{ position: 'absolute', left: tool.enabled ? '20px' : '2px', top: '2px', width: '18px', height: '18px', background: '#fff', borderRadius: '50%', transition: 'left 0.2s' }} />
-                                    </span>
-                                  </label>
-                                </div>
-                              </div>
-
-                              {isEditing && hasOwnConfig ? (
-                                <div style={{ borderTop: '1px solid var(--border-color)', padding: '16px', background: 'var(--bg-secondary)' }}>
-                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                                    {(tool.config_schema.fields || []).map((field: any) => {
-                                      if (field.depends_on) {
-                                        const visible = Object.entries(field.depends_on).every(([key, values]: [string, any]) =>
-                                          values.includes(editingConfig[key]),
-                                        );
-                                        if (!visible) {
-                                          return null;
-                                        }
-                                      }
-                                      return (
-                                        <div key={field.key}>
-                                          <label style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}>{field.label}</label>
-                                          {field.type === 'select' ? (
-                                            <select className="form-input" value={editingConfig[field.key] ?? field.default ?? ''} onChange={(event) => setEditingConfig((current) => ({ ...current, [field.key]: event.target.value }))}>
-                                              {(field.options || []).map((option: any) => (
-                                                <option key={option.value} value={option.value}>{option.label}</option>
-                                              ))}
-                                            </select>
-                                          ) : field.type === 'number' ? (
-                                            <input type="number" className="form-input" value={editingConfig[field.key] ?? field.default ?? ''} min={field.min} max={field.max} onChange={(event) => setEditingConfig((current) => ({ ...current, [field.key]: Number(event.target.value) }))} />
-                                          ) : field.type === 'password' ? (
-                                            <input type="password" autoComplete="new-password" className="form-input" value={editingConfig[field.key] ?? ''} placeholder={field.placeholder || ''} onChange={(event) => setEditingConfig((current) => ({ ...current, [field.key]: event.target.value }))} />
-                                          ) : (
-                                            <input type="text" className="form-input" value={editingConfig[field.key] ?? field.default ?? ''} placeholder={field.placeholder || ''} onChange={(event) => setEditingConfig((current) => ({ ...current, [field.key]: event.target.value }))} />
-                                          )}
-                                        </div>
-                                      );
-                                    })}
-                                    <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                                    {hasOwnConfig ? (
                                       <button
-                                        className="btn btn-primary"
-                                        onClick={async () => {
-                                          await toolsApi.updateGlobalTool(tool.id, { config: editingConfig });
-                                          setEditingToolId(null);
-                                          loadAllTools();
+                                        className="btn btn-secondary"
+                                        style={{ padding: '4px 8px', fontSize: '11px' }}
+                                        onClick={() => {
+                                          if (isEditing) {
+                                            setEditingToolId(null);
+                                          } else {
+                                            setEditingToolId(tool.id);
+                                            setEditingConfig({ ...tool.config });
+                                          }
                                         }}
                                       >
-                                        {t('enterprise.tools.saveConfig', 'Save Config')}
+                                        {isEditing ? t('enterprise.tools.collapse', 'Collapse') : t('enterprise.tools.configure', 'Configure')}
                                       </button>
-                                      <button className="btn btn-secondary" onClick={() => setEditingToolId(null)}>
-                                        {t('common.cancel', 'Cancel')}
+                                    ) : null}
+
+                                    {tool.type !== 'builtin' ? (
+                                      <button
+                                        className="btn btn-danger"
+                                        style={{ padding: '4px 8px', fontSize: '11px' }}
+                                        onClick={async () => {
+                                          if (!confirm(`${t('common.delete', 'Delete')} ${tool.display_name}?`)) return;
+                                          await toolsApi.deleteGlobalTool(tool.id);
+                                          loadAllTools();
+                                          loadAgentInstalledTools();
+                                        }}
+                                      >
+                                        {t('common.delete', 'Delete')}
                                       </button>
-                                    </div>
+                                    ) : null}
+
+                                    <label style={{ position: 'relative', display: 'inline-block', width: '40px', height: '22px', cursor: 'pointer', flexShrink: 0 }}>
+                                      <input
+                                        type="checkbox"
+                                        checked={tool.enabled}
+                                        onChange={async (event) => {
+                                          await toolsApi.updateGlobalTool(tool.id, { enabled: event.target.checked });
+                                          loadAllTools();
+                                        }}
+                                        style={{ opacity: 0, width: 0, height: 0 }}
+                                      />
+                                      <span style={{ position: 'absolute', inset: 0, background: tool.enabled ? '#22c55e' : 'var(--bg-tertiary)', borderRadius: '11px', transition: 'background 0.2s' }}>
+                                        <span style={{ position: 'absolute', left: tool.enabled ? '20px' : '2px', top: '2px', width: '18px', height: '18px', background: '#fff', borderRadius: '50%', transition: 'left 0.2s' }} />
+                                      </span>
+                                    </label>
                                   </div>
                                 </div>
-                              ) : null}
-                            </div>
+
+                                {isEditing && hasOwnConfig ? (
+                                  <div style={{ borderTop: '1px solid var(--border-color)', padding: '16px', background: 'var(--bg-secondary)' }}>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                      {(tool.config_schema.fields || []).map((field: any) => {
+                                        if (field.depends_on) {
+                                          const visible = Object.entries(field.depends_on).every(([key, values]: [string, any]) =>
+                                            values.includes(editingConfig[key]),
+                                          );
+                                          if (!visible) {
+                                            return null;
+                                          }
+                                        }
+                                        return (
+                                          <div key={field.key}>
+                                            <label style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}>{field.label}</label>
+                                            {field.type === 'select' ? (
+                                              <select className="form-input" value={editingConfig[field.key] ?? field.default ?? ''} onChange={(event) => setEditingConfig((current) => ({ ...current, [field.key]: event.target.value }))}>
+                                                {(field.options || []).map((option: any) => (
+                                                  <option key={option.value} value={option.value}>{option.label}</option>
+                                                ))}
+                                              </select>
+                                            ) : field.type === 'number' ? (
+                                              <input type="number" className="form-input" value={editingConfig[field.key] ?? field.default ?? ''} min={field.min} max={field.max} onChange={(event) => setEditingConfig((current) => ({ ...current, [field.key]: Number(event.target.value) }))} />
+                                            ) : field.type === 'password' ? (
+                                              <input type="password" autoComplete="new-password" className="form-input" value={editingConfig[field.key] ?? ''} placeholder={field.placeholder || ''} onChange={(event) => setEditingConfig((current) => ({ ...current, [field.key]: event.target.value }))} />
+                                            ) : (
+                                              <input type="text" className="form-input" value={editingConfig[field.key] ?? field.default ?? ''} placeholder={field.placeholder || ''} onChange={(event) => setEditingConfig((current) => ({ ...current, [field.key]: event.target.value }))} />
+                                            )}
+                                          </div>
+                                        );
+                                      })}
+                                      <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                                        <button
+                                          className="btn btn-primary"
+                                          onClick={async () => {
+                                            await toolsApi.updateGlobalTool(tool.id, { config: editingConfig });
+                                            setEditingToolId(null);
+                                            loadAllTools();
+                                          }}
+                                        >
+                                          {t('enterprise.tools.saveConfig', 'Save Config')}
+                                        </button>
+                                        <button className="btn btn-secondary" onClick={() => setEditingToolId(null)}>
+                                          {t('common.cancel', 'Cancel')}
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ) : null}
+                              </div>
+                            );
+                          };
+
+                          return (
+                            <>
+                              {/* Non-MCP tools: flat rendering */}
+                              {nonMcpTools.map(renderToolRow)}
+
+                              {/* MCP tools: grouped by server, collapsible */}
+                              {Object.entries(mcpByServer).map(([serverName, serverTools]) => {
+                                const isCollapsed = !collapsedServers.has(serverName);
+                                const enabledCount = serverTools.filter((t) => t.enabled).length;
+                                return (
+                                  <div key={`mcp-server-${serverName}`} className="card" style={{ padding: '0', overflow: 'hidden' }}>
+                                    <div
+                                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', cursor: 'pointer', userSelect: 'none' }}
+                                      onClick={() => setCollapsedServers((prev) => {
+                                        const next = new Set(prev);
+                                        if (next.has(serverName)) next.delete(serverName);
+                                        else next.add(serverName);
+                                        return next;
+                                      })}
+                                    >
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                        <span style={{ fontSize: '12px', color: 'var(--text-tertiary)', transition: 'transform 0.15s', transform: isCollapsed ? 'rotate(0deg)' : 'rotate(90deg)' }}>
+                                          ▶
+                                        </span>
+                                        <span style={{ fontSize: '18px' }}>🔌</span>
+                                        <div>
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <span style={{ fontWeight: 600, fontSize: '13px' }}>{serverName}</span>
+                                            <span style={{ fontSize: '10px', background: 'var(--primary)', color: '#fff', borderRadius: '4px', padding: '1px 5px' }}>MCP</span>
+                                            <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                                              {enabledCount}/{serverTools.length} {t('enterprise.tools.toolsEnabled', 'enabled')}
+                                            </span>
+                                          </div>
+                                          {serverTools[0]?.mcp_server_url ? (
+                                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '1px' }}>
+                                              {serverTools[0].mcp_server_url.length > 60 ? serverTools[0].mcp_server_url.slice(0, 60) + '...' : serverTools[0].mcp_server_url}
+                                            </div>
+                                          ) : null}
+                                        </div>
+                                      </div>
+                                      <button
+                                        className="btn btn-danger"
+                                        style={{ padding: '4px 8px', fontSize: '11px' }}
+                                        onClick={async (event) => {
+                                          event.stopPropagation();
+                                          if (!confirm(`${t('common.delete', 'Delete')} ${serverName} (${serverTools.length} tools)?`)) return;
+                                          for (const tool of serverTools) {
+                                            await toolsApi.deleteGlobalTool(tool.id);
+                                          }
+                                          loadAllTools();
+                                          loadAgentInstalledTools();
+                                        }}
+                                      >
+                                        {t('common.delete', 'Delete')}
+                                      </button>
+                                    </div>
+                                    {!isCollapsed ? (
+                                      <div style={{ borderTop: '1px solid var(--border-color)', padding: '4px 8px 8px 42px', background: 'var(--bg-secondary)', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                        {serverTools.map(renderToolRow)}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                );
+                              })}
+                            </>
                           );
-                        })}
+                        })()}
                       </div>
                     </div>
                   );

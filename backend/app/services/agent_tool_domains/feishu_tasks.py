@@ -1,4 +1,4 @@
-"""Feishu Tasks — CLI-backed read-only task listing for cloud office automation."""
+"""Feishu Tasks — CLI-backed task helpers for cloud office automation."""
 
 from __future__ import annotations
 
@@ -17,6 +17,39 @@ def _render_tasks(items: list[dict]) -> str:
     for item in items:
         due = item.get("due_at") or "无截止时间"
         lines.append(f"- `{item.get('guid', '')}` **{item.get('summary', '(无标题)')}** · due: {due}")
+    return "\n".join(lines)
+
+
+def _render_created_task(summary: str, payload: dict) -> str:
+    guid = payload.get("guid") or payload.get("task", {}).get("guid", "")
+    url = payload.get("url") or payload.get("task", {}).get("url", "")
+    lines = ["✅ **Feishu task created**", f"- Summary: {summary}"]
+    if guid:
+        lines.append(f"- Task ID: `{guid}`")
+    if url:
+        lines.append(f"- URL: {url}")
+    return "\n".join(lines)
+
+
+def _render_completed_task(payload: dict) -> str:
+    guid = payload.get("guid") or payload.get("task", {}).get("guid", "")
+    url = payload.get("url") or payload.get("task", {}).get("url", "")
+    summary = payload.get("summary") or payload.get("task", {}).get("summary", "")
+    lines = ["✅ **Feishu task completed**"]
+    if guid:
+        lines.append(f"- Task ID: `{guid}`")
+    if summary:
+        lines.append(f"- Summary: {summary}")
+    if url:
+        lines.append(f"- URL: {url}")
+    return "\n".join(lines)
+
+
+def _render_task_comment(payload: dict) -> str:
+    comment_id = payload.get("id") or payload.get("comment", {}).get("id", "")
+    lines = ["✅ **Feishu task comment added**"]
+    if comment_id:
+        lines.append(f"- Comment ID: `{comment_id}`")
     return "\n".join(lines)
 
 
@@ -40,6 +73,17 @@ async def _run_feishu_task_shortcut(args: list[str]) -> dict:
             retryable=False,
             actionable_hint="Run the same lark-cli task command manually and inspect the output.",
         ) from exc
+
+
+def _render_invalid_input(message: str, *, tool_name: str, actionable_hint: str | None = None) -> str:
+    return render_tool_error(
+        tool_name=tool_name,
+        error_class="invalid_input",
+        message=message,
+        provider="lark-cli",
+        retryable=False,
+        actionable_hint=actionable_hint,
+    )
 
 
 async def _feishu_task_list(_agent_id, arguments: dict) -> str:
@@ -71,3 +115,100 @@ async def _feishu_task_list(_agent_id, arguments: dict) -> str:
 
     payload = await _run_feishu_task_shortcut(command)
     return _render_tasks(payload.get("items", []))
+
+
+async def _feishu_task_create(_agent_id, arguments: dict) -> str:
+    if not await _feishu_cli_available():
+        return render_tool_error(
+            tool_name="feishu_task_create",
+            error_class="not_configured",
+            message="Feishu Task CLI is not enabled or authenticated.",
+            provider="lark-cli",
+            actionable_hint="Enable FEISHU_CLI_ENABLED and complete `lark-cli auth login --as user`.",
+        )
+
+    summary = str(arguments.get("summary") or "").strip()
+    if not summary:
+        return _render_invalid_input(
+            "Missing required argument 'summary'.",
+            tool_name="feishu_task_create",
+            actionable_hint="Provide a short task summary before creating the task.",
+        )
+
+    command = ["task", "+create", "--summary", summary]
+
+    description = str(arguments.get("description") or "").strip()
+    if description:
+        command.extend(["--description", description])
+
+    assignee_open_id = str(arguments.get("assignee_open_id") or "").strip()
+    if assignee_open_id:
+        command.extend(["--assignee", assignee_open_id])
+
+    due = str(arguments.get("due") or "").strip()
+    if due:
+        command.extend(["--due", due])
+
+    tasklist_id = str(arguments.get("tasklist_id") or "").strip()
+    if tasklist_id:
+        command.extend(["--tasklist-id", tasklist_id])
+
+    idempotency_key = str(arguments.get("idempotency_key") or "").strip()
+    if idempotency_key:
+        command.extend(["--idempotency-key", idempotency_key])
+
+    payload = await _run_feishu_task_shortcut(command)
+    return _render_created_task(summary, payload)
+
+
+async def _feishu_task_complete(_agent_id, arguments: dict) -> str:
+    if not await _feishu_cli_available():
+        return render_tool_error(
+            tool_name="feishu_task_complete",
+            error_class="not_configured",
+            message="Feishu Task CLI is not enabled or authenticated.",
+            provider="lark-cli",
+            actionable_hint="Enable FEISHU_CLI_ENABLED and complete `lark-cli auth login --as user`.",
+        )
+
+    task_id = str(arguments.get("task_id") or "").strip()
+    if not task_id:
+        return _render_invalid_input(
+            "Missing required argument 'task_id'.",
+            tool_name="feishu_task_complete",
+            actionable_hint="Provide the task ID returned by Feishu Tasks before completing it.",
+        )
+
+    payload = await _run_feishu_task_shortcut(["task", "+complete", "--task-id", task_id])
+    return _render_completed_task(payload)
+
+
+async def _feishu_task_comment(_agent_id, arguments: dict) -> str:
+    if not await _feishu_cli_available():
+        return render_tool_error(
+            tool_name="feishu_task_comment",
+            error_class="not_configured",
+            message="Feishu Task CLI is not enabled or authenticated.",
+            provider="lark-cli",
+            actionable_hint="Enable FEISHU_CLI_ENABLED and complete `lark-cli auth login --as user`.",
+        )
+
+    task_id = str(arguments.get("task_id") or "").strip()
+    if not task_id:
+        return _render_invalid_input(
+            "Missing required argument 'task_id'.",
+            tool_name="feishu_task_comment",
+            actionable_hint="Provide the target task ID before adding a comment.",
+        )
+    content = str(arguments.get("content") or "").strip()
+    if not content:
+        return _render_invalid_input(
+            "Missing required argument 'content'.",
+            tool_name="feishu_task_comment",
+            actionable_hint="Provide non-empty comment content.",
+        )
+
+    payload = await _run_feishu_task_shortcut(
+        ["task", "+comment", "--task-id", task_id, "--content", content]
+    )
+    return _render_task_comment(payload)

@@ -521,6 +521,7 @@
       "task": "Task Management",
       "communication": "Communication",
       "search": "Search",
+      "feishu": "Feishu / Lark",
       "custom": "Custom",
       "general": "General",
       "email": "Email"
@@ -1007,6 +1008,23 @@
       "maxWebhookRate": "Max Webhook Rate (/min)",
       "maxWebhookDesc": "Company-wide ceiling",
       "saved": "Saved"
+    }
+  },
+  "feishu": {
+    "runtime": {
+      "title": "Feishu Runtime Status",
+      "Ready": "Ready",
+      "NeedsAttention": "Needs Attention",
+      "Disabled": "Disabled",
+      "Enabled": "Enabled",
+      "Configured": "Configured",
+      "Missing": "Missing",
+      "cliBinary": "CLI Binary",
+      "cliEnabled": "CLI Enabled",
+      "cliAuth": "CLI Auth",
+      "channelAuth": "Channel Auth",
+      "docsReady": "Docs / Wiki / Sheets",
+      "baseReady": "Base / Tasks"
     }
   },
   "common": {

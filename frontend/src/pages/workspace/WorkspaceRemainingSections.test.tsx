@@ -118,6 +118,7 @@ describe('Workspace remaining sections', () => {
     expect(quotasMarkup).toContain('Employee Token Quotas');
     expect(quotasMarkup).toContain('defaultMaxTriggers');
     expect(toolsMarkup).toContain('Global Tools');
+    expect(toolsMarkup).toContain('lark-cli');
   });
 
   it('renders users, invitations, and skills as independent workspace sections', () => {

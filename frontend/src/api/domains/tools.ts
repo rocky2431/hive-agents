@@ -32,6 +32,19 @@ export interface CategoryConfig {
   [key: string]: unknown;
 }
 
+export interface FeishuRuntimeStatus {
+  ok: boolean;
+  scope: 'global' | 'agent';
+  message: string;
+  cli_enabled: boolean;
+  cli_available: boolean;
+  cli_bin: string;
+  docs_read_ready: boolean;
+  base_tasks_ready: boolean;
+  channel_configured?: boolean;
+  office_access?: boolean;
+}
+
 export const toolsApi = {
   /** Global tool catalog */
   listCatalog: (tenantId?: string) => get<unknown[]>(`/tools${tenantId ? `?tenant_id=${tenantId}` : ''}`),
@@ -56,7 +69,9 @@ export const toolsApi = {
   updateCategoryConfig: (agentId: string, category: string, config: Record<string, unknown>) =>
     put<void>(`/tools/agents/${agentId}/category-config/${category}`, config),
   testCategory: (agentId: string, category: string) =>
-    post<{ success: boolean }>(`/tools/agents/${agentId}/category-config/${category}/test`),
+    post<FeishuRuntimeStatus | { success: boolean }>(`/tools/agents/${agentId}/category-config/${category}/test`),
+  getFeishuRuntimeStatus: () => get<FeishuRuntimeStatus>('/tools/runtime/feishu-status'),
+  getAgentFeishuRuntimeStatus: (agentId: string) => get<FeishuRuntimeStatus>(`/tools/agents/${agentId}/runtime/feishu-status`),
 
   /** Per-tool config */
   updateToolConfig: (agentId: string, toolId: string, config: Record<string, unknown>) =>

@@ -502,8 +502,24 @@ async def import_mcp_from_smithery(
                 tool_name = f"mcp_{server_id.replace('/', '_').replace('@', '')}_{mcp_tool['name']}"
                 tool_display = f"{display_name}: {mcp_tool['name']}"
 
+                # Check by internal name first, then fall back to
+                # (mcp_tool_name, mcp_server_name) to catch duplicates from
+                # different import paths (Smithery vs direct URL).
                 existing_r = await db.execute(select(Tool).where(Tool.name == tool_name, _tenant_filter))
                 existing_tool = existing_r.scalar_one_or_none()
+                if not existing_tool:
+                    # Fallback: match by structural identity (server + tool name)
+                    # to catch duplicates from different import paths.
+                    # Uses .first() because duplicates may already exist.
+                    dup_r = await db.execute(
+                        select(Tool).where(
+                            Tool.type == "mcp",
+                            Tool.mcp_tool_name == mcp_tool["name"],
+                            Tool.mcp_server_name == display_name,
+                            _tenant_filter,
+                        )
+                    )
+                    existing_tool = dup_r.scalars().first()
                 if existing_tool:
                     existing_tool.mcp_server_url = base_mcp_url
                     await _ensure_agent_tool(existing_tool.id)
@@ -657,8 +673,23 @@ async def import_mcp_direct(
                 tool_name = f"mcp_{safe_name}_{mcp_tool['name']}"
                 tool_display = f"{display_name}: {mcp_tool['name']}"
 
+                # Check by internal name first, then fall back to
+                # (mcp_tool_name, mcp_server_name) to catch cross-path duplicates.
                 existing_r = await db.execute(select(Tool).where(Tool.name == tool_name, _tenant_filter))
                 existing_tool = existing_r.scalar_one_or_none()
+                if not existing_tool:
+                    # Fallback: match by structural identity (server + tool name)
+                    # to catch cross-path duplicates. Uses .first() because
+                    # duplicates may already exist in the database.
+                    dup_r = await db.execute(
+                        select(Tool).where(
+                            Tool.type == "mcp",
+                            Tool.mcp_tool_name == mcp_tool["name"],
+                            Tool.mcp_server_name == display_name,
+                            _tenant_filter,
+                        )
+                    )
+                    existing_tool = dup_r.scalars().first()
                 if existing_tool:
                     existing_tool.mcp_server_url = mcp_url
                     await _ensure_agent_tool(existing_tool.id)

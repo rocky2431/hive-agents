@@ -295,6 +295,130 @@ async def feishu_base_record_list(agent_id: uuid.UUID, arguments: dict) -> str:
     return await _feishu_base_record_list(agent_id, arguments)
 
 
+# -- feishu_base_record_upsert ------------------------------------------------
+
+@tool(ToolMeta(
+    name="feishu_base_record_upsert",
+    description=(
+        "Create or update one record in a Feishu Base table using the cloud lark-cli adapter. "
+        "Use this after you already know the target base_token, table_id, and writable field names. "
+        "Provide field-value mappings in `fields`; include `record_id` to update an existing record."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "base_token": {
+                "type": "string",
+                "description": "Feishu Base token, e.g. 'app_xxx'.",
+            },
+            "table_id": {
+                "type": "string",
+                "description": "Table ID or table name inside the Base.",
+            },
+            "record_id": {
+                "type": "string",
+                "description": "Optional record ID. When omitted, a new record is created.",
+            },
+            "fields": {
+                "type": "object",
+                "description": "Field-value mapping to write, using writable field names or field IDs.",
+            },
+        },
+        "required": ["base_token", "table_id", "fields"],
+    },
+    category="feishu",
+    display_name="Feishu Base Record Upsert",
+    icon="📝",
+    pack="feishu_pack",
+    adapter="agent_args",
+    governance="sensitive",
+))
+async def feishu_base_record_upsert(agent_id: uuid.UUID, arguments: dict) -> str:
+    if not await _check_feishu_cli_access():
+        return _FEISHU_NOT_CONFIGURED_MSG
+    from app.services.agent_tools import _feishu_base_record_upsert
+    return await _feishu_base_record_upsert(agent_id, arguments)
+
+
+# -- feishu_base_field_list ---------------------------------------------------
+
+@tool(ToolMeta(
+    name="feishu_base_field_list",
+    description=(
+        "List fields in a Feishu Base table using the cloud lark-cli adapter. "
+        "Use this before `feishu_base_record_upsert` when you need the real writable field names or field IDs."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "base_token": {
+                "type": "string",
+                "description": "Feishu Base token, e.g. 'app_xxx'.",
+            },
+            "table_id": {
+                "type": "string",
+                "description": "Table ID or table name inside the Base.",
+            },
+            "offset": {
+                "type": "integer",
+                "description": "Optional pagination offset. Default 0.",
+            },
+            "limit": {
+                "type": "integer",
+                "description": "Optional page size. Default 100, max 200.",
+            },
+        },
+        "required": ["base_token", "table_id"],
+    },
+    category="feishu",
+    display_name="Feishu Base Field List",
+    icon="🧩",
+    pack="feishu_pack",
+    adapter="agent_args",
+    read_only=True,
+    governance="safe",
+))
+async def feishu_base_field_list(agent_id: uuid.UUID, arguments: dict) -> str:
+    if not await _check_feishu_cli_access():
+        return _FEISHU_NOT_CONFIGURED_MSG
+    from app.services.agent_tools import _feishu_base_field_list
+    return await _feishu_base_field_list(agent_id, arguments)
+
+
+# -- feishu_base_record_upload_attachment -------------------------------------
+
+@tool(ToolMeta(
+    name="feishu_base_record_upload_attachment",
+    description=(
+        "Upload one local workspace file into a Feishu Base attachment field using the cloud lark-cli adapter. "
+        "Use this only when you already know the target record ID, attachment field, and file path inside the agent workspace."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "base_token": {"type": "string", "description": "Feishu Base token."},
+            "table_id": {"type": "string", "description": "Target table ID or name."},
+            "record_id": {"type": "string", "description": "Target record ID."},
+            "field_id": {"type": "string", "description": "Attachment field ID or field name."},
+            "file_path": {"type": "string", "description": "Workspace-relative file path, for example 'workspace/report.pdf'."},
+            "name": {"type": "string", "description": "Optional attachment display name inside Feishu Base."},
+        },
+        "required": ["base_token", "table_id", "record_id", "field_id", "file_path"],
+    },
+    category="feishu",
+    display_name="Feishu Base Record Upload Attachment",
+    icon="📎",
+    pack="feishu_pack",
+    adapter="agent_args",
+    governance="sensitive",
+))
+async def feishu_base_record_upload_attachment(agent_id: uuid.UUID, arguments: dict) -> str:
+    if not await _check_feishu_cli_access():
+        return _FEISHU_NOT_CONFIGURED_MSG
+    from app.services.agent_tools import _feishu_base_record_upload_attachment
+    return await _feishu_base_record_upload_attachment(agent_id, arguments)
+
+
 # -- feishu_task_list ---------------------------------------------------------
 
 @tool(ToolMeta(
@@ -349,6 +473,127 @@ async def feishu_task_list(agent_id: uuid.UUID, arguments: dict) -> str:
         return _FEISHU_NOT_CONFIGURED_MSG
     from app.services.agent_tools import _feishu_task_list
     return await _feishu_task_list(agent_id, arguments)
+
+
+# -- feishu_task_create -------------------------------------------------------
+
+@tool(ToolMeta(
+    name="feishu_task_create",
+    description=(
+        "Create a Feishu task with user identity through the cloud lark-cli adapter. "
+        "Use this for cloud task reminders, follow-ups, or office workflows that should land in Feishu Tasks. "
+        "Supports optional assignee open_id, due time, tasklist, and idempotency key."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "summary": {
+                "type": "string",
+                "description": "Task title or summary.",
+            },
+            "description": {
+                "type": "string",
+                "description": "Optional task description.",
+            },
+            "assignee_open_id": {
+                "type": "string",
+                "description": "Optional assignee open_id. Omit to create the task for the authenticated user.",
+            },
+            "due": {
+                "type": "string",
+                "description": "Optional due time. Supports YYYY-MM-DD, ISO 8601, or relative time supported by lark-cli.",
+            },
+            "tasklist_id": {
+                "type": "string",
+                "description": "Optional tasklist GUID or full AppLink URL.",
+            },
+            "idempotency_key": {
+                "type": "string",
+                "description": "Optional client token for idempotent retries.",
+            },
+        },
+        "required": ["summary"],
+    },
+    category="feishu",
+    display_name="Feishu Task Create",
+    icon="✅",
+    pack="feishu_pack",
+    adapter="agent_args",
+    governance="sensitive",
+))
+async def feishu_task_create(agent_id: uuid.UUID, arguments: dict) -> str:
+    if not await _check_feishu_cli_access():
+        return _FEISHU_NOT_CONFIGURED_MSG
+    from app.services.agent_tools import _feishu_task_create
+    return await _feishu_task_create(agent_id, arguments)
+
+
+# -- feishu_task_complete -----------------------------------------------------
+
+@tool(ToolMeta(
+    name="feishu_task_complete",
+    description=(
+        "Mark one Feishu task as completed using the cloud lark-cli adapter and user identity. "
+        "Use this when the task is done and you have the task ID."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "task_id": {
+                "type": "string",
+                "description": "The target Feishu task ID.",
+            },
+        },
+        "required": ["task_id"],
+    },
+    category="feishu",
+    display_name="Feishu Task Complete",
+    icon="✔️",
+    pack="feishu_pack",
+    adapter="agent_args",
+    governance="sensitive",
+))
+async def feishu_task_complete(agent_id: uuid.UUID, arguments: dict) -> str:
+    if not await _check_feishu_cli_access():
+        return _FEISHU_NOT_CONFIGURED_MSG
+    from app.services.agent_tools import _feishu_task_complete
+    return await _feishu_task_complete(agent_id, arguments)
+
+
+# -- feishu_task_comment ------------------------------------------------------
+
+@tool(ToolMeta(
+    name="feishu_task_comment",
+    description=(
+        "Add a comment to one Feishu task using the cloud lark-cli adapter and user identity. "
+        "Use this for task updates, status notes, or review comments."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "task_id": {
+                "type": "string",
+                "description": "The target Feishu task ID.",
+            },
+            "content": {
+                "type": "string",
+                "description": "Comment text to add to the task.",
+            },
+        },
+        "required": ["task_id", "content"],
+    },
+    category="feishu",
+    display_name="Feishu Task Comment",
+    icon="💬",
+    pack="feishu_pack",
+    adapter="agent_args",
+    governance="sensitive",
+))
+async def feishu_task_comment(agent_id: uuid.UUID, arguments: dict) -> str:
+    if not await _check_feishu_cli_access():
+        return _FEISHU_NOT_CONFIGURED_MSG
+    from app.services.agent_tools import _feishu_task_comment
+    return await _feishu_task_comment(agent_id, arguments)
 
 
 # -- feishu_doc_create --------------------------------------------------------

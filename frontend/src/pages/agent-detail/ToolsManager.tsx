@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { toolsApi } from '../../api/domains/tools';
+import type { FeishuRuntimeStatus } from '../../api/domains/tools';
+import FeishuRuntimeStatusCard from '../../components/FeishuRuntimeStatusCard';
 import { useAuthStore } from '../../stores';
 
 type ToolsManagerProps = {
@@ -36,6 +38,7 @@ export default function ToolsManager({ agentId, canManage = false }: ToolsManage
   const [toolTab, setToolTab] = useState<'platform' | 'installed'>('platform');
   const [deletingToolId, setDeletingToolId] = useState<string | null>(null);
   const [configCategory, setConfigCategory] = useState<string | null>(null);
+  const [feishuRuntimeStatus, setFeishuRuntimeStatus] = useState<FeishuRuntimeStatus | null>(null);
 
   const CATEGORY_CONFIG_SCHEMAS: Record<string, any> = {
     agentbay: {
@@ -43,6 +46,10 @@ export default function ToolsManager({ agentId, canManage = false }: ToolsManage
       fields: [
         { key: 'api_key', label: 'API Key (from AgentBay)', type: 'password', placeholder: 'Enter your AgentBay API key' },
       ],
+    },
+    feishu: {
+      title: 'Feishu / Lark Runtime',
+      fields: [],
     },
     atlassian: {
       title: 'Atlassian Connectivity Settings',
@@ -63,9 +70,23 @@ export default function ToolsManager({ agentId, canManage = false }: ToolsManage
     setLoading(false);
   };
 
+  const loadFeishuRuntimeStatus = async () => {
+    if (!canManage) {
+      setFeishuRuntimeStatus(null);
+      return;
+    }
+    try {
+      const data = await toolsApi.getAgentFeishuRuntimeStatus(agentId);
+      setFeishuRuntimeStatus(data);
+    } catch {
+      setFeishuRuntimeStatus(null);
+    }
+  };
+
   useEffect(() => {
     void loadTools();
-  }, [agentId]);
+    void loadFeishuRuntimeStatus();
+  }, [agentId, canManage]);
 
   const toggleTool = async (toolId: string, enabled: boolean) => {
     setTools((prev) => prev.map((tool) => (tool.id === toolId ? { ...tool, enabled } : tool)));
@@ -254,6 +275,7 @@ export default function ToolsManager({ agentId, canManage = false }: ToolsManage
   return (
     <>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        {canManage && feishuRuntimeStatus ? <FeishuRuntimeStatusCard status={feishuRuntimeStatus} /> : null}
         <div style={{ display: 'flex', gap: '2px', background: 'var(--bg-tertiary)', borderRadius: '8px', padding: '3px' }}>
           <button
             onClick={() => setToolTab('platform')}
@@ -334,6 +356,18 @@ export default function ToolsManager({ agentId, canManage = false }: ToolsManage
                   </div>
                   <button onClick={() => { setConfigTool(null); setConfigCategory(null); }} style={{ background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', color: 'var(--text-secondary)' }}>✕</button>
                 </div>
+
+                {configCategory === 'feishu' && (
+                  <>
+                    <div className="card" style={{ padding: '12px 14px', marginBottom: '12px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                      {t(
+                        'agent.tools.feishuCliHint',
+                        'Feishu office tools use lark-cli in cloud deployments. Docs/Wiki/Sheets can use channel auth or CLI; Base/Tasks require lark-cli auth. Use Test Connection to inspect current CLI readiness.',
+                      )}
+                    </div>
+                    {feishuRuntimeStatus ? <FeishuRuntimeStatusCard status={feishuRuntimeStatus} compact /> : null}
+                  </>
+                )}
 
                 {fields.length > 0 ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -535,7 +569,11 @@ export default function ToolsManager({ agentId, canManage = false }: ToolsManage
                         if (button) button.textContent = 'Testing...';
                         try {
                           const data = (await toolsApi.testCategory(agentId, configCategory!)) as any;
-                          alert(data.message || (data.ok ? '✅ Test successful' : `❌ Test failed: ${data.error}`));
+                          if (configCategory === 'feishu' && data && typeof data === 'object' && 'cli_enabled' in data) {
+                            setFeishuRuntimeStatus(data as FeishuRuntimeStatus);
+                          } else {
+                            alert(data.message || (data.ok ? '✅ Test successful' : `❌ Test failed: ${data.error}`));
+                          }
                         } catch (error: any) {
                           alert(`Test failed: ${error.message}`);
                         } finally {

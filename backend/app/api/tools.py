@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.core.permissions import check_agent_access
 from app.core.security import get_current_admin, get_current_user
 from app.database import get_db
@@ -63,6 +64,61 @@ class McpTestIn(BaseModel):
 
 class EmailTestIn(BaseModel):
     config: dict = Field(default_factory=dict)
+
+
+async def _build_feishu_runtime_status(agent_id: uuid.UUID | None = None) -> dict:
+    from app.services.agent_tool_domains.feishu_cli import _feishu_cli_available
+
+    settings = get_settings()
+    cli_enabled = bool(getattr(settings, "FEISHU_CLI_ENABLED", False))
+    cli_bin = getattr(settings, "FEISHU_CLI_BIN", "lark-cli")
+    cli_available = await _feishu_cli_available()
+
+    payload = {
+        "scope": "agent" if agent_id is not None else "global",
+        "cli_enabled": cli_enabled,
+        "cli_available": cli_available,
+        "cli_bin": cli_bin,
+    }
+
+    if agent_id is None:
+        payload["ok"] = cli_available or cli_enabled
+        payload["docs_read_ready"] = cli_available
+        payload["base_tasks_ready"] = cli_available
+        if cli_available:
+            payload["message"] = "Feishu CLI is ready. Docs/Wiki/Sheets/Base/Tasks can use lark-cli."
+        elif cli_enabled:
+            payload["message"] = "Feishu CLI is enabled but not authenticated. Run `lark-cli auth login` inside the cloud container."
+        else:
+            payload["message"] = "Feishu CLI is disabled. Enable it to unlock Base/Tasks office tooling in cloud deployments."
+        return payload
+
+    from app.services.agent_tools import _agent_has_feishu, _agent_has_feishu_cli_access, _agent_has_feishu_office_access
+
+    channel_configured = await _agent_has_feishu(agent_id)
+    office_access = await _agent_has_feishu_office_access(agent_id)
+    cli_access = await _agent_has_feishu_cli_access()
+
+    payload.update(
+        {
+            "channel_configured": channel_configured,
+            "office_access": office_access,
+            "docs_read_ready": office_access,
+            "base_tasks_ready": cli_access,
+            "ok": channel_configured or office_access or cli_enabled or cli_available,
+        }
+    )
+    if channel_configured and cli_access:
+        payload["message"] = "Feishu channel auth and lark-cli are both ready. All Feishu office tools can run."
+    elif channel_configured and not cli_access:
+        payload["message"] = "Feishu channel auth is ready for Docs/Wiki/Sheets, but Base/Tasks still need lark-cli auth."
+    elif cli_access:
+        payload["message"] = "lark-cli is ready. Feishu office tools can run even without a channel binding."
+    elif cli_enabled:
+        payload["message"] = "Feishu CLI is enabled but not authenticated. Channel auth is also unavailable for this agent."
+    else:
+        payload["message"] = "This agent has no Feishu channel auth, and lark-cli is disabled."
+    return payload
 
 
 def _serialize_tool(tool: Tool, *, enabled: bool | None = None, config: dict | None = None) -> dict:
@@ -187,7 +243,31 @@ async def list_tools(
     stmt = stmt.order_by(Tool.category.asc(), Tool.display_name.asc())
     result = await db.execute(stmt)
     tools = result.scalars().all()
-    return [await _serialize_tool_for_tenant(db, tool, scope_tenant_id) for tool in tools]
+
+    # Dedup MCP tools from different import paths that represent the same
+    # server+tool combination.  Key on structural identity (server_name,
+    # tool_name) so two different servers that expose identically named tools
+    # are NOT incorrectly merged.  Falls back to display_name when the MCP
+    # metadata fields are NULL (legacy rows).
+    seen_mcp: set[tuple[str | None, str | None]] = set()
+    deduped: list[Tool] = []
+    for tool in tools:
+        if tool.type == "mcp":
+            key = (tool.mcp_server_name, tool.mcp_tool_name) if tool.mcp_tool_name else (tool.display_name, None)
+            if key in seen_mcp:
+                continue
+            seen_mcp.add(key)
+        deduped.append(tool)
+
+    return [await _serialize_tool_for_tenant(db, tool, scope_tenant_id) for tool in deduped]
+
+
+@router.get("/tools/runtime/feishu-status")
+async def get_feishu_runtime_status(
+    current_user: User = Depends(get_current_admin),
+):
+    _ = current_user
+    return await _build_feishu_runtime_status()
 
 
 @router.get("/tools/agent-installed")
@@ -224,6 +304,61 @@ async def list_agent_installed_tools(
             }
         )
     return payload
+
+
+@router.post("/tools/dedup-mcp")
+async def dedup_mcp_tools(
+    tenant_id: str | None = Query(None),
+    current_user: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Merge duplicate MCP tools that share (display_name, tenant_id).
+
+    Keeps the oldest Tool record, re-points AgentTool rows from duplicates
+    to the keeper, then deletes the duplicate Tool rows.
+    """
+    scope_tenant_id = await _resolve_tenant_scope(current_user, tenant_id)
+    if not scope_tenant_id:
+        return {"merged": 0}
+
+    # Find all MCP tools for this tenant
+    result = await db.execute(
+        select(Tool).where(Tool.tenant_id == scope_tenant_id, Tool.type == "mcp").order_by(Tool.created_at.asc())
+    )
+    all_mcp = result.scalars().all()
+
+    # Group by structural identity (server_name, tool_name) — keeps first (oldest).
+    # Falls back to display_name for legacy rows missing mcp_tool_name.
+    groups: dict[tuple[str | None, str | None], list[Tool]] = {}
+    for tool in all_mcp:
+        key = (tool.mcp_server_name, tool.mcp_tool_name) if tool.mcp_tool_name else (tool.display_name, None)
+        groups.setdefault(key, []).append(tool)
+
+    merged = 0
+    for _key, tools in groups.items():
+        if len(tools) <= 1:
+            continue
+        keeper = tools[0]
+        for dup in tools[1:]:
+            # Move AgentTool references from dup → keeper (skip if already exists)
+            at_result = await db.execute(select(AgentTool).where(AgentTool.tool_id == dup.id))
+            for agent_tool in at_result.scalars().all():
+                existing = await db.execute(
+                    select(AgentTool).where(
+                        AgentTool.agent_id == agent_tool.agent_id,
+                        AgentTool.tool_id == keeper.id,
+                    )
+                )
+                if not existing.scalar_one_or_none():
+                    agent_tool.tool_id = keeper.id
+                else:
+                    await db.delete(agent_tool)
+            await db.delete(dup)
+            merged += 1
+
+    if merged:
+        await db.commit()
+    return {"merged": merged}
 
 
 @router.post("/tools")
@@ -424,6 +559,16 @@ async def get_category_config(
     return {"config": {**(tool.config or {}), **(agent_tool.config or {})}}
 
 
+@router.get("/tools/agents/{agent_id}/runtime/feishu-status")
+async def get_agent_feishu_runtime_status(
+    agent_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _ = await _require_manage_access(db, current_user, agent_id)
+    return await _build_feishu_runtime_status(agent_id)
+
+
 @router.put("/tools/agents/{agent_id}/category-config/{category}")
 async def update_category_config(
     agent_id: uuid.UUID,
@@ -453,6 +598,8 @@ async def test_category_config(
     db: AsyncSession = Depends(get_db),
 ):
     _ = await _require_manage_access(db, current_user, agent_id)
+    if category == "feishu":
+        return await _build_feishu_runtime_status(agent_id)
     config_payload = await get_category_config(agent_id=agent_id, category=category, current_user=current_user, db=db)
     config = config_payload.get("config", {})
     if category == "email":

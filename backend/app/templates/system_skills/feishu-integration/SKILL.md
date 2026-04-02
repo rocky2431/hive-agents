@@ -11,8 +11,14 @@ tools:
   - feishu_doc_read
   - feishu_sheet_info
   - feishu_sheet_read
+  - feishu_base_field_list
   - feishu_base_table_list
   - feishu_base_record_list
+  - feishu_base_record_upload_attachment
+  - feishu_base_record_upsert
+  - feishu_task_comment
+  - feishu_task_complete
+  - feishu_task_create
   - feishu_task_list
   - feishu_doc_create
   - feishu_doc_append
@@ -48,8 +54,14 @@ When user asks to create a Feishu document (summarize PDF, write an article, etc
 | `feishu_doc_read` | `document_token`. Supports both regular docx tokens and **wiki node tokens** (auto-converts). |
 | `feishu_sheet_info` | `spreadsheet_token` or `spreadsheet_url`. Lists worksheet IDs, titles, row/column counts before you read cells. |
 | `feishu_sheet_read` | `spreadsheet_token` or `spreadsheet_url`, optional `sheet_id`, `range`, `value_render_option`. Read worksheet cells after discovery. |
+| `feishu_base_field_list` | `base_token`, `table_id`, optional `offset`, `limit`. Inspect real field names and field IDs before writing Base records. |
 | `feishu_base_table_list` | `base_token`, optional `offset`, `limit`. List Base tables before reading records. |
 | `feishu_base_record_list` | `base_token`, `table_id`, optional `view_id`, `offset`, `limit`. Read Base records from one table. |
+| `feishu_base_record_upload_attachment` | `base_token`, `table_id`, `record_id`, `field_id`, `file_path`, optional `name`. Upload one local workspace file into a Base attachment field. |
+| `feishu_base_record_upsert` | `base_token`, `table_id`, `fields`, optional `record_id`. Create or update one Base record after you know writable field names. |
+| `feishu_task_comment` | `task_id`, `content`. Add one comment to a Feishu task using user identity. |
+| `feishu_task_complete` | `task_id`. Mark one Feishu task as completed using user identity. |
+| `feishu_task_create` | `summary`, optional `description`, `assignee_open_id`, `due`, `tasklist_id`, `idempotency_key`. Create one Feishu task with user identity. |
 | `feishu_task_list` | Optional `query`, `complete`, `created_at`, `due_start`, `due_end`, `page_all`, `page_limit`. Lists my Feishu tasks via user identity. |
 | `feishu_doc_create` | `title`. Returns real Token and access link, pre-authorized for you. |
 | `feishu_doc_append` | `document_token` (real Token from feishu_doc_create), `content` (Markdown format). |
@@ -82,9 +94,32 @@ When user asks to create a Feishu document (summarize PDF, write an article, etc
 2. Pick the target `table_id`.
 3. Call `feishu_base_record_list(...)` to read records.
 
+**When user asks to create or update Feishu Base data:**
+1. First confirm the exact writable field names and values.
+2. If you do not know the target table yet, call `feishu_base_table_list(...)`.
+3. Call `feishu_base_field_list(...)` before writing whenever field names or types are uncertain.
+4. Call `feishu_base_record_upsert(...)` with a field-value JSON object.
+5. Never guess formula / lookup / created_time / modified_time fields as writable targets.
+
+**When user asks to upload a file into a Feishu Base record:**
+1. Confirm the target `record_id`, attachment field, and local workspace file path.
+2. If field type is uncertain, call `feishu_base_field_list(...)` first.
+3. Call `feishu_base_record_upload_attachment(...)`.
+4. Do not try to fake attachment payloads through `feishu_base_record_upsert(...)`.
+
 **When user asks about their Feishu tasks:**
 1. Call `feishu_task_list(...)`.
 2. Remember this path requires CLI user auth, not bot-only auth.
+
+**When user asks to create a Feishu task:**
+1. Call `feishu_task_create(...)` with `summary` and any known due date or assignee.
+2. Prefer `assignee_open_id` only when you already know it; otherwise create for the authenticated user.
+3. Use `idempotency_key` for retry-prone automation flows.
+
+**When user asks to complete or update a task with comments:**
+1. If you do not know the exact task ID, call `feishu_task_list(...)` first.
+2. Use `feishu_task_comment(...)` for progress notes or review comments.
+3. Use `feishu_task_complete(...)` only when the task is explicitly done.
 
 **When user asks to message a colleague by name:**
 - Just call `send_feishu_message(member_name="John", message="...")` — it auto-searches.

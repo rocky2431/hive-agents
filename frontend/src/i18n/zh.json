@@ -504,6 +504,7 @@
         "task": "任务管理",
         "communication": "通讯",
         "search": "搜索",
+        "feishu": "飞书 / Lark",
         "custom": "自定义",
         "general": "通用",
         "email": "邮件"
@@ -1035,6 +1036,23 @@
       "maxWebhookRate": "最大 Webhook 速率（/分钟）",
       "maxWebhookDesc": "全公司上限",
       "saved": "已保存"
+    }
+  },
+  "feishu": {
+    "runtime": {
+      "title": "飞书运行时状态",
+      "Ready": "就绪",
+      "NeedsAttention": "需处理",
+      "Disabled": "已禁用",
+      "Enabled": "已启用",
+      "Configured": "已配置",
+      "Missing": "缺失",
+      "cliBinary": "CLI 可执行文件",
+      "cliEnabled": "CLI 开关",
+      "cliAuth": "CLI 认证",
+      "channelAuth": "渠道认证",
+      "docsReady": "文档 / Wiki / Sheets",
+      "baseReady": "Base / Tasks"
     }
   },
   "common": {

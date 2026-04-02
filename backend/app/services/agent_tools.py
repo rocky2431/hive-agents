@@ -201,8 +201,14 @@ _FEISHU_TOOL_NAMES = {
     "feishu_doc_read",
     "feishu_sheet_info",
     "feishu_sheet_read",
+    "feishu_base_field_list",
     "feishu_base_table_list",
     "feishu_base_record_list",
+    "feishu_base_record_upload_attachment",
+    "feishu_base_record_upsert",
+    "feishu_task_comment",
+    "feishu_task_complete",
+    "feishu_task_create",
     "feishu_task_list",
     "feishu_doc_create",
     "feishu_doc_append",
@@ -219,8 +225,14 @@ _FEISHU_OFFICE_TOOL_NAMES = {
     "feishu_sheet_read",
 }
 _FEISHU_CLI_ONLY_TOOL_NAMES = {
+    "feishu_base_field_list",
     "feishu_base_table_list",
     "feishu_base_record_list",
+    "feishu_base_record_upload_attachment",
+    "feishu_base_record_upsert",
+    "feishu_task_comment",
+    "feishu_task_complete",
+    "feishu_task_create",
     "feishu_task_list",
 }
 _always_core_tools: list[dict] | None = None
@@ -658,10 +670,16 @@ from app.services.agent_tool_domains.feishu_sheets import (  # noqa: E402
     _feishu_sheet_read as _feishu_sheet_read,
 )
 from app.services.agent_tool_domains.feishu_base import (  # noqa: E402
+    _feishu_base_field_list as _feishu_base_field_list,
     _feishu_base_table_list as _feishu_base_table_list,
     _feishu_base_record_list as _feishu_base_record_list,
+    _feishu_base_record_upload_attachment as _feishu_base_record_upload_attachment,
+    _feishu_base_record_upsert as _feishu_base_record_upsert,
 )
 from app.services.agent_tool_domains.feishu_tasks import (  # noqa: E402
+    _feishu_task_comment as _feishu_task_comment,
+    _feishu_task_complete as _feishu_task_complete,
+    _feishu_task_create as _feishu_task_create,
     _feishu_task_list as _feishu_task_list,
 )
 from app.services.agent_tool_domains.feishu_sharing import (  # noqa: E402

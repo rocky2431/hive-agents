@@ -27,10 +27,16 @@ def test_combined_openai_tools_matches_canonical_surface():
         "feishu_doc_create",
         "feishu_doc_read",
         "feishu_doc_share",
+        "feishu_base_field_list",
         "feishu_base_record_list",
+        "feishu_base_record_upload_attachment",
+        "feishu_base_record_upsert",
         "feishu_base_table_list",
         "feishu_sheet_info",
         "feishu_sheet_read",
+        "feishu_task_comment",
+        "feishu_task_complete",
+        "feishu_task_create",
         "feishu_task_list",
         "feishu_user_search",
         "feishu_wiki_list",
@@ -90,6 +96,11 @@ def test_governance_sets_include_canonical_metadata_without_runtime_init():
     assert "web_search" in SAFE_TOOLS
     assert "web_fetch" in SAFE_TOOLS
     assert "send_feishu_message" in SENSITIVE_TOOLS
+    assert "feishu_task_comment" in SENSITIVE_TOOLS
+    assert "feishu_task_complete" in SENSITIVE_TOOLS
+    assert "feishu_task_create" in SENSITIVE_TOOLS
+    assert "feishu_base_record_upload_attachment" in SENSITIVE_TOOLS
+    assert "feishu_base_record_upsert" in SENSITIVE_TOOLS
     assert "delete_file" in SENSITIVE_TOOLS
     assert "create_digital_employee" in SENSITIVE_TOOLS
 
