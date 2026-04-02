@@ -26,7 +26,7 @@ TOOL_PACKS: tuple[ToolPackSpec, ...] = (
     ),
     ToolPackSpec(
         name="feishu_pack",
-        summary="飞书消息、文档、日历与用户查询能力。",
+        summary="飞书消息、文档、知识库、表格、Base、任务与日历能力。",
         source="channel",
         activation_mode="通过 feishu skill 或已配置飞书渠道后显式使用",
         tools=(
@@ -36,6 +36,9 @@ TOOL_PACKS: tuple[ToolPackSpec, ...] = (
             "feishu_doc_read",
             "feishu_sheet_info",
             "feishu_sheet_read",
+            "feishu_base_table_list",
+            "feishu_base_record_list",
+            "feishu_task_list",
             "feishu_doc_create",
             "feishu_doc_append",
             "feishu_doc_share",

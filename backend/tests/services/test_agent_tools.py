@@ -151,6 +151,38 @@ async def test_get_agent_tools_for_llm_db_failure_falls_back_to_combined_tools(m
 
 
 @pytest.mark.asyncio
+async def test_get_agent_tools_for_llm_db_failure_still_filters_feishu_access(monkeypatch):
+    from app.services import agent_tools as agent_tools_module
+
+    class BrokenSession:
+        async def __aenter__(self):
+            raise RuntimeError("db down")
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    def broken_async_session():
+        return BrokenSession()
+
+    async def no_feishu_channel(_agent_id):
+        return False
+
+    async def no_feishu_cli_access():
+        return False
+
+    monkeypatch.setattr(agent_tools_module, "async_session", broken_async_session)
+    monkeypatch.setattr(agent_tools_module, "_agent_has_feishu", no_feishu_channel)
+    monkeypatch.setattr(agent_tools_module, "_agent_has_feishu_cli_access", no_feishu_cli_access)
+
+    tools = await agent_tools_module.get_agent_tools_for_llm(uuid4())
+    names = {tool["function"]["name"] for tool in tools}
+
+    assert "send_feishu_message" not in names
+    assert "feishu_doc_read" not in names
+    assert "feishu_base_table_list" not in names
+
+
+@pytest.mark.asyncio
 async def test_get_agent_tools_for_llm_hides_unavailable_external_providers(monkeypatch):
     from app.services import agent_tools as agent_tools_module
 
@@ -209,6 +241,7 @@ def test_filter_feishu_tools_for_access_allows_cli_backed_office_tools_without_c
         tools,
         has_feishu_channel=False,
         has_feishu_office_access=True,
+        has_feishu_cli_access=True,
     )
 
     names = {tool["function"]["name"] for tool in filtered}

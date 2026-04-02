@@ -34,6 +34,11 @@ async def _check_feishu_office_access(agent_id: uuid.UUID) -> bool:
     return await _feishu_cli_available()
 
 
+async def _check_feishu_cli_access() -> bool:
+    """CLI-only office tools require lark-cli auth in the cloud container."""
+    return await _feishu_cli_available()
+
+
 # -- feishu_wiki_list ---------------------------------------------------------
 
 @tool(ToolMeta(
@@ -197,6 +202,153 @@ async def feishu_sheet_read(agent_id: uuid.UUID, arguments: dict) -> str:
         return _FEISHU_NOT_CONFIGURED_MSG
     from app.services.agent_tools import _feishu_sheet_read
     return await _feishu_sheet_read(agent_id, arguments)
+
+
+# -- feishu_base_table_list ---------------------------------------------------
+
+@tool(ToolMeta(
+    name="feishu_base_table_list",
+    description=(
+        "List tables inside a Feishu Base (bitable) using the cloud lark-cli adapter. "
+        "Use this first when you have a Base token and need to discover table IDs or table names "
+        "before reading records."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "base_token": {
+                "type": "string",
+                "description": "Feishu Base token, e.g. 'app_xxx'.",
+            },
+            "offset": {
+                "type": "integer",
+                "description": "Optional pagination offset. Default 0.",
+            },
+            "limit": {
+                "type": "integer",
+                "description": "Optional page size. Default 50, max 100.",
+            },
+        },
+        "required": ["base_token"],
+    },
+    category="feishu",
+    display_name="Feishu Base Table List",
+    icon="🗂️",
+    pack="feishu_pack",
+    adapter="agent_args",
+    read_only=True,
+    governance="safe",
+))
+async def feishu_base_table_list(agent_id: uuid.UUID, arguments: dict) -> str:
+    if not await _check_feishu_cli_access():
+        return _FEISHU_NOT_CONFIGURED_MSG
+    from app.services.agent_tools import _feishu_base_table_list
+    return await _feishu_base_table_list(agent_id, arguments)
+
+
+# -- feishu_base_record_list --------------------------------------------------
+
+@tool(ToolMeta(
+    name="feishu_base_record_list",
+    description=(
+        "List records from a Feishu Base table using the cloud lark-cli adapter. "
+        "Use this after feishu_base_table_list when you know the target table ID and need current rows."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "base_token": {
+                "type": "string",
+                "description": "Feishu Base token, e.g. 'app_xxx'.",
+            },
+            "table_id": {
+                "type": "string",
+                "description": "Table ID or table name inside the Base.",
+            },
+            "view_id": {
+                "type": "string",
+                "description": "Optional view ID for filtered reads.",
+            },
+            "offset": {
+                "type": "integer",
+                "description": "Optional pagination offset. Default 0.",
+            },
+            "limit": {
+                "type": "integer",
+                "description": "Optional page size. Default 100, max 200.",
+            },
+        },
+        "required": ["base_token", "table_id"],
+    },
+    category="feishu",
+    display_name="Feishu Base Record List",
+    icon="📋",
+    pack="feishu_pack",
+    adapter="agent_args",
+    read_only=True,
+    governance="safe",
+))
+async def feishu_base_record_list(agent_id: uuid.UUID, arguments: dict) -> str:
+    if not await _check_feishu_cli_access():
+        return _FEISHU_NOT_CONFIGURED_MSG
+    from app.services.agent_tools import _feishu_base_record_list
+    return await _feishu_base_record_list(agent_id, arguments)
+
+
+# -- feishu_task_list ---------------------------------------------------------
+
+@tool(ToolMeta(
+    name="feishu_task_list",
+    description=(
+        "List my Feishu tasks using the cloud lark-cli adapter with user identity. "
+        "Use this to inspect assigned tasks, search by task summary, or review incomplete work."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "Optional task summary search query.",
+            },
+            "complete": {
+                "type": "boolean",
+                "description": "Optional completion filter. true for completed, false for incomplete.",
+            },
+            "created_at": {
+                "type": "string",
+                "description": "Optional lower bound for task creation time.",
+            },
+            "due_start": {
+                "type": "string",
+                "description": "Optional lower bound for due time.",
+            },
+            "due_end": {
+                "type": "string",
+                "description": "Optional upper bound for due time.",
+            },
+            "page_all": {
+                "type": "boolean",
+                "description": "Optional. When true, allow the CLI to fetch all pages.",
+            },
+            "page_limit": {
+                "type": "integer",
+                "description": "Optional max page count when page_all is false.",
+            },
+        },
+    },
+    category="feishu",
+    display_name="Feishu Task List",
+    icon="✅",
+    pack="feishu_pack",
+    adapter="agent_args",
+    read_only=True,
+    governance="safe",
+))
+async def feishu_task_list(agent_id: uuid.UUID, arguments: dict) -> str:
+    if not await _check_feishu_cli_access():
+        return _FEISHU_NOT_CONFIGURED_MSG
+    from app.services.agent_tools import _feishu_task_list
+    return await _feishu_task_list(agent_id, arguments)
 
 
 # -- feishu_doc_create --------------------------------------------------------

@@ -201,6 +201,9 @@ _FEISHU_TOOL_NAMES = {
     "feishu_doc_read",
     "feishu_sheet_info",
     "feishu_sheet_read",
+    "feishu_base_table_list",
+    "feishu_base_record_list",
+    "feishu_task_list",
     "feishu_doc_create",
     "feishu_doc_append",
     "feishu_doc_share",
@@ -214,6 +217,11 @@ _FEISHU_OFFICE_TOOL_NAMES = {
     "feishu_doc_read",
     "feishu_sheet_info",
     "feishu_sheet_read",
+}
+_FEISHU_CLI_ONLY_TOOL_NAMES = {
+    "feishu_base_table_list",
+    "feishu_base_record_list",
+    "feishu_task_list",
 }
 _always_core_tools: list[dict] | None = None
 _feishu_tools: list[dict] | None = None
@@ -278,11 +286,16 @@ def _filter_feishu_tools_for_access(
     *,
     has_feishu_channel: bool,
     has_feishu_office_access: bool,
+    has_feishu_cli_access: bool,
 ) -> list[dict]:
     """Select Feishu tools according to channel vs CLI-backed office access."""
     filtered: list[dict] = []
     for tool in tools:
         name = tool["function"]["name"]
+        if name in _FEISHU_CLI_ONLY_TOOL_NAMES:
+            if has_feishu_cli_access:
+                filtered.append(tool)
+            continue
         if name in _FEISHU_OFFICE_TOOL_NAMES:
             if has_feishu_office_access:
                 filtered.append(tool)
@@ -321,6 +334,11 @@ async def _agent_has_feishu_office_access(agent_id: uuid.UUID) -> bool:
     """Office read access is available via channel creds or optional lark-cli auth."""
     if await _agent_has_feishu(agent_id):
         return True
+    return await _agent_has_feishu_cli_access()
+
+
+async def _agent_has_feishu_cli_access() -> bool:
+    """CLI-backed office access is available when lark-cli is enabled and authenticated."""
     from app.services.agent_tool_domains.feishu_cli import _feishu_cli_available
 
     return await _feishu_cli_available()
@@ -347,7 +365,8 @@ async def get_agent_tools_for_llm(
     Feishu office read tools may also be included when lark-cli office auth is available.
     """
     has_feishu_channel = await _agent_has_feishu(agent_id)
-    has_feishu_office_access = await _agent_has_feishu_office_access(agent_id)
+    has_feishu_cli_access = await _agent_has_feishu_cli_access()
+    has_feishu_office_access = has_feishu_channel or has_feishu_cli_access
     requested_set = set(requested_names or [])
     if requested_set:
         requested_set |= CORE_TOOL_NAMES
@@ -369,6 +388,7 @@ async def get_agent_tools_for_llm(
                     _get_feishu_tools(),
                     has_feishu_channel=has_feishu_channel,
                     has_feishu_office_access=has_feishu_office_access,
+                    has_feishu_cli_access=has_feishu_cli_access,
                 )
                 + (_get_hr_tools() if is_system_agent else [])
             )
@@ -392,9 +412,15 @@ async def get_agent_tools_for_llm(
                     continue
 
                 if t.category == "feishu":
+                    if t.name in _FEISHU_CLI_ONLY_TOOL_NAMES and not has_feishu_cli_access:
+                        continue
                     if t.name in _FEISHU_OFFICE_TOOL_NAMES and not has_feishu_office_access:
                         continue
-                    if t.name not in _FEISHU_OFFICE_TOOL_NAMES and not has_feishu_channel:
+                    if (
+                        t.name not in _FEISHU_OFFICE_TOOL_NAMES
+                        and t.name not in _FEISHU_CLI_ONLY_TOOL_NAMES
+                        and not has_feishu_channel
+                    ):
                         continue
 
                 static_packs = set(static_pack_names_for_tool(t.name))
@@ -435,6 +461,21 @@ async def get_agent_tools_for_llm(
     # Fallback to the collected tool surface when DB is unavailable.
     # Route through ToolRegistry to ensure schemas are sanitized (Gemini compatibility).
     fallback = get_combined_openai_tools()
+    allowed_feishu_names = {
+        tool["function"]["name"]
+        for tool in _filter_feishu_tools_for_access(
+            [tool for tool in fallback if tool["function"]["name"] in _FEISHU_TOOL_NAMES],
+            has_feishu_channel=has_feishu_channel,
+            has_feishu_office_access=has_feishu_office_access,
+            has_feishu_cli_access=has_feishu_cli_access,
+        )
+    }
+    fallback = [
+        tool
+        for tool in fallback
+        if tool["function"]["name"] not in _FEISHU_TOOL_NAMES
+        or tool["function"]["name"] in allowed_feishu_names
+    ]
     if core_only:
         fallback = [t for t in fallback if t["function"]["name"] in CORE_TOOL_NAMES]
     elif requested_set:
@@ -615,6 +656,13 @@ from app.services.agent_tool_domains.feishu_docs import (  # noqa: E402
 from app.services.agent_tool_domains.feishu_sheets import (  # noqa: E402
     _feishu_sheet_info as _feishu_sheet_info,
     _feishu_sheet_read as _feishu_sheet_read,
+)
+from app.services.agent_tool_domains.feishu_base import (  # noqa: E402
+    _feishu_base_table_list as _feishu_base_table_list,
+    _feishu_base_record_list as _feishu_base_record_list,
+)
+from app.services.agent_tool_domains.feishu_tasks import (  # noqa: E402
+    _feishu_task_list as _feishu_task_list,
 )
 from app.services.agent_tool_domains.feishu_sharing import (  # noqa: E402
     _feishu_doc_share as _feishu_doc_share,

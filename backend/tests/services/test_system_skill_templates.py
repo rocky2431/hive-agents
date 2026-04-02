@@ -54,3 +54,8 @@ def test_system_skill_templates_reference_supported_runtime_contracts():
     assert "`message`" in send_feishu_row
     assert "`email`" not in send_feishu_row
     assert "`content`" not in send_feishu_row
+    assert "feishu_base_table_list" in feishu_skill
+    assert "feishu_base_record_list" in feishu_skill
+    assert "feishu_sheet_info" in feishu_skill
+    assert "feishu_sheet_read" in feishu_skill
+    assert "feishu_task_list" in feishu_skill
