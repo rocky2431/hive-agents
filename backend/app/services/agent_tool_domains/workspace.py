@@ -4,18 +4,37 @@ import logging
 import os
 import shutil
 import subprocess
-
-logger = logging.getLogger(__name__)
 from pathlib import Path
 
 from app.config import get_settings
 from app.skills import SkillRegistry, WorkspaceSkillLoader
 from app.tools.packs import iter_tool_packs
+from app.tools.result_envelope import render_tool_error
+
+logger = logging.getLogger(__name__)
 
 WORKSPACE_ROOT = Path(get_settings().AGENT_DATA_DIR)
 
 
-def _list_files(ws: Path, rel_path: str, tenant_id: str | None = None) -> str:
+def _workspace_error(
+    tool_name: str,
+    error_class: str,
+    message: str,
+    *,
+    actionable_hint: str | None = None,
+    retryable: bool = False,
+) -> str:
+    return render_tool_error(
+        tool_name=tool_name,
+        error_class=error_class,
+        message=message,
+        provider="workspace",
+        retryable=retryable,
+        actionable_hint=actionable_hint,
+    )
+
+
+def _list_files(ws: Path, rel_path: str, tenant_id: str | None = None, tool_name: str = "list_files") -> str:
     if rel_path and rel_path.startswith("enterprise_info"):
         if tenant_id:
             enterprise_root = (WORKSPACE_ROOT / f"enterprise_info_{tenant_id}").resolve()
@@ -24,15 +43,20 @@ def _list_files(ws: Path, rel_path: str, tenant_id: str | None = None) -> str:
         sub = rel_path[len("enterprise_info"):].lstrip("/")
         target = (enterprise_root / sub).resolve() if sub else enterprise_root
         if not str(target).startswith(str(enterprise_root)):
-            return "Access denied for this path"
+            return _workspace_error(tool_name, "auth_or_permission", "Access denied for this path.")
     else:
         target = (ws / rel_path) if rel_path else ws
         target = target.resolve()
         if not str(target).startswith(str(ws.resolve())):
-            return "Access denied for this path"
+            return _workspace_error(tool_name, "auth_or_permission", "Access denied for this path.")
 
     if not target.exists():
-        return f"Directory not found: {rel_path or '/'}"
+        return _workspace_error(
+            tool_name,
+            "not_found",
+            f"Directory not found: {rel_path or '/'}",
+            actionable_hint="Check the directory path and list the parent directory first if needed.",
+        )
 
     items = []
     if not rel_path:
@@ -65,7 +89,7 @@ def _list_files(ws: Path, rel_path: str, tenant_id: str | None = None) -> str:
     return header + "\n".join(items)
 
 
-def _read_file(ws: Path, rel_path: str, tenant_id: str | None = None) -> str:
+def _read_file(ws: Path, rel_path: str, tenant_id: str | None = None, tool_name: str = "read_file") -> str:
     if rel_path and rel_path.startswith("enterprise_info"):
         if tenant_id:
             enterprise_root = (WORKSPACE_ROOT / f"enterprise_info_{tenant_id}").resolve()
@@ -74,14 +98,19 @@ def _read_file(ws: Path, rel_path: str, tenant_id: str | None = None) -> str:
         sub = rel_path[len("enterprise_info"):].lstrip("/")
         file_path = (enterprise_root / sub).resolve() if sub else enterprise_root
         if not str(file_path).startswith(str(enterprise_root)):
-            return "Access denied for this path"
+            return _workspace_error(tool_name, "auth_or_permission", "Access denied for this path.")
     else:
         file_path = (ws / rel_path).resolve()
         if not str(file_path).startswith(str(ws.resolve())):
-            return "Access denied for this path"
+            return _workspace_error(tool_name, "auth_or_permission", "Access denied for this path.")
 
     if not file_path.exists():
-        return f"File not found: {rel_path}"
+        return _workspace_error(
+            tool_name,
+            "not_found",
+            f"File not found: {rel_path}",
+            actionable_hint="Check the path or use glob_search/list_files to discover the correct file first.",
+        )
 
     try:
         content = file_path.read_text(encoding="utf-8", errors="replace")
@@ -89,23 +118,23 @@ def _read_file(ws: Path, rel_path: str, tenant_id: str | None = None) -> str:
             content = content[:16000] + f"\n\n...[truncated, {len(content)} chars total]"
         return content
     except Exception as e:
-        return f"Read failed: {e}"
+        return _workspace_error(tool_name, "operation_failed", f"Read failed: {e}")
 
 
-def _load_skill(ws: Path, skill_name: str) -> str:
+def _load_skill(ws: Path, skill_name: str, tool_name: str = "load_skill") -> str:
     requested = (skill_name or "").strip()
     if not requested:
-        return "❌ Skill name cannot be empty"
+        return _workspace_error(tool_name, "bad_arguments", "Skill name cannot be empty.")
 
     skills_dir = (ws / "skills").resolve()
     if not skills_dir.exists():
-        return "Skill not found: skills directory does not exist"
+        return _workspace_error(tool_name, "not_found", "Skill not found: skills directory does not exist.")
 
     def _read_skill_file(path: Path) -> str:
         if not str(path).startswith(str(skills_dir)):
-            return "Access denied for this skill path"
+            return _workspace_error(tool_name, "auth_or_permission", "Access denied for this skill path.")
         rel_path = path.relative_to(ws).as_posix()
-        return _read_file(ws, rel_path)
+        return _read_file(ws, rel_path, tool_name=tool_name)
 
     requested_path = requested
     if requested_path.startswith("skills/"):
@@ -118,7 +147,7 @@ def _load_skill(ws: Path, skill_name: str) -> str:
     try:
         return registry.load_body(requested)
     except KeyError:
-        return f"Skill not found: {skill_name}"
+        return _workspace_error(tool_name, "not_found", f"Skill not found: {skill_name}")
 
 
 def _build_skill_registry(ws: Path) -> SkillRegistry:
@@ -128,7 +157,13 @@ def _build_skill_registry(ws: Path) -> SkillRegistry:
     return registry
 
 
-async def _read_document(ws: Path, rel_path: str, max_chars: int = 8000, tenant_id: str | None = None) -> str:
+async def _read_document(
+    ws: Path,
+    rel_path: str,
+    max_chars: int = 8000,
+    tenant_id: str | None = None,
+    tool_name: str = "read_document",
+) -> str:
     if rel_path and rel_path.startswith("enterprise_info"):
         if tenant_id:
             enterprise_root = (WORKSPACE_ROOT / f"enterprise_info_{tenant_id}").resolve()
@@ -137,14 +172,14 @@ async def _read_document(ws: Path, rel_path: str, max_chars: int = 8000, tenant_
         sub = rel_path[len("enterprise_info"):].lstrip("/")
         file_path = (enterprise_root / sub).resolve() if sub else enterprise_root
         if not str(file_path).startswith(str(enterprise_root)):
-            return "Access denied for this path"
+            return _workspace_error(tool_name, "auth_or_permission", "Access denied for this path.")
     else:
         file_path = (ws / rel_path).resolve()
         if not str(file_path).startswith(str(ws.resolve())):
-            return "Access denied for this path"
+            return _workspace_error(tool_name, "auth_or_permission", "Access denied for this path.")
 
     if not file_path.exists():
-        return f"File not found: {rel_path}"
+        return _workspace_error(tool_name, "not_found", f"File not found: {rel_path}")
 
     ext = file_path.suffix.lower()
     try:
@@ -223,15 +258,24 @@ async def _read_document(ws: Path, rel_path: str, max_chars: int = 8000, tenant_
         elif ext in (".txt", ".md", ".json", ".csv", ".log"):
             content = file_path.read_text(encoding="utf-8", errors="replace")
         else:
-            return f"Unsupported file format: {ext}. Supported: PDF, DOCX, XLSX, PPTX, TXT, MD, CSV"
+            return _workspace_error(
+                tool_name,
+                "bad_arguments",
+                f"Unsupported file format: {ext}. Supported: PDF, DOCX, XLSX, PPTX, TXT, MD, CSV",
+            )
 
         if len(content) > max_chars:
             content = content[:max_chars] + f"\n\n...[truncated, {len(content)} chars total]"
         return content
     except ImportError as e:
-        return f"Missing dependency: {e}. Install: pip install pdfplumber python-docx openpyxl python-pptx"
+        return _workspace_error(
+            tool_name,
+            "dependency_missing",
+            f"Missing dependency: {e}. Install: pip install pdfplumber python-docx openpyxl python-pptx",
+            actionable_hint="Install the required document parsing dependency in the backend environment.",
+        )
     except Exception as e:
-        return f"Document read failed: {str(e)[:200]}"
+        return _workspace_error(tool_name, "operation_failed", f"Document read failed: {str(e)[:200]}")
 
 
 _WRITE_PROTECTED = {
@@ -242,13 +286,18 @@ _WRITE_PROTECTED = {
 _APPEND_ONLY = {"soul.md"}
 
 
-def _write_file(ws: Path, rel_path: str, content: str) -> str:
+def _write_file(ws: Path, rel_path: str, content: str, tool_name: str = "write_file") -> str:
     if not rel_path or not rel_path.strip("/"):
-        return "❌ Missing file path. Usage: write_file(path='workspace/report.md', content='...')"
+        return _workspace_error(
+            tool_name,
+            "bad_arguments",
+            "Missing file path.",
+            actionable_hint="Pass a workspace-relative file path such as workspace/report.md.",
+        )
 
     _blocked = _WRITE_PROTECTED.get(rel_path.strip("/"))
     if _blocked:
-        return _blocked
+        return _workspace_error(tool_name, "auth_or_permission", _blocked)
 
     # soul.md is append-only: new content is appended under an evolution section
     _APPEND_ONLY_MAX_CHARS = 16000
@@ -279,47 +328,60 @@ def _write_file(ws: Path, rel_path: str, content: str) -> str:
 
     file_path = (ws / rel_path).resolve()
     if not str(file_path).startswith(str(ws.resolve())):
-        return "Access denied for this path"
+        return _workspace_error(tool_name, "auth_or_permission", "Access denied for this path.")
 
     try:
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(content, encoding="utf-8")
         return f"✅ Written to {rel_path} ({len(content)} chars)"
     except Exception as e:
-        return f"Write failed: {e}"
+        return _workspace_error(tool_name, "operation_failed", f"Write failed: {e}")
 
 
-def _edit_file(ws: Path, rel_path: str, old_text: str, new_text: str, replace_all: bool = False) -> str:
+def _edit_file(
+    ws: Path,
+    rel_path: str,
+    old_text: str,
+    new_text: str,
+    replace_all: bool = False,
+    tool_name: str = "edit_file",
+) -> str:
     file_path = (ws / rel_path).resolve()
     if not str(file_path).startswith(str(ws.resolve())):
-        return "Access denied for this path"
+        return _workspace_error(tool_name, "auth_or_permission", "Access denied for this path.")
     if not file_path.exists():
-        return f"File not found: {rel_path}"
+        return _workspace_error(tool_name, "not_found", f"File not found: {rel_path}")
 
     try:
         original = file_path.read_text(encoding="utf-8", errors="replace")
         occurrences = original.count(old_text)
         if occurrences == 0:
-            return f"❌ Could not find the target text in {rel_path}"
+            return _workspace_error(
+                tool_name,
+                "bad_arguments",
+                f"Could not find the target text in {rel_path}.",
+                actionable_hint="Read the file first and provide a unique exact old_text match.",
+            )
         if not replace_all and occurrences != 1:
-            return (
-                f"❌ Found {occurrences} matches in {rel_path}. "
-                "Refine old_text or set replace_all=true."
+            return _workspace_error(
+                tool_name,
+                "bad_arguments",
+                f"Found {occurrences} matches in {rel_path}. Refine old_text or set replace_all=true.",
             )
         updated = original.replace(old_text, new_text, -1 if replace_all else 1)
         file_path.write_text(updated, encoding="utf-8")
         replaced = occurrences if replace_all else 1
         return f"✅ Updated {rel_path} ({replaced} replacement{'s' if replaced != 1 else ''})"
     except Exception as e:
-        return f"Edit failed: {e}"
+        return _workspace_error(tool_name, "operation_failed", f"Edit failed: {e}")
 
 
-def _glob_search(ws: Path, pattern: str, root: str = "") -> str:
+def _glob_search(ws: Path, pattern: str, root: str = "", tool_name: str = "glob_search") -> str:
     search_root = (ws / root).resolve() if root else ws.resolve()
     if not str(search_root).startswith(str(ws.resolve())):
-        return "Access denied for this path"
+        return _workspace_error(tool_name, "auth_or_permission", "Access denied for this path.")
     if not search_root.exists():
-        return f"Directory not found: {root or '/'}"
+        return _workspace_error(tool_name, "not_found", f"Directory not found: {root or '/'}")
 
     matches: list[str] = []
     try:
@@ -331,7 +393,7 @@ def _glob_search(ws: Path, pattern: str, root: str = "") -> str:
             if len(matches) >= 100:
                 break
     except Exception as e:
-        return f"Glob search failed: {e}"
+        return _workspace_error(tool_name, "operation_failed", f"Glob search failed: {e}", retryable=True)
 
     if not matches:
         return f"🔎 No files matched pattern '{pattern}'"
@@ -340,12 +402,12 @@ def _glob_search(ws: Path, pattern: str, root: str = "") -> str:
     return "\n".join(lines)
 
 
-def _grep_search(ws: Path, pattern: str, root: str = "", max_results: int = 50) -> str:
+def _grep_search(ws: Path, pattern: str, root: str = "", max_results: int = 50, tool_name: str = "grep_search") -> str:
     search_root = (ws / root).resolve() if root else ws.resolve()
     if not str(search_root).startswith(str(ws.resolve())):
-        return "Access denied for this path"
+        return _workspace_error(tool_name, "auth_or_permission", "Access denied for this path.")
     if not search_root.exists():
-        return f"Directory not found: {root or '/'}"
+        return _workspace_error(tool_name, "not_found", f"Directory not found: {root or '/'}")
 
     max_results = max(1, min(int(max_results), 200))
     matches: list[str] = []
@@ -372,9 +434,14 @@ def _grep_search(ws: Path, pattern: str, root: str = "", max_results: int = 50) 
                     normalized = line.replace(str(ws.resolve()) + os.sep, "")
                     matches.append(normalized)
             elif proc.returncode not in (0, 1):
-                return f"Grep search failed: {proc.stderr.strip()[:200]}"
+                return _workspace_error(
+                    tool_name,
+                    "operation_failed",
+                    f"Grep search failed: {proc.stderr.strip()[:200]}",
+                    retryable=True,
+                )
         except Exception as e:
-            return f"Grep search failed: {e}"
+            return _workspace_error(tool_name, "operation_failed", f"Grep search failed: {e}", retryable=True)
     else:
         try:
             for path in sorted(search_root.rglob("*")):
@@ -393,7 +460,7 @@ def _grep_search(ws: Path, pattern: str, root: str = "", max_results: int = 50) 
                     logger.debug("[Workspace] grep: skipped file %s: %s", path, _read_err)
                     continue
         except Exception as e:
-            return f"Grep search failed: {e}"
+            return _workspace_error(tool_name, "operation_failed", f"Grep search failed: {e}", retryable=True)
 
     if not matches:
         return f"🔎 No matches for '{pattern}'"
@@ -439,16 +506,16 @@ def _tool_search(ws: Path, query: str = "") -> str:
     return "\n".join(lines)
 
 
-def _delete_file(ws: Path, rel_path: str) -> str:
+def _delete_file(ws: Path, rel_path: str, tool_name: str = "delete_file") -> str:
     protected = {"tasks.json", "soul.md"}
     if rel_path.strip("/") in protected:
-        return f"{rel_path} cannot be deleted (protected)"
+        return _workspace_error(tool_name, "auth_or_permission", f"{rel_path} cannot be deleted (protected)")
 
     file_path = (ws / rel_path).resolve()
     if not str(file_path).startswith(str(ws.resolve())):
-        return "Access denied for this path"
+        return _workspace_error(tool_name, "auth_or_permission", "Access denied for this path.")
     if not file_path.exists():
-        return f"File not found: {rel_path}"
+        return _workspace_error(tool_name, "not_found", f"File not found: {rel_path}")
 
     try:
         if file_path.is_dir():
@@ -457,4 +524,4 @@ def _delete_file(ws: Path, rel_path: str) -> str:
         file_path.unlink()
         return f"✅ Deleted {rel_path}"
     except Exception as e:
-        return f"Delete failed: {e}"
+        return _workspace_error(tool_name, "operation_failed", f"Delete failed: {e}")

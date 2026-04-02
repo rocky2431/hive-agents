@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 
 from app.database import async_session
+from app.tools.result_envelope import render_tool_error
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,44 @@ A2A_SYSTEM_PROMPT_SUFFIX = (
     "- If you cannot complete the request, explain specifically what is missing or blocked.\n"
     "- Do NOT share private workspace data (memory.md, tasks.json) unless explicitly asked."
 )
+
+
+def _normalize_messaging_result(tool_name: str, result: str) -> str:
+    if not result or "<tool_error>" in result:
+        return result
+
+    message = result.strip()
+    if not message.startswith(("❌", "⚠️")):
+        return result
+
+    normalized = message.lstrip("❌⚠️ ").strip()
+    error_class = "provider_error"
+    retryable = False
+
+    lowered = normalized.lower()
+    if "please provide" in lowered:
+        error_class = "bad_arguments"
+    elif "not found" in lowered or "no user named" in lowered or "no agent found" in lowered:
+        error_class = "not_found"
+    elif "does not belong to the current agent" in lowered or "access denied" in lowered:
+        error_class = "auth_or_permission"
+    elif "has no llm model configured" in lowered or "no feishu channel configured" in lowered:
+        error_class = "not_configured"
+    elif "did not respond" in lowered or "cannot receive messages" in lowered:
+        error_class = "provider_unavailable"
+        retryable = True
+    elif "error " in lowered or "failed" in lowered:
+        error_class = "provider_error"
+        retryable = True
+
+    return render_tool_error(
+        tool_name=tool_name,
+        error_class=error_class,
+        message=normalized,
+        provider="messaging",
+        retryable=retryable,
+        actionable_hint="Check recipient identity, agent availability, and channel/runtime configuration before retrying.",
+    )
 
 
 async def _resolve_target_agent_runtime(from_agent_id: uuid.UUID, agent_name: str):

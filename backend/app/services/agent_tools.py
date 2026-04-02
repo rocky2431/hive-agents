@@ -100,6 +100,8 @@ def _get_tool_runtime_service() -> ToolRuntimeService:
 
     async def _direct_fallback_execute(tool_name: str, arguments: dict, context) -> str:
         ws = context.workspace
+        from app.services.agent_tool_domains.messaging import _normalize_messaging_result
+
         if tool_name == "delete_file":
             return _delete_file(ws, arguments.get("path", ""))
         if tool_name == "write_file":
@@ -121,19 +123,40 @@ def _get_tool_runtime_service() -> ToolRuntimeService:
         if tool_name == "xcrawl_scrape":
             return await _xcrawl_scrape(arguments)
         if tool_name == "send_feishu_message":
-            return await _send_feishu_message(context.agent_id, arguments)
+            return _normalize_messaging_result(
+                tool_name,
+                await _send_feishu_message(context.agent_id, arguments),
+            )
         if tool_name == "send_message_to_agent":
-            return await _send_message_to_agent(context.agent_id, arguments)
+            return _normalize_messaging_result(
+                tool_name,
+                await _send_message_to_agent(context.agent_id, arguments),
+            )
         if tool_name == "delegate_to_agent":
-            return await _delegate_to_agent_async(context.agent_id, arguments)
+            return _normalize_messaging_result(
+                tool_name,
+                await _delegate_to_agent_async(context.agent_id, arguments),
+            )
         if tool_name == "check_async_task":
-            return await _check_async_task(context.agent_id, arguments)
+            return _normalize_messaging_result(
+                tool_name,
+                await _check_async_task(context.agent_id, arguments),
+            )
         if tool_name == "cancel_async_task":
-            return await _cancel_async_task(context.agent_id, arguments)
+            return _normalize_messaging_result(
+                tool_name,
+                await _cancel_async_task(context.agent_id, arguments),
+            )
         if tool_name == "list_async_tasks":
-            return await _list_async_tasks(context.agent_id)
+            return _normalize_messaging_result(
+                tool_name,
+                await _list_async_tasks(context.agent_id),
+            )
         if tool_name == "get_current_time":
-            return await _get_current_time(context.agent_id, arguments)
+            return _normalize_messaging_result(
+                tool_name,
+                await _get_current_time(context.agent_id, arguments),
+            )
         # Fallback: try MCP passthrough for unrecognized tools
         return await _execute_mcp_tool(tool_name, arguments, agent_id=context.agent_id)
 

@@ -3,15 +3,124 @@
 import logging
 import secrets
 import uuid
+from datetime import datetime
+from urllib.parse import urlparse
 
 from sqlalchemy import select
 
 from app.database import async_session
+from app.tools.result_envelope import render_tool_error
 
 logger = logging.getLogger(__name__)
 
 MAX_TRIGGERS_PER_AGENT = 20
 VALID_TRIGGER_TYPES = {"cron", "once", "interval", "poll", "on_message", "webhook"}
+
+
+def _trigger_error(
+    tool_name: str,
+    error_class: str,
+    message: str,
+    *,
+    actionable_hint: str | None = None,
+    retryable: bool = False,
+) -> str:
+    return render_tool_error(
+        tool_name=tool_name,
+        error_class=error_class,
+        message=message,
+        provider="trigger",
+        retryable=retryable,
+        actionable_hint=actionable_hint,
+    )
+
+
+def _validate_trigger_config(tool_name: str, trigger_type: str, config: dict) -> str | None:
+    if not isinstance(config, dict):
+        return _trigger_error(
+            tool_name,
+            "bad_arguments",
+            "Trigger config must be a JSON object.",
+            actionable_hint="Pass a config object that matches the trigger type requirements.",
+        )
+
+    if trigger_type == "cron":
+        expr = str(config.get("expr", "")).strip()
+        if not expr:
+            return _trigger_error(
+                tool_name,
+                "bad_arguments",
+                "cron trigger requires config.expr.",
+                actionable_hint='Use a cron expression such as {"expr": "0 9 * * *"}.',
+            )
+        try:
+            from croniter import croniter
+
+            croniter(expr)
+        except Exception:
+            return _trigger_error(
+                tool_name,
+                "bad_arguments",
+                f"Invalid cron expression: '{expr}'",
+                actionable_hint="Provide a valid cron expression before saving the trigger.",
+            )
+    elif trigger_type == "once":
+        at = str(config.get("at", "")).strip()
+        if not at:
+            return _trigger_error(
+                tool_name,
+                "bad_arguments",
+                "once trigger requires config.at.",
+                actionable_hint='Use an ISO timestamp such as {"at": "2026-03-10T09:00:00+08:00"}.',
+            )
+        try:
+            datetime.fromisoformat(at.replace("Z", "+00:00"))
+        except ValueError:
+            return _trigger_error(
+                tool_name,
+                "bad_arguments",
+                f"Invalid once trigger timestamp: '{at}'",
+                actionable_hint="Pass a valid ISO-8601 timestamp with timezone information.",
+            )
+    elif trigger_type == "interval":
+        minutes = config.get("minutes")
+        try:
+            minutes_int = int(minutes)
+        except (ValueError, TypeError):
+            minutes_int = 0
+        if minutes_int <= 0:
+            return _trigger_error(
+                tool_name,
+                "bad_arguments",
+                "interval trigger requires config.minutes to be a positive integer.",
+                actionable_hint='Use a config such as {"minutes": 30}.',
+            )
+    elif trigger_type == "poll":
+        url = str(config.get("url", "")).strip()
+        if not url:
+            return _trigger_error(
+                tool_name,
+                "bad_arguments",
+                "poll trigger requires config.url.",
+                actionable_hint='Use a config such as {"url": "https://example.com/status"}.',
+            )
+        parsed = urlparse(url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            return _trigger_error(
+                tool_name,
+                "bad_arguments",
+                f"Invalid poll trigger URL: '{url}'",
+                actionable_hint="Provide a full http:// or https:// URL.",
+            )
+    elif trigger_type == "on_message":
+        if not config.get("from_agent_name") and not config.get("from_user_name"):
+            return _trigger_error(
+                tool_name,
+                "bad_arguments",
+                "on_message trigger requires config.from_agent_name or config.from_user_name.",
+                actionable_hint="Specify which agent or human user should wake this trigger.",
+            )
+    return None
 
 
 async def _handle_set_trigger(agent_id: uuid.UUID, arguments: dict) -> str:
@@ -25,34 +134,21 @@ async def _handle_set_trigger(agent_id: uuid.UUID, arguments: dict) -> str:
     focus_ref = arguments.get("focus_ref", "") or arguments.get("agenda_ref", "")  # backward compat
 
     if not name:
-        return "❌ Missing required argument 'name'"
+        return _trigger_error("set_trigger", "bad_arguments", "Missing required argument 'name'.")
     if ttype not in VALID_TRIGGER_TYPES:
-        return f"❌ Invalid trigger type '{ttype}'. Valid types: {', '.join(VALID_TRIGGER_TYPES)}"
+        return _trigger_error(
+            "set_trigger",
+            "bad_arguments",
+            f"Invalid trigger type '{ttype}'. Valid types: {', '.join(VALID_TRIGGER_TYPES)}",
+        )
     if not reason:
-        return "❌ Missing required argument 'reason'"
+        return _trigger_error("set_trigger", "bad_arguments", "Missing required argument 'reason'.")
 
     # Validate type-specific config
-    if ttype == "cron":
-        expr = config.get("expr", "")
-        if not expr:
-            return "❌ cron trigger requires config.expr, e.g. {\"expr\": \"0 9 * * *\"}"
-        try:
-            from croniter import croniter
-            croniter(expr)
-        except Exception:
-            return f"❌ Invalid cron expression: '{expr}'"
-    elif ttype == "once":
-        if not config.get("at"):
-            return "❌ once trigger requires config.at, e.g. {\"at\": \"2026-03-10T09:00:00+08:00\"}"
-    elif ttype == "interval":
-        if not config.get("minutes"):
-            return "❌ interval trigger requires config.minutes, e.g. {\"minutes\": 30}"
-    elif ttype == "poll":
-        if not config.get("url"):
-            return "❌ poll trigger requires config.url"
-    elif ttype == "on_message":
-        if not config.get("from_agent_name") and not config.get("from_user_name"):
-            return "❌ on_message trigger requires config.from_agent_name (for agents) or config.from_user_name (for human users on Feishu/Slack/Discord)"
+    validation_error = _validate_trigger_config("set_trigger", ttype, config)
+    if validation_error:
+        return validation_error
+    if ttype == "on_message":
         # Snapshot the latest message timestamp so we only detect NEW messages after this point
         try:
             from app.models.audit import ChatMessage
@@ -89,12 +185,16 @@ async def _handle_set_trigger(agent_id: uuid.UUID, arguments: dict) -> str:
             result = await db.execute(
                 select(sa_func.count()).select_from(AgentTrigger).where(
                     AgentTrigger.agent_id == agent_id,
-                    AgentTrigger.is_enabled == True,
+                    AgentTrigger.is_enabled,
                 )
             )
             count = result.scalar() or 0
             if count >= agent_max_triggers:
-                return f"❌ Maximum trigger limit reached ({agent_max_triggers}). Cancel some triggers first."
+                return _trigger_error(
+                    "set_trigger",
+                    "quota_or_billing",
+                    f"Maximum trigger limit reached ({agent_max_triggers}). Cancel some triggers first.",
+                )
 
             # Check for duplicate name
             result = await db.execute(
@@ -106,17 +206,20 @@ async def _handle_set_trigger(agent_id: uuid.UUID, arguments: dict) -> str:
             existing = result.scalar_one_or_none()
             if existing:
                 if existing.is_enabled:
-                    return f"❌ Trigger '{name}' already exists and is active. Use update_trigger to modify it, or cancel_trigger first."
-                else:
-                    # Re-enable disabled trigger with new config (preserve fire history)
-                    existing.type = ttype
-                    existing.config = config
-                    existing.reason = reason
-                    existing.focus_ref = focus_ref or None
-                    existing.is_enabled = True
-                    # Keep fire_count and last_fired_at — they are cumulative stats
-                    await db.commit()
-                    return f"✅ Trigger '{name}' re-enabled with new configuration ({ttype}, fired {existing.fire_count} times so far)"
+                    return _trigger_error(
+                        "set_trigger",
+                        "bad_arguments",
+                        f"Trigger '{name}' already exists and is active. Use update_trigger to modify it, or cancel_trigger first.",
+                    )
+                # Re-enable disabled trigger with new config (preserve fire history)
+                existing.type = ttype
+                existing.config = config
+                existing.reason = reason
+                existing.focus_ref = focus_ref or None
+                existing.is_enabled = True
+                # Keep fire_count and last_fired_at — they are cumulative stats
+                await db.commit()
+                return f"✅ Trigger '{name}' re-enabled with new configuration ({ttype}, fired {existing.fire_count} times so far)"
 
             trigger = AgentTrigger(
                 agent_id=agent_id,
@@ -149,7 +252,7 @@ async def _handle_set_trigger(agent_id: uuid.UUID, arguments: dict) -> str:
         return f"✅ Trigger '{name}' created ({ttype}). It will fire according to your config and wake you up with the reason as context."
 
     except Exception as e:
-        return f"❌ Failed to create trigger: {e}"
+        return _trigger_error("set_trigger", "operation_failed", f"Failed to create trigger: {e}", retryable=True)
 
 
 async def _handle_update_trigger(agent_id: uuid.UUID, arguments: dict) -> str:
@@ -158,13 +261,17 @@ async def _handle_update_trigger(agent_id: uuid.UUID, arguments: dict) -> str:
 
     name = arguments.get("name", "").strip()
     if not name:
-        return "❌ Missing required argument 'name'"
+        return _trigger_error("update_trigger", "bad_arguments", "Missing required argument 'name'.")
 
     new_config = arguments.get("config")
     new_reason = arguments.get("reason")
 
     if new_config is None and new_reason is None:
-        return "❌ Provide at least one of 'config' or 'reason' to update"
+        return _trigger_error(
+            "update_trigger",
+            "bad_arguments",
+            "Provide at least one of 'config' or 'reason' to update.",
+        )
 
     try:
         async with async_session() as db:
@@ -176,16 +283,19 @@ async def _handle_update_trigger(agent_id: uuid.UUID, arguments: dict) -> str:
             )
             trigger = result.scalar_one_or_none()
             if not trigger:
-                return f"❌ Trigger '{name}' not found"
+                return _trigger_error("update_trigger", "not_found", f"Trigger '{name}' not found.")
 
             changes = []
             if new_config is not None:
+                validation_error = _validate_trigger_config("update_trigger", trigger.type, new_config)
+                if validation_error:
+                    return validation_error
                 old_config = trigger.config
                 trigger.config = new_config
                 changes.append(f"config: {old_config} → {new_config}")
             if new_reason is not None:
                 trigger.reason = new_reason
-                changes.append(f"reason updated")
+                changes.append("reason updated")
 
             await db.commit()
 
@@ -200,7 +310,7 @@ async def _handle_update_trigger(agent_id: uuid.UUID, arguments: dict) -> str:
         return f"✅ Trigger '{name}' updated: {'; '.join(changes)}"
 
     except Exception as e:
-        return f"❌ Failed to update trigger: {e}"
+        return _trigger_error("update_trigger", "operation_failed", f"Failed to update trigger: {e}", retryable=True)
 
 
 async def _handle_cancel_trigger(agent_id: uuid.UUID, arguments: dict) -> str:
@@ -209,7 +319,7 @@ async def _handle_cancel_trigger(agent_id: uuid.UUID, arguments: dict) -> str:
 
     name = arguments.get("name", "").strip()
     if not name:
-        return "❌ Missing required argument 'name'"
+        return _trigger_error("cancel_trigger", "bad_arguments", "Missing required argument 'name'.")
 
     try:
         async with async_session() as db:
@@ -221,7 +331,7 @@ async def _handle_cancel_trigger(agent_id: uuid.UUID, arguments: dict) -> str:
             )
             trigger = result.scalar_one_or_none()
             if not trigger:
-                return f"❌ Trigger '{name}' not found"
+                return _trigger_error("cancel_trigger", "not_found", f"Trigger '{name}' not found.")
             if not trigger.is_enabled:
                 return f"ℹ️ Trigger '{name}' is already disabled"
 
@@ -237,7 +347,7 @@ async def _handle_cancel_trigger(agent_id: uuid.UUID, arguments: dict) -> str:
         return f"✅ Trigger '{name}' cancelled. It will no longer fire."
 
     except Exception as e:
-        return f"❌ Failed to cancel trigger: {e}"
+        return _trigger_error("cancel_trigger", "operation_failed", f"Failed to cancel trigger: {e}", retryable=True)
 
 
 async def _handle_list_triggers(agent_id: uuid.UUID) -> str:
@@ -266,4 +376,4 @@ async def _handle_list_triggers(agent_id: uuid.UUID) -> str:
         return "\n".join(lines)
 
     except Exception as e:
-        return f"❌ Failed to list triggers: {e}"
+        return _trigger_error("list_triggers", "operation_failed", f"Failed to list triggers: {e}", retryable=True)

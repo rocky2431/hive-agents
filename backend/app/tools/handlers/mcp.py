@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 
 from app.tools.decorator import ToolMeta, tool
+from app.tools.result_envelope import render_tool_error
 
 
 # -- list_mcp_resources -------------------------------------------------------
@@ -50,7 +51,14 @@ async def list_mcp_resources(agent_id: uuid.UUID, arguments: dict) -> str:
 
             return "\n".join(lines)
     except Exception as exc:
-        return f"Failed to list MCP resources: {type(exc).__name__}: {str(exc)[:200]}"
+        return render_tool_error(
+            tool_name="list_mcp_resources",
+            error_class="operation_failed",
+            message=f"Failed to list MCP resources: {type(exc).__name__}: {str(exc)[:200]}",
+            provider="mcp",
+            retryable=True,
+            actionable_hint="Retry after the MCP registry or database becomes available.",
+        )
 
 
 # -- read_mcp_resource --------------------------------------------------------
@@ -84,7 +92,14 @@ async def read_mcp_resource(agent_id: uuid.UUID, arguments: dict) -> str:
 
     tool_name = arguments.get("tool_name", "")
     if not tool_name:
-        return "Error: tool_name is required."
+        return render_tool_error(
+            tool_name="read_mcp_resource",
+            error_class="bad_arguments",
+            message="tool_name is required.",
+            provider="mcp",
+            retryable=False,
+            actionable_hint="Call list_mcp_resources first, then pass one of the returned MCP tool names.",
+        )
 
     try:
         async with async_session() as db:
@@ -93,7 +108,14 @@ async def read_mcp_resource(agent_id: uuid.UUID, arguments: dict) -> str:
             )
             t = result.scalar_one_or_none()
             if not t:
-                return f"MCP tool '{tool_name}' not found. Use list_mcp_resources to see available tools."
+                return render_tool_error(
+                    tool_name="read_mcp_resource",
+                    error_class="not_found",
+                    message=f"MCP tool '{tool_name}' not found.",
+                    provider="mcp",
+                    retryable=False,
+                    actionable_hint="Use list_mcp_resources to discover currently imported MCP tool names.",
+                )
 
             info = [
                 f"## MCP Tool: {t.name}",
@@ -106,7 +128,14 @@ async def read_mcp_resource(agent_id: uuid.UUID, arguments: dict) -> str:
             ]
             return "\n".join(info)
     except Exception as exc:
-        return f"Failed to read MCP resource: {type(exc).__name__}: {str(exc)[:200]}"
+        return render_tool_error(
+            tool_name="read_mcp_resource",
+            error_class="operation_failed",
+            message=f"Failed to read MCP resource: {type(exc).__name__}: {str(exc)[:200]}",
+            provider="mcp",
+            retryable=True,
+            actionable_hint="Retry after the MCP registry or database becomes available.",
+        )
 
 
 # -- import_mcp_server --------------------------------------------------------

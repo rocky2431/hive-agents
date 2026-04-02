@@ -51,8 +51,10 @@ from app.tools.decorator import ToolMeta, tool
     adapter="agent_args",
 ))
 async def send_feishu_message(agent_id: uuid.UUID, arguments: dict) -> str:
+    from app.services.agent_tool_domains.messaging import _normalize_messaging_result
     from app.services.agent_tools import _send_feishu_message
-    return await _send_feishu_message(agent_id, arguments)
+
+    return _normalize_messaging_result("send_feishu_message", await _send_feishu_message(agent_id, arguments))
 
 
 # -- send_web_message ---------------------------------------------------------
@@ -87,8 +89,10 @@ async def send_feishu_message(agent_id: uuid.UUID, arguments: dict) -> str:
     adapter="agent_args",
 ))
 async def send_web_message(agent_id: uuid.UUID, arguments: dict) -> str:
+    from app.services.agent_tool_domains.messaging import _normalize_messaging_result
     from app.services.agent_tools import _send_web_message
-    return await _send_web_message(agent_id, arguments)
+
+    return _normalize_messaging_result("send_web_message", await _send_web_message(agent_id, arguments))
 
 
 # -- send_message_to_agent ----------------------------------------------------
@@ -129,8 +133,10 @@ async def send_web_message(agent_id: uuid.UUID, arguments: dict) -> str:
     adapter="agent_args",
 ))
 async def send_message_to_agent(agent_id: uuid.UUID, arguments: dict) -> str:
+    from app.services.agent_tool_domains.messaging import _normalize_messaging_result
     from app.services.agent_tools import _send_message_to_agent
-    return await _send_message_to_agent(agent_id, arguments)
+
+    return _normalize_messaging_result("send_message_to_agent", await _send_message_to_agent(agent_id, arguments))
 
 
 # -- delegate_to_agent -------------------------------------------------------
@@ -173,8 +179,10 @@ async def send_message_to_agent(agent_id: uuid.UUID, arguments: dict) -> str:
     adapter="agent_args",
 ))
 async def delegate_to_agent(agent_id: uuid.UUID, arguments: dict) -> str:
+    from app.services.agent_tool_domains.messaging import _normalize_messaging_result
     from app.services.agent_tools import _delegate_to_agent_async
-    return await _delegate_to_agent_async(agent_id, arguments)
+
+    return _normalize_messaging_result("delegate_to_agent", await _delegate_to_agent_async(agent_id, arguments))
 
 
 # -- check_async_task --------------------------------------------------------
@@ -200,8 +208,10 @@ async def delegate_to_agent(agent_id: uuid.UUID, arguments: dict) -> str:
     adapter="agent_args",
 ))
 async def check_async_task(agent_id: uuid.UUID, arguments: dict) -> str:
+    from app.services.agent_tool_domains.messaging import _normalize_messaging_result
     from app.services.agent_tools import _check_async_task
-    return await _check_async_task(agent_id, arguments)
+
+    return _normalize_messaging_result("check_async_task", await _check_async_task(agent_id, arguments))
 
 
 # -- cancel_async_task -------------------------------------------------------
@@ -225,8 +235,10 @@ async def check_async_task(agent_id: uuid.UUID, arguments: dict) -> str:
     adapter="agent_args",
 ))
 async def cancel_async_task(agent_id: uuid.UUID, arguments: dict) -> str:
+    from app.services.agent_tool_domains.messaging import _normalize_messaging_result
     from app.services.agent_tools import _cancel_async_task
-    return await _cancel_async_task(agent_id, arguments)
+
+    return _normalize_messaging_result("cancel_async_task", await _cancel_async_task(agent_id, arguments))
 
 
 # -- list_async_tasks --------------------------------------------------------
@@ -246,8 +258,10 @@ async def cancel_async_task(agent_id: uuid.UUID, arguments: dict) -> str:
     adapter="agent_only",
 ))
 async def list_async_tasks(agent_id: uuid.UUID) -> str:
+    from app.services.agent_tool_domains.messaging import _normalize_messaging_result
     from app.services.agent_tools import _list_async_tasks
-    return await _list_async_tasks(agent_id)
+
+    return _normalize_messaging_result("list_async_tasks", await _list_async_tasks(agent_id))
 
 
 # -- get_current_time --------------------------------------------------------
@@ -272,8 +286,10 @@ async def list_async_tasks(agent_id: uuid.UUID) -> str:
     adapter="agent_args",
 ))
 async def get_current_time(agent_id: uuid.UUID, arguments: dict) -> str:
+    from app.services.agent_tool_domains.messaging import _normalize_messaging_result
     from app.services.agent_tools import _get_current_time
-    return await _get_current_time(agent_id, arguments)
+
+    return _normalize_messaging_result("get_current_time", await _get_current_time(agent_id, arguments))
 
 
 # -- send_channel_file --------------------------------------------------------

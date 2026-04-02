@@ -6,8 +6,27 @@ import uuid
 from sqlalchemy import select
 
 from app.database import async_session
+from app.tools.result_envelope import render_tool_error
 
 logger = logging.getLogger(__name__)
+
+
+def _plaza_error(
+    tool_name: str,
+    error_class: str,
+    message: str,
+    *,
+    actionable_hint: str | None = None,
+    retryable: bool = False,
+) -> str:
+    return render_tool_error(
+        tool_name=tool_name,
+        error_class=error_class,
+        message=message,
+        provider="plaza",
+        retryable=retryable,
+        actionable_hint=actionable_hint,
+    )
 
 
 async def _plaza_get_new_posts(agent_id: uuid.UUID, arguments: dict) -> str:
@@ -53,7 +72,7 @@ async def _plaza_get_new_posts(agent_id: uuid.UUID, arguments: dict) -> str:
             return "🏛️ Agent Plaza — Recent Posts:\n\n" + "\n\n---\n\n".join(output)
 
     except Exception as e:
-        return f"❌ Failed to load plaza posts: {str(e)[:200]}"
+        return _plaza_error("plaza_get_new_posts", "operation_failed", f"Failed to load plaza posts: {str(e)[:200]}", retryable=True)
 
 
 async def _plaza_create_post(agent_id: uuid.UUID, arguments: dict) -> str:
@@ -63,7 +82,7 @@ async def _plaza_create_post(agent_id: uuid.UUID, arguments: dict) -> str:
 
     content = arguments.get("content", "").strip()
     if not content:
-        return "❌ Post content cannot be empty."
+        return _plaza_error("plaza_create_post", "bad_arguments", "Post content cannot be empty.")
     if len(content) > 500:
         content = content[:500]
 
@@ -73,7 +92,7 @@ async def _plaza_create_post(agent_id: uuid.UUID, arguments: dict) -> str:
             ar = await db.execute(select(AgentModel).where(AgentModel.id == agent_id))
             agent = ar.scalar_one_or_none()
             if not agent:
-                return "❌ Agent not found."
+                return _plaza_error("plaza_create_post", "not_found", "Agent not found.")
 
             post = PlazaPost(
                 author_id=agent_id,
@@ -88,7 +107,7 @@ async def _plaza_create_post(agent_id: uuid.UUID, arguments: dict) -> str:
             return f"✅ Post published! (ID: {post.id})"
 
     except Exception as e:
-        return f"❌ Failed to create post: {str(e)[:200]}"
+        return _plaza_error("plaza_create_post", "operation_failed", f"Failed to create post: {str(e)[:200]}", retryable=True)
 
 
 async def _plaza_add_comment(agent_id: uuid.UUID, arguments: dict) -> str:
@@ -99,14 +118,19 @@ async def _plaza_add_comment(agent_id: uuid.UUID, arguments: dict) -> str:
     post_id = arguments.get("post_id", "")
     content = arguments.get("content", "").strip()
     if not content:
-        return "❌ Comment content cannot be empty."
+        return _plaza_error("plaza_add_comment", "bad_arguments", "Comment content cannot be empty.")
     if len(content) > 300:
         content = content[:300]
 
     try:
         pid = uuid.UUID(str(post_id))
     except Exception:
-        return "❌ Invalid post_id format."
+        return _plaza_error(
+            "plaza_add_comment",
+            "bad_arguments",
+            "Invalid post_id format.",
+            actionable_hint="Pass the exact post UUID returned by plaza_get_new_posts.",
+        )
 
     try:
         async with async_session() as db:
@@ -114,7 +138,7 @@ async def _plaza_add_comment(agent_id: uuid.UUID, arguments: dict) -> str:
             ar = await db.execute(select(AgentModel).where(AgentModel.id == agent_id))
             agent = ar.scalar_one_or_none()
             if not agent:
-                return "❌ Agent not found."
+                return _plaza_error("plaza_add_comment", "not_found", "Agent not found.")
 
             # Verify post exists AND belongs to same tenant (prevent cross-tenant comment)
             pr = await db.execute(
@@ -125,7 +149,7 @@ async def _plaza_add_comment(agent_id: uuid.UUID, arguments: dict) -> str:
             )
             post = pr.scalar_one_or_none()
             if not post:
-                return "❌ Post not found."
+                return _plaza_error("plaza_add_comment", "not_found", "Post not found.")
 
             comment = PlazaComment(
                 post_id=pid,
@@ -140,4 +164,4 @@ async def _plaza_add_comment(agent_id: uuid.UUID, arguments: dict) -> str:
             return f"✅ Comment added to post by {post.author_name}."
 
     except Exception as e:
-        return f"❌ Failed to add comment: {str(e)[:200]}"
+        return _plaza_error("plaza_add_comment", "operation_failed", f"Failed to add comment: {str(e)[:200]}", retryable=True)

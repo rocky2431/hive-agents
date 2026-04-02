@@ -7,6 +7,7 @@ from pathlib import Path
 from sqlalchemy import select
 
 from app.database import async_session
+from app.tools.result_envelope import render_tool_error
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,21 @@ async def _handle_email_tool(tool_name: str, agent_id: uuid.UUID, ws: Path, argu
                 body=arguments.get("body", ""),
             )
         else:
-            return f"❌ Unknown email tool: {tool_name}"
+            return render_tool_error(
+                tool_name=tool_name,
+                error_class="bad_arguments",
+                message=f"Unknown email tool: {tool_name}",
+                provider="email",
+                retryable=False,
+                actionable_hint="Use one of send_email, read_emails, or reply_email.",
+            )
     except Exception as e:
-        return f"❌ Email tool error: {str(e)[:200]}"
+        provider = str((config or {}).get("email_provider") or "email")
+        return render_tool_error(
+            tool_name=tool_name,
+            error_class="provider_error",
+            message=f"Email tool error: {str(e)[:200]}",
+            provider=provider,
+            retryable=False,
+            actionable_hint="Check mailbox configuration and provider response before retrying.",
+        )
