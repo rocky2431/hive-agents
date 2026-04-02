@@ -27,6 +27,7 @@ RUN apt-get update && \
         fonts-noto-cjk fonts-noto-core fonts-liberation && \
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
     apt-get install -y --no-install-recommends nodejs && \
+    npm install -g @larksuite/cli && \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=deps /usr/local/lib/python3.12/site-packages/ /usr/local/lib/python3.12/site-packages/

@@ -3,13 +3,19 @@
 import logging
 import uuid
 
+from app.services.agent_tool_domains.feishu_cli import (
+    FeishuCliError,
+    _feishu_cli_api_request,
+    _feishu_cli_available,
+)
 from app.services.agent_tool_domains.feishu_helpers import _get_feishu_token
-from app.services.agent_tool_domains.feishu_wiki import _feishu_wiki_get_node
+from app.services.agent_tool_domains.feishu_wiki import _feishu_wiki_get_node, _feishu_wiki_get_node_via_cli
+from app.tools.result_envelope import render_tool_fallback
 
 logger = logging.getLogger(__name__)
 
 
-async def _feishu_doc_read(agent_id: uuid.UUID, arguments: dict) -> str:
+async def _feishu_doc_read_via_openapi(agent_id: uuid.UUID, arguments: dict) -> str:
     import httpx
     document_token = arguments.get("document_token", "").strip()
     if not document_token:
@@ -54,6 +60,58 @@ async def _feishu_doc_read(agent_id: uuid.UUID, arguments: dict) -> str:
         truncated = f"\n\n_(Truncated to {max_chars} chars)_"
 
     return f"📄 **Document content** (`{document_token}`):\n\n{content}{truncated}{wiki_hint}"
+
+
+async def _feishu_doc_read(agent_id: uuid.UUID, arguments: dict) -> str:
+    document_token = arguments.get("document_token", "").strip()
+    if not document_token:
+        return "❌ Missing required argument 'document_token'"
+    max_chars = min(int(arguments.get("max_chars", 6000)), 20000)
+
+    if not await _feishu_cli_available():
+        return await _feishu_doc_read_via_openapi(agent_id, arguments)
+
+    try:
+        read_token = document_token
+        wiki_hint = ""
+        try:
+            node_info = await _feishu_wiki_get_node_via_cli(document_token)
+        except FeishuCliError:
+            node_info = None
+        if node_info and node_info.get("obj_token"):
+            read_token = node_info["obj_token"]
+            if node_info.get("has_child"):
+                wiki_hint = (
+                    "\n\n> 💡 这是一个 Wiki 目录页，它有多个子页面。"
+                    "使用 `feishu_wiki_list` 工具（传入相同的 node_token）可以查看所有子页面列表。"
+                )
+        data = await _feishu_cli_api_request(
+            "GET",
+            f"/open-apis/docx/v1/documents/{read_token}/raw_content",
+            params={"lang": 0},
+        )
+        if data.get("code") != 0:
+            return f"❌ Failed to read document: {data.get('msg')} (code {data.get('code')})"
+        content = data.get("data", {}).get("content", "")
+        if not content:
+            return f"📄 Document '{document_token}' is empty.{wiki_hint}"
+        truncated = ""
+        if len(content) > max_chars:
+            content = content[:max_chars]
+            truncated = f"\n\n_(Truncated to {max_chars} chars)_"
+        return f"📄 **Document content** (`{document_token}`):\n\n{content}{truncated}{wiki_hint}"
+    except FeishuCliError as exc:
+        fallback_result = await _feishu_doc_read_via_openapi(agent_id, arguments)
+        return render_tool_fallback(
+            tool_name="feishu_doc_read",
+            error_class=exc.error_class,
+            message=str(exc),
+            fallback_tool="feishu_doc_read:openapi",
+            fallback_result=fallback_result,
+            provider="lark-cli",
+            retryable=exc.retryable,
+            actionable_hint=exc.actionable_hint,
+        )
 
 
 async def _feishu_doc_create(agent_id: uuid.UUID, arguments: dict) -> str:

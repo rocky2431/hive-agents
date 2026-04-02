@@ -27,6 +27,8 @@ def test_combined_openai_tools_matches_canonical_surface():
         "feishu_doc_create",
         "feishu_doc_read",
         "feishu_doc_share",
+        "feishu_sheet_info",
+        "feishu_sheet_read",
         "feishu_user_search",
         "feishu_wiki_list",
         "glob_search",

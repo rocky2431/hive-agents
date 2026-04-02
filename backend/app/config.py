@@ -76,6 +76,10 @@ class Settings(BaseSettings):
     FEISHU_APP_ID: str = ""
     FEISHU_APP_SECRET: str = ""
     FEISHU_REDIRECT_URI: str = ""
+    FEISHU_CLI_ENABLED: bool = False
+    FEISHU_CLI_BIN: str = "lark-cli"
+    FEISHU_CLI_TIMEOUT_SECONDS: int = 30
+    FEISHU_CLI_IDENTITY: str = "bot"
 
     # Desktop Auth Bridge
     DESKTOP_DEEP_LINK_SCHEME: str = "copaw"

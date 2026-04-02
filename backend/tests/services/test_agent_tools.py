@@ -194,3 +194,24 @@ async def test_get_agent_tools_for_llm_hides_unavailable_external_providers(monk
     assert "xcrawl_scrape" not in names
     assert "discover_resources" not in names
     assert "import_mcp_server" not in names
+
+
+def test_filter_feishu_tools_for_access_allows_cli_backed_office_tools_without_channel():
+    from app.services.agent_tools import _filter_feishu_tools_for_access
+
+    tools = [
+        {"function": {"name": "send_feishu_message"}},
+        {"function": {"name": "feishu_doc_read"}},
+        {"function": {"name": "feishu_sheet_info"}},
+    ]
+
+    filtered = _filter_feishu_tools_for_access(
+        tools,
+        has_feishu_channel=False,
+        has_feishu_office_access=True,
+    )
+
+    names = {tool["function"]["name"] for tool in filtered}
+    assert "send_feishu_message" not in names
+    assert "feishu_doc_read" in names
+    assert "feishu_sheet_info" in names

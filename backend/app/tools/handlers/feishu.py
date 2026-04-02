@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import uuid
 
+from app.services.agent_tool_domains.feishu_cli import _feishu_cli_available
 from app.tools.decorator import ToolMeta, tool
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,13 @@ async def _check_feishu_configured(agent_id: uuid.UUID) -> bool:
     except Exception as exc:
         logger.debug("[Feishu] Auth precheck failed for agent %s: %s", agent_id, exc)
         return False
+
+
+async def _check_feishu_office_access(agent_id: uuid.UUID) -> bool:
+    """Office read tools can run with channel creds or optional lark-cli auth."""
+    if await _check_feishu_configured(agent_id):
+        return True
+    return await _feishu_cli_available()
 
 
 # -- feishu_wiki_list ---------------------------------------------------------
@@ -58,7 +66,7 @@ async def _check_feishu_configured(agent_id: uuid.UUID) -> bool:
     adapter="agent_args",
 ))
 async def feishu_wiki_list(agent_id: uuid.UUID, arguments: dict) -> str:
-    if not await _check_feishu_configured(agent_id):
+    if not await _check_feishu_office_access(agent_id):
         return _FEISHU_NOT_CONFIGURED_MSG
     from app.services.agent_tools import _feishu_wiki_list
     return await _feishu_wiki_list(agent_id, arguments)
@@ -96,10 +104,99 @@ async def feishu_wiki_list(agent_id: uuid.UUID, arguments: dict) -> str:
     adapter="agent_args",
 ))
 async def feishu_doc_read(agent_id: uuid.UUID, arguments: dict) -> str:
-    if not await _check_feishu_configured(agent_id):
+    if not await _check_feishu_office_access(agent_id):
         return _FEISHU_NOT_CONFIGURED_MSG
     from app.services.agent_tools import _feishu_doc_read
     return await _feishu_doc_read(agent_id, arguments)
+
+
+# -- feishu_sheet_info --------------------------------------------------------
+
+@tool(ToolMeta(
+    name="feishu_sheet_info",
+    description=(
+        "Inspect a Feishu spreadsheet and list worksheet metadata such as sheet_id, title, "
+        "row count, and column count. Use this before reading cells when you need to discover "
+        "which worksheet to query. Works with spreadsheet tokens or Feishu spreadsheet URLs."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "spreadsheet_token": {
+                "type": "string",
+                "description": "Spreadsheet token, e.g. 'shtxxxxxxxx'.",
+            },
+            "spreadsheet_url": {
+                "type": "string",
+                "description": "Optional full Feishu Sheets URL if you do not already have the token.",
+            },
+        },
+    },
+    category="feishu",
+    display_name="Feishu Sheet Info",
+    icon="📊",
+    pack="feishu_pack",
+    adapter="agent_args",
+    read_only=True,
+    parallel_safe=True,
+    governance="safe",
+))
+async def feishu_sheet_info(agent_id: uuid.UUID, arguments: dict) -> str:
+    if not await _check_feishu_office_access(agent_id):
+        return _FEISHU_NOT_CONFIGURED_MSG
+    from app.services.agent_tools import _feishu_sheet_info
+    return await _feishu_sheet_info(agent_id, arguments)
+
+
+# -- feishu_sheet_read --------------------------------------------------------
+
+@tool(ToolMeta(
+    name="feishu_sheet_read",
+    description=(
+        "Read cells from a Feishu spreadsheet. Use this when you know the spreadsheet token or URL "
+        "and want values from a specific range. Typical flow: feishu_sheet_info first, then "
+        "feishu_sheet_read with '<sheetId>!A1:D20' or a sheet_id plus relative range."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "spreadsheet_token": {
+                "type": "string",
+                "description": "Spreadsheet token, e.g. 'shtxxxxxxxx'.",
+            },
+            "spreadsheet_url": {
+                "type": "string",
+                "description": "Optional full Feishu Sheets URL if you do not already have the token.",
+            },
+            "sheet_id": {
+                "type": "string",
+                "description": "Optional worksheet ID. Needed when range is written without '<sheetId>!' prefix.",
+            },
+            "range": {
+                "type": "string",
+                "description": "Optional range like '<sheetId>!A1:D20', 'A1:D20', or a single cell such as 'C2'.",
+            },
+            "value_render_option": {
+                "type": "string",
+                "enum": ["ToString", "FormattedValue", "Formula", "UnformattedValue"],
+                "description": "Optional render mode for cell values.",
+            },
+        },
+    },
+    category="feishu",
+    display_name="Feishu Sheet Read",
+    icon="🧮",
+    pack="feishu_pack",
+    adapter="agent_args",
+    read_only=True,
+    parallel_safe=True,
+    governance="safe",
+))
+async def feishu_sheet_read(agent_id: uuid.UUID, arguments: dict) -> str:
+    if not await _check_feishu_office_access(agent_id):
+        return _FEISHU_NOT_CONFIGURED_MSG
+    from app.services.agent_tools import _feishu_sheet_read
+    return await _feishu_sheet_read(agent_id, arguments)
 
 
 # -- feishu_doc_create --------------------------------------------------------

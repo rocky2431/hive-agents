@@ -181,8 +181,9 @@ CORE_TOOL_NAMES = {
 # Core tools that should always be available to agents regardless of
 # DB configuration.
 _ALWAYS_INCLUDE_CORE = set(CORE_TOOL_NAMES)
-# Feishu tools are ONLY included when the agent has a configured Feishu channel,
-# to avoid exposing unnecessary tools to non-Feishu agents (reduces hallucination risk).
+# Feishu tools split into:
+# - channel tools: require a configured Feishu channel
+# - office read tools: may also run via optional lark-cli auth in cloud environments
 _HR_TOOL_NAMES = {
     "create_digital_employee",
     "discover_resources",
@@ -198,6 +199,8 @@ _FEISHU_TOOL_NAMES = {
     "feishu_user_search",
     "feishu_wiki_list",
     "feishu_doc_read",
+    "feishu_sheet_info",
+    "feishu_sheet_read",
     "feishu_doc_create",
     "feishu_doc_append",
     "feishu_doc_share",
@@ -205,6 +208,12 @@ _FEISHU_TOOL_NAMES = {
     "feishu_calendar_create",
     "feishu_calendar_update",
     "feishu_calendar_delete",
+}
+_FEISHU_OFFICE_TOOL_NAMES = {
+    "feishu_wiki_list",
+    "feishu_doc_read",
+    "feishu_sheet_info",
+    "feishu_sheet_read",
 }
 _always_core_tools: list[dict] | None = None
 _feishu_tools: list[dict] | None = None
@@ -264,6 +273,25 @@ def _get_feishu_tools() -> list[dict]:
     return _feishu_tools
 
 
+def _filter_feishu_tools_for_access(
+    tools: list[dict],
+    *,
+    has_feishu_channel: bool,
+    has_feishu_office_access: bool,
+) -> list[dict]:
+    """Select Feishu tools according to channel vs CLI-backed office access."""
+    filtered: list[dict] = []
+    for tool in tools:
+        name = tool["function"]["name"]
+        if name in _FEISHU_OFFICE_TOOL_NAMES:
+            if has_feishu_office_access:
+                filtered.append(tool)
+            continue
+        if has_feishu_channel:
+            filtered.append(tool)
+    return filtered
+
+
 def _get_hr_tools() -> list[dict]:
     global _hr_tools
     if _hr_tools is None:
@@ -289,6 +317,15 @@ async def _agent_has_feishu(agent_id: uuid.UUID) -> bool:
         return False
 
 
+async def _agent_has_feishu_office_access(agent_id: uuid.UUID) -> bool:
+    """Office read access is available via channel creds or optional lark-cli auth."""
+    if await _agent_has_feishu(agent_id):
+        return True
+    from app.services.agent_tool_domains.feishu_cli import _feishu_cli_available
+
+    return await _feishu_cli_available()
+
+
 # ─── Dynamic Tool Loading from DB ──────────────────────────────
 
 async def get_agent_tools_for_llm(
@@ -307,9 +344,10 @@ async def get_agent_tools_for_llm(
 
     Falls back to the collected tool surface if DB is not ready.
     Always includes core system tools (send_channel_file, write_file).
-    Feishu tools are only included when the agent has a configured Feishu channel.
+    Feishu office read tools may also be included when lark-cli office auth is available.
     """
-    has_feishu = await _agent_has_feishu(agent_id)
+    has_feishu_channel = await _agent_has_feishu(agent_id)
+    has_feishu_office_access = await _agent_has_feishu_office_access(agent_id)
     requested_set = set(requested_names or [])
     if requested_set:
         requested_set |= CORE_TOOL_NAMES
@@ -327,7 +365,11 @@ async def get_agent_tools_for_llm(
                 _core = [t for t in _core if t["function"]["name"] != "tool_search"]
             _always_tools = (
                 _core
-                + (_get_feishu_tools() if has_feishu else [])
+                + _filter_feishu_tools_for_access(
+                    _get_feishu_tools(),
+                    has_feishu_channel=has_feishu_channel,
+                    has_feishu_office_access=has_feishu_office_access,
+                )
                 + (_get_hr_tools() if is_system_agent else [])
             )
             pack_policies = await get_tenant_pack_policies(db, getattr(agent, "tenant_id", None))
@@ -349,9 +391,11 @@ async def get_agent_tools_for_llm(
                 if not enabled:
                     continue
 
-                # Skip feishu tools if the agent has no Feishu channel configured
-                if t.category == "feishu" and not has_feishu:
-                    continue
+                if t.category == "feishu":
+                    if t.name in _FEISHU_OFFICE_TOOL_NAMES and not has_feishu_office_access:
+                        continue
+                    if t.name not in _FEISHU_OFFICE_TOOL_NAMES and not has_feishu_channel:
+                        continue
 
                 static_packs = set(static_pack_names_for_tool(t.name))
                 if t.type == "mcp":
@@ -567,6 +611,10 @@ from app.services.agent_tool_domains.feishu_docs import (  # noqa: E402
     _parse_inline_markdown as _parse_inline_markdown,
     _markdown_to_feishu_blocks as _markdown_to_feishu_blocks,
     _feishu_doc_append as _feishu_doc_append,
+)
+from app.services.agent_tool_domains.feishu_sheets import (  # noqa: E402
+    _feishu_sheet_info as _feishu_sheet_info,
+    _feishu_sheet_read as _feishu_sheet_read,
 )
 from app.services.agent_tool_domains.feishu_sharing import (  # noqa: E402
     _feishu_doc_share as _feishu_doc_share,

@@ -34,6 +34,8 @@ TOOL_PACKS: tuple[ToolPackSpec, ...] = (
             "feishu_user_search",
             "feishu_wiki_list",
             "feishu_doc_read",
+            "feishu_sheet_info",
+            "feishu_sheet_read",
             "feishu_doc_create",
             "feishu_doc_append",
             "feishu_doc_share",
