@@ -99,9 +99,13 @@ async def web_search(arguments: dict) -> str:
 @tool(ToolMeta(
     name="jina_search",
     description=(
-        "Search the internet using Jina AI Search (s.jina.ai). Returns high-quality "
-        "search results with full page content, not just snippets. Ideal for research, "
-        "news, technical docs, and any real-time information lookup."
+        "Search the internet using Jina AI Search (s.jina.ai).\n\n"
+        "Usage:\n"
+        "- Use this for research, news, technical docs, and other real-time lookups when you need richer results than standard search snippets.\n"
+        "- Use focused search queries instead of full questions.\n"
+        "- Results may already include substantial content; follow up with `jina_read` only for the specific pages you need in full.\n"
+        "- Do NOT use when you already have a specific URL — call `jina_read` directly.\n"
+        "- Do NOT use for information already available in your workspace or loaded skills."
     ),
     parameters={
         "type": "object",
@@ -138,10 +142,13 @@ async def jina_search(arguments: dict) -> str:
 @tool(ToolMeta(
     name="jina_read",
     description=(
-        "Read and extract the full content from a web page URL using Jina AI Reader "
-        "(r.jina.ai). Returns clean, well-structured markdown including article text, "
-        "tables, and key information. Better than jina_search when you already have a "
-        "specific URL to read."
+        "Read and extract the full content from a web page URL using Jina AI Reader (r.jina.ai).\n\n"
+        "Usage:\n"
+        "- Use this when you already have a specific URL and need the full article or page content.\n"
+        "- Prefer this after `web_search` or `jina_search` identifies the right page.\n"
+        "- The output is clean markdown with article text, tables, and key information.\n"
+        "- If the page is too long, set `max_chars` and read only what you need first.\n"
+        "- Do NOT use this as a search tool; if you do not have a URL yet, search first."
     ),
     parameters={
         "type": "object",
@@ -178,9 +185,12 @@ async def jina_read(arguments: dict) -> str:
 @tool(ToolMeta(
     name="discover_resources",
     description=(
-        "Search public MCP registries (Smithery + ModelScope) for tools and capabilities that can "
-        "extend your abilities. Use this when you encounter a task you cannot handle "
-        "with your current tools."
+        "Search public MCP registries (Smithery + ModelScope) for tools and capabilities that can extend your abilities.\n\n"
+        "Usage:\n"
+        "- Use this when your current toolset cannot perform the required operation.\n"
+        "- Describe the capability you need, not a vendor name unless that vendor is required.\n"
+        "- Review discovered capabilities before importing them into your runtime.\n"
+        "- Do NOT use this if an existing builtin tool, loaded skill, or active pack already solves the task."
     ),
     parameters={
         "type": "object",

@@ -55,6 +55,8 @@ class SkillRegistry:
         footer = (
             "\nWhen a user request matches a skill, FIRST call `load_skill` "
             "with the Skill name above to load the full instructions.\n"
+            "Load only the skill that matches the current task.\n"
+            "Do NOT speculatively load multiple skills before deciding which one is relevant.\n"
             "Do NOT guess what the skill contains — always read it first.\n"
             "Folder-based skills may contain auxiliary files. "
             "Use `read_file` on the skill folder when needed.\n"

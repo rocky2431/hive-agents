@@ -239,10 +239,11 @@ async def build_agent_context(
         f"You are {agent_name}, an enterprise digital employee. You assist users through conversation, "
         "using tools to read/write files, search the web, communicate with colleagues, and execute code.",
     )
-    parts = [identity]
+    identity_parts = [identity]
+    context_parts: list[str] = []
 
     if role_description:
-        parts.append(f"\n## Role\n{role_description}")
+        identity_parts.append(f"### Role\n{role_description}")
 
     # --- Channel integration skills (agent reads on demand from skills/ directory) ---
     _configured_channels = []
@@ -263,7 +264,11 @@ async def build_agent_context(
 
     if _configured_channels:
         channel_names = ", ".join(_configured_channels)
-        parts.append(f"\n## Channel Integrations\nYou have {channel_names} channel(s) configured. Read your skills/ directory for integration guides before using channel-specific tools.")
+        context_parts.append(
+            "### Channel Integrations\n"
+            f"You have {channel_names} channel(s) configured. "
+            "Read the matching integration skill before using channel-specific tools."
+        )
 
     # --- Company Intro (from system settings) ---
     try:
@@ -317,7 +322,7 @@ async def build_agent_context(
                 # Cap to prevent unbounded prompt growth from large tenant metadata
                 if len(company_intro) > company_info_budget:
                     company_intro = company_intro[:company_info_budget] + "\n...(company info truncated)"
-                parts.append(f"\n## Company Information\n{company_intro}")
+                context_parts.append(f"### Company Information\n{company_intro}")
     except Exception as exc:
         logger.debug("Failed to load company intro for agent {}: {}", agent_id, exc)
         _agent_tenant_id = None
@@ -330,19 +335,19 @@ async def build_agent_context(
             if org_structure.startswith("# "):
                 org_structure = "\n".join(org_structure.split("\n")[1:]).strip()
             if org_structure:
-                parts.append(f"\n## Organization Structure\n{org_structure}")
+                context_parts.append(f"### Organization Structure\n{org_structure}")
 
     if soul and soul not in ("_描述你的角色和职责。_", "_Describe your role and responsibilities._"):
-        parts.append(f"\n## Personality\n{soul}")
+        context_parts.append(f"### Personality\n{soul}")
 
     if include_memory_file and memory and memory not in ("_这里记录重要的信息和学到的知识。_", "_Record important information and knowledge here._"):
-        parts.append(f"\n## Memory\n{memory}")
+        context_parts.append(f"### Memory\n{memory}")
 
     if skills_text:
-        parts.append(f"\n## Skills\n{skills_text}")
+        context_parts.append(f"### Skills\n{skills_text}")
 
     if relationships and "暂无" not in relationships and "None yet" not in relationships:
-        parts.append(f"\n## Relationships\n{relationships}")
+        context_parts.append(f"### Relationships\n{relationships}")
 
     # --- Focus (working memory) ---
     focus = (
@@ -354,7 +359,7 @@ async def build_agent_context(
     )
     if include_focus and focus and focus.strip() not in ("# Focus", "# Agenda", "（暂无）"):
         focus = _strip_primary_heading(focus)
-        parts.append(f"\n## Focus\n{focus}")
+        context_parts.append(f"### Focus\n{focus}")
 
     risk_confirmation_rule = (
         "4. **Before destructive or external-facing operations, state what you are about to do.** "
@@ -371,8 +376,7 @@ async def build_agent_context(
             "If the operation affects people outside this conversation, confirm with the user first."
         )
 
-    parts.append(f"""
-## Core Rules
+    operating_contract = f"""## Operating Contract
 
 ### Honesty & Verification
 1. **ALWAYS call tools for file operations — NEVER pretend or fabricate results.** If a tool call fails, report the failure with the actual error message.
@@ -397,10 +401,10 @@ async def build_agent_context(
 12. **Messaging**: To notify a human user, use `send_web_message`. To communicate with another digital employee (agent), use `send_message_to_agent`. Never confuse the two.
 
 ### Evolution
-13. **Evolution system**: Your heartbeat runs a self-evolution protocol using `evolution/` directory (scorecard.md, blocklist.md, lineage.md).""")
+13. **Evolution system**: Your heartbeat runs a self-evolution protocol using `evolution/` directory (scorecard.md, blocklist.md, lineage.md)."""
 
     if include_runtime_metadata:
-        parts.extend(
+        context_parts.extend(
             await _build_runtime_metadata_sections(
                 agent_id,
                 current_user_name=current_user_name,
@@ -408,4 +412,11 @@ async def build_agent_context(
             )
         )
 
-    return "\n".join(parts)
+    rendered_parts = [
+        "## Identity & Mission",
+        "\n\n".join(identity_parts),
+        operating_contract,
+        "## Context Material",
+        "\n\n".join(context_parts) if context_parts else "No additional context material loaded.",
+    ]
+    return "\n\n".join(part.strip() for part in rendered_parts if part and part.strip())

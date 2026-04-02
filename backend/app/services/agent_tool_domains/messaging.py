@@ -17,6 +17,8 @@ A2A_SYSTEM_PROMPT_SUFFIX = (
     "Rules:\n"
     "- Reply concisely and helpfully. Focus on the request and provide a clear answer.\n"
     "- Do NOT delegate to another agent — handle the request directly (no nested delegation).\n"
+    "- If you are still working, return a short status update with the current step and the specific blocker, if any.\n"
+    "- If you completed the request, return a final answer with concrete outputs such as file paths, artifacts, tool results, or evidence.\n"
     "- If you cannot complete the request, explain specifically what is missing or blocked.\n"
     "- Do NOT share private workspace data (memory.md, tasks.json) unless explicitly asked."
 )

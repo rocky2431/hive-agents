@@ -13,10 +13,13 @@ from app.tools.decorator import ToolMeta, tool
 @tool(ToolMeta(
     name="send_feishu_message",
     description=(
-        "Send a Feishu IM message to a colleague. "
-        "You can provide either the colleague's name (will auto-search their open_id) "
-        "or their open_id directly. "
-        "To contact digital employees use send_message_to_agent instead."
+        "Send a Feishu IM message to a human colleague.\n\n"
+        "Usage:\n"
+        "- Use this for external-facing communication with human coworkers on Feishu.\n"
+        "- Prefer `user_id` when available; use `member_name` when you need the tool to look up the recipient.\n"
+        "- State the purpose clearly and send the final message content you want delivered.\n"
+        "- Do NOT use this to contact another digital employee — use `send_message_to_agent` instead.\n"
+        "- If you need to wait for a reply later, pair the message with an `on_message` trigger."
     ),
     parameters={
         "type": "object",
@@ -56,7 +59,14 @@ async def send_feishu_message(agent_id: uuid.UUID, arguments: dict) -> str:
 
 @tool(ToolMeta(
     name="send_web_message",
-    description="Send a message to a user on the Hive web platform. The message will appear in their web chat history and be pushed in real-time if they are online. Use this to proactively notify web users.",
+    description=(
+        "Send a message to a user on the Hive web platform.\n\n"
+        "Usage:\n"
+        "- Use this to notify or update a human user inside Hive web chat.\n"
+        "- The message is pushed in real time when the user is online and also stored in web chat history.\n"
+        "- Keep the content user-facing and self-contained.\n"
+        "- Do NOT use this for agent-to-agent collaboration — use `send_message_to_agent` instead."
+    ),
     parameters={
         "type": "object",
         "properties": {
@@ -85,7 +95,15 @@ async def send_web_message(agent_id: uuid.UUID, arguments: dict) -> str:
 
 @tool(ToolMeta(
     name="send_message_to_agent",
-    description="Send a message to a digital employee colleague and receive a reply. The recipient is another AI agent, not a human. This triggers the recipient's LLM reasoning and returns their response. Suitable for asking questions, delegating tasks, or collaboration. Your relationships.md lists available digital employees under 'Digital Employee Colleagues'.",
+    description=(
+        "Send a message to a digital employee colleague and wait for a direct reply.\n\n"
+        "Usage:\n"
+        "- Use this for short consults, clarifications, or synchronous collaboration with another agent.\n"
+        "- Send a precise request so the colleague can answer in one pass.\n"
+        "- Expect a reply in the current round; use the response immediately.\n"
+        "- Do NOT use this for long-running delegated work — use `delegate_to_agent` when the other agent should continue in the background.\n"
+        "- Your relationships.md lists available digital employees under 'Digital Employee Colleagues'."
+    ),
     parameters={
         "type": "object",
         "properties": {
@@ -119,7 +137,14 @@ async def send_message_to_agent(agent_id: uuid.UUID, arguments: dict) -> str:
 
 @tool(ToolMeta(
     name="delegate_to_agent",
-    description="Spawn an async task on another digital employee and return immediately with a task handle. Use this for coordinator-style delegation when you want work to continue in the background and check back later with check_async_task.",
+    description=(
+        "Spawn an async task on another digital employee and return immediately with a task handle.\n\n"
+        "Usage:\n"
+        "- Use this for coordinator-style delegation when the worker should continue in the background.\n"
+        "- Provide a precise task with the outcome you expect, any constraints, and the evidence the worker should return.\n"
+        "- After delegating, check back later with `check_async_task` or inspect multiple workers with `list_async_tasks`.\n"
+        "- Do NOT use this for quick back-and-forth questions — use `send_message_to_agent` for synchronous collaboration."
+    ),
     parameters={
         "type": "object",
         "properties": {
