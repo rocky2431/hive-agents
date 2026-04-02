@@ -4,6 +4,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 
 import { enterpriseApi } from '../../api/domains/enterprise';
+import { toolsApi, type FeishuRuntimeStatus } from '../../api/domains/tools';
+import FeishuRuntimeStatusCard from '../../components/FeishuRuntimeStatusCard';
 
 interface WorkspaceOrgSectionProps {
   selectedTenantId: string;
@@ -113,6 +115,10 @@ export default function WorkspaceOrgSection({
       ...(selectedTenantId ? { tenantId: selectedTenantId } : {}),
     }),
   });
+  const { data: feishuRuntimeStatus } = useQuery<FeishuRuntimeStatus | null>({
+    queryKey: ['feishu-runtime-status'],
+    queryFn: () => toolsApi.getFeishuRuntimeStatus(),
+  });
 
   useEffect(() => {
     if (config?.value?.app_id) {
@@ -202,6 +208,10 @@ export default function WorkspaceOrgSection({
           </div>
         ) : null}
       </div>
+
+      {feishuRuntimeStatus ? (
+        <FeishuRuntimeStatusCard status={feishuRuntimeStatus} />
+      ) : null}
 
       <div className="card">
         <h4 style={{ marginBottom: '12px' }}>{t('enterprise.org.orgBrowser', 'Org Browser')}</h4>

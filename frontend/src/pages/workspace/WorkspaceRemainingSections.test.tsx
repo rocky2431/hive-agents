@@ -69,6 +69,20 @@ vi.mock('@tanstack/react-query', () => ({
         ],
       };
     }
+    if (key === 'feishu-runtime-status') {
+      return {
+        data: {
+          ok: true,
+          scope: 'global',
+          message: 'Feishu CLI is ready.',
+          cli_enabled: true,
+          cli_available: true,
+          cli_bin: 'lark-cli',
+          docs_read_ready: true,
+          base_tasks_ready: true,
+        },
+      };
+    }
     return { data: null };
   },
   useMutation: () => ({
@@ -115,10 +129,12 @@ describe('Workspace remaining sections', () => {
     );
 
     expect(orgMarkup).toContain('Engineering');
+    expect(orgMarkup).toContain('Feishu Runtime Status');
+    expect(orgMarkup).toContain('Base / Tasks');
     expect(quotasMarkup).toContain('Employee Token Quotas');
     expect(quotasMarkup).toContain('defaultMaxTriggers');
     expect(toolsMarkup).toContain('Global Tools');
-    expect(toolsMarkup).toContain('lark-cli');
+    expect(toolsMarkup).not.toContain('Feishu Runtime Status');
   });
 
   it('renders users, invitations, and skills as independent workspace sections', () => {

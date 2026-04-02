@@ -3,8 +3,6 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { toolsApi } from '../../api/domains/tools';
-import type { FeishuRuntimeStatus } from '../../api/domains/tools';
-import FeishuRuntimeStatusCard from '../../components/FeishuRuntimeStatusCard';
 
 interface WorkspaceToolsSectionProps {
   selectedTenantId: string;
@@ -16,10 +14,6 @@ const GLOBAL_CATEGORY_CONFIG_SCHEMAS: Record<string, { title: string; fields: an
     fields: [
       { key: 'api_key', label: 'API Key (from AgentBay)', type: 'password', placeholder: 'Enter your AgentBay API key' },
     ],
-  },
-  feishu: {
-    title: 'Feishu / Lark Runtime',
-    fields: [],
   },
 };
 
@@ -54,7 +48,6 @@ export default function WorkspaceToolsSection({
   const [configCategory, setConfigCategory] = useState<string | null>(null);
   const [toolsView, setToolsView] = useState<'global' | 'agent-installed'>('global');
   const [agentInstalledTools, setAgentInstalledTools] = useState<any[]>([]);
-  const [feishuRuntimeStatus, setFeishuRuntimeStatus] = useState<FeishuRuntimeStatus | null>(null);
   const [collapsedServers, setCollapsedServers] = useState<Set<string>>(new Set());
 
   const loadAllTools = async () => {
@@ -71,19 +64,9 @@ export default function WorkspaceToolsSection({
     }
   };
 
-  const loadFeishuRuntimeStatus = async () => {
-    try {
-      const data = await toolsApi.getFeishuRuntimeStatus();
-      setFeishuRuntimeStatus(data);
-    } catch {
-      setFeishuRuntimeStatus(null);
-    }
-  };
-
   useEffect(() => {
     loadAllTools();
     loadAgentInstalledTools();
-    loadFeishuRuntimeStatus();
   }, [selectedTenantId]);
 
   return (
@@ -173,15 +156,6 @@ export default function WorkspaceToolsSection({
               + {t('enterprise.tools.addMcpServer', 'Add MCP Server')}
             </button>
           </div>
-
-          <div className="card" style={{ padding: '12px 14px', marginBottom: '16px', fontSize: '12px', color: 'var(--text-secondary)' }}>
-            {t(
-              'enterprise.tools.feishuCliHint',
-              'Feishu office tools in cloud deployments use lark-cli. Docs/Wiki/Sheets can fall back to channel auth; Base/Tasks require lark-cli auth inside the container.',
-            )}
-          </div>
-
-          {feishuRuntimeStatus ? <FeishuRuntimeStatusCard status={feishuRuntimeStatus} /> : null}
 
           {showAddMCP ? (
             <div className="card" style={{ padding: '16px', marginBottom: '16px' }}>

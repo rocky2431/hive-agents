@@ -2,6 +2,8 @@ import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { channelApi } from '../api/domains/channels';
+import { toolsApi, type FeishuRuntimeStatus } from '../api/domains/tools';
+import FeishuRuntimeStatusCard from './FeishuRuntimeStatusCard';
 
 // ─── Types ──────────────────────────────────────────────
 interface ChannelConfigProps {
@@ -349,6 +351,11 @@ export default function ChannelConfig({ mode, agentId, canManage = true, values,
     const { data: agentbayConfig } = useQuery({
         queryKey: ['agentbay-channel', agentId],
         queryFn: () => channelApi.getChannelConfig(agentId!, 'agentbay-channel'),
+        enabled: enabled,
+    });
+    const { data: feishuRuntimeStatus } = useQuery<FeishuRuntimeStatus | null>({
+        queryKey: ['feishu-runtime-status', agentId],
+        queryFn: () => toolsApi.getAgentFeishuRuntimeStatus(agentId!),
         enabled: enabled,
     });
 
@@ -961,6 +968,11 @@ export default function ChannelConfig({ mode, agentId, canManage = true, values,
             }}>
                 {t('agent.settings.channel.syncHint', 'Before configuring the Feishu bot, please sync your organization structure in Enterprise Settings → Org Structure first. This ensures the bot can identify message senders.')}
             </div>
+            {feishuRuntimeStatus ? (
+                <div style={{ marginBottom: '16px' }}>
+                    <FeishuRuntimeStatusCard status={feishuRuntimeStatus} />
+                </div>
+            ) : null}
             {CHANNEL_REGISTRY.map(renderEditChannel)}
         </div>
     );
