@@ -29,6 +29,7 @@ CAPABILITY_MAP: dict[str, str] = {
     "reply_email": "channel.email.send",
     "delete_file": "workspace.file.delete",
     "execute_code": "workspace.code.execute",
+    "run_command": "workspace.command.execute",
     "set_trigger": "agent.trigger.modify",
     "update_trigger": "agent.trigger.modify",
     "import_mcp_server": "agent.tool.install",

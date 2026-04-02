@@ -335,3 +335,41 @@ async def read_document(workspace: Path, arguments: dict, tenant_id: str | None 
 async def execute_code(workspace: Path, arguments: dict, tenant_id: str | None = None) -> str:
     from app.services.agent_tools import _execute_code
     return await _execute_code(workspace, arguments)
+
+
+# -- run_command --------------------------------------------------------------
+
+@tool(ToolMeta(
+    name="run_command",
+    description=(
+        "Run a shell command inside the cloud container and the agent workspace directory.\n\n"
+        "Usage:\n"
+        "- Working directory is your workspace/ inside the container.\n"
+        "- Use this for local project commands such as `git status`, `pytest`, `npm test`, `node script.js`, or `python3 script.py`.\n"
+        "- Prefer this over `execute_code` when you need normal shell tooling rather than embedding a short script.\n"
+        "- This is NOT a general admin shell: dangerous system commands, package manager commands, docker/kubernetes commands, and direct network fetch commands are blocked.\n"
+        "- Keep commands non-interactive and scoped to the current task."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "command": {
+                "type": "string",
+                "description": "Shell command to run in the workspace, e.g. 'git status' or 'pytest -q'",
+            },
+            "timeout": {
+                "type": "integer",
+                "description": "Max execution time in seconds (default 60, max 120)",
+            },
+        },
+        "required": ["command"],
+    },
+    category="filesystem",
+    display_name="Run Command",
+    icon="\U0001f4bb",
+    governance="sensitive",
+    adapter="workspace_args",
+))
+async def run_command(workspace: Path, arguments: dict, tenant_id: str | None = None) -> str:
+    from app.services.agent_tools import _run_command
+    return await _run_command(workspace, arguments)

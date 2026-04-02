@@ -18,6 +18,7 @@ def test_combined_openai_tools_matches_canonical_surface():
         "delegate_to_agent",
         "edit_file",
         "execute_code",
+        "run_command",
         "feishu_calendar_create",
         "feishu_calendar_delete",
         "feishu_calendar_list",

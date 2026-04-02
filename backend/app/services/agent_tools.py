@@ -110,6 +110,8 @@ def _get_tool_runtime_service() -> ToolRuntimeService:
             return _write_file(ws, path, content)
         if tool_name == "execute_code":
             return await _execute_code(ws, arguments)
+        if tool_name == "run_command":
+            return await _run_command(ws, arguments)
         if tool_name == "web_fetch":
             return await _web_fetch(arguments)
         if tool_name == "web_search":
@@ -154,6 +156,7 @@ def _get_tool_runtime_service() -> ToolRuntimeService:
 # explicitly via skills, channel capabilities, or MCP-linked expansion.
 CORE_TOOL_NAMES = {
     "execute_code",
+    "run_command",
     "list_files",
     "read_file",
     "write_file",
@@ -204,6 +207,37 @@ _FEISHU_TOOL_NAMES = {
 _always_core_tools: list[dict] | None = None
 _feishu_tools: list[dict] | None = None
 _hr_tools: list[dict] | None = None
+
+
+async def _provider_available_tools(agent_id: uuid.UUID | None = None) -> set[str]:
+    """Return provider-backed tools that are actually configured."""
+    available: set[str] = set()
+
+    jina_key = await _get_jina_api_key()
+    if jina_key:
+        available |= {"jina_search", "jina_read"}
+
+    try:
+        from app.services.resource_discovery import _get_modelscope_api_token, _get_smithery_api_key
+
+        smithery_key = await _get_smithery_api_key(agent_id)
+        modelscope_token = await _get_modelscope_api_token()
+        if smithery_key or modelscope_token:
+            available |= {"discover_resources", "import_mcp_server"}
+    except Exception:
+        logger.debug("[Tools] Provider availability lookup failed", exc_info=True)
+
+    return available
+
+
+async def _filter_unavailable_tools(agent_id: uuid.UUID, tools: list[dict]) -> list[dict]:
+    """Hide externally-backed tools that are not configured in production."""
+    provider_backed = {"jina_search", "jina_read", "discover_resources", "import_mcp_server"}
+    available = await _provider_available_tools(agent_id)
+    return [
+        tool for tool in tools
+        if tool["function"]["name"] not in provider_backed or tool["function"]["name"] in available
+    ]
 
 
 def _get_always_core_tools() -> list[dict]:
@@ -341,6 +375,7 @@ async def get_agent_tools_for_llm(
                     result = [t for t in result if t["function"]["name"] in keep]
                 elif requested_set:
                     result = [t for t in result if t["function"]["name"] in requested_set]
+                result = await _filter_unavailable_tools(agent_id, result)
                 return ToolRegistry.from_openai_tools(result).to_openai_tools()
     except Exception as e:
         logger.error(f"[Tools] DB load failed, using fallback: {e}")
@@ -352,6 +387,7 @@ async def get_agent_tools_for_llm(
         fallback = [t for t in fallback if t["function"]["name"] in CORE_TOOL_NAMES]
     elif requested_set:
         fallback = [t for t in fallback if t["function"]["name"] in requested_set]
+    fallback = await _filter_unavailable_tools(agent_id, fallback)
     return ToolRegistry.from_openai_tools(fallback).to_openai_tools()
 
 
@@ -476,6 +512,7 @@ from app.services.agent_tool_domains.plaza import (  # noqa: E402
 from app.services.agent_tool_domains.code_exec import (  # noqa: E402
     _check_code_safety as _check_code_safety,
     _execute_code as _execute_code,
+    _run_command as _run_command,
 )
 from app.services.agent_tool_domains.image_upload import (  # noqa: E402
     _upload_image as _upload_image,

@@ -293,3 +293,48 @@ async def test_tool_runtime_service_exception_returns_structured_error():
     assert payload["error_class"] == "tool_execution_error"
     assert payload["retryable"] is False
     assert payload["provider"] == "runtime"
+
+
+@pytest.mark.asyncio
+async def test_tool_runtime_service_logs_structured_tool_errors():
+    from app.tools.runtime import ToolExecutionContext
+    from app.tools.service import ToolRuntimeService
+
+    context = ToolExecutionContext(
+        agent_id=uuid4(),
+        user_id=uuid4(),
+        tenant_id="tenant-1",
+        workspace=Path("/tmp/ws"),
+    )
+    logged = []
+
+    async def fake_log_activity(*args, **kwargs):
+        logged.append((args, kwargs))
+
+    async def fake_fallback(*_args, **_kwargs):
+        return (
+            "❌ sample failure\n\n"
+            '<tool_error>{"ok": false, "tool_name": "web_search", "error_class": "quota_or_billing", '
+            '"message": "quota hit", "provider": "jina", "http_status": 402, "retryable": false}</tool_error>'
+        )
+
+    service = ToolRuntimeService(
+        runtime_resolver=_FakeRuntimeResolver(context),
+        governance_resolver=_FakeGovernanceResolver(SimpleNamespace(), SimpleNamespace()),
+        registry=_FakeRegistry(None),
+        ensure_registry=lambda: None,
+        governance_runner=lambda *_args, **_kwargs: None,
+        fallback_executor=fake_fallback,
+        direct_fallback_executor=lambda *_args, **_kwargs: "direct-fallback",
+        activity_logger=fake_log_activity,
+    )
+
+    result = await service.execute(
+        "web_search",
+        {"query": "quota issue"},
+        agent_id=context.agent_id,
+        user_id=context.user_id,
+    )
+
+    assert "<tool_error>" in result
+    assert any(args[1] == "error" for args, _kwargs in logged)

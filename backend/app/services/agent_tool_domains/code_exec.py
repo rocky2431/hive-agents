@@ -31,6 +31,31 @@ _DANGEROUS_NODE = [
     "require('http')", "require('https')", "require('net')",
 ]
 
+_DANGEROUS_COMMAND_PATTERNS = [
+    "rm -rf /",
+    "rm -rf ~",
+    "sudo ",
+    "docker ",
+    "docker-compose",
+    "kubectl ",
+    "systemctl ",
+    "service ",
+    "apt ",
+    "apt-get ",
+    "yum ",
+    "apk ",
+    "curl ",
+    "wget ",
+    "nc ",
+    "ncat ",
+    "ssh ",
+    "scp ",
+    "chmod 777 /",
+    "chown ",
+    "shutdown",
+    "reboot",
+]
+
 
 def _check_code_safety(language: str, code: str) -> str | None:
     """Check code for dangerous patterns. Returns error message if unsafe, None if ok."""
@@ -57,6 +82,28 @@ def _check_code_safety(language: str, code: str) -> str | None:
     return None
 
 
+def _check_command_safety(command: str) -> str | None:
+    command_lower = command.lower()
+    for pattern in _DANGEROUS_COMMAND_PATTERNS:
+        if pattern.lower() in command_lower:
+            return f"❌ Blocked: dangerous command detected ({pattern.strip()})"
+    if "../../" in command:
+        return "❌ Blocked: directory traversal not allowed"
+    return None
+
+
+def _prepare_execution_environment(ws: Path) -> tuple[Path, dict[str, str]]:
+    work_dir = (ws / "workspace").resolve()
+    work_dir.mkdir(parents=True, exist_ok=True)
+
+    exec_home = Path(f"/tmp/exec_home_{ws.name}")
+    exec_home.mkdir(parents=True, exist_ok=True)
+    safe_env = dict(os.environ)
+    safe_env["HOME"] = str(exec_home)
+    safe_env["PYTHONDONTWRITEBYTECODE"] = "1"
+    return work_dir, safe_env
+
+
 async def _execute_code(ws: Path, arguments: dict) -> str:
     """Execute code in a sandboxed subprocess within the agent's workspace."""
     language = arguments.get("language", "python")
@@ -74,9 +121,7 @@ async def _execute_code(ws: Path, arguments: dict) -> str:
     if safety_error:
         return safety_error
 
-    # Working directory is the agent's workspace/ subdirectory (must be absolute)
-    work_dir = (ws / "workspace").resolve()
-    work_dir.mkdir(parents=True, exist_ok=True)
+    work_dir, safe_env = _prepare_execution_environment(ws)
 
     # Determine command and file extension
     if language == "python":
@@ -95,14 +140,6 @@ async def _execute_code(ws: Path, arguments: dict) -> str:
     script_path = work_dir / f"_exec_tmp{ext}"
     try:
         script_path.write_text(code, encoding="utf-8")
-
-        # Inherit parent environment but isolate HOME to a temp dir
-        # to prevent npx/npm/git from polluting the agent workspace
-        exec_home = Path(f"/tmp/exec_home_{ws.name}")
-        exec_home.mkdir(parents=True, exist_ok=True)
-        safe_env = dict(os.environ)
-        safe_env["HOME"] = str(exec_home)
-        safe_env["PYTHONDONTWRITEBYTECODE"] = "1"
 
         proc = await asyncio.create_subprocess_exec(
             *cmd_prefix, str(script_path),
@@ -123,7 +160,7 @@ async def _execute_code(ws: Path, arguments: dict) -> str:
         stderr_str = stderr.decode("utf-8", errors="replace")[:5000]
 
         # Post-exec: copy skills installed by `npx skills add` from sandbox HOME to agent workspace
-        sandbox_skills = exec_home / ".agents" / "skills"
+        sandbox_skills = Path(safe_env["HOME"]) / ".agents" / "skills"
         if sandbox_skills.exists():
             import shutil
 
@@ -166,3 +203,49 @@ async def _execute_code(ws: Path, arguments: dict) -> str:
             script_path.unlink(missing_ok=True)
         except Exception as e:
             logger.debug("Suppressed: %s", e)
+
+
+async def _run_command(ws: Path, arguments: dict) -> str:
+    """Execute a shell command inside the agent workspace."""
+    command = arguments.get("command", "").strip()
+    timeout = min(int(arguments.get("timeout", 60)), 120)
+
+    if not command:
+        return "❌ No command provided"
+
+    safety_error = _check_command_safety(command)
+    if safety_error:
+        return safety_error
+
+    work_dir, safe_env = _prepare_execution_environment(ws)
+    proc = await asyncio.create_subprocess_exec(
+        "bash",
+        "-lc",
+        command,
+        cwd=str(work_dir),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        env=safe_env,
+    )
+
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.communicate()
+        return f"❌ Command timed out after {timeout}s"
+
+    stdout_str = stdout.decode("utf-8", errors="replace")[:12000]
+    stderr_str = stderr.decode("utf-8", errors="replace")[:6000]
+
+    result_parts = [f"💻 Command: {command}"]
+    if stdout_str.strip():
+        result_parts.append(f"📤 Output:\n{stdout_str}")
+    if stderr_str.strip():
+        result_parts.append(f"⚠️ Stderr:\n{stderr_str}")
+    if proc.returncode != 0:
+        result_parts.append(f"Exit code: {proc.returncode}")
+    elif not stdout_str.strip() and not stderr_str.strip():
+        result_parts.append("✅ Command executed successfully (no output)")
+
+    return "\n\n".join(result_parts)

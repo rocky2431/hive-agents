@@ -70,6 +70,7 @@ def test_minimal_kernel_tool_set_stays_small_and_explicit():
 
     assert CORE_TOOL_NAMES == {
         "execute_code",
+        "run_command",
         "list_files",
         "read_file",
         "write_file",

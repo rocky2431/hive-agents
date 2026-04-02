@@ -6,6 +6,7 @@ import asyncio
 import inspect
 import json as _json
 import logging
+import re
 import traceback
 import uuid
 from dataclasses import dataclass
@@ -25,11 +26,25 @@ FallbackExecutor = Callable[[str, dict, ToolExecutionContext], Awaitable[str] | 
 ActivityLogger = Callable[..., Awaitable[None] | None]
 EnsureRegistry = Callable[[], None]
 
+_TOOL_ERROR_PAYLOAD_RE = re.compile(r"<tool_error>(.*?)</tool_error>", re.DOTALL)
+
 
 async def _maybe_await(value: Any) -> Any:
     if inspect.isawaitable(value):
         return await value
     return value
+
+
+def _extract_tool_error_payload(result: str) -> dict[str, Any] | None:
+    if not result or "<tool_error>" not in result:
+        return None
+    match = _TOOL_ERROR_PAYLOAD_RE.search(result)
+    if not match:
+        return None
+    try:
+        return _json.loads(match.group(1))
+    except Exception:
+        return None
 
 
 @dataclass(slots=True)
@@ -71,6 +86,7 @@ class ToolRuntimeService:
 
         _TOOL_TIMEOUTS: dict[str, float] = {
             "execute_code": 120.0,
+            "run_command": 120.0,
             "create_digital_employee": 120.0,
             "jina_read": 60.0,
             "web_fetch": 60.0,
@@ -86,6 +102,7 @@ class ToolRuntimeService:
                 self.execute_with_context(tool_name, arguments, runtime_context),
                 timeout=timeout_seconds,
             )
+            tool_error_payload = _extract_tool_error_payload(result)
             if self.activity_logger and tool_name not in ("list_files", "read_file", "read_document"):
                 await _maybe_await(
                     self.activity_logger(
@@ -99,8 +116,31 @@ class ToolRuntimeService:
                         },
                     )
                 )
+                if tool_error_payload:
+                    await _maybe_await(
+                        self.activity_logger(
+                            agent_id,
+                            "error",
+                            f"Tool {tool_name} failed: {tool_error_payload.get('error_class', 'unknown')}",
+                            detail=tool_error_payload,
+                        )
+                    )
             return result
         except asyncio.TimeoutError:
+            if self.activity_logger and tool_name not in ("list_files", "read_file", "read_document"):
+                await _maybe_await(
+                    self.activity_logger(
+                        agent_id,
+                        "error",
+                        f"Tool {tool_name} timed out",
+                        detail={
+                            "tool_name": tool_name,
+                            "error_class": "timeout",
+                            "retryable": True,
+                            "provider": "runtime",
+                        },
+                    )
+                )
             return render_tool_error(
                 tool_name=tool_name,
                 error_class="timeout",
@@ -111,6 +151,21 @@ class ToolRuntimeService:
             )
         except Exception as exc:
             traceback.print_exc()
+            if self.activity_logger and tool_name not in ("list_files", "read_file", "read_document"):
+                await _maybe_await(
+                    self.activity_logger(
+                        agent_id,
+                        "error",
+                        f"Tool {tool_name} failed with {type(exc).__name__}",
+                        detail={
+                            "tool_name": tool_name,
+                            "error_class": "tool_execution_error",
+                            "retryable": False,
+                            "provider": "runtime",
+                            "exception_type": type(exc).__name__,
+                        },
+                    )
+                )
             return render_tool_error(
                 tool_name=tool_name,
                 error_class="tool_execution_error",

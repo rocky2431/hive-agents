@@ -50,6 +50,7 @@ _FILE_SYSTEM = {
     "delete_file",
     "read_document",
     "execute_code",
+    "run_command",
 }
 _SKILLS = {"load_skill", "tool_search", "discover_resources", "import_mcp_server"}
 _SCHEDULED = {"set_trigger", "update_trigger", "cancel_trigger", "list_triggers"}
