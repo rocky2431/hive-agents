@@ -52,6 +52,10 @@ def _render_agent_soul_from_blueprint(
     boundary_lines = _lines_from_text(boundaries)
     focus_lines = _lines_from_text(str(blueprint.get("focus_content", "")))
     heartbeat_lines = _lines_from_text(str(blueprint.get("heartbeat_topics", "")))
+    primary_users = [str(item) for item in blueprint.get("primary_users", []) if str(item).strip()]
+    core_outputs = [str(item) for item in blueprint.get("core_outputs", []) if str(item).strip()]
+    trigger_names = [str(item.get("name", "")).strip() for item in blueprint.get("triggers", []) if isinstance(item, dict)]
+    permission_scope = str(blueprint.get("permission_scope", "company") or "company").strip() or "company"
     skill_names = [str(item) for item in blueprint.get("skill_names", []) if str(item).strip()]
     mcp_server_ids = [str(item) for item in blueprint.get("mcp_server_ids", []) if str(item).strip()]
 
@@ -87,6 +91,18 @@ def _render_agent_soul_from_blueprint(
             "Do not present half-configured capabilities as ready-to-use.",
         ]),
         "",
+        "## Primary Users & Stakeholders",
+        _markdown_bullets(
+            primary_users,
+            fallback=["The creator and their immediate team are the default primary users."],
+        ),
+        "",
+        "## Core Outputs",
+        _markdown_bullets(
+            core_outputs,
+            fallback=["Produce clear, reviewable artifacts tied to the mission."],
+        ),
+        "",
         "## Operating Style",
         _markdown_bullets(operating_style),
         "",
@@ -99,6 +115,15 @@ def _render_agent_soul_from_blueprint(
         "",
         "## Tool Preferences",
         _markdown_bullets(tool_preferences),
+        "",
+        "## Operating Cadence",
+        _markdown_bullets(
+            [
+                f"Usage scope: {'team-wide' if permission_scope == 'company' else 'creator-only'} access by default.",
+                *( [f"Planned trigger workflows: {', '.join(trigger_names)}."] if trigger_names else [] ),
+                "Review setup debt before declaring recurring workflows ready.",
+            ],
+        ),
         "",
         "## Communication Contract",
         _markdown_bullets([
@@ -130,18 +155,32 @@ def _render_focus_from_blueprint(
     *,
     focus_content: str = "",
     heartbeat_topics: str = "",
+    primary_users: list[str] | None = None,
+    core_outputs: list[str] | None = None,
     ready_now: list[str] | None = None,
     manual_steps: list[str] | None = None,
+    triggers: list[dict] | None = None,
 ) -> str:
     """Render onboarding focus.md from structured creation inputs."""
     focus_lines = _lines_from_text(focus_content)
     heartbeat_lines = _lines_from_text(heartbeat_topics)
     pending_steps = manual_steps or []
+    trigger_lines = [
+        str(item.get("name", "")).strip()
+        for item in (triggers or [])
+        if isinstance(item, dict) and str(item.get("name", "")).strip()
+    ]
     parts = [
         "# Focus",
         "",
         "## Initial Mission",
         (focus_lines[0] if focus_lines else "Understand the mission, verify capabilities, and deliver a first visible outcome."),
+        "",
+        "## Who This Agent Serves",
+        _markdown_bullets(primary_users or ["The creator and immediate collaborators."]),
+        "",
+        "## Expected Outputs",
+        _markdown_bullets(core_outputs or ["One concrete, reviewable deliverable tied to the mission."]),
         "",
         "## First 3 Tasks",
         _markdown_bullets(
@@ -158,6 +197,9 @@ def _render_focus_from_blueprint(
         "",
         "## Capabilities Still Needing Human Setup",
         (_markdown_bullets(pending_steps) if pending_steps else "- None currently."),
+        "",
+        "## Planned Trigger Work",
+        _markdown_bullets(trigger_lines, fallback=["No recurring trigger is active yet."]),
         "",
         "## Heartbeat Exploration Topics",
         _markdown_bullets(
@@ -289,8 +331,11 @@ class AgentManager:
                 _render_focus_from_blueprint(
                     focus_content=str(blueprint.get("focus_content", "")),
                     heartbeat_topics=str(blueprint.get("heartbeat_topics", "")),
+                    primary_users=[str(item) for item in blueprint.get("primary_users", []) if str(item).strip()],
+                    core_outputs=[str(item) for item in blueprint.get("core_outputs", []) if str(item).strip()],
                     ready_now=[str(item) for item in blueprint.get("ready_now", []) if str(item).strip()],
                     manual_steps=[str(item) for item in blueprint.get("manual_steps", []) if str(item).strip()],
+                    triggers=[item for item in blueprint.get("triggers", []) if isinstance(item, dict)],
                 ),
                 encoding="utf-8",
             )

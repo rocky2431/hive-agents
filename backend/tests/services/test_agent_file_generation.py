@@ -12,6 +12,10 @@ def test_render_agent_soul_from_blueprint_includes_operating_contract_sections()
         personality="严谨\n结论先行",
         boundaries="不捏造来源\n敏感操作先说明风险",
         blueprint={
+            "primary_users": ["投资团队", "研究团队"],
+            "core_outputs": ["行业日报", "投研简报"],
+            "permission_scope": "company",
+            "triggers": [{"name": "daily_report", "type": "cron"}],
             "skill_names": ["feishu-integration"],
             "mcp_server_ids": ["smithery/github"],
             "focus_content": "优先建立日报流程",
@@ -21,10 +25,15 @@ def test_render_agent_soul_from_blueprint_includes_operating_contract_sections()
 
     assert "## Identity & Mission" in soul
     assert "## What Good Looks Like" in soul
+    assert "## Primary Users & Stakeholders" in soul
+    assert "## Core Outputs" in soul
     assert "## Operating Style" in soul
     assert "## Tool Preferences" in soul
+    assert "## Operating Cadence" in soul
     assert "## Boundaries & Red Lines" in soul
     assert "## Early Focus" in soul
+    assert "投资团队" in soul
+    assert "行业日报" in soul
     assert "严谨" in soul
     assert "feishu-integration" in soul
     assert "smithery/github" in soul
@@ -36,15 +45,23 @@ def test_render_focus_from_blueprint_includes_ready_and_manual_sections() -> Non
     focus = _render_focus_from_blueprint(
         focus_content="1. 建日报\n2. 补关键词",
         heartbeat_topics="AI\n半导体",
+        primary_users=["投资团队"],
+        core_outputs=["日报", "周报"],
         ready_now=["builtin tools + 14 default skills"],
         manual_steps=["完成 Feishu CLI 或渠道认证"],
+        triggers=[{"name": "daily_report", "type": "cron"}],
     )
 
     assert "# Focus" in focus
     assert "## Initial Mission" in focus
+    assert "## Who This Agent Serves" in focus
+    assert "## Expected Outputs" in focus
     assert "## First 3 Tasks" in focus
     assert "## Required Capabilities Already Installed" in focus
     assert "## Capabilities Still Needing Human Setup" in focus
+    assert "## Planned Trigger Work" in focus
     assert "## Heartbeat Exploration Topics" in focus
     assert "## First Success Check" in focus
+    assert "投资团队" in focus
+    assert "日报" in focus
     assert "完成 Feishu CLI 或渠道认证" in focus

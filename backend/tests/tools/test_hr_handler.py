@@ -26,6 +26,8 @@ def test_create_digital_employee_schema_has_required_name():
     assert "role_description" in params["properties"]
     assert "personality" in params["properties"]
     assert "boundaries" in params["properties"]
+    assert "primary_users" in params["properties"]
+    assert "core_outputs" in params["properties"]
     assert "skill_names" in params["properties"]
     assert "permission_scope" in params["properties"]
 
@@ -98,6 +100,8 @@ def test_build_blueprint_preview_payload_summarizes_ready_install_and_manual_ste
         {
             "name": "研究助理",
             "role_description": "追踪投融资与行业动态",
+            "primary_users": ["投资团队", "研究团队"],
+            "core_outputs": ["日报", "周报"],
             "personality": "严谨\n结论先行",
             "boundaries": "不捏造来源",
             "skill_names": ["feishu-integration", "feishu-integration"],
@@ -111,6 +115,8 @@ def test_build_blueprint_preview_payload_summarizes_ready_install_and_manual_ste
 
     assert payload["status"] == "preview"
     assert payload["blueprint"]["name"] == "研究助理"
+    assert payload["blueprint"]["primary_users"] == ["投资团队", "研究团队"]
+    assert payload["blueprint"]["core_outputs"] == ["日报", "周报"]
     assert payload["blueprint"]["skill_names"] == ["feishu-integration"]
     assert payload["blueprint"]["mcp_server_ids"] == ["smithery/github"]
     assert payload["blueprint"]["clawhub_slugs"] == ["market-research-agent"]
@@ -119,3 +125,42 @@ def test_build_blueprint_preview_payload_summarizes_ready_install_and_manual_ste
     assert "mcp: smithery/github" in payload["will_install"]
     assert "clawhub skill: market-research-agent" in payload["will_install"]
     assert any("Feishu" in step for step in payload["manual_steps"])
+    assert payload["summary"]["primary_users"] == ["投资团队", "研究团队"]
+    assert payload["summary"]["core_outputs"] == ["日报", "周报"]
+    assert payload["summary"]["first_mission"] == "先完成行业扫描"
+
+
+def test_build_blueprint_preview_payload_auto_recommends_platform_skills() -> None:
+    from app.tools.handlers.hr import _build_blueprint_preview_payload
+
+    payload = _build_blueprint_preview_payload(
+        {
+            "name": "投研运营助理",
+            "role_description": "给投资团队发送飞书日报，并同步 Jira 项目进展。",
+            "primary_users": ["投资团队"],
+            "core_outputs": ["飞书日报", "Jira 周报"],
+            "focus_content": "先建立飞书日报和 Jira 跟进节奏",
+        }
+    )
+
+    assert payload["recommended_skill_names"] == ["feishu-integration", "atlassian-rovo"]
+    assert payload["blueprint"]["effective_skill_names"] == ["feishu-integration", "atlassian-rovo"]
+    assert any("Feishu" in step for step in payload["manual_steps"])
+    assert any("builtin workspace + web research" in item for item in payload["capability_routing"]["builtin_paths"])
+
+
+def test_build_blueprint_preview_payload_warns_when_external_installs_cover_builtin_office_flows() -> None:
+    from app.tools.handlers.hr import _build_blueprint_preview_payload
+
+    payload = _build_blueprint_preview_payload(
+        {
+            "name": "材料助理",
+            "role_description": "生成 PDF 汇总和 PPT 汇报材料。",
+            "core_outputs": ["PDF 汇总", "PPT 汇报"],
+            "mcp_server_ids": ["smithery/random-office"],
+            "clawhub_slugs": ["third-party-ppt-skill"],
+        }
+    )
+
+    assert any("default productivity skills already cover" in warning for warning in payload["warnings"])
+    assert any("PDF/DOCX/XLSX/PPTX" in item for item in payload["capability_routing"]["builtin_paths"])

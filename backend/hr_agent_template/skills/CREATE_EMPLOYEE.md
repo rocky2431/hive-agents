@@ -21,6 +21,8 @@ Collect just enough information to fill:
 
 - `name`
 - `role_description`
+- `primary_users`
+- `core_outputs`
 - `personality`
 - `boundaries`
 - `permission_scope`
@@ -55,6 +57,8 @@ Use builtin/default capabilities first for:
 | 钉钉 | `dingtalk-integration` |
 | Jira / Confluence | `atlassian-rovo` |
 
+If the user forgets to name one of these obvious platform skills, add it yourself in the blueprint. Do not wait for the user to discover it manually.
+
 ### Use MCP only when builtin/default is insufficient
 
 Only call:
@@ -82,8 +86,11 @@ preview_agent_blueprint(...)
 Then present:
 
 - Mission
+- Users
+- Core outputs
 - Operating style
 - Ready now
+- Recommended extra skills
 - Will install
 - Needs setup after creation
 
@@ -104,6 +111,7 @@ create_digital_employee(...)
 - “这个 agent 最核心要负责什么？”
 - “谁会使用它，只有你还是整个团队？”
 - “它的产出应该是什么样？日报、文档、表格、消息推送，还是别的？”
+- “这个 agent 最主要服务谁？你自己、团队、还是某个固定角色？”
 - “哪些外部系统是真的必须连，不连就做不了？”
 - “创建后第一件事要做什么？”
 

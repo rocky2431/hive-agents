@@ -16,6 +16,50 @@ _DEFAULT_READY_NOW = [
     "workspace, memory, heartbeat scaffolding",
 ]
 
+_PLATFORM_SKILL_RULES = (
+    {
+        "skill_name": "feishu-integration",
+        "keywords": ("飞书", "lark", "feishu", "飞书通知", "飞书文档", "飞书表格", "base", "wiki"),
+    },
+    {
+        "skill_name": "dingtalk-integration",
+        "keywords": ("钉钉", "dingtalk"),
+    },
+    {
+        "skill_name": "atlassian-rovo",
+        "keywords": ("jira", "confluence", "atlassian", "compass"),
+    },
+)
+
+_OFFICE_DELIVERABLE_KEYWORDS = (
+    "pdf",
+    "ppt",
+    "pptx",
+    "slides",
+    "演示文稿",
+    "汇报材料",
+    "汇报",
+    "word",
+    "docx",
+    "文档",
+    "excel",
+    "xlsx",
+    "表格",
+)
+
+_RESEARCH_WORKFLOW_KEYWORDS = (
+    "日报",
+    "周报",
+    "研究",
+    "投研",
+    "研报",
+    "行业动态",
+    "融资动态",
+    "扫描",
+    "monitor",
+    "report",
+)
+
 
 def _parse_list(value) -> list:
     if isinstance(value, list):
@@ -46,6 +90,89 @@ def _dedupe_strings(values: list[str]) -> list[str]:
 
 def _collect_trigger_reasons(triggers: list[dict]) -> str:
     return " ".join(str(trigger.get("reason", "")).strip() for trigger in triggers if trigger.get("reason"))
+
+
+def _build_capability_text_blob(
+    *,
+    role_description: str,
+    primary_users: list[str],
+    core_outputs: list[str],
+    focus_content: str,
+    heartbeat_topics: str,
+    welcome_message: str,
+    triggers: list[dict],
+) -> str:
+    trigger_names = " ".join(str(trigger.get("name", "")).strip() for trigger in triggers if trigger.get("name"))
+    return " ".join(
+        [
+            role_description,
+            " ".join(primary_users),
+            " ".join(core_outputs),
+            focus_content,
+            heartbeat_topics,
+            welcome_message,
+            _collect_trigger_reasons(triggers),
+            trigger_names,
+        ]
+    ).lower()
+
+
+def _contains_any(text: str, keywords: tuple[str, ...]) -> bool:
+    return any(keyword in text for keyword in keywords)
+
+
+def _derive_capability_routing(
+    *,
+    role_description: str,
+    primary_users: list[str],
+    core_outputs: list[str],
+    focus_content: str,
+    heartbeat_topics: str,
+    welcome_message: str,
+    triggers: list[dict],
+    requested_skill_names: list[str],
+    mcp_server_ids: list[str],
+    clawhub_slugs: list[str],
+) -> dict:
+    text_blob = _build_capability_text_blob(
+        role_description=role_description,
+        primary_users=primary_users,
+        core_outputs=core_outputs,
+        focus_content=focus_content,
+        heartbeat_topics=heartbeat_topics,
+        welcome_message=welcome_message,
+        triggers=triggers,
+    )
+
+    recommended_skill_names: list[str] = []
+    for rule in _PLATFORM_SKILL_RULES:
+        if _contains_any(text_blob, rule["keywords"]):
+            recommended_skill_names.append(rule["skill_name"])
+
+    recommended_skill_names = _dedupe_strings(recommended_skill_names)
+    effective_skill_names = _dedupe_strings(list(requested_skill_names) + recommended_skill_names)
+
+    builtin_paths: list[str] = []
+    if _contains_any(text_blob, _OFFICE_DELIVERABLE_KEYWORDS):
+        builtin_paths.append("default productivity skills already cover PDF/DOCX/XLSX/PPTX document workflows.")
+    if _contains_any(text_blob, _RESEARCH_WORKFLOW_KEYWORDS):
+        builtin_paths.append("builtin workspace + web research + trigger stack already cover recurring research/report workflows.")
+    if not builtin_paths:
+        builtin_paths.append("builtin tools + default skills already cover the first version of this workflow.")
+
+    warnings: list[str] = []
+    if (mcp_server_ids or clawhub_slugs) and _contains_any(text_blob, _OFFICE_DELIVERABLE_KEYWORDS):
+        warnings.append(
+            "Requested external installs for office deliverables that default productivity skills already cover. "
+            "Keep MCP/ClawHub only if a builtin dry run proves insufficient."
+        )
+
+    return {
+        "recommended_skill_names": recommended_skill_names,
+        "effective_skill_names": effective_skill_names,
+        "builtin_paths": builtin_paths,
+        "warnings": warnings,
+    }
 
 
 def _derive_manual_steps(
@@ -86,9 +213,11 @@ def _build_blueprint_preview_payload(arguments: dict) -> dict:
     """Build a structured HR blueprint preview from raw arguments."""
     name = str(arguments.get("name", "")).strip()
     role_description = str(arguments.get("role_description", "")).strip()
+    primary_users = _dedupe_strings([item for item in _parse_list(arguments.get("primary_users")) if isinstance(item, str)])
+    core_outputs = _dedupe_strings([item for item in _parse_list(arguments.get("core_outputs")) if isinstance(item, str)])
     personality = str(arguments.get("personality", "")).strip()
     boundaries = str(arguments.get("boundaries", "")).strip()
-    skill_names = _dedupe_strings([item for item in _parse_list(arguments.get("skill_names")) if isinstance(item, str)])
+    requested_skill_names = _dedupe_strings([item for item in _parse_list(arguments.get("skill_names")) if isinstance(item, str)])
     mcp_server_ids = _dedupe_strings([item for item in _parse_list(arguments.get("mcp_server_ids")) if isinstance(item, str)])
     clawhub_slugs = _dedupe_strings([item for item in _parse_list(arguments.get("clawhub_slugs")) if isinstance(item, str)])
     permission_scope = str(arguments.get("permission_scope", "company") or "company").strip() or "company"
@@ -104,19 +233,39 @@ def _build_blueprint_preview_payload(arguments: dict) -> dict:
             raw_triggers = []
     triggers = [item for item in raw_triggers if isinstance(item, dict)]
 
+    capability_routing = _derive_capability_routing(
+        role_description=role_description,
+        primary_users=primary_users,
+        core_outputs=core_outputs,
+        focus_content=focus_content,
+        heartbeat_topics=heartbeat_topics,
+        welcome_message=welcome_message,
+        triggers=triggers,
+        requested_skill_names=requested_skill_names,
+        mcp_server_ids=mcp_server_ids,
+        clawhub_slugs=clawhub_slugs,
+    )
+    recommended_skill_names = capability_routing["recommended_skill_names"]
+    effective_skill_names = capability_routing["effective_skill_names"]
+
     will_install: list[str] = []
-    will_install.extend(f"extra skill: {skill_name}" for skill_name in skill_names)
+    will_install.extend(f"extra skill: {skill_name}" for skill_name in effective_skill_names)
     will_install.extend(f"mcp: {server_id}" for server_id in mcp_server_ids)
     will_install.extend(f"clawhub skill: {slug}" for slug in clawhub_slugs)
 
     warnings: list[str] = []
     if not role_description:
         warnings.append("role_description is empty — the created soul contract will be generic.")
+    if not primary_users:
+        warnings.append("primary_users is empty — the agent may be less clear about who it serves.")
+    if not core_outputs:
+        warnings.append("core_outputs is empty — the agent may not know what deliverables matter most.")
     if not focus_content:
         warnings.append("focus_content is empty — the new agent will need an initial mission seed after creation.")
+    warnings.extend(capability_routing["warnings"])
 
     manual_steps = _derive_manual_steps(
-        skill_names=skill_names,
+        skill_names=effective_skill_names,
         mcp_server_ids=mcp_server_ids,
         clawhub_slugs=clawhub_slugs,
         triggers=triggers,
@@ -131,9 +280,13 @@ def _build_blueprint_preview_payload(arguments: dict) -> dict:
         "blueprint": {
             "name": name,
             "role_description": role_description,
+            "primary_users": primary_users,
+            "core_outputs": core_outputs,
             "personality": personality,
             "boundaries": boundaries,
-            "skill_names": skill_names,
+            "skill_names": effective_skill_names,
+            "requested_skill_names": requested_skill_names,
+            "effective_skill_names": effective_skill_names,
             "mcp_server_ids": mcp_server_ids,
             "clawhub_slugs": clawhub_slugs,
             "permission_scope": permission_scope,
@@ -142,10 +295,22 @@ def _build_blueprint_preview_payload(arguments: dict) -> dict:
             "focus_content": focus_content,
             "heartbeat_topics": heartbeat_topics,
         },
+        "summary": {
+            "mission": role_description,
+            "primary_users": primary_users,
+            "core_outputs": core_outputs,
+            "first_mission": focus_content,
+        },
         "ready_now": list(_DEFAULT_READY_NOW),
         "will_install": will_install,
+        "recommended_skill_names": recommended_skill_names,
+        "capability_routing": {
+            "builtin_paths": capability_routing["builtin_paths"],
+            "requested_skill_names": requested_skill_names,
+            "effective_skill_names": effective_skill_names,
+        },
         "manual_steps": manual_steps,
-        "warnings": warnings,
+        "warnings": _dedupe_strings(warnings),
     }
 
 
@@ -206,6 +371,16 @@ def _build_create_employee_result(
             "personality": {
                 "type": "string",
                 "description": "Personality traits, one per line",
+            },
+            "primary_users": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Who this agent primarily serves (e.g. ['投资团队', '研究团队']).",
+            },
+            "core_outputs": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Main deliverables this agent must produce (e.g. ['日报', '周报', '飞书通知']).",
             },
             "boundaries": {
                 "type": "string",
@@ -332,6 +507,7 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
     # New customization params
     welcome_message = args.get("welcome_message", "")
     preview_payload = _build_blueprint_preview_payload(args)
+    skill_names = list(preview_payload["blueprint"]["effective_skill_names"])
     manual_steps = list(preview_payload["manual_steps"])
     warnings = list(preview_payload["warnings"])
     install_plan = []
@@ -866,6 +1042,8 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
         "properties": {
             "name": {"type": "string", "description": "Proposed agent name."},
             "role_description": {"type": "string", "description": "Core responsibilities and mission."},
+            "primary_users": {"type": "array", "items": {"type": "string"}, "description": "Who this agent primarily serves."},
+            "core_outputs": {"type": "array", "items": {"type": "string"}, "description": "Main deliverables this agent must produce."},
             "personality": {"type": "string", "description": "Desired operating style, one trait per line if helpful."},
             "boundaries": {"type": "string", "description": "Risk boundaries or red lines, one per line if helpful."},
             "skill_names": {"type": "array", "items": {"type": "string"}, "description": "Extra platform skills beyond defaults."},
