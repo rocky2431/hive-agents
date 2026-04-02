@@ -59,6 +59,7 @@ def test_combined_openai_tools_matches_canonical_surface():
         "tool_search",
         "update_trigger",
         "upload_image",
+        "web_fetch",
         "web_search",
         "write_file",
     }
@@ -81,6 +82,7 @@ def test_governance_sets_include_canonical_metadata_without_runtime_init():
     assert "list_files" in SAFE_TOOLS
     assert "read_file" in SAFE_TOOLS
     assert "web_search" in SAFE_TOOLS
+    assert "web_fetch" in SAFE_TOOLS
     assert "send_feishu_message" in SENSITIVE_TOOLS
     assert "delete_file" in SENSITIVE_TOOLS
     assert "create_digital_employee" in SENSITIVE_TOOLS
@@ -92,6 +94,7 @@ def test_read_only_and_parallel_safe_sets_include_canonical_metadata_without_run
 
     assert "read_file" in READ_ONLY_TOOL_NAMES
     assert "web_search" in READ_ONLY_TOOL_NAMES
+    assert "web_fetch" in READ_ONLY_TOOL_NAMES
     assert "discover_resources" in READ_ONLY_TOOL_NAMES
     assert "read_file" in PARALLEL_SAFE_TOOL_NAMES
     assert "jina_search" in PARALLEL_SAFE_TOOL_NAMES

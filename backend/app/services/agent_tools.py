@@ -110,6 +110,8 @@ def _get_tool_runtime_service() -> ToolRuntimeService:
             return _write_file(ws, path, content)
         if tool_name == "execute_code":
             return await _execute_code(ws, arguments)
+        if tool_name == "web_fetch":
+            return await _web_fetch(arguments)
         if tool_name == "web_search":
             return await _web_search(arguments)
         if tool_name == "jina_search":
@@ -151,6 +153,7 @@ def _get_tool_runtime_service() -> ToolRuntimeService:
 # Minimal-by-default kernel tools. Everything else should be introduced
 # explicitly via skills, channel capabilities, or MCP-linked expansion.
 CORE_TOOL_NAMES = {
+    "execute_code",
     "list_files",
     "read_file",
     "write_file",
@@ -167,6 +170,7 @@ CORE_TOOL_NAMES = {
     "get_current_time",
     "send_channel_file",
     "tool_search",
+    "web_fetch",
 }
 
 # Core tools that should always be available to agents regardless of
@@ -547,5 +551,6 @@ from app.services.agent_tool_domains.web_mcp import (  # noqa: E402
     _search_google as _search_google,
     _search_tavily as _search_tavily,
     _smithery_auto_recover as _smithery_auto_recover,
+    _web_fetch as _web_fetch,
     _web_search as _web_search,
 )

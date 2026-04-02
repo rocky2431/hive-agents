@@ -38,6 +38,7 @@ CAPABILITY_MAP: dict[str, str] = {
     "jina_search": "external.web.search",
     "bing_search": "external.web.search",
     "jina_read": "external.web.read",
+    "web_fetch": "external.web.read",
     "read_webpage": "external.web.read",
 }
 

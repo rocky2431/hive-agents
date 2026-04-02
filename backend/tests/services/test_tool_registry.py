@@ -69,6 +69,7 @@ def test_minimal_kernel_tool_set_stays_small_and_explicit():
     from app.services.agent_tools import CORE_TOOL_NAMES
 
     assert CORE_TOOL_NAMES == {
+        "execute_code",
         "list_files",
         "read_file",
         "write_file",
@@ -85,4 +86,5 @@ def test_minimal_kernel_tool_set_stays_small_and_explicit():
         "get_current_time",
         "send_channel_file",
         "tool_search",
+        "web_fetch",
     }

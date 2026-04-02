@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
+import json
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -192,3 +194,102 @@ async def test_tool_runtime_service_execute_direct_uses_direct_fallback():
     assert runtime_resolver.calls == [(context.agent_id, context.agent_id)]
     assert captured["tool_name"] == "execute_code"
     assert captured["context"] == context
+
+
+def _extract_tool_error_payload(result: str) -> dict:
+    marker = "<tool_error>"
+    end_marker = "</tool_error>"
+    start = result.index(marker) + len(marker)
+    end = result.index(end_marker)
+    return json.loads(result[start:end])
+
+
+@pytest.mark.asyncio
+async def test_tool_runtime_service_timeout_returns_structured_error():
+    from app.tools.runtime import ToolExecutionContext
+    from app.tools.service import ToolRuntimeService
+
+    context = ToolExecutionContext(
+        agent_id=uuid4(),
+        user_id=uuid4(),
+        tenant_id="tenant-1",
+        workspace=Path("/tmp/ws"),
+    )
+
+    service = ToolRuntimeService(
+        runtime_resolver=_FakeRuntimeResolver(context),
+        governance_resolver=_FakeGovernanceResolver(SimpleNamespace(), SimpleNamespace()),
+        registry=_FakeRegistry(None),
+        ensure_registry=lambda: None,
+        governance_runner=lambda *_args, **_kwargs: None,
+        fallback_executor=lambda *_args, **_kwargs: "fallback",
+        direct_fallback_executor=lambda *_args, **_kwargs: "direct-fallback",
+        activity_logger=None,
+    )
+
+    async def slow_execute(self, *_args, **_kwargs):
+        raise asyncio.TimeoutError
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(ToolRuntimeService, "execute_with_context", slow_execute)
+
+    try:
+        result = await service.execute(
+            "web_search",
+            {"query": "quota issue"},
+            agent_id=context.agent_id,
+            user_id=context.user_id,
+        )
+    finally:
+        monkeypatch.undo()
+
+    payload = _extract_tool_error_payload(result)
+    assert payload["tool_name"] == "web_search"
+    assert payload["error_class"] == "timeout"
+    assert payload["retryable"] is True
+
+
+@pytest.mark.asyncio
+async def test_tool_runtime_service_exception_returns_structured_error():
+    from app.tools.runtime import ToolExecutionContext
+    from app.tools.service import ToolRuntimeService
+
+    context = ToolExecutionContext(
+        agent_id=uuid4(),
+        user_id=uuid4(),
+        tenant_id="tenant-1",
+        workspace=Path("/tmp/ws"),
+    )
+
+    service = ToolRuntimeService(
+        runtime_resolver=_FakeRuntimeResolver(context),
+        governance_resolver=_FakeGovernanceResolver(SimpleNamespace(), SimpleNamespace()),
+        registry=_FakeRegistry(None),
+        ensure_registry=lambda: None,
+        governance_runner=lambda *_args, **_kwargs: None,
+        fallback_executor=lambda *_args, **_kwargs: "fallback",
+        direct_fallback_executor=lambda *_args, **_kwargs: "direct-fallback",
+        activity_logger=None,
+    )
+
+    async def broken_execute(self, *_args, **_kwargs):
+        raise ValueError("invalid upstream payload")
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(ToolRuntimeService, "execute_with_context", broken_execute)
+
+    try:
+        result = await service.execute(
+            "jina_search",
+            {"query": "test"},
+            agent_id=context.agent_id,
+            user_id=context.user_id,
+        )
+    finally:
+        monkeypatch.undo()
+
+    payload = _extract_tool_error_payload(result)
+    assert payload["tool_name"] == "jina_search"
+    assert payload["error_class"] == "tool_execution_error"
+    assert payload["retryable"] is False
+    assert payload["provider"] == "runtime"

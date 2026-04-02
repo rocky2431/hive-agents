@@ -1,19 +1,116 @@
 from __future__ import annotations
 
+import html
+from html.parser import HTMLParser
 import logging
+import re
 import uuid
+from urllib.parse import quote, urlparse
 
+import httpx
 from sqlalchemy import select
 
 from app.database import async_session
+from app.tools.result_envelope import classify_http_status, render_tool_error, render_tool_fallback
 
 logger = logging.getLogger(__name__)
+
+
+_URL_HOST_RE = re.compile(r"^[A-Za-z0-9.-]+\.[A-Za-z]{2,}(/.*)?$")
+
+
+class _HTMLTextExtractor(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self._skip_depth = 0
+        self._parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        if tag in {"script", "style", "noscript"}:
+            self._skip_depth += 1
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in {"script", "style", "noscript"} and self._skip_depth > 0:
+            self._skip_depth -= 1
+        if tag in {"p", "div", "section", "article", "main", "h1", "h2", "h3", "li", "br"}:
+            self._parts.append("\n")
+
+    def handle_data(self, data: str) -> None:
+        if self._skip_depth:
+            return
+        text = data.strip()
+        if text:
+            self._parts.append(text)
+
+    def get_text(self) -> str:
+        raw = " ".join(self._parts)
+        raw = html.unescape(raw)
+        return re.sub(r"\n\s*\n+", "\n\n", re.sub(r"[ \t]+", " ", raw)).strip()
+
+
+def _looks_like_url(value: str) -> bool:
+    candidate = (value or "").strip()
+    if not candidate or " " in candidate:
+        return False
+    parsed = urlparse(candidate if "://" in candidate else f"https://{candidate}")
+    return bool(parsed.netloc and "." in parsed.netloc)
+
+
+def _normalize_url(value: str) -> str | None:
+    candidate = (value or "").strip()
+    if not _looks_like_url(candidate):
+        return None
+    if "://" not in candidate:
+        candidate = f"https://{candidate}"
+    return candidate
+
+
+def _invalid_argument_error(tool_name: str, message: str, *, provider: str, hint: str) -> str:
+    return render_tool_error(
+        tool_name=tool_name,
+        error_class="bad_arguments",
+        message=message,
+        provider=provider,
+        retryable=False,
+        actionable_hint=hint,
+    )
+
+
+def _http_error(tool_name: str, *, provider: str, status_code: int, detail: str, hint: str | None = None) -> str:
+    error_class, retryable = classify_http_status(status_code)
+    return render_tool_error(
+        tool_name=tool_name,
+        error_class=error_class,
+        message=f"{tool_name} failed with HTTP {status_code}: {detail[:200]}",
+        provider=provider,
+        http_status=status_code,
+        retryable=retryable,
+        actionable_hint=hint,
+    )
+
+
+def _extract_text_from_html(markup: str) -> str:
+    parser = _HTMLTextExtractor()
+    parser.feed(markup)
+    return parser.get_text()
 
 
 async def _web_search(arguments: dict) -> str:
     query = arguments.get("query", "")
     if not query:
-        return "❌ Please provide search keywords"
+        return _invalid_argument_error(
+            "web_search",
+            "web_search requires a non-empty query.",
+            provider="web_search",
+            hint="Pass concise search keywords. If you already have a URL, use web_fetch or jina_read instead.",
+        )
+    if _looks_like_url(query):
+        return _invalid_argument_error(
+            "web_search",
+            "web_search expects search keywords, not a URL.",
+            provider="web_search",
+            hint="Use web_fetch or jina_read when you already have a specific URL.",
+        )
 
     config = {}
     try:
@@ -31,21 +128,51 @@ async def _web_search(arguments: dict) -> str:
     api_key = config.get("api_key", "")
     max_results = min(arguments.get("max_results", config.get("max_results", 5)), 10)
     language = config.get("language", "zh-CN")
+    fallback_note = None
+
+    if engine in {"tavily", "google", "bing"} and not api_key:
+        fallback_note = f"{engine} is configured but no API key is available, so web_search fell back to DuckDuckGo."
+        engine = "duckduckgo"
+    if engine == "google" and api_key and ":" not in api_key:
+        fallback_note = "Google search configuration is invalid, so web_search fell back to DuckDuckGo."
+        engine = "duckduckgo"
 
     try:
         if engine == "tavily" and api_key:
-            return await _search_tavily(query, api_key, max_results)
-        if engine == "google" and api_key:
-            return await _search_google(query, api_key, max_results, language)
-        if engine == "bing" and api_key:
-            return await _search_bing(query, api_key, max_results, language)
-        return await _search_duckduckgo(query, max_results)
+            result = await _search_tavily(query, api_key, max_results)
+        elif engine == "google" and api_key:
+            result = await _search_google(query, api_key, max_results, language)
+        elif engine == "bing" and api_key:
+            result = await _search_bing(query, api_key, max_results, language)
+        else:
+            result = await _search_duckduckgo(query, max_results)
+        if fallback_note:
+            return f"⚠️ {fallback_note}\n\n{result}"
+        return result
     except Exception as e:
-        return f"❌ Search error ({engine}): {str(e)[:200]}"
+        if engine != "duckduckgo":
+            fallback_result = await _search_duckduckgo(query, max_results)
+            return render_tool_fallback(
+                tool_name="web_search",
+                error_class="provider_error",
+                message=f"web_search provider '{engine}' failed: {str(e)[:200]}",
+                provider=engine,
+                retryable=True,
+                actionable_hint="The configured provider failed, so the tool fell back to DuckDuckGo.",
+                fallback_tool="web_search:duckduckgo",
+                fallback_result=fallback_result,
+            )
+        return render_tool_error(
+            tool_name="web_search",
+            error_class="provider_error",
+            message=f"web_search failed: {str(e)[:200]}",
+            provider=engine,
+            retryable=True,
+            actionable_hint="Retry with a more specific query or switch to another search provider.",
+        )
 
 
 async def _search_duckduckgo(query: str, max_results: int) -> str:
-    import httpx
     import re
 
     async with httpx.AsyncClient(follow_redirects=True) as client:
@@ -95,11 +222,21 @@ async def _get_jina_api_key() -> str:
 
 
 async def _jina_search(arguments: dict) -> str:
-    import httpx
-
     query = arguments.get("query", "").strip()
     if not query:
-        return "❌ Please provide search keywords"
+        return _invalid_argument_error(
+            "jina_search",
+            "jina_search requires a non-empty query.",
+            provider="jina",
+            hint="Pass concise search keywords. If you already have a URL, use web_fetch or jina_read.",
+        )
+    if _looks_like_url(query):
+        return _invalid_argument_error(
+            "jina_search",
+            "jina_search expects keywords, not a URL.",
+            provider="jina",
+            hint="Use web_fetch or jina_read when you already have a URL.",
+        )
 
     max_results = min(arguments.get("max_results", 5), 10)
     api_key = await _get_jina_api_key()
@@ -115,12 +252,31 @@ async def _jina_search(arguments: dict) -> str:
     try:
         async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
             resp = await client.get(
-                f"https://s.jina.ai/{__import__('urllib.parse', fromlist=['quote']).quote(query)}",
+                f"https://s.jina.ai/{quote(query)}",
                 headers=headers,
             )
 
         if resp.status_code != 200:
-            return f"❌ Jina Search error HTTP {resp.status_code}: {resp.text[:200]}"
+            if resp.status_code in {401, 402, 403, 429, 500, 502, 503, 504}:
+                fallback_result = await _web_search({"query": query, "max_results": max_results})
+                return render_tool_fallback(
+                    tool_name="jina_search",
+                    error_class=classify_http_status(resp.status_code)[0],
+                    message=f"jina_search failed with HTTP {resp.status_code}: {resp.text[:200]}",
+                    provider="jina",
+                    http_status=resp.status_code,
+                    retryable=classify_http_status(resp.status_code)[1],
+                    actionable_hint="Jina is unavailable or misconfigured, so the tool fell back to web_search.",
+                    fallback_tool="web_search",
+                    fallback_result=fallback_result,
+                )
+            return _http_error(
+                "jina_search",
+                provider="jina",
+                status_code=resp.status_code,
+                detail=resp.text,
+                hint="Retry with a shorter query or switch to web_search.",
+            )
 
         data = resp.json()
         items = data.get("data", [])[:max_results]
@@ -136,17 +292,37 @@ async def _jina_search(arguments: dict) -> str:
 
         return f'🔍 Jina Search results for "{query}" ({len(items)} items):\n\n' + "\n\n---\n\n".join(parts)
     except Exception as e:
-        return f"❌ Jina Search error: {str(e)[:300]}"
+        fallback_result = await _web_search({"query": query, "max_results": max_results})
+        return render_tool_fallback(
+            tool_name="jina_search",
+            error_class="provider_error",
+            message=f"jina_search failed: {str(e)[:300]}",
+            provider="jina",
+            retryable=True,
+            actionable_hint="Jina failed unexpectedly, so the tool fell back to web_search.",
+            fallback_tool="web_search",
+            fallback_result=fallback_result,
+        )
 
 
 async def _jina_read(arguments: dict) -> str:
-    import httpx
-
     url = arguments.get("url", "").strip()
     if not url:
-        return "❌ Please provide a URL"
-    if not url.startswith("http"):
-        url = "https://" + url
+        return _invalid_argument_error(
+            "jina_read",
+            "jina_read requires a URL.",
+            provider="jina",
+            hint="Pass a fully-qualified URL or a domain-like URL such as example.com/path.",
+        )
+    normalized_url = _normalize_url(url)
+    if not normalized_url:
+        return _invalid_argument_error(
+            "jina_read",
+            f"jina_read received an invalid URL: {url}",
+            provider="jina",
+            hint="Use a valid URL. If you only have keywords, use web_search or jina_search first.",
+        )
+    url = normalized_url
 
     max_chars = min(arguments.get("max_chars", 8000), 20000)
     api_key = await _get_jina_api_key()
@@ -160,24 +336,122 @@ async def _jina_read(arguments: dict) -> str:
         headers["Authorization"] = f"Bearer {api_key}"
 
     try:
-        from urllib.parse import quote
-
         async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
             resp = await client.get(f"https://r.jina.ai/{quote(url, safe='')}", headers=headers)
 
         if resp.status_code != 200:
-            return f"❌ Jina Reader error HTTP {resp.status_code}: {resp.text[:200]}"
+            if resp.status_code in {401, 402, 403, 429, 500, 502, 503, 504}:
+                fallback_result = await _web_fetch({"url": url, "max_chars": max_chars})
+                return render_tool_fallback(
+                    tool_name="jina_read",
+                    error_class=classify_http_status(resp.status_code)[0],
+                    message=f"jina_read failed with HTTP {resp.status_code}: {resp.text[:200]}",
+                    provider="jina",
+                    http_status=resp.status_code,
+                    retryable=classify_http_status(resp.status_code)[1],
+                    actionable_hint="Jina Reader is unavailable or misconfigured, so the tool fell back to web_fetch.",
+                    fallback_tool="web_fetch",
+                    fallback_result=fallback_result,
+                )
+            return _http_error(
+                "jina_read",
+                provider="jina",
+                status_code=resp.status_code,
+                detail=resp.text,
+                hint="Retry with a valid URL or switch to web_fetch.",
+            )
 
         text = resp.text.strip()
         if not text or len(text) < 100:
-            return f"❌ Jina Reader returned empty content for {url}"
+            fallback_result = await _web_fetch({"url": url, "max_chars": max_chars})
+            return render_tool_fallback(
+                tool_name="jina_read",
+                error_class="provider_empty",
+                message=f"jina_read returned empty content for {url}",
+                provider="jina",
+                retryable=False,
+                actionable_hint="Jina returned no usable content, so the tool fell back to web_fetch.",
+                fallback_tool="web_fetch",
+                fallback_result=fallback_result,
+            )
 
         if len(text) > max_chars:
             text = text[:max_chars] + f"\n\n[... truncated at {max_chars} chars]"
 
         return f"📄 **Content from: {url}**\n\n{text}"
     except Exception as e:
-        return f"❌ Jina Reader error: {str(e)[:300]}"
+        fallback_result = await _web_fetch({"url": url, "max_chars": max_chars})
+        return render_tool_fallback(
+            tool_name="jina_read",
+            error_class="provider_error",
+            message=f"jina_read failed: {str(e)[:300]}",
+            provider="jina",
+            retryable=True,
+            actionable_hint="Jina Reader failed unexpectedly, so the tool fell back to web_fetch.",
+            fallback_tool="web_fetch",
+            fallback_result=fallback_result,
+        )
+
+
+async def _web_fetch(arguments: dict) -> str:
+    url = arguments.get("url", "").strip()
+    if not url:
+        return _invalid_argument_error(
+            "web_fetch",
+            "web_fetch requires a URL.",
+            provider="web_fetch",
+            hint="Pass a fully-qualified URL or a domain-like URL such as example.com/path.",
+        )
+
+    normalized_url = _normalize_url(url)
+    if not normalized_url:
+        return _invalid_argument_error(
+            "web_fetch",
+            f"web_fetch received an invalid URL: {url}",
+            provider="web_fetch",
+            hint="Use a valid URL. If you only have keywords, use web_search or jina_search first.",
+        )
+
+    max_chars = min(arguments.get("max_chars", 8000), 20000)
+
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=20) as client:
+            resp = await client.get(normalized_url, headers={"User-Agent": "Hive WebFetch/1.0"})
+
+        if resp.status_code != 200:
+            return _http_error(
+                "web_fetch",
+                provider="web_fetch",
+                status_code=resp.status_code,
+                detail=resp.text,
+                hint="Retry with another URL or fall back to search if the page is blocked.",
+            )
+
+        content_type = (resp.headers.get("content-type", "") or "").lower()
+        text = resp.text.strip()
+        if "html" in content_type or text.lstrip().startswith("<!doctype html") or text.lstrip().startswith("<html"):
+            text = _extract_text_from_html(text)
+        if not text:
+            return render_tool_error(
+                tool_name="web_fetch",
+                error_class="empty_content",
+                message=f"web_fetch returned empty content for {normalized_url}",
+                provider="web_fetch",
+                retryable=False,
+                actionable_hint="Try another URL or use search to find a cleaner source page.",
+            )
+        if len(text) > max_chars:
+            text = text[:max_chars] + f"\n\n[... truncated at {max_chars} chars]"
+        return f"📄 **Fetched content from: {normalized_url}**\n\n{text}"
+    except Exception as e:
+        return render_tool_error(
+            tool_name="web_fetch",
+            error_class="provider_error",
+            message=f"web_fetch failed: {str(e)[:300]}",
+            provider="web_fetch",
+            retryable=True,
+            actionable_hint="Retry with another URL or use search to discover an alternate page.",
+        )
 
 
 async def _search_tavily(query: str, api_key: str, max_results: int) -> str:
@@ -371,7 +645,14 @@ async def _execute_via_smithery_connect(
                 try:
                     data = json_mod.loads(raw)
                 except json_mod.JSONDecodeError:
-                    return f"❌ Unexpected response from Smithery: {raw[:300]}"
+                    return render_tool_error(
+                        tool_name=tool_name,
+                        error_class="provider_bad_response",
+                        message=f"Smithery returned an unexpected response for {tool_name}: {raw[:300]}",
+                        provider="smithery",
+                        retryable=False,
+                        actionable_hint="Retry later or re-authorize the MCP server connection.",
+                    )
 
             if "error" in data:
                 err = data["error"]
@@ -381,7 +662,14 @@ async def _execute_via_smithery_connect(
                     recovery_result = await _smithery_auto_recover(api_key, mcp_url, namespace, connection_id, agent_id)
                     if recovery_result:
                         return recovery_result
-                return f"❌ MCP tool error: {msg[:300]}"
+                return render_tool_error(
+                    tool_name=tool_name,
+                    error_class="provider_error",
+                    message=f"MCP tool error: {msg[:300]}",
+                    provider="smithery",
+                    retryable=False,
+                    actionable_hint="Retry after checking MCP authorization and server health.",
+                )
 
             result = data.get("result", {})
             if isinstance(result, str):
@@ -403,7 +691,14 @@ async def _execute_via_smithery_connect(
                     texts.append(str(block))
             return "\n".join(texts) if texts else str(result)
     except Exception as e:
-        return f"❌ Smithery Connect error: {str(e)[:200]}"
+        return render_tool_error(
+            tool_name=tool_name,
+            error_class="provider_error",
+            message=f"Smithery Connect failed for {tool_name}: {str(e)[:200]}",
+            provider="smithery",
+            retryable=True,
+            actionable_hint="Retry later or re-authorize the Smithery/MCP connection.",
+        )
 
 
 async def _smithery_auto_recover(api_key: str, mcp_url: str, namespace: str, connection_id: str, agent_id=None) -> str | None:

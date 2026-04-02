@@ -9,8 +9,9 @@ Reference: https://modelcontextprotocol.io/docs
 """
 
 import httpx
+
+from app.tools.result_envelope import render_tool_error
 import json
-import asyncio
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 
 from loguru import logger
@@ -282,11 +283,13 @@ class MCPClient:
             return await self._streamable_request(method, params)
 
         # Auto-detect: try Streamable HTTP first
+        streamable_err: Exception | None = None
         try:
             result = await self._streamable_request(method, params)
             self._transport = "streamable"
             return result
-        except Exception as streamable_err:
+        except Exception as exc:
+            streamable_err = exc
             logger.info(f"[MCPClient] Streamable HTTP failed ({streamable_err}), trying SSE transport...")
 
         # Fallback to SSE
@@ -337,7 +340,14 @@ class MCPClient:
             if "error" in data:
                 err = data["error"]
                 msg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
-                return f"❌ MCP tool execution error: {msg[:200]}"
+                return render_tool_error(
+                    tool_name=tool_name,
+                    error_class="provider_error",
+                    message=f"MCP tool execution error: {msg[:200]}",
+                    provider="mcp",
+                    retryable=False,
+                    actionable_hint="Retry after checking MCP server authorization and arguments.",
+                )
 
             result = data.get("result", {})
             if isinstance(result, str):
@@ -362,4 +372,11 @@ class MCPClient:
             return "\n".join(texts) if texts else str(result)
 
         except httpx.HTTPError as e:
-            return f"❌ MCP connection failed: {str(e)[:200]}"
+            return render_tool_error(
+                tool_name=tool_name,
+                error_class="transport_failure",
+                message=f"MCP connection failed: {str(e)[:200]}",
+                provider="mcp",
+                retryable=True,
+                actionable_hint="Retry later or check the MCP server URL and network reachability.",
+            )

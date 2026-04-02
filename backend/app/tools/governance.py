@@ -31,6 +31,7 @@ _STATIC_SAFE_TOOLS = {
     "load_skill",
     "jina_search",
     "jina_read",
+    "web_fetch",
     "web_search",
     "read_document",
     "list_tasks",

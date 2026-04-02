@@ -180,6 +180,47 @@ async def jina_read(arguments: dict) -> str:
     return await _jina_read(arguments)
 
 
+# ── web_fetch ───────────────────────────────────────────────────────
+
+@tool(ToolMeta(
+    name="web_fetch",
+    description=(
+        "Fetch and extract readable content directly from a specific URL without relying on Jina.\n\n"
+        "Usage:\n"
+        "- Use this when you already have a URL and want a direct, deterministic fetch path.\n"
+        "- Prefer this as a fallback when `jina_read` fails or when you want raw page text extraction.\n"
+        "- This tool is for known URLs, not keyword search. Use `web_search` or `jina_search` first if needed.\n"
+        "- The result may be truncated for very long pages."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "url": {
+                "type": "string",
+                "description": "The full URL to fetch, e.g. 'https://example.com/article' or 'example.com/article'",
+            },
+            "max_chars": {
+                "type": "integer",
+                "description": "Max characters to return (default 8000, max 20000)",
+            },
+        },
+        "required": ["url"],
+    },
+    category="search",
+    display_name="Web Fetch",
+    icon="\U0001f310",
+    is_default=True,
+    read_only=True,
+    parallel_safe=True,
+    governance="safe",
+    pack="web_pack",
+    adapter="args_only",
+))
+async def web_fetch(arguments: dict) -> str:
+    from app.services.agent_tool_domains.web_mcp import _web_fetch
+    return await _web_fetch(arguments)
+
+
 # ── discover_resources ───────────────────────────────────────────────
 
 @tool(ToolMeta(

@@ -64,7 +64,7 @@ _CHANNEL = {
     "get_current_time",
     "send_channel_file",
 }
-_WEB = {"jina_search", "jina_read", "web_search"}
+_WEB = {"jina_search", "jina_read", "web_search", "web_fetch"}
 
 _STATIC_READ_ONLY_TOOL_NAMES = {
     "read_file",
@@ -74,6 +74,7 @@ _STATIC_READ_ONLY_TOOL_NAMES = {
     "list_files",
     "list_triggers",
     "web_search",
+    "web_fetch",
     "jina_search",
     "jina_read",
     "tool_search",
@@ -93,6 +94,7 @@ _STATIC_PARALLEL_SAFE_TOOL_NAMES = {
     "list_files",
     "list_triggers",
     "web_search",
+    "web_fetch",
     "jina_search",
     "jina_read",
     "check_async_task",

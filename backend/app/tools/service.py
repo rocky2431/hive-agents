@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
 from app.tools.governance import EventCallback, GovernanceDependencies, ToolGovernanceContext
+from app.tools.result_envelope import render_tool_error
 from app.tools.runtime import ToolExecutionContext, ToolExecutionRegistry, ToolExecutionRequest
 
 
@@ -72,6 +73,7 @@ class ToolRuntimeService:
             "execute_code": 120.0,
             "create_digital_employee": 120.0,
             "jina_read": 60.0,
+            "web_fetch": 60.0,
             "web_search": 60.0,
             "read_document": 60.0,
             "send_feishu_message": 45.0,
@@ -99,10 +101,24 @@ class ToolRuntimeService:
                 )
             return result
         except asyncio.TimeoutError:
-            return f"[Tool Timeout] {tool_name} exceeded {int(timeout_seconds)} second time limit. Try a simpler operation."
+            return render_tool_error(
+                tool_name=tool_name,
+                error_class="timeout",
+                message=f"{tool_name} exceeded the {int(timeout_seconds)} second time limit.",
+                provider="runtime",
+                retryable=True,
+                actionable_hint="Try a simpler request, smaller input, or a more targeted operation.",
+            )
         except Exception as exc:
             traceback.print_exc()
-            return f"Tool execution error ({tool_name}): {type(exc).__name__}: {str(exc)[:500]}\n\nHint: Check tool arguments and try again with simpler input."
+            return render_tool_error(
+                tool_name=tool_name,
+                error_class="tool_execution_error",
+                message=f"{tool_name} failed with {type(exc).__name__}: {str(exc)[:500]}",
+                provider="runtime",
+                retryable=False,
+                actionable_hint="Check tool arguments and try again with simpler or better-scoped input.",
+            )
 
     async def execute_direct(
         self,
@@ -154,7 +170,14 @@ class ToolRuntimeService:
             return result
         except Exception as exc:
             _logger.error("[ToolService] execute_direct failed: tool=%s agent=%s error=%s", tool_name, agent_id, exc)
-            return f"Error executing {tool_name}: {exc}"
+            return render_tool_error(
+                tool_name=tool_name,
+                error_class="tool_execution_error",
+                message=f"{tool_name} failed with {type(exc).__name__}: {exc}",
+                provider="runtime",
+                retryable=False,
+                actionable_hint="Check tool arguments and retry with a more targeted request.",
+            )
 
     async def execute_with_context(
         self,
