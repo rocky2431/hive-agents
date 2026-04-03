@@ -1167,7 +1167,8 @@
       "teams": "Microsoft Teams",
       "dingtalk": "DingTalk",
       "wecom": "WeCom",
-      "telegram": "Telegram"
+      "telegram": "Telegram",
+      "email": "Email"
     }
   },
   "admin": {
@@ -1322,6 +1323,13 @@
       "tenantId": "Tenant ID (Directory ID)",
       "tenantIdPlaceholder": "Enter your Tenant ID",
       "tenantIdHint": "Required for single-tenant apps. Find it in Azure AD → App registrations → your app → Overview."
+    },
+    "email": {
+      "step1": "Enable IMAP/SMTP in your email provider's settings (Gmail: App Passwords, QQ: Authorization Code, Outlook: App Password)",
+      "step2": "Copy the email address you want this agent to use",
+      "step3": "Generate an app password or authorization code from your email provider (not your login password)",
+      "step4": "Paste the email address and authorization code above, then click Save",
+      "note": "Use an app-specific password, not your regular login password. Most providers require enabling IMAP access first."
     },
     "telegram": {
       "step1": "Open Telegram, search for @BotFather, and start a chat",

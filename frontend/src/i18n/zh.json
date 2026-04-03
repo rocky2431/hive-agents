@@ -1158,7 +1158,8 @@
       "teams": "Microsoft Teams",
       "dingtalk": "钉钉",
       "wecom": "企业微信",
-      "telegram": "Telegram"
+      "telegram": "Telegram",
+      "email": "邮箱"
     }
   },
   "admin": {
@@ -1313,6 +1314,13 @@
       "tenantId": "租户 ID（目录 ID）",
       "tenantIdPlaceholder": "请输入租户 ID",
       "tenantIdHint": "单租户应用必填，请在 Azure AD → 应用注册 → 你的应用 → 概述 中复制。"
+    },
+    "email": {
+      "step1": "在邮箱提供商设置中启用 IMAP/SMTP（Gmail: 应用专用密码, QQ: 授权码, Outlook: 应用密码）",
+      "step2": "复制要分配给此员工的邮箱地址",
+      "step3": "在邮箱提供商处生成应用专用密码或授权码（不是登录密码）",
+      "step4": "将邮箱地址和授权码填入上方，点击保存",
+      "note": "请使用应用专用密码，不要使用登录密码。大多数邮箱需要先开启 IMAP 访问。"
     },
     "telegram": {
       "step1": "打开 Telegram，搜索 @BotFather 并开始对话",

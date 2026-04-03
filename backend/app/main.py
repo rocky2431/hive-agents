@@ -323,6 +323,7 @@ from app.api.dingtalk import router as dingtalk_router
 from app.api.wecom import router as wecom_router
 from app.api.teams import router as teams_router
 from app.api.telegram import router as telegram_router
+from app.api.email_channel import router as email_channel_router
 from app.api.triggers import router as triggers_router
 
 from app.api.atlassian import router as atlassian_router
@@ -354,7 +355,7 @@ _api_routers = [
     relationships_router, activity_router, messages_router, tenants_router,
     schedules_router, files_upload_router, enterprise_kb_router,
     skills_router, users_router, slack_router, discord_router, dingtalk_router,
-    wecom_router, teams_router, telegram_router, atlassian_router, notification_router,
+    wecom_router, teams_router, telegram_router, email_channel_router, atlassian_router, notification_router,
     gateway_router, config_history_router, feature_flags_router, admin_router,
     chat_sessions_router, plaza_router, triggers_router, memory_router,
     oidc_router, capabilities_router, onboarding_router, packs_router,
