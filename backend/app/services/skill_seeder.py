@@ -309,24 +309,7 @@ Plan would be:
         "is_default": True,
         "files": [],  # populated at runtime from templates/skills/
     },
-    {
-        "name": "Self-Improving Agent",
-        "description": "Log errors, corrections, and learnings to memory/learnings/ for continuous improvement",
-        "category": "system",
-        "icon": "📈",
-        "folder_name": "self-improving-agent",
-        "is_default": True,
-        "files": [],  # populated at runtime from templates/skills/
-    },
-    {
-        "name": "Proactive Agent",
-        "description": "Write-ahead logging, proactive thinking, context recovery, and relentless problem-solving protocols",
-        "category": "system",
-        "icon": "⚡",
-        "folder_name": "proactive-agent",
-        "is_default": True,
-        "files": [],  # populated at runtime from templates/skills/
-    },
+    # self-improving-agent and proactive-agent removed — merged into native HEARTBEAT.md protocol (2026-04-03)
     # ─── Document processing skills (default, from templates/skills/) ──
     {
         "name": "PDF Generator",
@@ -408,7 +391,7 @@ async def seed_skills():
 
         # Agent behavioral & discovery skills — load ALL files from templates/skills/<folder>/
         elif s["folder_name"] in (
-            "find-skills", "skill-vetter", "self-improving-agent", "proactive-agent",
+            "find-skills", "skill-vetter",
             "pdf-generator", "docx-generator", "xlsx-processor", "pptx-generator",
         ) and not s["files"]:
             _agent_skills_dir = Path(__file__).parent.parent / "templates" / "skills"
