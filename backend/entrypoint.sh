@@ -129,6 +129,21 @@ echo "[entrypoint] Step 2.5: Running data migrations..."
 # Safely migrate old AgentSchedules to the new AgentTriggers system
 python -m app.scripts.migrate_schedules_to_triggers
 
+# Step 2.7: Auto-authenticate lark-cli if Feishu app credentials are available
+if [ -n "$FEISHU_APP_ID" ] && [ -n "$FEISHU_APP_SECRET" ] && command -v lark-cli >/dev/null 2>&1; then
+    echo "[entrypoint] Step 2.7: Auto-authenticating lark-cli..."
+    lark-cli auth login --app-id "$FEISHU_APP_ID" --app-secret "$FEISHU_APP_SECRET" 2>&1 || echo "[entrypoint] WARNING: lark-cli auth login failed (non-fatal)"
+    # Auto-enable CLI if credentials succeeded
+    if lark-cli auth status >/dev/null 2>&1; then
+        export FEISHU_CLI_ENABLED=true
+        echo "[entrypoint] lark-cli authenticated successfully, FEISHU_CLI_ENABLED=true"
+    else
+        echo "[entrypoint] lark-cli auth status check failed, CLI stays disabled"
+    fi
+else
+    echo "[entrypoint] Skipping lark-cli auth (no FEISHU_APP_ID/SECRET or lark-cli not installed)"
+fi
+
 echo "[entrypoint] Step 3: Starting uvicorn..."
 # Drop to hive user for the app process (entrypoint runs as root for volume chown)
 if [ "$(id -u)" = "0" ] && id hive >/dev/null 2>&1; then

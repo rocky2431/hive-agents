@@ -210,7 +210,7 @@ export default function WorkspaceOrgSection({
       </div>
 
       {feishuRuntimeStatus ? (
-        <FeishuRuntimeStatusCard status={feishuRuntimeStatus} />
+        <FeishuRuntimeStatusCard status={feishuRuntimeStatus} isAdmin />
       ) : null}
 
       <div className="card">

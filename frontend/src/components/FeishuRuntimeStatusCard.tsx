@@ -6,6 +6,7 @@ import type { FeishuRuntimeStatus } from '../api/domains/tools';
 type FeishuRuntimeStatusCardProps = {
   status: FeishuRuntimeStatus;
   compact?: boolean;
+  isAdmin?: boolean;
 };
 
 function boolKey(value: boolean, positive: string, negative: string) {
@@ -18,7 +19,7 @@ function statusTone(status: FeishuRuntimeStatus) {
   return { key: 'Disabled', fallback: 'Disabled', color: 'var(--error)' };
 }
 
-export function FeishuRuntimeStatusCard({ status, compact = false }: FeishuRuntimeStatusCardProps) {
+export function FeishuRuntimeStatusCard({ status, compact = false, isAdmin = false }: FeishuRuntimeStatusCardProps) {
   const { t } = useTranslation();
   const tone = statusTone(status);
 
@@ -50,21 +51,31 @@ export function FeishuRuntimeStatusCard({ status, compact = false }: FeishuRunti
         </span>
       </div>
       <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '10px', lineHeight: 1.5 }}>
-        {status.message}
+        {isAdmin ? status.message : (
+          status.docs_read_ready && status.base_tasks_ready
+            ? t('feishu.runtime.allReady', 'All Feishu office capabilities are available.')
+            : status.docs_read_ready
+              ? t('feishu.runtime.docsOnly', 'Docs / Wiki / Sheets are available. Base / Tasks are not enabled on this platform.')
+              : t('feishu.runtime.notAvailable', 'Feishu office capabilities are not available on this platform.')
+        )}
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-        <div style={rowStyle}>
-          <span>{t('feishu.runtime.cliBinary', 'CLI Binary')}</span>
-          <code>{status.cli_bin || 'lark-cli'}</code>
-        </div>
-        <div style={rowStyle}>
-          <span>{t('feishu.runtime.cliEnabled', 'CLI Enabled')}</span>
-          <span>{t(`feishu.runtime.${boolKey(status.cli_enabled, 'Enabled', 'Disabled')}`, status.cli_enabled ? 'Enabled' : 'Disabled')}</span>
-        </div>
-        <div style={rowStyle}>
-          <span>{t('feishu.runtime.cliAuth', 'CLI Auth')}</span>
-          <span>{t(`feishu.runtime.${boolKey(status.cli_available, 'Ready', 'NeedsAttention')}`, status.cli_available ? 'Ready' : 'Needs Attention')}</span>
-        </div>
+        {isAdmin ? (
+          <>
+            <div style={rowStyle}>
+              <span>{t('feishu.runtime.cliBinary', 'CLI Binary')}</span>
+              <code>{status.cli_bin || 'lark-cli'}</code>
+            </div>
+            <div style={rowStyle}>
+              <span>{t('feishu.runtime.cliEnabled', 'CLI Enabled')}</span>
+              <span>{t(`feishu.runtime.${boolKey(status.cli_enabled, 'Enabled', 'Disabled')}`, status.cli_enabled ? 'Enabled' : 'Disabled')}</span>
+            </div>
+            <div style={rowStyle}>
+              <span>{t('feishu.runtime.cliAuth', 'CLI Auth')}</span>
+              <span>{t(`feishu.runtime.${boolKey(status.cli_available, 'Ready', 'NeedsAttention')}`, status.cli_available ? 'Ready' : 'Needs Attention')}</span>
+            </div>
+          </>
+        ) : null}
         {status.scope === 'agent' && (
           <div style={rowStyle}>
             <span>{t('feishu.runtime.channelAuth', 'Channel Auth')}</span>
