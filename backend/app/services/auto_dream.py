@@ -177,6 +177,13 @@ async def run_dream(agent_id: uuid.UUID, tenant_id: uuid.UUID) -> dict:
         _mark_dreamed(key)
         return {"consolidated": before_count, "removed": 0, "added": 0}
 
+    # Distill evolution files into semantic_facts BEFORE replacing,
+    # so the distilled facts are included in the consolidated set.
+    evolution_facts = await _distill_evolution_to_facts(agent_id, tenant_id)
+    if evolution_facts:
+        from app.services.memory_service import _merge_memory_facts
+        consolidated = _merge_memory_facts(consolidated, evolution_facts)
+
     store.replace_semantic_facts(agent_id, consolidated)
 
     # L3→L2 sync: LLM synthesizes consolidated facts into memory/memory.md
@@ -615,6 +622,151 @@ async def _llm_rephrase_behaviors(raw_facts: list[str], tenant_id: uuid.UUID) ->
     except Exception as exc:
         logger.debug("[AutoDream] LLM behavior rephrasing failed: %s", exc)
         return None
+
+
+# ── Evolution distillation: evolution/* → semantic_facts ──────────
+
+_EVOLUTION_DISTILL_PROMPT = (
+    "You are distilling an agent's self-evolution data into structured memory facts.\n"
+    "You will receive: performance scorecard, recent strategy lineage, and a blocklist.\n\n"
+    "Produce a JSON array of facts. Each fact has: content (str), category (str).\n"
+    "Categories to use:\n"
+    "- blocked_pattern: approaches that failed (from blocklist + failed lineage entries)\n"
+    "- strategy: approaches that worked (from successful lineage entries)\n"
+    "- feedback: self-assessment insights (from scorecard trends)\n\n"
+    "Rules:\n"
+    "- Each fact under 200 chars, actionable and specific\n"
+    "- Extract 3-8 facts total (only the most important)\n"
+    "- Skip generic observations — only concrete, reusable insights\n"
+    "- Write in the same language as the input\n"
+    "- Return ONLY the JSON array, no other text"
+)
+
+
+async def _distill_evolution_to_facts(
+    agent_id: uuid.UUID, tenant_id: uuid.UUID,
+) -> list[dict]:
+    """Read evolution files and distill them into typed semantic facts.
+
+    This replaces direct injection of evolution/ into agent_context.
+    Instead, evolution insights flow through the normal memory retrieval
+    pipeline with proper scoring (blocked_pattern ×1.5, strategy ×1.2).
+    """
+    from app.services.heartbeat import _get_canonical_workspace
+
+    ws_root = _get_canonical_workspace(agent_id)
+    if not ws_root:
+        return []
+
+    # Read evolution files
+    parts: list[str] = []
+    for filename, label in [
+        ("evolution/scorecard.md", "Performance Scorecard"),
+        ("evolution/blocklist.md", "Blocked Approaches"),
+        ("evolution/lineage.md", "Recent Strategy Lineage"),
+    ]:
+        fpath = ws_root / filename
+        if fpath.exists():
+            try:
+                content = fpath.read_text(encoding="utf-8", errors="replace").strip()
+                if content:
+                    # For lineage, only take last 20 entries to keep prompt short
+                    if "lineage" in filename:
+                        lines = content.split("\n")
+                        if len(lines) > 60:
+                            content = "\n".join(lines[:3] + ["...(earlier omitted)..."] + lines[-50:])
+                    parts.append(f"## {label}\n{content}")
+            except Exception as read_err:
+                logger.debug("[AutoDream] Failed to read %s: %s", filename, read_err)
+
+    if not parts:
+        return []
+
+    evolution_text = "\n\n".join(parts)
+
+    # Try LLM distillation
+    facts = await _llm_distill_evolution(evolution_text, tenant_id)
+    if facts:
+        return facts
+
+    # Fallback: extract blocklist entries mechanically as blocked_pattern facts
+    return _mechanical_distill_blocklist(ws_root)
+
+
+async def _llm_distill_evolution(
+    evolution_text: str, tenant_id: uuid.UUID,
+) -> list[dict] | None:
+    """Use LLM to distill evolution data into structured facts."""
+    try:
+        from app.services.memory_service import _get_summary_model_config
+        from app.services.llm_client import LLMMessage, create_llm_client
+    except ImportError as imp_err:
+        logger.debug("[AutoDream] LLM imports unavailable for evolution distill: %s", imp_err)
+        return None
+
+    model_config = await _get_summary_model_config(tenant_id)
+    if not model_config:
+        return None
+
+    try:
+        client = create_llm_client(**model_config)
+        response = await client.stream(
+            messages=[
+                LLMMessage(role="system", content=_EVOLUTION_DISTILL_PROMPT),
+                LLMMessage(role="user", content=f"Evolution data to distill:\n\n{evolution_text[:4000]}"),
+            ],
+            max_tokens=1500,
+            temperature=0.3,
+        )
+        content = response.content if hasattr(response, "content") else str(response)
+        start = content.find("[")
+        end = content.rfind("]") + 1
+        if start >= 0 and end > start:
+            parsed = json.loads(content[start:end])
+            if isinstance(parsed, list):
+                now = datetime.now(timezone.utc).isoformat()
+                valid = []
+                for f in parsed:
+                    if isinstance(f, dict) and f.get("content"):
+                        cat = f.get("category", "strategy")
+                        if cat not in ("blocked_pattern", "strategy", "feedback"):
+                            cat = "strategy"
+                        valid.append({
+                            "content": str(f["content"])[:200],
+                            "category": cat,
+                            "subject": "evolution_digest",
+                            "timestamp": now,
+                        })
+                logger.info("[AutoDream] Distilled %d evolution facts for agent", len(valid))
+                return valid if valid else None
+    except Exception as exc:
+        logger.debug("[AutoDream] LLM evolution distill failed: %s", exc)
+
+    return None
+
+
+def _mechanical_distill_blocklist(ws_root: Path) -> list[dict]:
+    """Fallback: extract blocklist entries as blocked_pattern facts."""
+    blocklist_path = ws_root / "evolution" / "blocklist.md"
+    if not blocklist_path.exists():
+        return []
+    try:
+        text = blocklist_path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return []
+
+    now = datetime.now(timezone.utc).isoformat()
+    facts: list[dict] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith("- ") and len(line) > 10:
+            facts.append({
+                "content": line[2:].strip()[:200],
+                "category": "blocked_pattern",
+                "subject": "evolution_digest",
+                "timestamp": now,
+            })
+    return facts[:10]
 
 
 def _write_to_workspaces(agent_id: uuid.UUID, rel_path: str, content: str) -> None:
