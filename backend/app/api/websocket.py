@@ -412,17 +412,55 @@ async def websocket_chat(
 
         runtime_session_context = await manager.get_or_create_runtime_session(agent_id_str, conv_id)
 
+        # Idle dream: extract memories while user is away, before session closes.
+        # Phase 1: After DREAM_IDLE seconds of no input → run persist_runtime_memory
+        # Phase 2: After WS_IDLE_TIMEOUT seconds total → close connection
+        import asyncio as _aio_idle
+        _DREAM_IDLE_SECONDS = int(os.environ.get("WS_IDLE_DREAM_SECONDS", "180"))
+        _idle_timeout = int(os.environ.get("WS_IDLE_TIMEOUT_SECONDS", "600"))
+        _idle_dreamed = False
+
         while True:
             logger.info(f"[WS] Waiting for message from {agent_name}...")
-            import asyncio as _aio_idle
+            # Pick timeout: dream threshold first, then full idle close
+            _wait_timeout = _DREAM_IDLE_SECONDS if (not _idle_dreamed and _DREAM_IDLE_SECONDS > 0 and len(conversation) > 1) else _idle_timeout
             try:
-                _idle_timeout = int(os.environ.get("WS_IDLE_TIMEOUT_SECONDS", "300"))
-                data = await _aio_idle.wait_for(websocket.receive_json(), timeout=_idle_timeout)
+                data = await _aio_idle.wait_for(websocket.receive_json(), timeout=_wait_timeout)
             except _aio_idle.TimeoutError:
-                logger.info(f"[WS] Idle timeout ({_idle_timeout}s) for {agent_name}, closing")
-                await websocket.send_json({"type": "info", "content": "Connection closed due to inactivity. Reconnect to continue."})
-                await websocket.close(code=1000)
-                return
+                if not _idle_dreamed and _DREAM_IDLE_SECONDS > 0 and len(conversation) > 1:
+                    # Phase 1: Idle dream — extract memories while user is away
+                    _idle_dreamed = True
+                    logger.info("[WS] Idle dream triggered for %s (session %s)", agent_name, conv_id)
+                    try:
+                        await websocket.send_json({"type": "dreaming", "status": "started"})
+                        from app.services.memory_service import persist_runtime_memory
+                        if agent.tenant_id:
+                            await _aio_idle.wait_for(
+                                persist_runtime_memory(
+                                    agent_id=agent_id,
+                                    session_id=conv_id,
+                                    tenant_id=agent.tenant_id,
+                                    messages=conversation,
+                                ),
+                                timeout=15.0,
+                            )
+                        await websocket.send_json({"type": "dreaming", "status": "completed"})
+                        logger.info("[WS] Idle dream completed for %s", agent_name)
+                    except Exception as _dream_err:
+                        logger.debug("[WS] Idle dream failed (non-fatal): %s", _dream_err)
+                        try:
+                            await websocket.send_json({"type": "dreaming", "status": "completed"})
+                        except Exception as _ws_err:
+                            logger.debug("[WS] Failed to send dream completion event: %s", _ws_err)
+                    continue  # Back to waiting for user messages
+                else:
+                    # Phase 2: Full idle timeout — close connection
+                    logger.info(f"[WS] Idle timeout ({_idle_timeout}s) for {agent_name}, closing")
+                    await websocket.send_json({"type": "info", "content": "Connection closed due to inactivity. Reconnect to continue."})
+                    await websocket.close(code=1000)
+                    return
+            # User sent a message — reset dream flag
+            _idle_dreamed = False
             content = data.get("content", "")
             display_content = data.get("display_content", "")  # User-facing display text
             file_name = data.get("file_name", "")  # Original file name for attachment display
