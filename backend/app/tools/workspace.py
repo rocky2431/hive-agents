@@ -69,6 +69,50 @@ def _bootstrap_evolution_files(ws: Path) -> None:
             fpath.write_text(content, encoding="utf-8")
 
 
+_HEARTBEAT_MIGRATION_MARKER = "Phase 5: PASSIVE LEARNING"
+_DEPRECATED_SKILLS = ("self-improving-agent", "proactive-agent")
+
+
+def migrate_all_workspaces() -> None:
+    """One-time migration: update HEARTBEAT.md + remove deprecated skills for all agents."""
+    if not WORKSPACE_ROOT.exists():
+        return
+    try:
+        hb_template = _HEARTBEAT_TEMPLATE_PATH.read_text(encoding="utf-8")
+    except Exception:
+        logger.warning("[migrate] Cannot read HEARTBEAT.md template, skipping migration")
+        return
+
+    migrated = 0
+    for agent_dir in WORKSPACE_ROOT.iterdir():
+        if not agent_dir.is_dir():
+            continue
+        # Update HEARTBEAT.md if it's the old version
+        hb_path = agent_dir / "HEARTBEAT.md"
+        if hb_path.exists():
+            try:
+                current = hb_path.read_text(encoding="utf-8")
+                if _HEARTBEAT_MIGRATION_MARKER not in current:
+                    hb_path.write_text(hb_template, encoding="utf-8")
+                    migrated += 1
+            except Exception as e:
+                logger.warning("[migrate] Failed to update HEARTBEAT.md for %s: %s", agent_dir.name, e)
+
+        # Remove deprecated skill folders
+        skills_dir = agent_dir / "skills"
+        for skill_name in _DEPRECATED_SKILLS:
+            skill_path = skills_dir / skill_name
+            if skill_path.exists():
+                try:
+                    shutil.rmtree(skill_path)
+                    logger.info("[migrate] Removed deprecated skill %s from %s", skill_name, agent_dir.name)
+                except Exception as e:
+                    logger.warning("[migrate] Failed to remove %s from %s: %s", skill_name, agent_dir.name, e)
+
+    if migrated:
+        logger.info("[migrate] Updated HEARTBEAT.md for %d agent(s)", migrated)
+
+
 async def ensure_workspace(agent_id: uuid.UUID, tenant_id: str | None = None) -> Path:
     """Initialize agent workspace with standard structure."""
     ws = WORKSPACE_ROOT / str(agent_id)

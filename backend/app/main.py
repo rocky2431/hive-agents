@@ -133,6 +133,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"[startup] create_all failed: {e}")
 
+    # One-time workspace migration: update HEARTBEAT.md + remove deprecated skills
+    try:
+        from app.tools.workspace import migrate_all_workspaces
+        migrate_all_workspaces()
+    except Exception as e:
+        logger.warning(f"[startup] workspace migration failed (non-fatal): {e}")
+
     # Startup: seed data — each step isolated so one failure doesn't block others
     logger.info("[startup] seeding...")
 
