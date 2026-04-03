@@ -45,6 +45,7 @@ interface AgentChatSectionProps {
   runtimeSummary: ChatRuntimeSummary | null;
   transportNotice: string | null;
   isWaiting: boolean;
+  isDreaming?: boolean;
   chatEndRef: React.RefObject<HTMLDivElement | null>;
   showScrollBtn: boolean;
   onScrollToBottom: () => void;
@@ -94,6 +95,7 @@ export default function AgentChatSection({
   runtimeSummary,
   transportNotice,
   isWaiting,
+  isDreaming,
   chatEndRef,
   showScrollBtn,
   onScrollToBottom,
@@ -992,6 +994,12 @@ export default function AgentChatSection({
                       <span style={{ color: 'var(--text-tertiary)', fontSize: '13px' }}>{t('agent.chat.thinking', 'Thinking...')}</span>
                     </div>
                   </div>
+                </div>
+              )}
+              {isDreaming && !isWaiting && !isStreaming && (
+                <div className="dreaming-banner" style={{ animation: 'fadeIn .3s ease' }}>
+                  <div className="dreaming-pulse" />
+                  <span>{t('agent.chat.dreaming', 'Consolidating memories...')}</span>
                 </div>
               )}
               <div ref={chatEndRef} />

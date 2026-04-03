@@ -386,6 +386,7 @@
       "uploadFailed": "上传失败，请重试",
       "askAboutFile": "关于 {{name}} 的问题...",
       "thinking": "思考中...",
+      "dreaming": "正在整理记忆...",
       "runtime": {
         "model": "模型",
         "remaining": "剩余上下文",

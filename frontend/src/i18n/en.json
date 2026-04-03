@@ -387,6 +387,7 @@
       "uploadFailed": "Upload failed — please try again",
       "askAboutFile": "Ask about {{name}}...",
       "thinking": "Thinking...",
+      "dreaming": "Consolidating memories...",
       "runtime": {
         "model": "Model",
         "remaining": "Context remaining",
