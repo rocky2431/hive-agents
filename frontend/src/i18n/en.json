@@ -1166,7 +1166,8 @@
       "slack": "Slack",
       "teams": "Microsoft Teams",
       "dingtalk": "DingTalk",
-      "wecom": "WeCom"
+      "wecom": "WeCom",
+      "telegram": "Telegram"
     }
   },
   "admin": {
@@ -1321,6 +1322,14 @@
       "tenantId": "Tenant ID (Directory ID)",
       "tenantIdPlaceholder": "Enter your Tenant ID",
       "tenantIdHint": "Required for single-tenant apps. Find it in Azure AD → App registrations → your app → Overview."
+    },
+    "telegram": {
+      "step1": "Open Telegram, search for @BotFather, and start a chat",
+      "step2": "Send /newbot and follow the prompts — choose a name and username for your bot",
+      "step3": "BotFather will give you a Bot Token (looks like 123456:ABC-DEF...) — copy it",
+      "step4": "Paste the Bot Token above and click Save Connection",
+      "step5": "Find your bot in Telegram by its username and send a message to test",
+      "note": "The webhook is registered automatically when you save. Your server must be publicly accessible."
     },
     "dingtalk": {
       "step1": "Go to open.dingtalk.com → log in → go to App Development → Create Internal App → enter a name",

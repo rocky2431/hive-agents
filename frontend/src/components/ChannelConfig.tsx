@@ -213,6 +213,19 @@ const CHANNEL_REGISTRY: ChannelDef[] = [
         ],
         guide: { prefix: 'channelGuide.agentbay', steps: 3 },
     },
+    {
+        id: 'telegram',
+        icon: <span style={{ fontSize: '20px' }}>✈️</span>,
+        nameKey: 'common.channels.telegram',
+        nameFallback: 'Telegram',
+        desc: 'Telegram Bot',
+        apiSlug: 'telegram-channel',
+        editOnly: true,
+        fields: [
+            { key: 'bot_token', label: 'Bot Token', type: 'password' as const, required: true },
+        ],
+        guide: { prefix: 'channelGuide.telegram', steps: 5 },
+    },
 ];
 
 // Channels hidden from UI (kept in registry for future use)

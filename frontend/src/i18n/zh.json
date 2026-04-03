@@ -1157,7 +1157,8 @@
       "slack": "Slack",
       "teams": "Microsoft Teams",
       "dingtalk": "钉钉",
-      "wecom": "企业微信"
+      "wecom": "企业微信",
+      "telegram": "Telegram"
     }
   },
   "admin": {
@@ -1312,6 +1313,14 @@
       "tenantId": "租户 ID（目录 ID）",
       "tenantIdPlaceholder": "请输入租户 ID",
       "tenantIdHint": "单租户应用必填，请在 Azure AD → 应用注册 → 你的应用 → 概述 中复制。"
+    },
+    "telegram": {
+      "step1": "打开 Telegram，搜索 @BotFather 并开始对话",
+      "step2": "发送 /newbot，按提示为机器人取名和用户名",
+      "step3": "BotFather 会给你一个 Bot Token（形如 123456:ABC-DEF...）— 复制它",
+      "step4": "将 Bot Token 粘贴到上方，点击保存连接",
+      "step5": "在 Telegram 中搜索你的机器人用户名，发消息测试",
+      "note": "保存后会自动注册 Webhook。服务器需要公网可访问。"
     },
     "dingtalk": {
       "step1": "打开 open.dingtalk.com → 登录 → 进入应用开发 → 创建企业内部应用 → 填写名称",
