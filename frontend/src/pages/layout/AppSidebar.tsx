@@ -144,13 +144,13 @@ export default function AppSidebar({
         </div>
 
         <div className="sidebar-section">
-          <NavLink to="/plaza" className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`} data-tooltip={isSidebarCollapsed ? t('nav.plaza', 'Plaza') : undefined}>
+          <NavLink to="/plaza" className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`}>
             <span className="sidebar-item-icon" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
               <IconBuildingMonument size={14} stroke={1.5} />
             </span>
             <span className="sidebar-item-text">{t('nav.plaza', 'Plaza')}</span>
           </NavLink>
-          <NavLink to="/dashboard" className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`} data-tooltip={isSidebarCollapsed ? t('nav.dashboard') : undefined}>
+          <NavLink to="/dashboard" className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`}>
             <span className="sidebar-item-icon" style={{ display: 'flex' }}>{sidebarIcons.home}</span>
             <span className="sidebar-item-text">{t('nav.dashboard')}</span>
           </NavLink>
@@ -225,7 +225,7 @@ export default function AppSidebar({
           const avatarChar = ((Array.from(agent.name || '?')[0] as string) || '?').toUpperCase();
           return (
             <div key={agent.id} style={{ position: 'relative' }} className={`sidebar-agent-item${agent.creator_id === user?.id ? ' owned' : ''}`}>
-              <NavLink to={`/agents/${agent.id}`} className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`} title={agent.name} data-tooltip={isSidebarCollapsed ? agent.name : undefined}>
+              <NavLink to={`/agents/${agent.id}`} className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`} title={agent.name}>
                 <span className="sidebar-item-icon" style={{ position: 'relative' }}>
                   <span className={`agent-avatar${agent.agent_type === 'openclaw' ? ' openclaw' : ''}`}>{avatarChar}</span>
                   {agent.agent_type === 'openclaw' && (
@@ -276,13 +276,13 @@ export default function AppSidebar({
       <div className="sidebar-bottom">
         <div className="sidebar-section" style={{ borderBottom: '1px solid var(--border-subtle)', paddingBottom: '8px', marginBottom: 0 }}>
           {user && (
-            <NavLink to="/agents/new" className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`} title={t('nav.newAgent')} data-tooltip={isSidebarCollapsed ? t('nav.newAgent') : undefined}>
+            <NavLink to="/agents/new" className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`} title={t('nav.newAgent')}>
               <span className="sidebar-item-icon" style={{ display: 'flex' }}>{sidebarIcons.plus}</span>
               <span className="sidebar-item-text">{t('nav.newAgent')}</span>
             </NavLink>
           )}
           {user && ['platform_admin', 'org_admin'].includes(user.role) && (
-            <NavLink to="/enterprise" className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`} title={t('nav.enterprise')} data-tooltip={isSidebarCollapsed ? t('nav.enterprise') : undefined}>
+            <NavLink to="/enterprise" className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`} title={t('nav.enterprise')}>
               <span className="sidebar-item-icon" style={{ display: 'flex' }}>
                 <IconBuilding size={16} stroke={1.5} />
               </span>
@@ -294,7 +294,6 @@ export default function AppSidebar({
               to="/admin/platform-settings"
               className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`}
               title={t('nav.platformSettings', 'Platform Settings')}
-              data-tooltip={isSidebarCollapsed ? t('nav.platformSettings', 'Platform Settings') : undefined}
             >
               <span className="sidebar-item-icon" style={{ display: 'flex' }}>
                 <IconSettings size={16} stroke={1.5} />

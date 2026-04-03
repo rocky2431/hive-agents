@@ -180,12 +180,6 @@ export function summarizeCrossAgentToolFailures(
     };
 }
 
-const ChevronDown = () => (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M3.5 5.25l3.5 3.5 3.5-3.5" />
-    </svg>
-);
-
 export function ToolFailureOverview({
     summaries,
     onSelectAgent,
@@ -195,12 +189,6 @@ export function ToolFailureOverview({
 }) {
     const { t } = useTranslation();
     const overview = summarizeCrossAgentToolFailures(summaries);
-    const [isOpen, setIsOpen] = useState(overview.totalErrors > 0);
-
-    // Auto-expand when errors appear after mount
-    useEffect(() => {
-        if (overview.totalErrors > 0) setIsOpen(true);
-    }, [overview.totalErrors]);
 
     const pillStyle: CSSProperties = {
         display: 'inline-flex',
@@ -241,56 +229,59 @@ export function ToolFailureOverview({
     );
 
     return (
-        <div className="collapsible-section">
-            <div className="collapsible-header" onClick={() => setIsOpen(!isOpen)} role="button" aria-expanded={isOpen} tabIndex={0} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIsOpen(!isOpen); } }}>
-                <h3>
+        <div style={{
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 'var(--radius-lg)',
+            overflow: 'hidden',
+            marginBottom: '32px',
+        }}>
+            <div style={{
+                padding: '12px 16px',
+                borderBottom: '1px solid var(--border-subtle)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+            }}>
+                <h3 style={{
+                    margin: 0,
+                    fontSize: '13px',
+                    fontWeight: 500,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    color: 'var(--text-secondary)',
+                }}>
                     <span style={{ display: 'flex', opacity: 0.6 }}>{Icons.activity}</span>
                     {t('dashboard.toolFailuresTitle')}
-                    {overview.totalErrors > 0 && (
-                        <span style={{
-                            fontSize: '11px', fontWeight: 500, padding: '1px 6px',
-                            borderRadius: 'var(--radius-full)', background: 'var(--error-subtle)',
-                            color: 'var(--error)',
-                        }}>
-                            {overview.totalErrors}
-                        </span>
-                    )}
                 </h3>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
-                        {t('dashboard.toolFailuresWindow', { count: 24 })}
-                    </span>
-                    <span className={`collapsible-chevron ${isOpen ? 'open' : ''}`} aria-hidden="true"><ChevronDown /></span>
-                </div>
+                <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                    {t('dashboard.toolFailuresWindow', { count: 24 })}: {overview.totalErrors}
+                </span>
             </div>
-            <div className={`collapsible-body ${isOpen ? 'open' : ''}`}>
-                <div>
-                    <div style={{ padding: '16px', display: 'grid', gap: '16px', borderTop: '1px solid var(--border-subtle)' }}>
-                        {renderCountList(
-                            t('dashboard.topFailingAgents'),
-                            overview.byAgent,
-                            t('dashboard.noToolFailures'),
-                            (row, index) => (
-                                <button
-                                    key={`${row.label}-${index}`}
-                                    type="button"
-                                    style={{
-                                        ...pillStyle,
-                                        cursor: onSelectAgent ? 'pointer' : 'default',
-                                    }}
-                                    onClick={() => onSelectAgent?.(row.agentId)}
-                                >
-                                    <span>{row.label}</span>
-                                    <span style={{ color: 'var(--text-tertiary)' }}>{row.count}</span>
-                                </button>
-                            ),
-                        )}
-                        {renderCountList(t('dashboard.topFailingTools'), overview.byTool, t('dashboard.noToolFailures'))}
-                        {renderCountList(t('dashboard.topProviders'), overview.byProvider, t('dashboard.noToolFailures'))}
-                        {renderCountList(t('dashboard.topErrorClasses'), overview.byErrorClass, t('dashboard.noToolFailures'))}
-                        {renderCountList(t('dashboard.topHttpStatuses'), overview.byHttpStatus, t('dashboard.noToolFailures'))}
-                    </div>
-                </div>
+            <div style={{ padding: '16px', display: 'grid', gap: '16px' }}>
+                {renderCountList(
+                    t('dashboard.topFailingAgents'),
+                    overview.byAgent,
+                    t('dashboard.noToolFailures'),
+                    (row, index) => (
+                        <button
+                            key={`${row.label}-${index}`}
+                            type="button"
+                            style={{
+                                ...pillStyle,
+                                cursor: onSelectAgent ? 'pointer' : 'default',
+                            }}
+                            onClick={() => onSelectAgent?.(row.agentId)}
+                        >
+                            <span>{row.label}</span>
+                            <span style={{ color: 'var(--text-tertiary)' }}>{row.count}</span>
+                        </button>
+                    ),
+                )}
+                {renderCountList(t('dashboard.topFailingTools'), overview.byTool, t('dashboard.noToolFailures'))}
+                {renderCountList(t('dashboard.topProviders'), overview.byProvider, t('dashboard.noToolFailures'))}
+                {renderCountList(t('dashboard.topErrorClasses'), overview.byErrorClass, t('dashboard.noToolFailures'))}
+                {renderCountList(t('dashboard.topHttpStatuses'), overview.byHttpStatus, t('dashboard.noToolFailures'))}
             </div>
         </div>
     );
@@ -540,39 +531,6 @@ function ActivityFeed({ activities, agents }: { activities: any[]; agents: Agent
     );
 }
 
-/* ────── Collapsible Activity Feed ────── */
-
-function CollapsibleActivity({ activities, agents }: { activities: any[]; agents: Agent[] }) {
-    const { t } = useTranslation();
-    const [isOpen, setIsOpen] = useState(false);
-
-    return (
-        <div className="collapsible-section">
-            <div className="collapsible-header" onClick={() => setIsOpen(!isOpen)} role="button" aria-expanded={isOpen} tabIndex={0} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIsOpen(!isOpen); } }}>
-                <h3>
-                    <span style={{ display: 'flex', opacity: 0.6 }}>{Icons.activity}</span>
-                    {t('dashboard.globalActivity')}
-                    {activities.length > 0 && (
-                        <span style={{
-                            fontSize: '11px', fontWeight: 400, color: 'var(--text-tertiary)',
-                        }}>
-                            ({activities.length})
-                        </span>
-                    )}
-                </h3>
-                <span className={`collapsible-chevron ${isOpen ? 'open' : ''}`} aria-hidden="true"><ChevronDown /></span>
-            </div>
-            <div className={`collapsible-body ${isOpen ? 'open' : ''}`}>
-                <div>
-                    <div style={{ padding: '4px', maxHeight: '320px', overflowY: 'auto', borderTop: '1px solid var(--border-subtle)' }}>
-                        <ActivityFeed activities={activities} agents={agents} />
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-}
-
 /* ────── Main Dashboard ────── */
 
 export default function Dashboard() {
@@ -681,75 +639,56 @@ export default function Dashboard() {
                     {t('common.loading')}
                 </div>
             ) : agents.length === 0 ? (
-                <div style={{ maxWidth: '520px', margin: '0 auto', padding: '56px 0' }}>
-                    {/* Welcome hero */}
-                    <div style={{ textAlign: 'center', marginBottom: '36px' }}>
-                        <div style={{
-                            width: '56px', height: '56px', borderRadius: '16px',
-                            background: 'var(--accent-subtle)', border: '1px solid var(--border-subtle)',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            margin: '0 auto 16px', color: 'var(--accent-text)',
-                        }}>
+                <div style={{ maxWidth: '560px', margin: '0 auto', padding: '48px 0' }}>
+                    <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+                        <div style={{ fontSize: '40px', marginBottom: '12px' }}>
                             {Icons.bot}
                         </div>
-                        <h2 style={{ fontSize: 'var(--text-2xl)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '8px', letterSpacing: '-0.02em' }}>
+                        <h2 style={{ fontSize: 'var(--text-xl)', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '8px' }}>
                             {t('dashboard.emptyTitle')}
                         </h2>
-                        <p style={{ fontSize: 'var(--text-base)', color: 'var(--text-secondary)', lineHeight: 1.6, maxWidth: '420px', margin: '0 auto' }}>
+                        <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', lineHeight: 1.6, maxWidth: '440px', margin: '0 auto' }}>
                             {t('dashboard.emptyDesc')}
                         </p>
                     </div>
 
-                    {/* Primary CTA — prominent, above templates */}
-                    <div style={{ textAlign: 'center', marginBottom: '28px' }}>
-                        <button
-                            className="btn btn-primary"
-                            onClick={() => navigate('/agents/new')}
-                            style={{ height: '42px', padding: '0 24px', fontSize: 'var(--text-base)', gap: '8px' }}
-                        >
-                            {Icons.plus} {t('dashboard.createFirst')}
-                        </button>
-                        <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: '10px', lineHeight: 1.5 }}>
-                            {t('dashboard.emptyHint')}
-                        </p>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '24px' }}>
+                        {([
+                            { key: 'Researcher', icon: '🔍' },
+                            { key: 'PM', icon: '📋' },
+                            { key: 'Support', icon: '💬' },
+                            { key: 'Writer', icon: '✏️' },
+                        ] as const).map(tmpl => (
+                            <button
+                                key={tmpl.key}
+                                className="btn btn-secondary"
+                                onClick={() => navigate('/agents/new')}
+                                style={{
+                                    display: 'flex', alignItems: 'flex-start', gap: '10px',
+                                    padding: '14px 16px', textAlign: 'left', height: 'auto',
+                                    borderRadius: 'var(--radius-lg)',
+                                }}
+                            >
+                                <span style={{ fontSize: '18px', lineHeight: 1 }}>{tmpl.icon}</span>
+                                <span>
+                                    <span style={{ display: 'block', fontSize: 'var(--text-sm)', fontWeight: 500, color: 'var(--text-primary)' }}>
+                                        {t(`dashboard.template${tmpl.key}`)}
+                                    </span>
+                                    <span style={{ display: 'block', fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: '2px', lineHeight: 1.4 }}>
+                                        {t(`dashboard.template${tmpl.key}Desc`)}
+                                    </span>
+                                </span>
+                            </button>
+                        ))}
                     </div>
 
-                    {/* Template suggestions — secondary, for inspiration */}
-                    <div style={{
-                        borderTop: '1px solid var(--border-subtle)', paddingTop: '24px',
-                    }}>
-                        <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600, marginBottom: '12px', textAlign: 'center' }}>
-                            {t('dashboard.emptyTemplatesLabel', 'Or start with a template')}
+                    <div style={{ textAlign: 'center' }}>
+                        <button className="btn btn-primary" onClick={() => navigate('/agents/new')}>
+                            {Icons.plus} {t('dashboard.createFirst')}
+                        </button>
+                        <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: '10px' }}>
+                            {t('dashboard.emptyHint')}
                         </p>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                            {([
-                                { key: 'Researcher', icon: Icons.zap },
-                                { key: 'PM', icon: Icons.tasks },
-                                { key: 'Support', icon: Icons.users },
-                                { key: 'Writer', icon: Icons.activity },
-                            ] as const).map(tmpl => (
-                                <button
-                                    key={tmpl.key}
-                                    className="btn btn-secondary"
-                                    onClick={() => navigate('/agents/new')}
-                                    style={{
-                                        display: 'flex', alignItems: 'flex-start', gap: '10px',
-                                        padding: '12px 14px', textAlign: 'left', height: 'auto',
-                                        borderRadius: 'var(--radius-lg)',
-                                    }}
-                                >
-                                    <span style={{ display: 'flex', color: 'var(--text-tertiary)', flexShrink: 0, marginTop: '1px' }}>{tmpl.icon}</span>
-                                    <span>
-                                        <span style={{ display: 'block', fontSize: 'var(--text-sm)', fontWeight: 500, color: 'var(--text-primary)' }}>
-                                            {t(`dashboard.template${tmpl.key}`)}
-                                        </span>
-                                        <span style={{ display: 'block', fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: '2px', lineHeight: 1.4 }}>
-                                            {t(`dashboard.template${tmpl.key}Desc`)}
-                                        </span>
-                                    </span>
-                                </button>
-                            ))}
-                        </div>
                     </div>
                 </div>
             ) : (
@@ -806,8 +745,29 @@ export default function Dashboard() {
                         </div>
                     </div>
 
-                    {/* Recent Activity — collapsed by default */}
-                    <CollapsibleActivity activities={allActivities} agents={agents} />
+                    {/* Recent Activity */}
+                    <div style={{
+                        border: '1px solid var(--border-subtle)',
+                        borderRadius: 'var(--radius-lg)', overflow: 'hidden',
+                    }}>
+                        <div style={{
+                            padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        }}>
+                            <h3 style={{
+                                margin: 0, fontSize: '13px', fontWeight: 500,
+                                display: 'flex', alignItems: 'center', gap: '6px',
+                                color: 'var(--text-secondary)',
+                            }}>
+                                <span style={{ display: 'flex', opacity: 0.6 }}>{Icons.activity}</span>
+                                {t('dashboard.globalActivity')}
+                            </h3>
+                            <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{t('dashboard.recentCount', { count: 20 })}</span>
+                        </div>
+                        <div style={{ padding: '4px', maxHeight: '320px', overflowY: 'auto' }}>
+                            <ActivityFeed activities={allActivities} agents={agents} />
+                        </div>
+                    </div>
                 </>
             )}
         </div>

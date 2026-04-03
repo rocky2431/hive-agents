@@ -159,7 +159,6 @@
     "emptyTitle": "欢迎使用 HiveClaw",
     "emptyDesc": "数字员工可以搜索网络、撰写文档、发送消息、分析数据，并通过飞书、Slack 等渠道自主工作。",
     "emptyHint": "告诉入职助手你的需求，它会为你创建合适的员工。",
-    "emptyTemplatesLabel": "或从模板开始",
     "templateResearcher": "市场研究员",
     "templateResearcherDesc": "跟踪行业新闻、监测竞品动态、整理分析报告",
     "templatePM": "项目经理",
@@ -212,12 +211,7 @@
       "activityLogTooltip": "完整的操作、消息和系统事件记录",
       "approvals": "审批",
       "approvalsTooltip": "需要你确认后才能继续的操作",
-      "settings": "设置",
-      "hintGrouped": "使用「配置」和「管理」菜单访问工具、技能、工作区等更多功能。",
-      "groupConfigure": "配置",
-      "groupConfigureDesc": "设置意识、人格、工具和技能",
-      "groupManage": "管理",
-      "groupManageDesc": "工作区、关系、日志和审批"
+      "settings": "设置"
     },
     "fields": {
       "name": "名称",

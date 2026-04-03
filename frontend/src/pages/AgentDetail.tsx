@@ -39,15 +39,13 @@ import { useAuthStore } from '../stores';
 
 const TABS = ['status', 'aware', 'mind', 'tools', 'skills', 'relationships', 'workspace', 'chat', 'activityLog', 'approvals', 'settings'] as const;
 
-/** Primary tabs — always visible */
-const PRIMARY_TABS: (typeof TABS[number])[] = ['status', 'chat'];
-
-/** Grouped tabs — shown in dropdown menus to reduce cognitive load */
-const TAB_DROPDOWN_GROUPS: { key: string; i18nKey: string; tabs: (typeof TABS[number])[] }[] = [
-    { key: 'configure', i18nKey: 'groupConfigure', tabs: ['aware', 'mind', 'tools', 'skills'] },
-    { key: 'manage', i18nKey: 'groupManage', tabs: ['workspace', 'relationships', 'activityLog', 'approvals', 'settings'] },
+/** Visual grouping of tabs for the tab bar — groups are separated by thin dividers */
+const TAB_GROUPS: { tabs: (typeof TABS[number])[]; }[] = [
+    { tabs: ['status', 'chat'] },
+    { tabs: ['aware', 'mind', 'tools', 'skills'] },
+    { tabs: ['workspace', 'relationships', 'activityLog', 'approvals'] },
+    { tabs: ['settings'] },
 ];
-
 
 function AgentDetailInner() {
     const { t, i18n } = useTranslation();
@@ -55,28 +53,13 @@ function AgentDetailInner() {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
     const location = useLocation();
-    const validTabs: string[] = [...TABS];
+    const validTabs = ['status', 'aware', 'mind', 'tools', 'skills', 'relationships', 'workspace', 'chat', 'activityLog', 'approvals', 'settings'];
     const hashTab = location.hash?.replace('#', '');
     const [activeTab, setActiveTabRaw] = useState<string>(hashTab && validTabs.includes(hashTab) ? hashTab : 'status');
-    const [openDropdown, setOpenDropdown] = useState<string | null>(null);
-    const [tabsHintDismissed, setTabsHintDismissed] = useState(() => !!localStorage.getItem('hive-tabs-hint-dismissed'));
-    const dropdownRef = useRef<HTMLDivElement | null>(null);
-
-    // Close dropdown when clicking outside
-    useEffect(() => {
-        const handleClickOutside = (e: MouseEvent) => {
-            if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-                setOpenDropdown(null);
-            }
-        };
-        if (openDropdown) document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, [openDropdown]);
 
     // Sync URL hash when tab changes
     const setActiveTab = (tab: string) => {
         setActiveTabRaw(tab);
-        setOpenDropdown(null);
         window.history.replaceState(null, '', `#${tab}`);
     };
 
@@ -85,17 +68,6 @@ function AgentDetailInner() {
         queryFn: () => agentApi.getById(id!),
         enabled: !!id,
     });
-
-    /** Filter tabs by agent type and access level */
-    const isTabVisible = (tab: string) => {
-        if ((agent as any)?.access_level === 'use') {
-            if (tab === 'settings' || tab === 'approvals') return false;
-        }
-        if ((agent as any)?.agent_type === 'openclaw') {
-            return ['status', 'relationships', 'chat', 'activityLog', 'settings'].includes(tab);
-        }
-        return true;
-    };
 
     // ── Aware tab data: triggers ──
     const { data: awareTriggers = [], refetch: refetchTriggers } = useQuery({
@@ -1130,91 +1102,38 @@ function AgentDetailInner() {
                 </div>
                 )}
 
-                {/* First-visit hint for grouped tabs — shown once, dismissed via localStorage */}
-                {!isSystemHr && !tabsHintDismissed && (
-                    <div className="onboarding-hint">
-                        <span style={{ flex: 1 }}>
-                            {t('agent.tabs.hintGrouped', 'Use the Configure and Manage menus to access tools, skills, workspace, and more.')}
-                        </span>
-                        <button
-                            style={{ background: 'none', border: 'none', color: 'inherit', opacity: 0.6, cursor: 'pointer', padding: '2px 4px', fontSize: '14px', lineHeight: 1, flexShrink: 0 }}
-                            onClick={() => {
-                                setTabsHintDismissed(true);
-                                localStorage.setItem('hive-tabs-hint-dismissed', '1');
-                            }}
-                            aria-label="Dismiss"
-                        >
-                            ×
-                        </button>
-                    </div>
-                )}
-
                 {/* Tabs — hidden for HR system agent */}
-                {/* Primary tabs always visible; secondary tabs grouped into dropdowns */}
                 {!isSystemHr && (
-                <div className="tabs" ref={dropdownRef}>
-                    {/* Primary tabs: Overview, Chat */}
-                    {PRIMARY_TABS.filter(isTabVisible).map(tab => (
-                        <button
-                            key={tab}
-                            role="tab"
-                            aria-selected={activeTab === tab}
-                            className={`tab ${activeTab === tab ? 'active' : ''}`}
-                            onClick={() => setActiveTab(tab)}
-                            title={t(`agent.tabs.${tab}Tooltip`, { defaultValue: '' }) || undefined}
-                        >
-                            {t(`agent.tabs.${tab}`)}
-                        </button>
-                    ))}
-
-                    {/* Grouped dropdown tabs */}
-                    {TAB_DROPDOWN_GROUPS.map(group => {
-                        const visibleTabs = group.tabs.filter(isTabVisible);
+                <div className="tabs">
+                    {TAB_GROUPS.map((group, gi) => {
+                        const visibleTabs = group.tabs.filter(tab => {
+                            if ((agent as any)?.access_level === 'use') {
+                                if (tab === 'settings' || tab === 'approvals') return false;
+                            }
+                            if ((agent as any)?.agent_type === 'openclaw') {
+                                return ['status', 'relationships', 'chat', 'activityLog', 'settings'].includes(tab);
+                            }
+                            return true;
+                        });
                         if (visibleTabs.length === 0) return null;
-                        const hasActiveChild = visibleTabs.includes(activeTab as typeof TABS[number]);
-                        const isOpen = openDropdown === group.key;
-                        const activeChildLabel = hasActiveChild ? t(`agent.tabs.${activeTab}`) : null;
                         return (
-                            <div key={group.key} className={`tab-dropdown ${isOpen ? 'open' : ''}`}>
-                                <div className="tab-separator" />
-                                <button
-                                    className={`tab-dropdown-trigger ${hasActiveChild ? 'has-active' : ''}`}
-                                    onClick={() => setOpenDropdown(isOpen ? null : group.key)}
-                                    aria-expanded={isOpen}
-                                    aria-haspopup="true"
-                                >
-                                    {t(`agent.tabs.${group.i18nKey}`)}
-                                    {activeChildLabel && (
-                                        <span style={{ fontSize: 'var(--text-xs)', opacity: 0.7, marginLeft: '2px' }}>
-                                            · {activeChildLabel}
-                                        </span>
-                                    )}
-                                    <svg className="tab-dropdown-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                        <path d="M3 4.5l3 3 3-3" />
-                                    </svg>
-                                </button>
-                                {isOpen && (
-                                    <div className="tab-dropdown-menu" role="menu">
-                                        {visibleTabs.map(tab => (
-                                            <button
-                                                key={tab}
-                                                role="menuitem"
-                                                className={`tab-dropdown-item ${activeTab === tab ? 'active' : ''}`}
-                                                onClick={() => setActiveTab(tab)}
-                                            >
-                                                <div>
-                                                    <div>{t(`agent.tabs.${tab}`)}</div>
-                                                    {t(`agent.tabs.${tab}Tooltip`, { defaultValue: '' }) && (
-                                                        <div className="tab-dropdown-item-desc">
-                                                            {t(`agent.tabs.${tab}Tooltip`, { defaultValue: '' })}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </button>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
+                            <React.Fragment key={gi}>
+                                {gi > 0 && <div className="tab-separator" />}
+                                {visibleTabs.map(tab => {
+                                    const tooltipKey = `agent.tabs.${tab}Tooltip`;
+                                    const tooltip = t(tooltipKey, { defaultValue: '' });
+                                    return (
+                                        <div
+                                            key={tab}
+                                            className={`tab ${activeTab === tab ? 'active' : ''}`}
+                                            onClick={() => setActiveTab(tab)}
+                                            title={tooltip || undefined}
+                                        >
+                                            {t(`agent.tabs.${tab}`)}
+                                        </div>
+                                    );
+                                })}
+                            </React.Fragment>
                         );
                     })}
                 </div>
