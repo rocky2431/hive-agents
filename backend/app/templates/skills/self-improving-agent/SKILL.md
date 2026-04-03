@@ -6,7 +6,7 @@ tools:
   - read_file
   - execute_code
 is_system: true
-is_default: true
+is_default: false  # Merged into HEARTBEAT.md native protocol (2026-04-03)
 ---
 
 # Self-Improving Agent
