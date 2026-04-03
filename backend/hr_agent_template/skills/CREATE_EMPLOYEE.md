@@ -27,6 +27,7 @@ Collect just enough information to fill:
 - `boundaries`
 - `permission_scope`
 - `skill_names`
+- `external_skill_urls`
 - `mcp_server_ids`
 - `clawhub_slugs`
 - `triggers`
@@ -74,6 +75,14 @@ Only call:
 search_clawhub(query="...")
 ```
 when builtin/default skills and MCP do not give a clean path.
+
+### For third-party GitHub / skills.sh skills, keep installable URLs
+
+Do NOT put marketplace display names into `skill_names`.
+
+- `skill_names` is only for platform skills that already exist in the registry
+- ClawHub results go into `clawhub_slugs`
+- GitHub / skills.sh packages go into `external_skill_urls`
 
 ## Step 3 — Preview Before Create
 

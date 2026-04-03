@@ -35,6 +35,8 @@ def build_capability_install_plan(
     skill_names: list[str] | None = None,
     mcp_server_ids: list[str] | None = None,
     clawhub_slugs: list[str] | None = None,
+    external_skill_urls: list[str] | None = None,
+    external_skill_refs: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Build a normalized, deduplicated install plan for one agent."""
     plan: list[dict[str, Any]] = []
@@ -66,6 +68,16 @@ def build_capability_install_plan(
                 "normalized_key": normalize_capability_install_key("clawhub_skill", slug),
                 "status": "pending",
                 "display_name": slug,
+            }
+        )
+    for ref in _dedupe_strings((external_skill_urls or []) + (external_skill_refs or [])):
+        plan.append(
+            {
+                "kind": "external_skill_url",
+                "source_key": ref,
+                "normalized_key": normalize_capability_install_key("external_skill_url", ref),
+                "status": "pending",
+                "display_name": ref,
             }
         )
     return plan

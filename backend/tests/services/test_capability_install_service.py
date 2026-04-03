@@ -13,6 +13,7 @@ def test_build_capability_install_plan_dedupes_requested_capabilities() -> None:
         skill_names=["feishu-integration", "feishu-integration"],
         mcp_server_ids=["smithery/github", "smithery/github"],
         clawhub_slugs=["market-research-agent", "market-research-agent"],
+        external_skill_urls=["https://github.com/acme/design-skills/tree/main/frontend-design-pro"] * 2,
     )
 
     assert plan == [
@@ -36,6 +37,13 @@ def test_build_capability_install_plan_dedupes_requested_capabilities() -> None:
             "normalized_key": "market-research-agent",
             "status": "pending",
             "display_name": "market-research-agent",
+        },
+        {
+            "kind": "external_skill_url",
+            "source_key": "https://github.com/acme/design-skills/tree/main/frontend-design-pro",
+            "normalized_key": "https://github.com/acme/design-skills/tree/main/frontend-design-pro",
+            "status": "pending",
+            "display_name": "https://github.com/acme/design-skills/tree/main/frontend-design-pro",
         },
     ]
 

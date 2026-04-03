@@ -4,8 +4,17 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import re
+import shutil
+import tempfile
 import uuid
+from pathlib import Path
+import asyncio
 
+from app.api.skills import _fetch_github_directory, _get_github_token, _parse_github_url
+from app.config import get_settings
+from app.services.capability_reuse_service import reuse_existing_skill_for_agent
 from app.tools.decorator import ToolMeta, tool
 from app.tools.runtime import ToolExecutionRequest
 
@@ -60,6 +69,8 @@ _RESEARCH_WORKFLOW_KEYWORDS = (
     "report",
 )
 
+_SKILLS_REF_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+@[A-Za-z0-9_.-]+$")
+
 
 def _parse_list(value) -> list:
     if isinstance(value, list):
@@ -74,6 +85,29 @@ def _parse_list(value) -> list:
             except (ValueError, TypeError):
                 logger.debug("[HR] Failed to parse JSON list: %s", raw[:80])
     return []
+
+
+def _parse_external_skill_urls(value) -> list[str]:
+    return _dedupe_strings([item for item in _parse_list(value) if isinstance(item, str)])
+
+
+def _is_external_skill_ref(value: str) -> bool:
+    item = str(value).strip()
+    return bool(_parse_github_url(item) or _SKILLS_REF_RE.match(item))
+
+
+def _split_requested_skill_inputs(values: list[str]) -> tuple[list[str], list[str]]:
+    platform_skills: list[str] = []
+    external_refs: list[str] = []
+    for value in values:
+        item = str(value).strip()
+        if not item:
+            continue
+        if _is_external_skill_ref(item):
+            external_refs.append(item)
+        else:
+            platform_skills.append(item)
+    return _dedupe_strings(platform_skills), _dedupe_strings(external_refs)
 
 
 def _dedupe_strings(values: list[str]) -> list[str]:
@@ -209,6 +243,142 @@ def _derive_manual_steps(
     return _dedupe_strings(steps)
 
 
+async def _install_external_skill_from_url(
+    *,
+    agent_id: uuid.UUID,
+    tenant_id: uuid.UUID | None,
+    url: str,
+) -> dict:
+    parsed = _parse_github_url(url)
+    if not parsed:
+        raise ValueError("Invalid GitHub URL")
+
+    owner, repo, branch, path = parsed["owner"], parsed["repo"], parsed["branch"], parsed["path"]
+    folder_name = path.rstrip("/").split("/")[-1] if path else repo
+
+    reused_skill = await reuse_existing_skill_for_agent(
+        agent_id=agent_id,
+        tenant_id=tenant_id,
+        folder_name=folder_name,
+    )
+    if reused_skill is not None:
+        return {
+            "status": "already_installed",
+            "folder_name": folder_name,
+            "files_written": reused_skill.get("files_written", 0),
+            "source_url": url,
+        }
+
+    token = await _get_github_token(str(tenant_id) if tenant_id else None)
+    files = await _fetch_github_directory(owner, repo, path, branch, token=token)
+    if not files:
+        raise ValueError("No files found at the provided GitHub URL")
+
+    agent_dir = Path(get_settings().AGENT_DATA_DIR) / str(agent_id)
+    skill_dir = agent_dir / "skills" / folder_name
+    skill_dir.mkdir(parents=True, exist_ok=True)
+
+    written = []
+    for item in files:
+        file_path = (skill_dir / item["path"]).resolve()
+        if not str(file_path).startswith(str(agent_dir.resolve())):
+            continue
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path.write_text(item["content"], encoding="utf-8")
+        written.append(item["path"])
+
+    return {
+        "status": "installed",
+        "folder_name": folder_name,
+        "files_written": len(written),
+        "source_url": url,
+    }
+
+
+async def _install_external_skill_from_skills_ref(
+    *,
+    agent_id: uuid.UUID,
+    ref: str,
+) -> dict:
+    if not _SKILLS_REF_RE.match(ref):
+        raise ValueError("Invalid skills.sh ref")
+
+    agent_dir = Path(get_settings().AGENT_DATA_DIR) / str(agent_id)
+    work_dir = agent_dir / "workspace"
+    work_dir.mkdir(parents=True, exist_ok=True)
+
+    exec_home = Path(tempfile.mkdtemp(prefix=f"hr_skill_ref_{agent_id}_"))
+    safe_env = dict(os.environ)
+    safe_env["HOME"] = str(exec_home)
+    safe_env["PYTHONDONTWRITEBYTECODE"] = "1"
+
+    proc = await asyncio.create_subprocess_exec(
+        "bash",
+        "-lc",
+        f"npx skills add {ref} -y",
+        cwd=str(work_dir),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        env=safe_env,
+    )
+
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.communicate()
+        raise RuntimeError("skills.sh install timed out after 120s")
+
+    if proc.returncode != 0:
+        message = stderr.decode("utf-8", errors="replace") or stdout.decode("utf-8", errors="replace")
+        raise RuntimeError(message[:300] or "skills.sh install failed")
+
+    sandbox_skills = exec_home / ".agents" / "skills"
+    if not sandbox_skills.exists():
+        raise RuntimeError("skills.sh install completed but no skill files were produced")
+
+    copied: list[str] = []
+    agent_skills = agent_dir / "skills"
+    agent_skills.mkdir(parents=True, exist_ok=True)
+    for skill_path in sandbox_skills.iterdir():
+        dest = agent_skills / skill_path.name
+        if skill_path.is_dir():
+            if dest.exists():
+                shutil.rmtree(dest)
+            shutil.copytree(skill_path, dest)
+            copied.append(skill_path.name)
+        elif skill_path.is_file() and skill_path.suffix.lower() == ".md":
+            shutil.copy2(skill_path, dest)
+            copied.append(skill_path.name)
+
+    if not copied:
+        raise RuntimeError("skills.sh install completed but copied 0 skill files")
+
+    expected_folder = ref.split("@", 1)[1]
+    folder_name = expected_folder if expected_folder in copied or (agent_skills / expected_folder).exists() else copied[0]
+    shutil.rmtree(exec_home, ignore_errors=True)
+
+    return {
+        "status": "installed",
+        "folder_name": folder_name,
+        "files_written": len(copied),
+        "source_ref": ref,
+    }
+
+
+async def _install_external_skill_ref(
+    *,
+    agent_id: uuid.UUID,
+    tenant_id: uuid.UUID | None,
+    ref: str,
+) -> dict:
+    if _parse_github_url(ref):
+        return await _install_external_skill_from_url(agent_id=agent_id, tenant_id=tenant_id, url=ref)
+    if _SKILLS_REF_RE.match(ref):
+        return await _install_external_skill_from_skills_ref(agent_id=agent_id, ref=ref)
+    raise ValueError("Unsupported external skill reference")
+
+
 def _build_blueprint_preview_payload(arguments: dict) -> dict:
     """Build a structured HR blueprint preview from raw arguments."""
     name = str(arguments.get("name", "")).strip()
@@ -217,7 +387,13 @@ def _build_blueprint_preview_payload(arguments: dict) -> dict:
     core_outputs = _dedupe_strings([item for item in _parse_list(arguments.get("core_outputs")) if isinstance(item, str)])
     personality = str(arguments.get("personality", "")).strip()
     boundaries = str(arguments.get("boundaries", "")).strip()
-    requested_skill_names = _dedupe_strings([item for item in _parse_list(arguments.get("skill_names")) if isinstance(item, str)])
+    raw_requested_skill_names = _dedupe_strings([item for item in _parse_list(arguments.get("skill_names")) if isinstance(item, str)])
+    requested_skill_names, derived_external_skill_refs = _split_requested_skill_inputs(raw_requested_skill_names)
+    explicit_external_skill_refs = _dedupe_strings(
+        _parse_external_skill_urls(arguments.get("external_skill_urls"))
+        + _parse_external_skill_urls(arguments.get("external_skill_refs"))
+    )
+    external_skill_refs = _dedupe_strings(derived_external_skill_refs + explicit_external_skill_refs)
     mcp_server_ids = _dedupe_strings([item for item in _parse_list(arguments.get("mcp_server_ids")) if isinstance(item, str)])
     clawhub_slugs = _dedupe_strings([item for item in _parse_list(arguments.get("clawhub_slugs")) if isinstance(item, str)])
     permission_scope = str(arguments.get("permission_scope", "company") or "company").strip() or "company"
@@ -250,6 +426,7 @@ def _build_blueprint_preview_payload(arguments: dict) -> dict:
 
     will_install: list[str] = []
     will_install.extend(f"extra skill: {skill_name}" for skill_name in effective_skill_names)
+    will_install.extend(f"external skill ref: {ref}" for ref in external_skill_refs)
     will_install.extend(f"mcp: {server_id}" for server_id in mcp_server_ids)
     will_install.extend(f"clawhub skill: {slug}" for slug in clawhub_slugs)
 
@@ -274,6 +451,8 @@ def _build_blueprint_preview_payload(arguments: dict) -> dict:
         heartbeat_topics=heartbeat_topics,
         welcome_message=welcome_message,
     )
+    if external_skill_refs:
+        manual_steps.append("验证外部 GitHub/skills.sh skill 的源码、安全性与首个真实任务输出，避免直接信任第三方能力。")
 
     return {
         "status": "preview",
@@ -287,6 +466,8 @@ def _build_blueprint_preview_payload(arguments: dict) -> dict:
             "skill_names": effective_skill_names,
             "requested_skill_names": requested_skill_names,
             "effective_skill_names": effective_skill_names,
+            "external_skill_urls": [ref for ref in external_skill_refs if _parse_github_url(ref)],
+            "external_skill_refs": external_skill_refs,
             "mcp_server_ids": mcp_server_ids,
             "clawhub_slugs": clawhub_slugs,
             "permission_scope": permission_scope,
@@ -308,6 +489,8 @@ def _build_blueprint_preview_payload(arguments: dict) -> dict:
             "builtin_paths": capability_routing["builtin_paths"],
             "requested_skill_names": requested_skill_names,
             "effective_skill_names": effective_skill_names,
+            "external_skill_urls": [ref for ref in external_skill_refs if _parse_github_url(ref)],
+            "external_skill_refs": external_skill_refs,
         },
         "manual_steps": manual_steps,
         "warnings": _dedupe_strings(warnings),
@@ -390,6 +573,16 @@ def _build_create_employee_result(
                 "type": "array",
                 "items": {"type": "string"},
                 "description": "EXTRA skill folder_names beyond defaults (e.g. ['feishu-integration', 'dingtalk-integration']). 14 default skills are auto-installed — only list non-default ones here.",
+            },
+            "external_skill_urls": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "GitHub skill package URLs for third-party skills discovered outside the platform registry. Backward-compatible alias of external_skill_refs.",
+            },
+            "external_skill_refs": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Third-party installable skill references outside the platform registry. Accepts GitHub URLs or skills.sh refs like owner/repo@skill.",
             },
             "mcp_server_ids": {
                 "type": "array",
@@ -508,6 +701,7 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
     welcome_message = args.get("welcome_message", "")
     preview_payload = _build_blueprint_preview_payload(args)
     skill_names = list(preview_payload["blueprint"]["effective_skill_names"])
+    external_skill_refs = list(preview_payload["blueprint"]["external_skill_refs"])
     manual_steps = list(preview_payload["manual_steps"])
     warnings = list(preview_payload["warnings"])
     install_plan = []
@@ -573,6 +767,7 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
                 skill_names=skill_names,
                 mcp_server_ids=mcp_server_ids,
                 clawhub_slugs=clawhub_slugs,
+                external_skill_refs=external_skill_refs,
             )
 
             resolved_extra_skills: list[Skill] = []
@@ -599,10 +794,13 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
                     else:
                         resolved_extra_skills.append(skill)
                 if missing_skill_names:
-                    return (
-                        "❌ Cannot create this digital employee because some requested extra skills are not available: "
+                    logger.warning(
+                        "[HR] Skipping unavailable extra skills: %s", missing_skill_names
+                    )
+                    warnings.append(
+                        f"Skipped {len(missing_skill_names)} unavailable skill(s): "
                         + ", ".join(missing_skill_names)
-                        + ". Please revise the plan or install those skills into the platform registry first."
+                        + ". Use clawhub_slugs or external_skill_refs for marketplace skills."
                     )
 
             # Resolve tenant defaults
@@ -1002,6 +1200,43 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
                             logger.warning("[HR] Failed to record ClawHub install failure for %s: %s", slug, record_err)
                         logger.warning(f"[HR] ClawHub install failed for {slug}: {ch_err}")
 
+            external_skill_results = []
+            if external_skill_refs:
+                for ref in external_skill_refs:
+                    try:
+                        result = await _install_external_skill_ref(
+                            agent_id=agent.id,
+                            tenant_id=effective_tenant_id,
+                            ref=ref,
+                        )
+                        external_skill_results.append(
+                            f"✅ {result['folder_name']}" if result["status"] == "installed" else f"⏭️ {result['folder_name']}: reused"
+                        )
+                        await record_capability_install(
+                            agent_id=agent.id,
+                            kind="external_skill_url",
+                            source_key=ref,
+                            status="installed",
+                            installed_via="hr_agent",
+                            display_name=result["folder_name"],
+                            metadata_json={"phase": "downloaded_to_agent", "files_written": result["files_written"]},
+                        )
+                    except Exception as ext_err:
+                        external_skill_results.append(f"⚠️ {ref}: {ext_err}")
+                        warnings.append(f"External skill install failed: {ref}")
+                        try:
+                            await record_capability_install(
+                                agent_id=agent.id,
+                                kind="external_skill_url",
+                                source_key=ref,
+                                status="failed",
+                                installed_via="hr_agent",
+                                error_code="exception",
+                                error_message=str(ext_err)[:300],
+                            )
+                        except Exception as record_err:
+                            logger.warning("[HR] Failed to record external skill failure for %s: %s", ref, record_err)
+
             # Build response
             features = [f"name='{agent.name}'"]
             if heartbeat_enabled:
@@ -1015,6 +1250,8 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
                 features.append(f"mcp={mcp_results}")
             if clawhub_results:
                 features.append(f"clawhub={clawhub_results}")
+            if external_skill_results:
+                features.append(f"external_skills={external_skill_results}")
 
             return _build_create_employee_result(
                 agent_id=str(agent.id),
@@ -1047,6 +1284,8 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
             "personality": {"type": "string", "description": "Desired operating style, one trait per line if helpful."},
             "boundaries": {"type": "string", "description": "Risk boundaries or red lines, one per line if helpful."},
             "skill_names": {"type": "array", "items": {"type": "string"}, "description": "Extra platform skills beyond defaults."},
+            "external_skill_urls": {"type": "array", "items": {"type": "string"}, "description": "Installable GitHub skill URLs for third-party skills outside the platform registry."},
+            "external_skill_refs": {"type": "array", "items": {"type": "string"}, "description": "Third-party installable skill references. Accepts GitHub URLs or skills.sh refs like owner/repo@skill."},
             "mcp_server_ids": {"type": "array", "items": {"type": "string"}, "description": "Requested MCP servers, if any."},
             "clawhub_slugs": {"type": "array", "items": {"type": "string"}, "description": "Requested ClawHub skills, if any."},
             "permission_scope": {"type": "string", "enum": ["company", "self"], "description": "Who should be allowed to use the agent."},

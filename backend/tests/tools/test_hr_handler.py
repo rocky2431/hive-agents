@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+from uuid import uuid4
+
+import pytest
+
 
 def test_create_digital_employee_is_registered():
     """The create_digital_employee tool must be collected by the tool collector."""
@@ -29,6 +34,7 @@ def test_create_digital_employee_schema_has_required_name():
     assert "primary_users" in params["properties"]
     assert "core_outputs" in params["properties"]
     assert "skill_names" in params["properties"]
+    assert "external_skill_urls" in params["properties"]
     assert "permission_scope" in params["properties"]
 
 
@@ -164,3 +170,146 @@ def test_build_blueprint_preview_payload_warns_when_external_installs_cover_buil
 
     assert any("default productivity skills already cover" in warning for warning in payload["warnings"])
     assert any("PDF/DOCX/XLSX/PPTX" in item for item in payload["capability_routing"]["builtin_paths"])
+
+
+def test_build_blueprint_preview_payload_keeps_external_skill_urls_separate_from_platform_skills() -> None:
+    from app.tools.handlers.hr import _build_blueprint_preview_payload
+
+    payload = _build_blueprint_preview_payload(
+        {
+            "name": "设计提示词助手",
+            "role_description": "整理前端设计提示词与规范",
+            "external_skill_urls": [
+                "https://github.com/acme/design-skills/tree/main/frontend-design-pro",
+                "https://github.com/acme/design-skills/tree/main/frontend-design-pro",
+            ],
+        }
+    )
+
+    assert payload["blueprint"]["skill_names"] == []
+    assert payload["blueprint"]["external_skill_urls"] == [
+        "https://github.com/acme/design-skills/tree/main/frontend-design-pro",
+    ]
+    assert "external skill ref: https://github.com/acme/design-skills/tree/main/frontend-design-pro" in payload["will_install"]
+
+
+def test_build_blueprint_preview_payload_reclassifies_skills_ref_out_of_platform_skill_names() -> None:
+    from app.tools.handlers.hr import _build_blueprint_preview_payload
+
+    payload = _build_blueprint_preview_payload(
+        {
+            "name": "设计提示词助手",
+            "role_description": "整理前端设计提示词与规范",
+            "skill_names": [
+                "patricio0312rev/skills@design-to-component-translator",
+                "feishu-integration",
+            ],
+        }
+    )
+
+    assert payload["blueprint"]["skill_names"] == ["feishu-integration"]
+    assert payload["blueprint"]["external_skill_refs"] == ["patricio0312rev/skills@design-to-component-translator"]
+    assert any("external skill ref: patricio0312rev/skills@design-to-component-translator" in item for item in payload["will_install"])
+
+
+@pytest.mark.asyncio
+async def test_install_external_skill_from_url_writes_skill_into_agent_workspace(tmp_path, monkeypatch) -> None:
+    import app.tools.handlers.hr as hr_mod
+
+    agent_id = uuid4()
+    tenant_id = uuid4()
+
+    monkeypatch.setattr(
+        hr_mod,
+        "get_settings",
+        lambda: SimpleNamespace(AGENT_DATA_DIR=str(tmp_path)),
+    )
+    monkeypatch.setattr(
+        hr_mod,
+        "_parse_github_url",
+        lambda _url: {
+            "owner": "acme",
+            "repo": "design-skills",
+            "branch": "main",
+            "path": "frontend-design-pro",
+        },
+    )
+
+    async def fake_fetch(owner, repo, path, branch, token=""):
+        assert (owner, repo, path, branch) == ("acme", "design-skills", "frontend-design-pro", "main")
+        return [
+            {"path": "SKILL.md", "content": "# Frontend Design Pro"},
+            {"path": "notes.md", "content": "hello"},
+        ]
+
+    async def fake_token(_tenant_id):
+        return "gh-token"
+
+    async def fake_reuse(**_kwargs):
+        return None
+
+    monkeypatch.setattr(hr_mod, "_fetch_github_directory", fake_fetch)
+    monkeypatch.setattr(hr_mod, "_get_github_token", fake_token)
+    monkeypatch.setattr(hr_mod, "reuse_existing_skill_for_agent", fake_reuse)
+
+    result = await hr_mod._install_external_skill_from_url(
+        agent_id=agent_id,
+        tenant_id=tenant_id,
+        url="https://github.com/acme/design-skills/tree/main/frontend-design-pro",
+    )
+
+    assert result["status"] == "installed"
+    assert result["folder_name"] == "frontend-design-pro"
+    assert result["files_written"] == 2
+    assert (tmp_path / str(agent_id) / "skills" / "frontend-design-pro" / "SKILL.md").exists()
+
+
+@pytest.mark.asyncio
+async def test_install_external_skill_from_skills_ref_copies_cli_installed_skill(tmp_path, monkeypatch) -> None:
+    import app.tools.handlers.hr as hr_mod
+
+    agent_id = uuid4()
+
+    monkeypatch.setattr(
+        hr_mod,
+        "get_settings",
+        lambda: SimpleNamespace(AGENT_DATA_DIR=str(tmp_path)),
+    )
+
+    class _FakeProc:
+        returncode = 0
+
+        async def communicate(self):
+            return (b"installed", b"")
+
+        def kill(self):
+            return None
+
+    async def fake_create_subprocess_exec(*cmd, **kwargs):
+        assert cmd[:3] == ("bash", "-lc", "npx skills add patricio0312rev/skills@design-to-component-translator -y")
+        sandbox_skill_dir = (
+            tmp_path
+            / "exec-home"
+            / ".agents"
+            / "skills"
+            / "design-to-component-translator"
+        )
+        sandbox_skill_dir.mkdir(parents=True, exist_ok=True)
+        (sandbox_skill_dir / "SKILL.md").write_text("# Installed skill", encoding="utf-8")
+        return _FakeProc()
+
+    async def fake_wait_for(awaitable, timeout):
+        return await awaitable
+
+    monkeypatch.setattr(hr_mod.asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+    monkeypatch.setattr(hr_mod.asyncio, "wait_for", fake_wait_for)
+    monkeypatch.setattr(hr_mod.tempfile, "mkdtemp", lambda prefix: str(tmp_path / "exec-home"))
+
+    result = await hr_mod._install_external_skill_from_skills_ref(
+        agent_id=agent_id,
+        ref="patricio0312rev/skills@design-to-component-translator",
+    )
+
+    assert result["status"] == "installed"
+    assert result["folder_name"] == "design-to-component-translator"
+    assert (tmp_path / str(agent_id) / "skills" / "design-to-component-translator" / "SKILL.md").exists()
