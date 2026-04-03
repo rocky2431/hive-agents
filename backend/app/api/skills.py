@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/skills", tags=["skills"])
 
-CLAWHUB_BASE = "https://clawhub.ai/api"
+CLAWHUB_BASE = "https://cn.clawhub-mirror.com/api"
 GITHUB_API = "https://api.github.com"
 _GITHUB_TOKEN_ENV = os.environ.get("GITHUB_TOKEN", "")
 MAX_SKILL_SIZE = 512_000  # 500 KB total limit per skill
@@ -432,7 +432,7 @@ async def install_from_clawhub(body: ClawhubInstallIn, current_user: User = Depe
         category=tier_labels.get(tier, "clawhub"),
         icon="",
         files=files,
-        source_url=f"https://clawhub.ai/skills/{slug}",
+        source_url=f"https://cn.clawhub-mirror.com/skills/{slug}",
         tenant_id=tenant_id,
         on_conflict="return_existing",
     )
