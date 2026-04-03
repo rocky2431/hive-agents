@@ -198,6 +198,38 @@ def _extract_pending(messages: list[dict]) -> list[str]:
     return pending
 
 
+def _extract_decisions(messages: list[dict]) -> list[str]:
+    """Extract key reasoning and decisions from assistant messages."""
+    decisions: list[str] = []
+    seen: set[str] = set()
+    hints = (
+        "决定", "方案", "因为", "所以", "选择", "采用", "原因是",
+        "I decided", "because", "approach", "solution", "chose", "the reason",
+        "结论", "总结", "建议", "recommend",
+    )
+    for msg in messages:
+        if msg.get("role") != "assistant" or "tool_calls" in msg:
+            continue
+        content = msg.get("content", "")
+        if not isinstance(content, str):
+            continue
+        lowered = content.lower()
+        if any(hint in lowered or hint in content for hint in hints):
+            # Extract the sentence containing the decision hint
+            for line in content.split("\n"):
+                line = line.strip()
+                if len(line) > 20 and any(h in line.lower() or h in line for h in hints):
+                    snippet = line[:250]
+                    key = snippet[:60].lower()
+                    if key not in seen:
+                        decisions.append(snippet)
+                        seen.add(key)
+                    break
+        if len(decisions) >= 5:
+            break
+    return decisions
+
+
 def _extract_summary(messages: list[dict]) -> str:
     """Extract a state-first snapshot without an LLM."""
     user_asks: list[str] = []
@@ -229,10 +261,15 @@ def _extract_summary(messages: list[dict]) -> str:
     pending_text = "\n".join(f"- {item}" for item in pending) if pending else "- (none captured)"
     narrative = assistant_answers[-1][:200] if assistant_answers else "(none captured)"
 
+    # Extract agent reasoning and decisions
+    decisions = _extract_decisions(messages)
+    reasoning_text = "\n".join(f"- {d}" for d in decisions) if decisions else "- (none captured)"
+
     return "\n".join(
         [
             f"**Task Ledger:** {task}",
             f"**Decision Ledger:** {decision_text}",
+            f"**Reasoning Ledger:**\n{reasoning_text}",
             f"**Artifact Ledger:**\n{artifact_text}",
             f"**Tool Ledger:**\n{tool_summary}",
             f"**Preference Ledger:**\n{preference_text}",

@@ -359,47 +359,64 @@ def _atomic_write(path: Path, content: str) -> None:
         raise
 
 
-def _write_evolution_to_memory(
+_EVOLUTION_SYNTHESIS_PROMPT = (
+    "You are synthesizing an agent's autonomous action outcome into a concise memory fact.\n"
+    "The fact will be stored in long-term memory and retrieved in future conversations.\n\n"
+    "Write ONE concise fact (under 200 chars) that captures:\n"
+    "- What approach was used and WHY it succeeded/failed\n"
+    "- A concrete, actionable takeaway for future tasks\n"
+    "- Write in the same language as the summary (likely Chinese or English)\n\n"
+    "Output ONLY the fact text, no labels or preamble."
+)
+
+
+async def _write_evolution_to_memory(
     agent_id: uuid.UUID,
     outcome_type: str,
     score: int | None,
     summary: str,
+    tenant_id: uuid.UUID | None = None,
 ) -> None:
-    """Write heartbeat outcome as a typed feedback fact into semantic memory.
+    """Write heartbeat/trigger outcome as a typed feedback fact into semantic memory.
 
-    Only writes for meaningful outcomes: high-score successes (≥7) and failures (<3).
-    This turns evolution lineage into searchable, retrievable memory.
+    Uses LLM to synthesize a context-aware takeaway when available.
+    Falls back to template-based facts when LLM is unavailable.
     """
     from app.config import get_settings
     from app.memory.store import PersistentMemoryStore
 
     if score is None:
-        score = 0  # Defensive fallback — _parse_heartbeat_outcome should always return int now
+        score = 0
 
     if score >= 5 and outcome_type == "action_taken":
-        content = (
-            f"FEEDBACK: Heartbeat action succeeded (score {score}). "
-            f"Summary: {summary[:200]}. "
-            f"How to apply: prefer this approach pattern for similar autonomous tasks."
-        )
+        category = "feedback"
     elif score < 3 or outcome_type in ("failure", "crash"):
-        content = (
-            f"FEEDBACK: Heartbeat action failed (score {score}, {outcome_type}). "
-            f"Summary: {summary[:200]}. "
-            f"How to apply: avoid this approach in similar contexts."
-        )
+        category = "feedback"
     elif outcome_type == "action_taken":
-        # Score 3-4: maintenance/partial progress — still worth recording (BP-3 fix)
-        content = (
-            f"STRATEGY: Partial progress (score {score}). "
-            f"Summary: {summary[:200]}. "
-            f"Pattern noted for incremental improvement."
-        )
+        category = "strategy"
     else:
         return  # noop with mid-range score — genuinely nothing to record
 
-    # Pick category: strategy for partial progress, feedback for success/failure
-    category = "strategy" if content.startswith("STRATEGY:") else "feedback"
+    # Try LLM synthesis for richer context
+    content = await _llm_synthesize_evolution(outcome_type, score, summary, tenant_id)
+
+    if not content:
+        # Mechanical fallback
+        if score >= 5 and outcome_type == "action_taken":
+            content = (
+                f"Heartbeat succeeded (score {score}). "
+                f"{summary[:200]}. Prefer this approach for similar tasks."
+            )
+        elif score < 3 or outcome_type in ("failure", "crash"):
+            content = (
+                f"Heartbeat failed (score {score}, {outcome_type}). "
+                f"{summary[:200]}. Avoid this approach."
+            )
+        else:
+            content = (
+                f"Partial progress (score {score}). "
+                f"{summary[:200]}."
+            )
 
     settings = get_settings()
     store = PersistentMemoryStore(data_root=Path(settings.AGENT_DATA_DIR))
@@ -411,7 +428,46 @@ def _write_evolution_to_memory(
         "timestamp": datetime.now(timezone.utc).isoformat(),
     })
     store.replace_semantic_facts(agent_id, existing)
-    logger.debug(f"[Heartbeat] Wrote feedback memory for agent {agent_id}: {outcome_type} score={score}")
+    logger.debug("[Heartbeat] Wrote feedback memory for agent %s: %s score=%s (llm=%s)", agent_id, outcome_type, score, len(content) > 0)
+
+
+async def _llm_synthesize_evolution(
+    outcome_type: str, score: int, summary: str, tenant_id: uuid.UUID | None,
+) -> str | None:
+    """Use LLM to generate a context-aware evolution takeaway."""
+    if not tenant_id:
+        return None
+    try:
+        from app.services.memory_service import _get_summary_model_config
+        from app.services.llm_client import LLMMessage, create_llm_client
+    except ImportError as imp_err:
+        logger.debug("[Heartbeat] LLM imports unavailable for evolution synthesis: %s", imp_err)
+        return None
+
+    model_config = await _get_summary_model_config(tenant_id)
+    if not model_config:
+        return None
+
+    user_msg = (
+        f"Outcome: {outcome_type} (score {score}/10)\n"
+        f"Summary of what the agent did:\n{summary[:500]}\n\n"
+        "Synthesize this into one concise memory fact."
+    )
+    try:
+        client = create_llm_client(**model_config)
+        response = await client.stream(
+            messages=[
+                LLMMessage(role="system", content=_EVOLUTION_SYNTHESIS_PROMPT),
+                LLMMessage(role="user", content=user_msg),
+            ],
+            max_tokens=300,
+            temperature=0.3,
+        )
+        result = response.content if hasattr(response, "content") else str(response)
+        return result.strip() if result and len(result) > 10 else None
+    except Exception as exc:
+        logger.debug("[Heartbeat] LLM evolution synthesis failed: %s", exc)
+        return None
 
 
 def _update_evolution_files(
@@ -876,7 +932,7 @@ async def _execute_heartbeat(agent_id: uuid.UUID, *, lease_acquired: bool = Fals
             # P1.4: Write structured feedback into typed semantic memory
             # so heartbeat lessons become searchable/retrievable in future conversations.
             try:
-                _write_evolution_to_memory(agent_id, outcome_type, heartbeat_score, summary)
+                await _write_evolution_to_memory(agent_id, outcome_type, heartbeat_score, summary, tenant_id=agent.tenant_id)
             except Exception as _mem_err:
                 logger.debug(f"[Heartbeat] Evolution→memory write failed for {agent_id}: {_mem_err}")
 

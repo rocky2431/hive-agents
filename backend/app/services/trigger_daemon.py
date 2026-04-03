@@ -602,7 +602,7 @@ async def _invoke_agent_for_triggers(agent_id: uuid.UUID, triggers: list[AgentTr
             await asyncio.to_thread(
                 _update_evolution_files, agent_id, trigger_outcome, trigger_score, f"[trigger] {trigger_summary}",
             )
-            _write_evolution_to_memory(agent_id, trigger_outcome, trigger_score, trigger_summary)
+            await _write_evolution_to_memory(agent_id, trigger_outcome, trigger_score, trigger_summary, tenant_id=agent.tenant_id)
             logger.debug(
                 "[TriggerDaemon] Evolution feedback for %s: %s score=%s",
                 agent_id, trigger_outcome, trigger_score,

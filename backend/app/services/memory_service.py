@@ -707,20 +707,73 @@ async def _extract_facts_with_llm(messages: list[dict], model_config: dict) -> l
 
 
 def _extract_facts_simple(messages: list[dict]) -> list[dict]:
-    """Simple fact extraction without LLM — pull key user AND assistant statements."""
-    facts = []
+    """Pattern-based fact extraction without LLM.
+
+    Instead of blindly copying raw messages, detects semantic patterns:
+    - User corrections ("不要", "别", "don't", "stop", "no,", "instead")
+    - User preferences ("我喜欢", "I prefer", "总是", "always", "请用")
+    - Decisions ("决定", "we'll go with", "let's use", "确定", "chosen")
+    - Explicit instructions ("记住", "remember", "注意", "important")
+    - Project facts ("deadline", "截止", "发布", "version", "环境")
+    """
+    import re
+
+    _CORRECTION_PATTERNS = re.compile(
+        r"不要|不是|别这样|don'?t|stop\s|no[,\s]|instead|错了|wrong|应该是|should be",
+        re.IGNORECASE,
+    )
+    _PREFERENCE_PATTERNS = re.compile(
+        r"我喜欢|I prefer|I like|总是|always|请用|use\s+\w+\s+instead|偏好|preferred",
+        re.IGNORECASE,
+    )
+    _DECISION_PATTERNS = re.compile(
+        r"决定|we'?ll go with|let'?s use|确定|chosen|选择|agreed|最终方案",
+        re.IGNORECASE,
+    )
+    _INSTRUCTION_PATTERNS = re.compile(
+        r"记住|remember|注意|important|必须|must\s|never\s|一定要|千万",
+        re.IGNORECASE,
+    )
+    _PROJECT_PATTERNS = re.compile(
+        r"deadline|截止|发布|release|version|v\d|环境|production|staging|上线",
+        re.IGNORECASE,
+    )
+
+    _PATTERN_CATEGORY = [
+        (_CORRECTION_PATTERNS, "feedback"),
+        (_INSTRUCTION_PATTERNS, "constraint"),
+        (_PREFERENCE_PATTERNS, "user"),
+        (_DECISION_PATTERNS, "project"),
+        (_PROJECT_PATTERNS, "project"),
+    ]
+
+    facts: list[dict] = []
+    seen_snippets: set[str] = set()
+
     for msg in messages:
         role = msg.get("role", "")
-        if role not in ("user", "assistant"):
+        if role != "user":
             continue
         content = msg.get("content", "")
-        if not isinstance(content, str):
+        if not isinstance(content, str) or len(content) < 10 or len(content) > 1000:
             continue
-        # Keep substantive messages (not short greetings or error markers)
-        if len(content) > 30 and len(content) < 500 and not content.startswith("["):
-            facts.append({"content": content[:200], "source": f"{role}_message"})
+        if content.startswith("["):
+            continue
 
-    return facts[-5:]  # Keep at most 5 (increased from 3)
+        for pattern, category in _PATTERN_CATEGORY:
+            if pattern.search(content):
+                snippet = content[:300].strip()
+                dedup_key = snippet[:60].lower()
+                if dedup_key not in seen_snippets:
+                    seen_snippets.add(dedup_key)
+                    facts.append({
+                        "content": snippet,
+                        "category": category,
+                        "source": "pattern_extraction",
+                    })
+                break  # One category per message
+
+    return facts[-8:]
 
 
 def _parse_session_uuid(session_id: str | None) -> uuid.UUID | None:
