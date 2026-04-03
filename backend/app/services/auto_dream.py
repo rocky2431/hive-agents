@@ -178,6 +178,14 @@ async def run_dream(agent_id: uuid.UUID, tenant_id: uuid.UUID) -> dict:
         return {"consolidated": before_count, "removed": 0, "added": 0}
 
     store.replace_semantic_facts(agent_id, consolidated)
+
+    # L3→L2 sync: LLM synthesizes consolidated facts into memory/memory.md
+    # so agent_context "### Memory" section stays current with semantic store.
+    await _sync_facts_to_memory_md(agent_id, consolidated, tenant_id)
+
+    # L3→L1 promotion: LLM rephrases high-frequency feedback as personality traits
+    await _promote_to_soul(agent_id, consolidated, tenant_id)
+
     _mark_dreamed(key)
 
     result = {
@@ -344,3 +352,268 @@ def _simple_dedup(facts: list[dict]) -> list[dict]:
             seen.add(content)
             unique.append(fact)
     return unique
+
+
+# ── L3 → L2 sync: semantic_facts → memory/memory.md ──────────────
+
+
+_MEMORY_SYNTHESIS_PROMPT = (
+    "You are synthesizing an agent's long-term memory into a clean markdown document.\n"
+    "This document will be injected into the agent's system prompt as '### Memory'.\n\n"
+    "Guidelines:\n"
+    "- Group related facts into coherent sections with ## headers\n"
+    "- Merge redundant facts into concise statements\n"
+    "- Use natural prose or short bullet points — NOT raw database dumps\n"
+    "- Prioritize: constraints > user preferences > strategies > project context > references\n"
+    "- Keep the total under 2000 characters — this is a prompt section, not a full document\n"
+    "- Write in the same language as the facts (likely Chinese or English)\n"
+    "- Do NOT add speculation or commentary — only synthesize what the facts say\n"
+    "- Output ONLY the markdown content, no preamble"
+)
+
+_SOUL_PROMOTION_PROMPT = (
+    "You are updating an agent's personality document (soul.md).\n"
+    "Below are behavioral patterns that have been repeatedly confirmed through experience.\n"
+    "Rephrase each into a concise personality trait or behavioral rule that reads naturally\n"
+    "as part of a character description.\n\n"
+    "Guidelines:\n"
+    "- Convert 'FEEDBACK: user prefers X' → 'I prioritize X in my work'\n"
+    "- Convert 'CONSTRAINT: never do Y' → 'I avoid Y'\n"
+    "- Each trait should be one sentence, written in first person\n"
+    "- Output ONLY the bullet list, no headers or preamble\n"
+    "- Write in the same language as the input facts"
+)
+
+_CATEGORY_DISPLAY_ORDER = [
+    "constraint", "feedback", "user", "strategy",
+    "blocked_pattern", "project", "reference", "general",
+]
+
+_CATEGORY_HEADERS = {
+    "constraint": "Rules",
+    "feedback": "Feedback & Corrections",
+    "user": "User Profile",
+    "strategy": "Strategies",
+    "blocked_pattern": "Blocked Patterns",
+    "project": "Project Context",
+    "reference": "References",
+    "general": "General",
+}
+
+
+async def _sync_facts_to_memory_md(
+    agent_id: uuid.UUID, facts: list[dict], tenant_id: uuid.UUID,
+) -> None:
+    """Synthesize consolidated facts into memory/memory.md via LLM.
+
+    Uses LLM to produce a coherent, readable memory document instead of
+    mechanical bullet-point rendering. Falls back to programmatic render
+    if LLM is unavailable.
+    """
+    if not facts:
+        return
+
+    # Build fact input for LLM
+    fact_lines = []
+    for f in facts:
+        cat = f.get("category", "general")
+        content = f.get("content", "").strip()
+        if content:
+            fact_lines.append(f"[{cat}] {content}")
+    fact_text = "\n".join(fact_lines)
+
+    # Try LLM synthesis
+    content = await _llm_synthesize_memory(fact_text, tenant_id)
+
+    if not content:
+        # Fallback: programmatic rendering
+        content = _render_facts_as_markdown(facts)
+
+    _write_to_workspaces(agent_id, "memory/memory.md", content)
+    logger.info("[AutoDream] Synced %d facts → memory.md for agent %s (llm=%s)", len(facts), agent_id, content != _render_facts_as_markdown(facts))
+
+
+async def _llm_synthesize_memory(fact_text: str, tenant_id: uuid.UUID) -> str | None:
+    """Use LLM to synthesize facts into a coherent memory document."""
+    try:
+        from app.services.memory_service import _get_summary_model_config
+        from app.services.llm_client import LLMMessage, create_llm_client
+    except ImportError as imp_err:
+        logger.debug("[AutoDream] LLM imports unavailable for memory synthesis: %s", imp_err)
+        return None
+
+    model_config = await _get_summary_model_config(tenant_id)
+    if not model_config:
+        return None
+
+    try:
+        client = create_llm_client(**model_config)
+        response = await client.stream(
+            messages=[
+                LLMMessage(role="system", content=_MEMORY_SYNTHESIS_PROMPT),
+                LLMMessage(role="user", content=f"Facts to synthesize:\n\n{fact_text}"),
+            ],
+            max_tokens=2000,
+            temperature=0.3,
+        )
+        result = response.content if hasattr(response, "content") else str(response)
+        if result and not result.startswith("#"):
+            result = "# Long-Term Memory\n\n" + result
+        return result.strip() if result and len(result) > 20 else None
+    except Exception as exc:
+        logger.debug("[AutoDream] LLM memory synthesis failed: %s", exc)
+        return None
+
+
+def _render_facts_as_markdown(facts: list[dict]) -> str:
+    """Programmatic fallback: render facts as categorized bullet list."""
+    grouped: dict[str, list[str]] = {}
+    for fact in facts:
+        cat = fact.get("category", "general")
+        content = fact.get("content", "").strip()
+        if content:
+            grouped.setdefault(cat, []).append(content)
+
+    lines = ["# Long-Term Memory", ""]
+    for cat in _CATEGORY_DISPLAY_ORDER:
+        items = grouped.get(cat)
+        if not items:
+            continue
+        header = _CATEGORY_HEADERS.get(cat, cat.title())
+        lines.append(f"## {header}")
+        for item in items:
+            lines.append(f"- {item}")
+        lines.append("")
+    return "\n".join(lines)
+
+
+# ── L3 → L1 promotion: high-frequency feedback/constraint → soul.md ──
+
+
+async def _promote_to_soul(
+    agent_id: uuid.UUID, facts: list[dict], tenant_id: uuid.UUID,
+) -> None:
+    """Promote high-frequency feedback/constraint facts to soul.md via LLM.
+
+    If the same subject appears 3+ times in semantic facts, it's stable
+    enough to become part of the agent's personality. Uses LLM to rephrase
+    raw facts into natural personality traits. Falls back to direct append.
+    """
+    from collections import Counter
+
+    promotable_categories = {"feedback", "constraint"}
+    subject_counts: Counter[str] = Counter()
+    subject_content: dict[str, str] = {}
+    for fact in facts:
+        cat = fact.get("category", "")
+        if cat not in promotable_categories:
+            continue
+        subject = fact.get("subject") or fact.get("content", "")[:60].strip()
+        if not subject:
+            continue
+        subject_counts[subject] += 1
+        content = fact.get("content", "").strip()
+        if len(content) > len(subject_content.get(subject, "")):
+            subject_content[subject] = content
+
+    promotable = [
+        subject_content[subj]
+        for subj, count in subject_counts.items()
+        if count >= 3 and subj in subject_content
+    ]
+    if not promotable:
+        return
+
+    settings = get_settings()
+    LEARNED_HEADER = "## Learned Behaviors"
+
+    # Try LLM rephrasing
+    rephrased = await _llm_rephrase_behaviors(promotable, tenant_id)
+
+    for base in [
+        Path(settings.AGENT_DATA_DIR) / str(agent_id),
+        Path("/tmp/hive_workspaces") / str(agent_id),
+    ]:
+        soul_path = base / "soul.md"
+        if not base.exists():
+            continue
+        try:
+            existing = soul_path.read_text(encoding="utf-8") if soul_path.exists() else ""
+        except Exception:
+            existing = ""
+
+        existing_lower = existing.lower()
+
+        # Use LLM-rephrased or raw facts
+        source = rephrased if rephrased else [f"- {c}" for c in promotable]
+        new_behaviors = []
+        for line in source:
+            # Dedup against existing soul.md
+            check = line.lstrip("- ").strip()[:80].lower()
+            if check and check not in existing_lower:
+                new_behaviors.append(line if line.startswith("- ") else f"- {line}")
+
+        if not new_behaviors:
+            continue
+
+        if LEARNED_HEADER in existing:
+            updated = existing.rstrip() + "\n" + "\n".join(new_behaviors) + "\n"
+        else:
+            updated = existing.rstrip() + f"\n\n{LEARNED_HEADER}\n" + "\n".join(new_behaviors) + "\n"
+
+        try:
+            soul_path.write_text(updated, encoding="utf-8")
+            logger.info("[AutoDream] Promoted %d behaviors to soul.md for agent %s (llm=%s)", len(new_behaviors), agent_id, rephrased is not None)
+        except Exception as exc:
+            logger.debug("[AutoDream] Failed to write soul.md at %s: %s", soul_path, exc)
+
+
+async def _llm_rephrase_behaviors(raw_facts: list[str], tenant_id: uuid.UUID) -> list[str] | None:
+    """Use LLM to rephrase raw feedback facts into personality traits."""
+    try:
+        from app.services.memory_service import _get_summary_model_config
+        from app.services.llm_client import LLMMessage, create_llm_client
+    except ImportError as imp_err:
+        logger.debug("[AutoDream] LLM imports unavailable for behavior rephrasing: %s", imp_err)
+        return None
+
+    model_config = await _get_summary_model_config(tenant_id)
+    if not model_config:
+        return None
+
+    fact_text = "\n".join(f"- {f}" for f in raw_facts)
+    try:
+        client = create_llm_client(**model_config)
+        response = await client.stream(
+            messages=[
+                LLMMessage(role="system", content=_SOUL_PROMOTION_PROMPT),
+                LLMMessage(role="user", content=f"Behavioral patterns to rephrase:\n\n{fact_text}"),
+            ],
+            max_tokens=800,
+            temperature=0.3,
+        )
+        result = response.content if hasattr(response, "content") else str(response)
+        if not result:
+            return None
+        # Parse bullet list
+        lines = [line.strip() for line in result.strip().splitlines() if line.strip().startswith("- ")]
+        return lines if lines else None
+    except Exception as exc:
+        logger.debug("[AutoDream] LLM behavior rephrasing failed: %s", exc)
+        return None
+
+
+def _write_to_workspaces(agent_id: uuid.UUID, rel_path: str, content: str) -> None:
+    """Write content to both workspace locations for an agent."""
+    settings = get_settings()
+    for base in [
+        Path(settings.AGENT_DATA_DIR) / str(agent_id),
+        Path("/tmp/hive_workspaces") / str(agent_id),
+    ]:
+        target = base / rel_path
+        if base.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                target.write_text(content, encoding="utf-8")
+            except Exception as exc:
+                logger.debug("[AutoDream] Failed to write %s at %s: %s", rel_path, target, exc)

@@ -269,6 +269,27 @@ async def _build_evolution_context(agent_id: uuid.UUID, recent_activities: list)
 
         parts.append(pattern_section)
 
+        # 4. Skill creation hint — detect repeated tool-use patterns worth codifying
+        _SKILL_THRESHOLD = 3  # same tool combo used 3+ times → suggest skill
+        if top_tools and tool_count >= 8:
+            # Check if any tool appears frequently enough to be worth a skill
+            frequent_tools = [
+                name for name, count in Counter(tool_names).most_common(3)
+                if count >= _SKILL_THRESHOLD
+                and name not in ("read_file", "write_file", "list_files", "edit_file", "save_memory", "search_memory")
+            ]
+            if frequent_tools:
+                parts.append(
+                    "\n---\n## Skill Creation Opportunity\n"
+                    f"You have used these tools repeatedly: {', '.join(frequent_tools)}.\n"
+                    "Consider whether the workflow around them is worth saving as a reusable skill:\n"
+                    "1. Read your existing skills/ directory to check for duplicates\n"
+                    "2. If no matching skill exists, create one in skills/ with YAML frontmatter\n"
+                    "3. Include: name, description, step-by-step instructions, pitfalls\n"
+                    "4. A good skill captures the *workflow* (multiple tools in sequence), not a single tool\n"
+                    "This counts as a high-value heartbeat action (score 7+)."
+                )
+
     # 3. Cold start bootstrap — guide new agents through first heartbeats
     non_heartbeat_activities = [a for a in recent_activities if a.action_type != "heartbeat"]
     is_cold_start = len(non_heartbeat_activities) < 3
