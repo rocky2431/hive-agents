@@ -19,7 +19,7 @@ def _enum_has_value(enum_name: str, value: str) -> bool:
     from sqlalchemy import text
     conn = op.get_bind()
     result = conn.execute(
-        text("SELECT 1 FROM pg_enum WHERE enumtypid = :enum::regtype AND enumlabel = :val"),
+        text("SELECT 1 FROM pg_enum WHERE enumtypid = CAST(:enum AS regtype) AND enumlabel = :val"),
         {"enum": enum_name, "val": value},
     )
     return result.scalar() is not None
