@@ -592,7 +592,7 @@ def _build_create_employee_result(
             "clawhub_slugs": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "ClawHub skill slugs to install (e.g. ['market-research-agent', 'competitor-analyst']). Found via web_search on cn.clawhub-mirror.com.",
+                "description": "ClawHub skill slugs to install (e.g. ['market-research-agent', 'competitor-analyst']). Found via web_search on clawhub.ai.",
             },
             "permission_scope": {
                 "type": "string",

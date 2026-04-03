@@ -308,7 +308,7 @@ async def search_clawhub(arguments: dict) -> str:
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.get(
-                "https://cn.clawhub-mirror.com/api/search",
+                "https://clawhub.ai/api/search",
                 params={"q": query},
             )
             if resp.status_code != 200:
