@@ -572,17 +572,17 @@ def _build_create_employee_result(
             "skill_names": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "EXTRA skill folder_names beyond defaults (e.g. ['feishu-integration', 'dingtalk-integration']). 14 default skills are auto-installed — only list non-default ones here.",
+                "description": "ONLY platform-registered skill folder_names. Available: feishu-integration, dingtalk-integration, atlassian-rovo. 14 default skills are auto-installed. Do NOT put ClawHub or external skills here — use clawhub_slugs instead.",
             },
             "external_skill_urls": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "GitHub skill package URLs for third-party skills discovered outside the platform registry. Backward-compatible alias of external_skill_refs.",
+                "description": "GitHub skill package URLs for third-party skills. Backward-compatible alias of external_skill_refs.",
             },
             "external_skill_refs": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "Third-party installable skill references outside the platform registry. Accepts GitHub URLs or skills.sh refs like owner/repo@skill.",
+                "description": "Third-party installable skill references. Accepts GitHub URLs or skills.sh refs like owner/repo@skill.",
             },
             "mcp_server_ids": {
                 "type": "array",
