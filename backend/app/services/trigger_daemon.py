@@ -630,6 +630,16 @@ async def _invoke_agent_for_triggers(agent_id: uuid.UUID, triggers: list[AgentTr
         except Exception as _evo_err:
             logger.debug("[TriggerDaemon] Evolution feedback failed (non-fatal): %s", _evo_err)
 
+        # Count trigger execution as a session for auto-dream gate
+        try:
+            from app.services.auto_dream import record_session_end, should_dream, run_dream
+            record_session_end(agent_id)
+            if should_dream(agent_id) and agent.tenant_id:
+                asyncio.create_task(run_dream(agent_id, agent.tenant_id))
+                logger.info("[TriggerDaemon] Auto-dream triggered for agent %s", agent_id)
+        except Exception as _dream_err:
+            logger.debug("[TriggerDaemon] Auto-dream check failed: %s", _dream_err)
+
         # Audit log
         await write_audit_log("trigger_fired", {
             "agent_name": agent.name,

@@ -835,6 +835,17 @@ async def _execute_heartbeat(agent_id: uuid.UUID, *, lease_acquired: bool = Fals
             except Exception as _evo_err:
                 logger.warning(f"[Heartbeat] Evolution writeback failed for {agent_id}: {_evo_err}")
 
+            # Count heartbeat as a session for auto-dream gate so agents with
+            # low user-chat but high heartbeat activity still trigger distillation.
+            try:
+                from app.services.auto_dream import record_session_end, should_dream, run_dream
+                record_session_end(agent_id)
+                if should_dream(agent_id) and agent.tenant_id:
+                    asyncio.create_task(run_dream(agent_id, agent.tenant_id))
+                    logger.info("[Heartbeat] Auto-dream triggered for agent %s", agent_id)
+            except Exception as _dream_err:
+                logger.debug("[Heartbeat] Auto-dream check failed: %s", _dream_err)
+
             # NOTE: Heartbeat outcomes are no longer written directly to semantic_facts
             # here. Instead, auto_dream._distill_evolution_to_facts() reads evolution/
             # files and synthesizes facts during consolidation. This avoids redundant
