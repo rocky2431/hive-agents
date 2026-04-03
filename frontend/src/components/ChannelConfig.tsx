@@ -215,6 +215,10 @@ const CHANNEL_REGISTRY: ChannelDef[] = [
     },
 ];
 
+// Channels hidden from UI (kept in registry for future use)
+const HIDDEN_CHANNELS = new Set(['teams', 'atlassian', 'agentbay']);
+const VISIBLE_CHANNELS = CHANNEL_REGISTRY.filter(ch => !HIDDEN_CHANNELS.has(ch.id));
+
 // ─── Feishu Permission JSON ─────────────────────────────
 const FEISHU_PERM_JSON = '{"scopes":{"tenant":["contact:contact.base:readonly","contact:user.base:readonly","contact:user.id:readonly","im:chat","im:message","im:message.group_at_msg:readonly","im:message.p2p_msg:readonly","im:message:send_as_bot","im:resource"],"user":[]}}';
 
@@ -1008,7 +1012,7 @@ export default function ChannelConfig({ mode, agentId, canManage = true, values,
                     <FeishuRuntimeStatusCard status={feishuRuntimeStatus} />
                 </div>
             ) : null}
-            {CHANNEL_REGISTRY.map(renderEditChannel)}
+            {VISIBLE_CHANNELS.map(renderEditChannel)}
 
             {/* ─── Email Configuration ─────────────────────── */}
             {mode === 'edit' && agentId && (
