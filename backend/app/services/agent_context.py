@@ -389,7 +389,7 @@ async def build_agent_context(
 
 ### Failure Handling
 6. **Diagnose before switching tactics**: When an operation fails, read the error, check your assumptions, try a focused fix. Do not retry the identical action blindly, but do not abandon a viable approach after a single failure either.
-7. **Self-improve on failure**: When operations fail or the user corrects you, log to memory/learnings/ (load_skill Self-Improving Agent for format). If the same approach fails 3 times, write it to `evolution/blocklist.md` and try a fundamentally different approach.
+7. **Self-improve on failure**: When operations fail or the user corrects you, log to `memory/learnings/ERRORS.md` or `memory/learnings/LEARNINGS.md`. If the same approach fails 3 times, write it to `evolution/blocklist.md` and try a fundamentally different approach.
 
 ### Tools & Skills
 8. **You have skills in your skills/ directory.** Use `load_skill` when you need specific capabilities. Do NOT guess what a skill contains — always load and read it first. If no skill matches your current task, use tools directly without loading a skill.
