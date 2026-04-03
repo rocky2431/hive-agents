@@ -357,9 +357,28 @@ async def build_agent_context(
         or _read_file_safe(tool_ws / "agenda.md", focus_budget)
         or _read_file_safe(data_ws / "agenda.md", focus_budget)
     )
-    if include_focus and focus and focus.strip() not in ("# Focus", "# Agenda", "（暂无）"):
+    if include_focus and focus and focus.strip() not in ("# Focus", "# Agenda"):
         focus = _strip_primary_heading(focus)
         context_parts.append(f"### Focus\n{focus}")
+
+    # --- Evolution context: blocklist + scorecard summary ---
+    # Inject blocklist directly so agent avoids repeating failed approaches
+    # during conversations, not just heartbeats.
+    _evo_budget = 1500
+    blocklist = _read_file_safe(tool_ws / "evolution" / "blocklist.md", _evo_budget) or _read_file_safe(data_ws / "evolution" / "blocklist.md", _evo_budget)
+    if blocklist:
+        blocklist = _strip_primary_heading(blocklist)
+        if blocklist.strip() and "no entries" not in blocklist.lower() and "(empty)" not in blocklist.lower():
+            context_parts.append(f"### Blocked Approaches\nThese approaches have failed repeatedly. Do NOT retry them — find alternatives.\n{blocklist}")
+
+    # Inject scorecard trend line (1 line, not the full file) for self-awareness
+    scorecard = _read_file_safe(tool_ws / "evolution" / "scorecard.md", 800) or _read_file_safe(data_ws / "evolution" / "scorecard.md", 800)
+    if scorecard:
+        import re as _re_sc
+        _trend_match = _re_sc.search(r"Useful rate:\s*(\d+%[^\n]*)", scorecard)
+        _total_match = _re_sc.search(r"total_heartbeats:\s*(\d+)", scorecard)
+        if _trend_match and _total_match:
+            context_parts.append(f"### Evolution Stats\n{_trend_match.group(0)} (over {_total_match.group(1)} heartbeats)")
 
     risk_confirmation_rule = (
         "4. **Before destructive or external-facing operations, state what you are about to do.** "
