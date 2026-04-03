@@ -41,9 +41,13 @@ export default function AgentCreate() {
     if (isLoading) {
         return (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh' }}>
-                <div style={{ textAlign: 'center', color: 'var(--text-secondary)' }}>
+                <div style={{ textAlign: 'center', maxWidth: '320px' }}>
+                    <div style={{ fontSize: '32px', marginBottom: '16px' }}>🤖</div>
                     <div className="spinner" style={{ margin: '0 auto 12px' }} />
-                    <p>{t('hrChat.loading', 'Loading HR agent...')}</p>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-sm)' }}>{t('hrChat.loading')}</p>
+                    <p style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-xs)', marginTop: '6px', lineHeight: 1.5 }}>
+                        {t('hrChat.welcomeDesc')}
+                    </p>
                 </div>
             </div>
         );
@@ -52,11 +56,19 @@ export default function AgentCreate() {
     if (error) {
         return (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh' }}>
-                <div style={{ textAlign: 'center', color: 'var(--error)' }}>
-                    <p>{t('hrChat.loadError', 'Failed to load HR agent. Please check LLM model configuration.')}</p>
-                    <button className="btn btn-primary" style={{ marginTop: '12px' }} onClick={() => window.location.reload()}>
-                        {t('common.retry', 'Retry')}
-                    </button>
+                <div style={{ textAlign: 'center', maxWidth: '400px' }}>
+                    <div style={{ fontSize: '32px', marginBottom: '12px' }}>⚠️</div>
+                    <p style={{ color: 'var(--text-primary)', fontSize: 'var(--text-sm)', fontWeight: 500, marginBottom: '8px' }}>
+                        {t('hrChat.loadError')}
+                    </p>
+                    <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginTop: '16px' }}>
+                        <button className="btn btn-primary" onClick={() => window.location.reload()}>
+                            {t('common.retry')}
+                        </button>
+                        <button className="btn btn-secondary" onClick={() => navigate('/enterprise#llm')}>
+                            {t('enterprise.tabs.llm')}
+                        </button>
+                    </div>
                 </div>
             </div>
         );

@@ -125,8 +125,7 @@ export default function AppSidebar({
     <nav className={`sidebar ${isSidebarCollapsed ? 'collapsed' : ''}`}>
       <div className="sidebar-top">
         <div className="sidebar-logo">
-          <img src={theme === 'dark' ? '/logo-white.png' : '/logo-black.png'} alt="" style={{ width: 22, height: 22 }} />
-          <span className="sidebar-logo-text">Clawith</span>
+          <span className="sidebar-logo-text" style={{ fontWeight: 700, fontSize: '16px', letterSpacing: '-0.03em' }}>HiveClaw</span>
           <button
             className="btn btn-ghost sidebar-collapse-btn"
             onClick={onToggleSidebar}

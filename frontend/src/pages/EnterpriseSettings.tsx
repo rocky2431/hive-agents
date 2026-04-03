@@ -612,11 +612,18 @@ export default function EnterpriseSettings({ forcedTab, hideTabs = false }: Ente
 
                 {!hideTabs && (
                     <div className="tabs">
-                        {(['info', 'llm', 'hr', 'tools', 'skills', 'invites', 'quotas', 'users', 'org', 'approvals', 'audit'] as const).map(tab => (
-                            <div key={tab} className={`tab ${activeTab === tab ? 'active' : ''}`} onClick={() => setActiveTab(tab)}>
-                                {tab === 'quotas' ? t('enterprise.tabs.quotas', 'Quotas') : tab === 'users' ? t('enterprise.tabs.users', 'Users') : tab === 'invites' ? t('enterprise.tabs.invites', 'Invitations') : tab === 'hr' ? t('enterprise.tabs.hr', 'HR Agent') : t(`enterprise.tabs.${tab}`)}
-                            </div>
-                        ))}
+                        {([
+                            { tabs: ['info', 'org', 'users', 'invites'] as const },
+                            { tabs: ['llm', 'tools', 'skills', 'hr'] as const },
+                            { tabs: ['quotas', 'approvals', 'audit'] as const },
+                        ]).flatMap((group, gi) => [
+                            ...(gi > 0 ? [<div key={`sep-${gi}`} className="tab-separator" />] : []),
+                            ...group.tabs.map(tab => (
+                                <div key={tab} className={`tab ${activeTab === tab ? 'active' : ''}`} onClick={() => setActiveTab(tab)}>
+                                    {t(`enterprise.tabs.${tab}`)}
+                                </div>
+                            )),
+                        ])}
                     </div>
                 )}
 

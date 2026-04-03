@@ -513,8 +513,14 @@ export default function FileBrowser({
                     </div>
                 </div>
             ) : files.length === 0 ? (
-                <div className="card" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-tertiary)' }}>
-                    {t('common.noData')}
+                <div style={{ textAlign: 'center', padding: '40px 20px' }}>
+                    <div style={{ fontSize: '24px', marginBottom: '8px', opacity: 0.5 }}>📁</div>
+                    <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                        {t('agent.workspace.noFiles', 'No files yet')}
+                    </div>
+                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
+                        {t('agent.workspace.dragOrClick')}
+                    </div>
                 </div>
             ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>

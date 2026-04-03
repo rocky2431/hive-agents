@@ -34,7 +34,7 @@ export default function SurfaceLayout({
         <div className="sidebar-top">
           <div className="sidebar-logo">
             <span className="sidebar-logo-text" style={{ display: 'inline-flex', opacity: 1 }}>
-              Clawith
+              HiveClaw
             </span>
           </div>
 

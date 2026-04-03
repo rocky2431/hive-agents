@@ -56,7 +56,7 @@ describe('Layout extracted sections', () => {
       />,
     );
 
-    expect(markup).toContain('Clawith');
+    expect(markup).toContain('HiveClaw');
     expect(markup).toContain('Plaza');
     expect(markup).toContain('Agent One');
     expect(markup).toContain('Platform Settings');

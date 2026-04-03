@@ -880,16 +880,21 @@ export default function AgentChatSection({
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              color: 'var(--text-tertiary)',
-              fontSize: '13px',
               flexDirection: 'column',
-              gap: '8px',
+              gap: '12px',
+              padding: '32px',
             }}
           >
-            <div>{t('agent.chat.noSessionSelected')}</div>
-            <button className="btn btn-secondary" onClick={onCreateNewSession} style={{ fontSize: '12px' }}>
-              {t('agent.chat.startNewSession')}
+            <div style={{ fontSize: '28px', opacity: 0.6 }}>💬</div>
+            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', textAlign: 'center', lineHeight: 1.5 }}>
+              {t('agent.chat.startConversation', { name: agent?.name || '' })}
+            </div>
+            <button className="btn btn-primary" onClick={onCreateNewSession} style={{ fontSize: '13px' }}>
+              {t('agent.chat.newSession')}
             </button>
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
+              {t('agent.chat.fileSupport')}
+            </div>
           </div>
         ) : isReadOnlySession ? (
           <>

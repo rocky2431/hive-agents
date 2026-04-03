@@ -147,7 +147,22 @@ def _load_skill(ws: Path, skill_name: str, tool_name: str = "load_skill") -> str
     try:
         return registry.load_body(requested)
     except KeyError:
-        return _workspace_error(tool_name, "not_found", f"Skill not found: {skill_name}")
+        # Not a workspace skill — fall through to check tool packs
+        logger.debug("Skill %r not found in workspace, checking tool packs", requested)
+
+    # Fallback: check if the name matches a tool pack (e.g. "plaza_pack", "web_pack")
+    from app.tools.packs import pack_for_name
+    pack = pack_for_name(requested)
+    if pack:
+        return (
+            f"## Tool Pack: {pack.name}\n\n"
+            f"{pack.summary}\n\n"
+            f"**Available tools:** {', '.join(pack.tools)}\n\n"
+            f"This is a tool pack, not a skill file. "
+            f"The tools listed above are now available — call them directly."
+        )
+
+    return _workspace_error(tool_name, "not_found", f"Skill not found: {skill_name}")
 
 
 def _build_skill_registry(ws: Path) -> SkillRegistry:
@@ -487,11 +502,11 @@ def _tool_search(ws: Path, query: str = "") -> str:
     ]
     if packs:
         lines.append("")
-        lines.append("Available packs:")
+        lines.append("Available packs (use `load_skill <pack_name>` to activate, or call the tools directly):")
         for pack in packs:
             tools = ", ".join(pack.tools)
             lines.append(
-                f"- {pack.name}: {pack.summary} | tools: {tools} | activation: {pack.activation_mode}"
+                f"- {pack.name}: {pack.summary} | tools: {tools}"
             )
     if matching_skills:
         lines.append("")

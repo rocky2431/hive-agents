@@ -3,7 +3,15 @@
  * and applies it to CSS custom properties. Persists to localStorage.
  */
 
-const STORAGE_KEY = 'clawith-accent-color';
+const STORAGE_KEY = 'hiveclaw-accent-color';
+const LEGACY_KEY = 'clawith-accent-color';
+
+// One-time migration from old brand name
+const _legacy = localStorage.getItem(LEGACY_KEY);
+if (_legacy && !localStorage.getItem(STORAGE_KEY)) {
+    localStorage.setItem(STORAGE_KEY, _legacy);
+    localStorage.removeItem(LEGACY_KEY);
+}
 
 /** Convert hex to RGB */
 function hexToRgb(hex: string): [number, number, number] {
@@ -81,16 +89,17 @@ export function resetAccentColor() {
     root.style.removeProperty('--accent-btn-text');
 }
 
-/** Preset accent colors */
+/** Preset accent colors — warm teal is the default brand color */
 export const PRESET_COLORS = [
+    { name: 'Teal', hex: '#1a7a6d' },
     { name: 'Indigo', hex: '#5e6ad2' },
-    { name: 'Teal', hex: '#0abab5' },
     { name: 'Blue', hex: '#3b82f6' },
-    { name: 'Cyan', hex: '#06b6d4' },
     { name: 'Emerald', hex: '#10b981' },
-    { name: 'Rose', hex: '#f3217c' },
-    { name: 'Amber', hex: '#f59e0b' },
-    { name: 'Orange', hex: '#f97316' },
-    { name: 'Violet', hex: '#8b5cf6' },
-    { name: 'Slate', hex: '#64748b' },
+    { name: 'Rose', hex: '#e1335e' },
+    { name: 'Amber', hex: '#c2750a' },
+    { name: 'Orange', hex: '#e8590c' },
+    { name: 'Violet', hex: '#7c5cbf' },
+    { name: 'Cyan', hex: '#0891b2' },
+    { name: 'Slate', hex: '#5c6370' },
+    { name: 'Black', hex: '#1c1c1a' },
 ];

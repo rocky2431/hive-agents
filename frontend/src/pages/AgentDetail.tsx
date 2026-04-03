@@ -39,6 +39,14 @@ import { useAuthStore } from '../stores';
 
 const TABS = ['status', 'aware', 'mind', 'tools', 'skills', 'relationships', 'workspace', 'chat', 'activityLog', 'approvals', 'settings'] as const;
 
+/** Visual grouping of tabs for the tab bar — groups are separated by thin dividers */
+const TAB_GROUPS: { tabs: (typeof TABS[number])[]; }[] = [
+    { tabs: ['status', 'chat'] },
+    { tabs: ['aware', 'mind', 'tools', 'skills'] },
+    { tabs: ['workspace', 'relationships', 'activityLog', 'approvals'] },
+    { tabs: ['settings'] },
+];
+
 function AgentDetailInner() {
     const { t, i18n } = useTranslation();
     const { id } = useParams<{ id: string }>();
@@ -1090,21 +1098,37 @@ function AgentDetailInner() {
                 {/* Tabs — hidden for HR system agent */}
                 {!isSystemHr && (
                 <div className="tabs">
-                    {TABS.filter(tab => {
-                        // 'use' access: hide settings and approvals tabs
-                        if ((agent as any)?.access_level === 'use') {
-                            if (tab === 'settings' || tab === 'approvals') return false;
-                        }
-                        // OpenClaw agents: only show status, chat, activityLog, settings
-                        if ((agent as any)?.agent_type === 'openclaw') {
-                            return ['status', 'relationships', 'chat', 'activityLog', 'settings'].includes(tab);
-                        }
-                        return true;
-                    }).map((tab) => (
-                        <div key={tab} className={`tab ${activeTab === tab ? 'active' : ''}`} onClick={() => setActiveTab(tab)}>
-                            {t(`agent.tabs.${tab}`)}
-                        </div>
-                    ))}
+                    {TAB_GROUPS.map((group, gi) => {
+                        const visibleTabs = group.tabs.filter(tab => {
+                            if ((agent as any)?.access_level === 'use') {
+                                if (tab === 'settings' || tab === 'approvals') return false;
+                            }
+                            if ((agent as any)?.agent_type === 'openclaw') {
+                                return ['status', 'relationships', 'chat', 'activityLog', 'settings'].includes(tab);
+                            }
+                            return true;
+                        });
+                        if (visibleTabs.length === 0) return null;
+                        return (
+                            <React.Fragment key={gi}>
+                                {gi > 0 && <div className="tab-separator" />}
+                                {visibleTabs.map(tab => {
+                                    const tooltipKey = `agent.tabs.${tab}Tooltip`;
+                                    const tooltip = t(tooltipKey, { defaultValue: '' });
+                                    return (
+                                        <div
+                                            key={tab}
+                                            className={`tab ${activeTab === tab ? 'active' : ''}`}
+                                            onClick={() => setActiveTab(tab)}
+                                            title={tooltip || undefined}
+                                        >
+                                            {t(`agent.tabs.${tab}`)}
+                                        </div>
+                                    );
+                                })}
+                            </React.Fragment>
+                        );
+                    })}
                 </div>
                 )}
 

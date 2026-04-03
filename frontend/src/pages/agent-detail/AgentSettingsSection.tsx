@@ -103,7 +103,6 @@ export default function AgentSettingsSection({
           return t('agent.settings.clampedMessage', { name, requested: c.requested, applied: c.applied });
         });
         onSetSettingsError(`Some values were adjusted:\n${msgs.join('\n')}`);
-        setTimeout(() => onSetSettingsError(''), 5000);
       }
 
       onSetSettingsSaved(true);

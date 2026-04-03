@@ -1,5 +1,5 @@
 /**
- * Unified HTTP request layer for the Clawith frontend.
+ * Unified HTTP request layer for the HiveClaw frontend.
  *
  * All API calls go through this module. Pages must NOT use raw fetch().
  * Token is read from localStorage (same source as zustand AuthStore).

@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════
-   Clawith — Design System (Linear-inspired Dark Theme)
+   HiveClaw — Design System (Linear-inspired Dark Theme)
    ═══════════════════════════════════════════════════════ */
 
 :root,
@@ -51,17 +51,17 @@
   --space-10: 40px;
   --space-12: 48px;
 
-  /* Typography */
-  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  /* Typography — Plus Jakarta Sans: warm geometric, distinctive */
+  --font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
 
-  --text-xs: 11px;
-  --text-sm: 13px;
-  --text-base: 14px;
-  --text-lg: 16px;
-  --text-xl: 18px;
-  --text-2xl: 24px;
-  --text-3xl: 32px;
+  --text-xs: 0.6875rem;   /* 11px */
+  --text-sm: 0.8125rem;   /* 13px */
+  --text-base: 0.9375rem; /* 15px — up from 14px for readability */
+  --text-lg: 1.0625rem;   /* 17px */
+  --text-xl: 1.25rem;     /* 20px */
+  --text-2xl: 1.625rem;   /* 26px */
+  --text-3xl: 2.125rem;   /* 34px */
 
   /* Border Radius */
   --radius-sm: 4px;
@@ -154,45 +154,47 @@
 }
 
 [data-theme="light"] {
-  --bg-primary: #ffffff;
-  --bg-secondary: #f9f9fb;
-  --bg-tertiary: #f2f2f5;
+  /* Warm-tinted neutrals — subtle warmth instead of pure gray */
+  --bg-primary: #fafaf9;
+  --bg-secondary: #f5f5f3;
+  --bg-tertiary: #efeeec;
   --bg-elevated: #ffffff;
-  --bg-hover: #f0f0f3;
-  --bg-active: #e8e8ed;
+  --bg-hover: #ededeb;
+  --bg-active: #e5e4e1;
 
-  --border-default: #e0e0e6;
-  --border-subtle: #eaeaef;
-  --border-strong: #d0d0d8;
+  --border-default: #dddcd8;
+  --border-subtle: #e8e7e4;
+  --border-strong: #cccbc6;
 
-  --text-primary: #1a1a22;
-  --text-secondary: #6b6b80;
-  --text-tertiary: #9898a8;
-  --text-inverse: #ffffff;
+  --text-primary: #1c1c1a;
+  --text-secondary: #65655e;
+  --text-tertiary: #95948d;
+  --text-inverse: #fafaf9;
 
-  --accent-primary: #3a3a42;
-  --accent-hover: #28282e;
-  --accent-subtle: rgba(58, 58, 66, 0.08);
-  --accent-text: #3a3a42;
+  /* Warm teal accent — sophisticated, not AI-slop purple */
+  --accent-primary: #1a7a6d;
+  --accent-hover: #15665b;
+  --accent-subtle: rgba(26, 122, 109, 0.08);
+  --accent-text: #1a7a6d;
 
   --success: #16a34a;
-  --success-subtle: rgba(22, 163, 74, 0.08);
-  --warning: #d97706;
-  --warning-subtle: rgba(217, 119, 6, 0.08);
+  --success-subtle: rgba(22, 163, 74, 0.07);
+  --warning: #c2750a;
+  --warning-subtle: rgba(194, 117, 10, 0.07);
   --error: #dc2626;
-  --error-subtle: rgba(220, 38, 38, 0.08);
+  --error-subtle: rgba(220, 38, 38, 0.07);
   --info: #2563eb;
 
   --status-running: #16a34a;
-  --status-idle: #9898a8;
-  --status-stopped: #d0d0d8;
+  --status-idle: #95948d;
+  --status-stopped: #cccbc6;
   --status-error: #dc2626;
 
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.07);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.10);
 
-  /* Light mode: notification bar always white text */
+  /* Notification bar uses accent */
   --notification-bar-text: #ffffff;
   --notification-bar-close-hover: rgba(255, 255, 255, 0.2);
 }
@@ -216,6 +218,17 @@
   box-shadow: none;
 }
 
+/* Light-mode: sidebar active item uses accent tint */
+[data-theme="light"] .sidebar-item.active {
+  background: var(--accent-subtle);
+  color: var(--accent-text);
+}
+
+/* Light-mode: links use accent color */
+[data-theme="light"] a {
+  color: var(--accent-text);
+}
+
 /* ─── Reset ─────────────────────────────────────────── */
 
 *,
@@ -227,17 +240,32 @@
 }
 
 html {
-  font-size: 14px;
+  font-size: 16px;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
 body {
   font-family: var(--font-family);
+  font-size: var(--text-base);
   background: var(--bg-primary);
   color: var(--text-primary);
-  line-height: 1.5;
+  line-height: 1.55;
   min-height: 100vh;
+  font-feature-settings: 'cv11' 1; /* Plus Jakarta Sans stylistic alt */
+}
+
+/* Tighter line-height for headings */
+h1, h2, h3, h4, h5, h6 {
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+}
+
+/* Tabular numbers for data-heavy elements */
+.tabular-nums,
+table td,
+.badge {
+  font-variant-numeric: tabular-nums;
 }
 
 a {
@@ -911,10 +939,11 @@ select:focus {
   color: var(--accent-text);
 }
 
-/* Tabs */
+/* ─── Tabs ──────────────────────────────────────────── */
 .tabs {
   display: flex;
-  gap: var(--space-1);
+  align-items: stretch;
+  gap: 0;
   border-bottom: 1px solid var(--border-subtle);
   margin-bottom: var(--space-6);
   position: sticky;
@@ -925,12 +954,14 @@ select:focus {
 }
 
 .tab {
-  padding: var(--space-2) var(--space-4);
+  padding: var(--space-2) var(--space-3);
   font-size: var(--text-sm);
   color: var(--text-tertiary);
   border-bottom: 2px solid transparent;
   transition: all var(--transition-fast);
   cursor: pointer;
+  white-space: nowrap;
+  position: relative;
 }
 
 .tab:hover {
@@ -940,6 +971,31 @@ select:focus {
 .tab.active {
   color: var(--text-primary);
   border-bottom-color: var(--accent-primary);
+}
+
+/* Tab tooltip: uses native browser title attribute (no CSS override) */
+
+/* Tab group separator — thin vertical line between groups */
+.tab-separator {
+  width: 1px;
+  background: var(--border-subtle);
+  margin: var(--space-2) var(--space-2);
+  align-self: stretch;
+  flex-shrink: 0;
+}
+
+/* Tab group label — shown above a group of tabs */
+.tab-group-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-tertiary);
+  padding: 0 var(--space-3);
+  margin-bottom: -2px;
+  align-self: center;
+  opacity: 0.7;
+  user-select: none;
 }
 
 /* Page header */
@@ -952,7 +1008,8 @@ select:focus {
 
 .page-title {
   font-size: var(--text-2xl);
-  font-weight: 600;
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
 
 .page-subtitle {
@@ -1726,4 +1783,137 @@ select:focus {
   40% {
     transform: scale(1);
   }
+}
+
+/* ═══════════════════════════════════════════════════════
+   Hardening — overflow, accessibility, loading, motion
+   ═══════════════════════════════════════════════════════ */
+
+/* ─── Text overflow utilities ──────────────────────── */
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.line-clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Prevent flex/grid overflow */
+.sidebar-item-text,
+.sidebar-logo-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ─── Skeleton loading placeholder ─────────────────── */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--bg-tertiary) 25%,
+    var(--bg-hover) 50%,
+    var(--bg-tertiary) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s ease-in-out infinite;
+  border-radius: var(--radius-md);
+}
+
+.skeleton-text {
+  height: 14px;
+  margin-bottom: 8px;
+  border-radius: var(--radius-sm);
+}
+
+.skeleton-text.short {
+  width: 60%;
+}
+
+.skeleton-circle {
+  border-radius: 50%;
+}
+
+@keyframes skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ─── Reduced motion ───────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ─── Error toast — persistent, dismissable ────────── */
+.error-toast {
+  padding: 12px 16px;
+  background: var(--error-subtle);
+  border: 1px solid var(--error);
+  border-radius: var(--radius-lg);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: var(--space-4);
+}
+
+.error-toast-dismiss {
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 2px;
+  font-size: 16px;
+  line-height: 1;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.error-toast-dismiss:hover {
+  color: var(--text-primary);
+}
+
+/* ─── Double-submit prevention ─────────────────────── */
+.btn[disabled],
+.btn.loading {
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+/* ─── Accessible status: text label alongside dot ──── */
+.status-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-xs);
+}
+
+.status-label .status-dot {
+  width: 6px;
+  height: 6px;
+}
+
+/* ─── Max text width for readability ───────────────── */
+.readable-width {
+  max-width: 65ch;
 }

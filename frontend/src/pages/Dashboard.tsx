@@ -639,16 +639,57 @@ export default function Dashboard() {
                     {t('common.loading')}
                 </div>
             ) : agents.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '80px' }}>
-                    <div style={{ color: 'var(--text-tertiary)', marginBottom: '4px', fontSize: '32px' }}>
-                        {Icons.bot}
+                <div style={{ maxWidth: '560px', margin: '0 auto', padding: '48px 0' }}>
+                    <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+                        <div style={{ fontSize: '40px', marginBottom: '12px' }}>
+                            {Icons.bot}
+                        </div>
+                        <h2 style={{ fontSize: 'var(--text-xl)', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '8px' }}>
+                            {t('dashboard.emptyTitle')}
+                        </h2>
+                        <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', lineHeight: 1.6, maxWidth: '440px', margin: '0 auto' }}>
+                            {t('dashboard.emptyDesc')}
+                        </p>
                     </div>
-                    <div style={{ color: 'var(--text-secondary)', marginBottom: '16px', fontSize: '14px' }}>
-                        {t('dashboard.noAgents')}
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '24px' }}>
+                        {([
+                            { key: 'Researcher', icon: '🔍' },
+                            { key: 'PM', icon: '📋' },
+                            { key: 'Support', icon: '💬' },
+                            { key: 'Writer', icon: '✏️' },
+                        ] as const).map(tmpl => (
+                            <button
+                                key={tmpl.key}
+                                className="btn btn-secondary"
+                                onClick={() => navigate('/agents/new')}
+                                style={{
+                                    display: 'flex', alignItems: 'flex-start', gap: '10px',
+                                    padding: '14px 16px', textAlign: 'left', height: 'auto',
+                                    borderRadius: 'var(--radius-lg)',
+                                }}
+                            >
+                                <span style={{ fontSize: '18px', lineHeight: 1 }}>{tmpl.icon}</span>
+                                <span>
+                                    <span style={{ display: 'block', fontSize: 'var(--text-sm)', fontWeight: 500, color: 'var(--text-primary)' }}>
+                                        {t(`dashboard.template${tmpl.key}`)}
+                                    </span>
+                                    <span style={{ display: 'block', fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: '2px', lineHeight: 1.4 }}>
+                                        {t(`dashboard.template${tmpl.key}Desc`)}
+                                    </span>
+                                </span>
+                            </button>
+                        ))}
                     </div>
-                    <button className="btn btn-primary" onClick={() => navigate('/agents/new')}>
-                        {Icons.plus} {t('nav.newAgent')}
-                    </button>
+
+                    <div style={{ textAlign: 'center' }}>
+                        <button className="btn btn-primary" onClick={() => navigate('/agents/new')}>
+                            {Icons.plus} {t('dashboard.createFirst')}
+                        </button>
+                        <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: '10px' }}>
+                            {t('dashboard.emptyHint')}
+                        </p>
+                    </div>
                 </div>
             ) : (
                 <>
