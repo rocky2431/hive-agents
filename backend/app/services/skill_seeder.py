@@ -309,7 +309,6 @@ Plan would be:
         "is_default": True,
         "files": [],  # populated at runtime from templates/skills/
     },
-    # self-improving-agent and proactive-agent removed — merged into native HEARTBEAT.md protocol (2026-04-03)
     # ─── Document processing skills (default, from templates/skills/) ──
     {
         "name": "PDF Generator",
