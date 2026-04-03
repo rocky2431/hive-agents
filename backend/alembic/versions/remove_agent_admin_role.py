@@ -15,7 +15,21 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+def _enum_has_value(enum_name: str, value: str) -> bool:
+    from sqlalchemy import text
+    conn = op.get_bind()
+    result = conn.execute(
+        text("SELECT 1 FROM pg_enum WHERE enumtypid = :enum::regtype AND enumlabel = :val"),
+        {"enum": enum_name, "val": value},
+    )
+    return result.scalar() is not None
+
+
 def upgrade() -> None:
+    # Only run if agent_admin still exists in the enum (idempotent)
+    if not _enum_has_value("user_role_enum", "agent_admin"):
+        return
+
     # Migrate existing agent_admin users to member
     op.execute("UPDATE users SET role = 'member' WHERE role = 'agent_admin'")
 

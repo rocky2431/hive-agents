@@ -209,14 +209,14 @@ class MemoryRetriever:
                 Dict with keys: provider, api_key, model, base_url (for create_llm_client).
         """
         items: list[MemoryItem] = []
-        items.extend(self._retrieve_working(agent_id))
+        items.extend(self._retrieve_working(agent_id) or [])
         episodic_limit = retrieval_profile.episodic_limit if retrieval_profile else 3
         semantic_limit = retrieval_profile.semantic_limit if retrieval_profile else limit
         external_limit = retrieval_profile.external_limit if retrieval_profile else 5
         rerank_max_select = retrieval_profile.rerank_max_select if retrieval_profile else _RERANK_MAX_SELECT
 
-        items.extend(await self._retrieve_episodic(agent_id, session_id, previous_limit=episodic_limit))
-        semantic_items = self._retrieve_semantic(agent_id, query, limit=semantic_limit)
+        items.extend(await self._retrieve_episodic(agent_id, session_id, previous_limit=episodic_limit) or [])
+        semantic_items = self._retrieve_semantic(agent_id, query, limit=semantic_limit) or []
 
         # P1.6: Optional LLM-based rerank for semantic items
         if rerank_model_config and query and len(semantic_items) > _RERANK_THRESHOLD:
@@ -225,10 +225,10 @@ class MemoryRetriever:
                 query,
                 rerank_model_config,
                 max_select=rerank_max_select,
-            )
+            ) or []
 
         items.extend(semantic_items)
-        items.extend(await self._retrieve_external(agent_id, query, tenant_id, limit=external_limit))
+        items.extend(await self._retrieve_external(agent_id, query, tenant_id, limit=external_limit) or [])
         return items
 
     # -- Working layer: agent's focus.md --
