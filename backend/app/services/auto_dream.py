@@ -26,9 +26,10 @@ from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-# Consolidation gates (aligned with Claude Code's auto-dream: 24h + 5 sessions)
-MIN_HOURS_BETWEEN_DREAMS = 24
-MIN_SESSIONS_SINCE_DREAM = 5
+# Consolidation gates — tuned for active agents that run heartbeats/triggers.
+# Both conditions must be met: enough time elapsed AND enough new sessions.
+MIN_HOURS_BETWEEN_DREAMS = 6
+MIN_SESSIONS_SINCE_DREAM = 3
 
 # Per-agent tracking (in-memory, resets on process restart)
 _last_dream_time: dict[str, datetime] = {}
