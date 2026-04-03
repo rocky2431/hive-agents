@@ -18,28 +18,39 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
-def upgrade() -> None:
-    op.create_table(
-        "agent_capability_installs",
-        sa.Column("id", UUID(as_uuid=True), primary_key=True, nullable=False),
-        sa.Column("agent_id", UUID(as_uuid=True), sa.ForeignKey("agents.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("kind", sa.String(length=30), nullable=False),
-        sa.Column("source_key", sa.String(length=255), nullable=False),
-        sa.Column("normalized_key", sa.String(length=255), nullable=False),
-        sa.Column("display_name", sa.String(length=255), nullable=True),
-        sa.Column("status", sa.String(length=20), nullable=False, server_default="pending"),
-        sa.Column("installed_via", sa.String(length=30), nullable=False, server_default="hr_agent"),
-        sa.Column("error_code", sa.String(length=80), nullable=True),
-        sa.Column("error_message", sa.Text(), nullable=True),
-        sa.Column("metadata_json", JSON(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.UniqueConstraint("agent_id", "kind", "normalized_key", name="uq_agent_capability_install"),
+def _table_exists(table: str) -> bool:
+    from sqlalchemy import text
+    conn = op.get_bind()
+    result = conn.execute(
+        text("SELECT 1 FROM information_schema.tables WHERE table_name = :table"),
+        {"table": table},
     )
-    op.create_index("ix_agent_capability_installs_agent_id", "agent_capability_installs", ["agent_id"])
-    op.create_index("ix_agent_capability_installs_kind", "agent_capability_installs", ["kind"])
-    op.create_index("ix_agent_capability_installs_status", "agent_capability_installs", ["status"])
-    op.create_index("ix_agent_capability_installs_created_at", "agent_capability_installs", ["created_at"])
+    return result.scalar() is not None
+
+
+def upgrade() -> None:
+    if not _table_exists("agent_capability_installs"):
+        op.create_table(
+            "agent_capability_installs",
+            sa.Column("id", UUID(as_uuid=True), primary_key=True, nullable=False),
+            sa.Column("agent_id", UUID(as_uuid=True), sa.ForeignKey("agents.id", ondelete="CASCADE"), nullable=False),
+            sa.Column("kind", sa.String(length=30), nullable=False),
+            sa.Column("source_key", sa.String(length=255), nullable=False),
+            sa.Column("normalized_key", sa.String(length=255), nullable=False),
+            sa.Column("display_name", sa.String(length=255), nullable=True),
+            sa.Column("status", sa.String(length=20), nullable=False, server_default="pending"),
+            sa.Column("installed_via", sa.String(length=30), nullable=False, server_default="hr_agent"),
+            sa.Column("error_code", sa.String(length=80), nullable=True),
+            sa.Column("error_message", sa.Text(), nullable=True),
+            sa.Column("metadata_json", JSON(), nullable=True),
+            sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+            sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+            sa.UniqueConstraint("agent_id", "kind", "normalized_key", name="uq_agent_capability_install"),
+        )
+    op.execute("CREATE INDEX IF NOT EXISTS ix_agent_capability_installs_agent_id ON agent_capability_installs (agent_id)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_agent_capability_installs_kind ON agent_capability_installs (kind)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_agent_capability_installs_status ON agent_capability_installs (status)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_agent_capability_installs_created_at ON agent_capability_installs (created_at)")
 
 
 def downgrade() -> None:

@@ -43,6 +43,8 @@ async def main():
     import app.models.trigger        # noqa
     import app.models.notification   # noqa
     import app.models.gateway_message # noqa
+    import app.models.runtime_task    # noqa
+    import app.models.capability_install  # noqa
 
     # Create all tables that don't exist yet (safe to run on every startup)
     async with engine.begin() as conn:

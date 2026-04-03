@@ -48,8 +48,6 @@ from app.tools.decorator import ToolMeta, tool
         "language": "en",
         "exa_api_key": "",
         "tavily_api_key": "",
-        "google_api_key": "",
-        "bing_api_key": "",
     },
     config_schema={
         "fields": [
@@ -62,8 +60,6 @@ from app.tools.decorator import ToolMeta, tool
                     {"value": "exa", "label": "Exa (preferred search API, needs API key)"},
                     {"value": "tavily", "label": "Tavily (secondary search API, needs API key)"},
                     {"value": "duckduckgo", "label": "DuckDuckGo (free, no API key)"},
-                    {"value": "google", "label": "Google Custom Search (needs API key)"},
-                    {"value": "bing", "label": "Bing Search API (needs API key)"},
                 ],
                 "default": "auto",
             },
@@ -82,22 +78,6 @@ from app.tools.decorator import ToolMeta, tool
                 "default": "",
                 "placeholder": "tvly-...",
                 "depends_on": {"search_engine": ["auto", "tavily"]},
-            },
-            {
-                "key": "google_api_key",
-                "label": "Google API Key",
-                "type": "password",
-                "default": "",
-                "placeholder": "API_KEY:SEARCH_ENGINE_ID",
-                "depends_on": {"search_engine": ["google"]},
-            },
-            {
-                "key": "bing_api_key",
-                "label": "Bing API Key",
-                "type": "password",
-                "default": "",
-                "placeholder": "bing_key",
-                "depends_on": {"search_engine": ["bing"]},
             },
             {
                 "key": "max_results",

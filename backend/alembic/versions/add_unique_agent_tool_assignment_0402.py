@@ -8,7 +8,6 @@ Create Date: 2026-04-02
 from typing import Sequence, Union
 
 from alembic import op
-import sqlalchemy as sa
 
 
 revision: str = "add_unique_agent_tool_assignment_0402"
@@ -18,6 +17,14 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    from sqlalchemy import text
+    conn = op.get_bind()
+    exists = conn.execute(
+        text("SELECT 1 FROM pg_constraint WHERE conname = 'uq_agent_tools_agent_tool'")
+    ).scalar()
+    if exists:
+        return
+
     op.execute(
         """
         DELETE FROM agent_tools
