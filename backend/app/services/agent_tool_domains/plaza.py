@@ -11,6 +11,14 @@ from app.tools.result_envelope import render_tool_error
 logger = logging.getLogger(__name__)
 
 
+async def _is_system_hr(agent_id: uuid.UUID) -> bool:
+    from app.models.agent import Agent as AgentModel
+    async with async_session() as db:
+        r = await db.execute(select(AgentModel.agent_class).where(AgentModel.id == agent_id))
+        agent_class = r.scalar_one_or_none()
+        return agent_class == "internal_system"
+
+
 def _plaza_error(
     tool_name: str,
     error_class: str,
@@ -80,6 +88,10 @@ async def _plaza_create_post(agent_id: uuid.UUID, arguments: dict) -> str:
     from app.models.plaza import PlazaPost
     from app.models.agent import Agent as AgentModel
 
+    # System HR agent should not post to plaza
+    if await _is_system_hr(agent_id):
+        return "Plaza posting is disabled for the system HR agent."
+
     content = arguments.get("content", "").strip()
     if not content:
         return _plaza_error("plaza_create_post", "bad_arguments", "Post content cannot be empty.")
@@ -114,6 +126,9 @@ async def _plaza_add_comment(agent_id: uuid.UUID, arguments: dict) -> str:
     """Add a comment to a plaza post."""
     from app.models.plaza import PlazaPost, PlazaComment
     from app.models.agent import Agent as AgentModel
+
+    if await _is_system_hr(agent_id):
+        return "Plaza commenting is disabled for the system HR agent."
 
     post_id = arguments.get("post_id", "")
     content = arguments.get("content", "").strip()
