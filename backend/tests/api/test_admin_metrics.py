@@ -95,23 +95,29 @@ def _non_admin_client(db_results: list | None = None):
 
 # ─── Timeseries ───────────────────────────────────────────
 
-# The timeseries endpoint now runs 4 SQL queries:
+# The timeseries endpoint runs 7 SQL queries:
 #   1. GROUP BY date new tenants in range
 #   2. GROUP BY date new users in range
-#   3. COUNT tenants before start (cumulative base)
-#   4. COUNT users before start (cumulative base)
+#   3. GROUP BY date new tokens (by agent created_at) in range
+#   4. COUNT tenants before start (cumulative base)
+#   5. COUNT users before start (cumulative base)
+#   6. SUM tokens before start (cumulative base)
 
 
-def test_timeseries_returns_daily_cumulative_companies_and_users():
+def test_timeseries_returns_daily_cumulative_all_metrics():
     client = _build_client([
-        # query 1: new tenants by day
+        # q1: new tenants by day
         [SimpleNamespace(d=dt_date(2026, 3, 31), cnt=1), SimpleNamespace(d=dt_date(2026, 4, 1), cnt=1)],
-        # query 2: new users by day
+        # q2: new users by day
         [SimpleNamespace(d=dt_date(2026, 4, 1), cnt=1)],
-        # query 3: cumulative tenants before start
+        # q3: new tokens by agent creation day
+        [SimpleNamespace(d=dt_date(2026, 4, 1), tokens=5000000)],
+        # q4: cumulative tenants before start
         [0],
-        # query 4: cumulative users before start
+        # q5: cumulative users before start
         [0],
+        # q6: cumulative tokens before start
+        [1000000],
     ])
 
     resp = client.get(
@@ -129,6 +135,8 @@ def test_timeseries_returns_daily_cumulative_companies_and_users():
     assert mar31["total_companies"] == 1
     assert mar31["new_users"] == 0
     assert mar31["total_users"] == 0
+    assert mar31["new_tokens"] == 0
+    assert mar31["total_tokens"] == 1000000
 
     apr01 = data[1]
     assert apr01["date"] == "2026-04-01"
@@ -136,10 +144,12 @@ def test_timeseries_returns_daily_cumulative_companies_and_users():
     assert apr01["total_companies"] == 2
     assert apr01["new_users"] == 1
     assert apr01["total_users"] == 1
+    assert apr01["new_tokens"] == 5000000
+    assert apr01["total_tokens"] == 6000000
 
 
 def test_timeseries_single_day_with_no_data():
-    client = _build_client([[], [], [0], [0]])
+    client = _build_client([[], [], [], [0], [0], [0]])
 
     resp = client.get(
         "/admin/metrics/timeseries",
@@ -151,14 +161,17 @@ def test_timeseries_single_day_with_no_data():
     assert len(data) == 1
     assert data[0]["total_companies"] == 0
     assert data[0]["total_users"] == 0
+    assert data[0]["total_tokens"] == 0
 
 
 def test_timeseries_includes_cumulative_base_from_before_range():
     client = _build_client([
-        [],   # no new tenants in range
-        [],   # no new users in range
-        [5],  # 5 tenants existed before start
-        [10], # 10 users existed before start
+        [],        # no new tenants in range
+        [],        # no new users in range
+        [],        # no new tokens in range
+        [5],       # 5 tenants existed before start
+        [10],      # 10 users existed before start
+        [2000000], # 2M tokens before start
     ])
 
     resp = client.get(
@@ -172,6 +185,8 @@ def test_timeseries_includes_cumulative_base_from_before_range():
     assert data[0]["new_companies"] == 0
     assert data[0]["total_users"] == 10
     assert data[0]["new_users"] == 0
+    assert data[0]["total_tokens"] == 2000000
+    assert data[0]["new_tokens"] == 0
 
 
 def test_timeseries_rejects_start_after_end():

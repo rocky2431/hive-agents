@@ -292,7 +292,18 @@ async def get_metrics_timeseries(
     )
     new_users_map: dict[str, int] = {str(r.d): r.cnt for r in new_usr_rows}
 
-    # Cumulative base before start (single COUNT query each)
+    # Token usage by agent creation date (proxy — no daily log table yet)
+    new_tok_rows = await db.execute(
+        select(
+            sqla_func.date(Agent.created_at).label("d"),
+            sqla_func.coalesce(sqla_func.sum(Agent.tokens_used_total), 0).label("tokens"),
+        )
+        .where(sqla_func.date(Agent.created_at).between(start, end))
+        .group_by(sqla_func.date(Agent.created_at))
+    )
+    new_tokens_map: dict[str, int] = {str(r.d): int(r.tokens) for r in new_tok_rows}
+
+    # Cumulative bases before start
     pre_co = await db.execute(
         select(sqla_func.count()).select_from(Tenant).where(sqla_func.date(Tenant.created_at) < start)
     )
@@ -303,6 +314,12 @@ async def get_metrics_timeseries(
     )
     cum_users = pre_usr.scalar() or 0
 
+    pre_tok = await db.execute(
+        select(sqla_func.coalesce(sqla_func.sum(Agent.tokens_used_total), 0))
+        .where(sqla_func.date(Agent.created_at) < start)
+    )
+    cum_tokens = int(pre_tok.scalar() or 0)
+
     # Build series
     result: list[TimeseriesPoint] = []
     current = start
@@ -310,14 +327,18 @@ async def get_metrics_timeseries(
         date_str = current.isoformat()
         nc = new_companies.get(date_str, 0)
         nu = new_users_map.get(date_str, 0)
+        nt = new_tokens_map.get(date_str, 0)
         cum_companies += nc
         cum_users += nu
+        cum_tokens += nt
         result.append(TimeseriesPoint(
             date=date_str,
             total_companies=cum_companies,
             new_companies=nc,
             total_users=cum_users,
             new_users=nu,
+            total_tokens=cum_tokens,
+            new_tokens=nt,
         ))
         current += timedelta(days=1)
 
