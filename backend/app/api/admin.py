@@ -253,19 +253,22 @@ _MAX_TIMESERIES_DAYS = 90
 
 @router.get("/metrics/timeseries", response_model=list[TimeseriesPoint])
 async def get_metrics_timeseries(
-    start_date: dt_date = Query(...),
-    end_date: dt_date = Query(...),
+    start_date: datetime = Query(...),
+    end_date: datetime = Query(...),
     current_user: User = Depends(require_role("platform_admin")),
     db: AsyncSession = Depends(get_db),
 ):
     """Daily time series for companies and users.
 
+    Accepts ISO datetime (e.g. 2026-04-01T00:00:00Z) or date (2026-04-01).
     Token time series requires a daily usage log table (not yet implemented),
     so token fields return 0 for now.
     """
-    if start_date > end_date:
+    start = start_date.date() if isinstance(start_date, datetime) else start_date
+    end = end_date.date() if isinstance(end_date, datetime) else end_date
+    if start > end:
         raise HTTPException(status_code=422, detail="start_date must be <= end_date")
-    if (end_date - start_date).days > _MAX_TIMESERIES_DAYS:
+    if (end - start).days > _MAX_TIMESERIES_DAYS:
         raise HTTPException(status_code=422, detail=f"Date range must not exceed {_MAX_TIMESERIES_DAYS} days")
 
     # Daily new counts via SQL aggregation
@@ -274,7 +277,7 @@ async def get_metrics_timeseries(
             sqla_func.date(Tenant.created_at).label("d"),
             sqla_func.count().label("cnt"),
         )
-        .where(sqla_func.date(Tenant.created_at).between(start_date, end_date))
+        .where(sqla_func.date(Tenant.created_at).between(start, end))
         .group_by(sqla_func.date(Tenant.created_at))
     )
     new_companies: dict[str, int] = {str(r.d): r.cnt for r in new_co_rows}
@@ -284,26 +287,26 @@ async def get_metrics_timeseries(
             sqla_func.date(User.created_at).label("d"),
             sqla_func.count().label("cnt"),
         )
-        .where(sqla_func.date(User.created_at).between(start_date, end_date))
+        .where(sqla_func.date(User.created_at).between(start, end))
         .group_by(sqla_func.date(User.created_at))
     )
     new_users_map: dict[str, int] = {str(r.d): r.cnt for r in new_usr_rows}
 
     # Cumulative base before start (single COUNT query each)
     pre_co = await db.execute(
-        select(sqla_func.count()).select_from(Tenant).where(sqla_func.date(Tenant.created_at) < start_date)
+        select(sqla_func.count()).select_from(Tenant).where(sqla_func.date(Tenant.created_at) < start)
     )
     cum_companies = pre_co.scalar() or 0
 
     pre_usr = await db.execute(
-        select(sqla_func.count()).select_from(User).where(sqla_func.date(User.created_at) < start_date)
+        select(sqla_func.count()).select_from(User).where(sqla_func.date(User.created_at) < start)
     )
     cum_users = pre_usr.scalar() or 0
 
     # Build series
     result: list[TimeseriesPoint] = []
-    current = start_date
-    while current <= end_date:
+    current = start
+    while current <= end:
         date_str = current.isoformat()
         nc = new_companies.get(date_str, 0)
         nu = new_users_map.get(date_str, 0)

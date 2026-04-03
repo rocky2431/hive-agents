@@ -116,7 +116,7 @@ def test_timeseries_returns_daily_cumulative_companies_and_users():
 
     resp = client.get(
         "/admin/metrics/timeseries",
-        params={"start_date": "2026-03-31", "end_date": "2026-04-01"},
+        params={"start_date": "2026-03-31T00:00:00Z", "end_date": "2026-04-01T23:59:59Z"},
     )
 
     assert resp.status_code == 200
@@ -143,7 +143,7 @@ def test_timeseries_single_day_with_no_data():
 
     resp = client.get(
         "/admin/metrics/timeseries",
-        params={"start_date": "2026-04-01", "end_date": "2026-04-01"},
+        params={"start_date": "2026-04-01T00:00:00Z", "end_date": "2026-04-01T23:59:59Z"},
     )
 
     assert resp.status_code == 200
@@ -163,7 +163,7 @@ def test_timeseries_includes_cumulative_base_from_before_range():
 
     resp = client.get(
         "/admin/metrics/timeseries",
-        params={"start_date": "2026-04-01", "end_date": "2026-04-01"},
+        params={"start_date": "2026-04-01T00:00:00Z", "end_date": "2026-04-01T23:59:59Z"},
     )
 
     assert resp.status_code == 200
@@ -179,7 +179,7 @@ def test_timeseries_rejects_start_after_end():
 
     resp = client.get(
         "/admin/metrics/timeseries",
-        params={"start_date": "2026-04-02", "end_date": "2026-04-01"},
+        params={"start_date": "2026-04-02T00:00:00Z", "end_date": "2026-04-01T00:00:00Z"},
     )
 
     assert resp.status_code == 422
@@ -190,7 +190,7 @@ def test_timeseries_rejects_range_exceeding_max_days():
 
     resp = client.get(
         "/admin/metrics/timeseries",
-        params={"start_date": "2026-01-01", "end_date": "2026-12-31"},
+        params={"start_date": "2026-01-01T00:00:00Z", "end_date": "2026-12-31T00:00:00Z"},
     )
 
     assert resp.status_code == 422
@@ -212,7 +212,7 @@ def test_timeseries_requires_platform_admin():
 
     resp = client.get(
         "/admin/metrics/timeseries",
-        params={"start_date": "2026-04-01", "end_date": "2026-04-01"},
+        params={"start_date": "2026-04-01T00:00:00Z", "end_date": "2026-04-01T23:59:59Z"},
     )
 
     assert resp.status_code == 403
