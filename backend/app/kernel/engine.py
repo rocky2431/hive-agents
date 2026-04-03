@@ -900,9 +900,9 @@ class AgentKernel:
                             LLMMessage(
                                 role="system",
                                 content=(
-                                    f"⚠️ 你已使用 {round_i}/{max_rounds} 轮工具调用。"
-                                    "如果当前任务尚未完成，请尽快保存进度到 focus.md，"
-                                    "并使用 set_trigger 设置续接触发器，在剩余轮次中做好收尾。"
+                                    f"⚠️ You have used {round_i}/{max_rounds} tool rounds. "
+                                    "If the current task is not yet complete, save progress to focus.md soon "
+                                    "and use set_trigger to schedule a continuation trigger for the remaining work."
                                 ),
                             )
                         )
@@ -910,7 +910,7 @@ class AgentKernel:
                         api_messages.append(
                             LLMMessage(
                                 role="system",
-                                content="🚨 仅剩 2 轮工具调用。请立即保存进度到 focus.md 并设置续接触发器。",
+                                content="🚨 Only 2 tool rounds remaining. Save progress to focus.md and set a continuation trigger immediately.",
                             )
                         )
 

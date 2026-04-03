@@ -810,7 +810,7 @@ async def _execute_heartbeat(agent_id: uuid.UUID, *, lease_acquired: bool = Fals
                 user_id=agent.creator_id,
                 participant_id=agent_participant_id,
                 source_channel="heartbeat",
-                title=f"💓 心跳：{agent.name}"[:200],
+                title=f"💓 Heartbeat: {agent.name}"[:200],
             )
             db.add(session)
             await db.flush()
@@ -940,6 +940,12 @@ async def _execute_heartbeat(agent_id: uuid.UUID, *, lease_acquired: bool = Fals
             # (cold_start agents need validation even on failure/noop)
             _validate_bootstrap_completion(agent_id)
 
+            # G2: Auto-cancel triggers whose focus_ref items are completed in focus.md
+            try:
+                await _auto_cancel_completed_triggers(agent_id)
+            except Exception as _ac_err:
+                logger.debug("[Heartbeat] Auto-cancel triggers failed (non-fatal): %s", _ac_err)
+
             score_str = f" score={heartbeat_score}" if heartbeat_score is not None else ""
             logger.info(f"💓 Heartbeat for {agent.name}: {outcome_type}{score_str} — {summary}")
 
@@ -976,6 +982,62 @@ async def _execute_heartbeat(agent_id: uuid.UUID, *, lease_acquired: bool = Fals
     finally:
         if lease_held:
             _release_heartbeat_lease(agent_id)
+
+
+async def _auto_cancel_completed_triggers(agent_id: uuid.UUID) -> None:
+    """Disable triggers whose focus_ref items are marked [x] in focus.md.
+
+    Runs at the end of each heartbeat to prevent stale triggers from
+    wasting tokens on completed work.
+    """
+    ws_root = _get_canonical_workspace(agent_id)
+    if not ws_root:
+        return
+
+    # Read focus.md and extract completed items
+    focus_path = ws_root / "focus.md"
+    if not focus_path.exists():
+        return
+    try:
+        focus_text = focus_path.read_text(encoding="utf-8")
+    except Exception as read_err:
+        logger.debug("[Heartbeat] Failed to read focus.md for trigger auto-cancel: %s", read_err)
+        return
+
+    import re
+    completed_refs: set[str] = set()
+    for match in re.finditer(r"- \[x\]\s*(\S+)", focus_text, re.IGNORECASE):
+        completed_refs.add(match.group(1).strip().lower())
+
+    if not completed_refs:
+        return
+
+    # Find and disable matching triggers
+    from app.database import async_session
+    from app.models.trigger import AgentTrigger
+
+    async with async_session() as db:
+        result = await db.execute(
+            select(AgentTrigger).where(
+                AgentTrigger.agent_id == agent_id,
+                AgentTrigger.is_enabled.is_(True),
+                AgentTrigger.focus_ref.isnot(None),
+            )
+        )
+        triggers = result.scalars().all()
+
+        cancelled = 0
+        for trigger in triggers:
+            if trigger.focus_ref and trigger.focus_ref.strip().lower() in completed_refs:
+                trigger.is_enabled = False
+                cancelled += 1
+                logger.info(
+                    "[Heartbeat] Auto-cancelled trigger '%s' (focus_ref '%s' completed) for agent %s",
+                    trigger.name, trigger.focus_ref, agent_id,
+                )
+
+        if cancelled > 0:
+            await db.commit()
 
 
 async def _heartbeat_tick():

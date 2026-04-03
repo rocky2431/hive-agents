@@ -456,13 +456,13 @@ async def _invoke_agent_for_triggers(agent_id: uuid.UUID, triggers: list[AgentTr
             context_parts = []
             trigger_names = []
             for t in triggers:
-                part = f"触发器：{t.name} ({t.type})\n原因：{t.reason}"
+                part = f"Trigger: {t.name} ({t.type})\nReason: {t.reason}"
                 if t.focus_ref:
-                    part += f"\n关联 Focus：{t.focus_ref}"
+                    part += f"\nRelated Focus: {t.focus_ref}"
                 # Include matched message for on_message triggers
                 cfg = t.config or {}
                 if t.type == "on_message" and cfg.get("_matched_message"):
-                    part += f"\n收到来自 {cfg.get('_matched_from', '?')} 的消息：\n\"{cfg['_matched_message'][:500]}\""
+                    part += f"\nMessage from {cfg.get('_matched_from', '?')}:\n\"{cfg['_matched_message'][:500]}\""
                 # Include webhook payload
                 if t.type == "webhook" and cfg.get("_webhook_payload"):
                     payload_str = cfg["_webhook_payload"]
@@ -472,15 +472,35 @@ async def _invoke_agent_for_triggers(agent_id: uuid.UUID, triggers: list[AgentTr
                 context_parts.append(part)
                 trigger_names.append(t.name)
 
+            # G3: Inject focus.md so agent can track progress during trigger execution
+            focus_context = ""
+            try:
+                from app.config import get_settings as _get_settings
+                _settings = _get_settings()
+                for _base in [
+                    Path(_settings.AGENT_DATA_DIR) / str(agent_id),
+                    Path("/tmp/hive_workspaces") / str(agent_id),
+                ]:
+                    _focus_path = _base / "focus.md"
+                    if _focus_path.exists():
+                        _focus_text = _focus_path.read_text(encoding="utf-8")[:1500]
+                        if _focus_text.strip() and _focus_text.strip() not in ("# Focus", "# Agenda"):
+                            focus_context = f"\n\nCurrent Focus (your work priorities):\n{_focus_text}"
+                        break
+            except Exception as _focus_err:
+                logger.debug("[TriggerDaemon] Failed to read focus.md for trigger context: %s", _focus_err)
+
             trigger_context = (
-                "===== 本次唤醒上下文 =====\n"
-                f"唤醒来源：trigger（{'多个触发器同时触发' if len(triggers) > 1 else '触发器触发'}）\n\n"
+                "===== Trigger Awakening Context =====\n"
+                f"Source: trigger ({'multiple triggers fired simultaneously' if len(triggers) > 1 else 'single trigger fired'})\n\n"
                 + "\n---\n".join(context_parts)
-                + "\n==========================="
+                + focus_context
+                + "\n\nIf you completed any focus.md task during this execution, use write_file to update focus.md and mark it [x]."
+                "\n==========================="
             )
 
             # Create Reflection Session
-            title = f"🤖 内心独白：{', '.join(trigger_names)}"
+            title = f"🤖 Reflection: {', '.join(trigger_names)}"
             # Find agent's participant
             result = await db.execute(
                 select(Participant).where(Participant.type == "agent", Participant.ref_id == agent_id)
@@ -584,7 +604,7 @@ async def _invoke_agent_for_triggers(agent_id: uuid.UUID, triggers: list[AgentTr
 
             await db.commit()
 
-        # Trigger results live in the Reflection Session (内心独白) only.
+        # Trigger results live in the Reflection Session only.
         # Do NOT push to user's chat WebSocket — it pollutes the conversation.
         # Users can view trigger results in the self-awareness tab.
 
