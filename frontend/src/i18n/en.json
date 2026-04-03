@@ -160,6 +160,7 @@
     "emptyTitle": "Welcome to HiveClaw",
     "emptyDesc": "Digital employees can search the web, write documents, send messages, analyze data, and work autonomously across Feishu, Slack, and other channels.",
     "emptyHint": "Tell the onboarding assistant what you need, and it will create the right employee for you.",
+    "emptyTemplatesLabel": "Or start with a template",
     "templateResearcher": "Market Researcher",
     "templateResearcherDesc": "Tracks industry news, monitors competitors, and summarizes findings",
     "templatePM": "Project Manager",
@@ -212,7 +213,12 @@
       "activityLogTooltip": "Complete history of actions, messages, and system events",
       "approvals": "Approvals",
       "approvalsTooltip": "Actions waiting for your review before they can proceed",
-      "settings": "Settings"
+      "settings": "Settings",
+      "hintGrouped": "Use the Configure and Manage menus to access tools, skills, workspace, and more.",
+      "groupConfigure": "Configure",
+      "groupConfigureDesc": "Set up awareness, personality, tools, and skills",
+      "groupManage": "Manage",
+      "groupManageDesc": "Workspace, relationships, logs, and approvals"
     },
     "fields": {
       "name": "Name",
