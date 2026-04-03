@@ -20,20 +20,20 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # ── User: add token quota fields ──
-    op.add_column("users", sa.Column("quota_tokens_per_day", sa.Integer(), nullable=True))
-    op.add_column("users", sa.Column("quota_tokens_per_month", sa.Integer(), nullable=True))
-    op.add_column("users", sa.Column("tokens_used_today", sa.Integer(), nullable=False, server_default="0"))
-    op.add_column("users", sa.Column("tokens_used_month", sa.Integer(), nullable=False, server_default="0"))
-    op.add_column("users", sa.Column("tokens_used_total", sa.Integer(), nullable=False, server_default="0"))
-    op.add_column("users", sa.Column("tokens_reset_at", sa.DateTime(timezone=True), nullable=True))
-    op.add_column("users", sa.Column("quota_llm_calls_per_day", sa.Integer(), nullable=False, server_default="200"))
-    op.add_column("users", sa.Column("llm_calls_today", sa.Integer(), nullable=False, server_default="0"))
-    op.add_column("users", sa.Column("llm_calls_reset_at", sa.DateTime(timezone=True), nullable=True))
+    # ── User: add token quota fields (idempotent) ──
+    op.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS quota_tokens_per_day INTEGER")
+    op.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS quota_tokens_per_month INTEGER")
+    op.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS tokens_used_today INTEGER NOT NULL DEFAULT 0")
+    op.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS tokens_used_month INTEGER NOT NULL DEFAULT 0")
+    op.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS tokens_used_total INTEGER NOT NULL DEFAULT 0")
+    op.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS tokens_reset_at TIMESTAMPTZ")
+    op.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS quota_llm_calls_per_day INTEGER NOT NULL DEFAULT 200")
+    op.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS llm_calls_today INTEGER NOT NULL DEFAULT 0")
+    op.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS llm_calls_reset_at TIMESTAMPTZ")
 
-    # ── Tenant: add default token quotas ──
-    op.add_column("tenants", sa.Column("default_tokens_per_day", sa.Integer(), nullable=True))
-    op.add_column("tenants", sa.Column("default_tokens_per_month", sa.Integer(), nullable=True))
+    # ── Tenant: add default token quotas (idempotent) ──
+    op.execute("ALTER TABLE tenants ADD COLUMN IF NOT EXISTS default_tokens_per_day INTEGER")
+    op.execute("ALTER TABLE tenants ADD COLUMN IF NOT EXISTS default_tokens_per_month INTEGER")
 
     # ── Migrate: copy Agent quota values to their creator User ──
     # For each user, take the MAX of their agents' limits as the user-level limit
@@ -51,12 +51,12 @@ def upgrade() -> None:
         WHERE u.id = sub.creator_id
     """)
 
-    # ── Agent: remove quota enforcement fields (keep usage stats) ──
-    op.drop_column("agents", "max_tokens_per_day")
-    op.drop_column("agents", "max_tokens_per_month")
-    op.drop_column("agents", "max_llm_calls_per_day")
-    op.drop_column("agents", "llm_calls_today")
-    op.drop_column("agents", "llm_calls_reset_at")
+    # ── Agent: remove quota enforcement fields (keep usage stats, idempotent) ──
+    op.execute("ALTER TABLE agents DROP COLUMN IF EXISTS max_tokens_per_day")
+    op.execute("ALTER TABLE agents DROP COLUMN IF EXISTS max_tokens_per_month")
+    op.execute("ALTER TABLE agents DROP COLUMN IF EXISTS max_llm_calls_per_day")
+    op.execute("ALTER TABLE agents DROP COLUMN IF EXISTS llm_calls_today")
+    op.execute("ALTER TABLE agents DROP COLUMN IF EXISTS llm_calls_reset_at")
 
 
 def downgrade() -> None:

@@ -4,6 +4,7 @@ import uuid
 import httpx
 from loguru import logger
 from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 from app.database import async_session
 from app.models.agent import Agent
 from app.models.tool import Tool, AgentTool
@@ -536,7 +537,16 @@ async def import_mcp_from_smithery(
                     tenant_id=agent_tenant_id,
                 )
                 db.add(tool)
-                await db.flush()
+                try:
+                    await db.flush()
+                except IntegrityError:
+                    await db.rollback()
+                    re_r = await db.execute(select(Tool).where(Tool.name == tool_name, _tenant_filter))
+                    existing_tool = re_r.scalar_one_or_none()
+                    if existing_tool:
+                        await _ensure_agent_tool(existing_tool.id)
+                        imported_tools.append(f"⏭️ {tool_display} (already imported)")
+                    continue
                 await _ensure_agent_tool(tool.id)
                 imported_tools.append(f"✅ {tool_display}")
         else:
@@ -570,7 +580,16 @@ async def import_mcp_from_smithery(
                 tenant_id=agent_tenant_id,
             )
             db.add(tool)
-            await db.flush()
+            try:
+                await db.flush()
+            except IntegrityError:
+                await db.rollback()
+                re_r = await db.execute(select(Tool).where(Tool.name == tool_name, _tenant_filter))
+                existing_tool = re_r.scalar_one_or_none()
+                if existing_tool:
+                    await _ensure_agent_tool(existing_tool.id)
+                    imported_tools.append(f"⏭️ {tool_display} (already imported)")
+                return "\n".join(imported_tools) if imported_tools else f"⏭️ {tool_display} (already imported)"
             await _ensure_agent_tool(tool.id)
             imported_tools.append(f"✅ {tool_display} (tool list not available from registry — may need configuration)")
 
@@ -690,7 +709,16 @@ async def import_mcp_direct(
                     tenant_id=agent_tenant_id,
                 )
                 db.add(tool)
-                await db.flush()
+                try:
+                    await db.flush()
+                except IntegrityError:
+                    await db.rollback()
+                    re_r = await db.execute(select(Tool).where(Tool.name == tool_name, _tenant_filter))
+                    existing_tool = re_r.scalar_one_or_none()
+                    if existing_tool:
+                        await _ensure_agent_tool(existing_tool.id)
+                        imported_tools.append(f"⏭️ {tool_display} (already imported)")
+                    continue
                 await _ensure_agent_tool(tool.id)
                 imported_tools.append(f"✅ {tool_display}")
         else:
@@ -717,7 +745,16 @@ async def import_mcp_direct(
                 tenant_id=agent_tenant_id,
             )
             db.add(tool)
-            await db.flush()
+            try:
+                await db.flush()
+            except IntegrityError:
+                await db.rollback()
+                re_r = await db.execute(select(Tool).where(Tool.name == tool_name, _tenant_filter))
+                existing_tool = re_r.scalar_one_or_none()
+                if existing_tool:
+                    await _ensure_agent_tool(existing_tool.id)
+                    imported_tools.append(f"⏭️ {display_name} (already imported)")
+                return "\n".join(imported_tools) if imported_tools else f"⏭️ {display_name} (already imported)"
             await _ensure_agent_tool(tool.id)
             imported_tools.append(f"✅ {display_name} (tools couldn't be listed — server may need configuration)")
 
@@ -807,6 +844,11 @@ async def seed_atlassian_rovo_tools(api_key: str) -> None:
                     config={"api_key": api_key},
                 )
                 db.add(tool)
+                try:
+                    await db.flush()
+                except IntegrityError:
+                    await db.rollback()
+                    continue
                 upserted += 1
 
         await db.commit()

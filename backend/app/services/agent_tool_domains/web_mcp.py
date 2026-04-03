@@ -337,7 +337,7 @@ async def _web_fetch(arguments: dict) -> str:
         async with httpx.AsyncClient(follow_redirects=True, timeout=20) as client:
             resp = await client.get(normalized_url, headers={"User-Agent": "Hive WebFetch/1.0"})
 
-        if resp.status_code != 200:
+        if resp.status_code >= 300:
             return _http_error(
                 "web_fetch",
                 provider="web_fetch",
