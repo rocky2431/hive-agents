@@ -98,6 +98,12 @@ def migrate_all_workspaces() -> None:
             except Exception as e:
                 logger.warning("[migrate] Failed to update HEARTBEAT.md for %s: %s", agent_dir.name, e)
 
+        # Clean up nested workspace/workspace/ if empty
+        _nested_ws = agent_dir / "workspace" / "workspace"
+        if _nested_ws.is_dir() and not any(_nested_ws.iterdir()):
+            _nested_ws.rmdir()
+            logger.info("[migrate] Removed empty workspace/workspace/ from %s", agent_dir.name)
+
         # Remove deprecated skill folders
         skills_dir = agent_dir / "skills"
         for skill_name in _DEPRECATED_SKILLS:
@@ -121,6 +127,11 @@ async def ensure_workspace(agent_id: uuid.UUID, tenant_id: str | None = None) ->
     (ws / "skills").mkdir(exist_ok=True)
     (ws / "workspace").mkdir(exist_ok=True)
     (ws / "workspace" / "knowledge_base").mkdir(exist_ok=True)
+
+    # Clean up nested workspace/workspace/ if empty (legacy bootstrap bug)
+    _nested_ws = ws / "workspace" / "workspace"
+    if _nested_ws.is_dir() and not any(_nested_ws.iterdir()):
+        _nested_ws.rmdir()
     (ws / "memory").mkdir(exist_ok=True)
     (ws / "memory" / "learnings").mkdir(exist_ok=True)
     (ws / "evolution").mkdir(exist_ok=True)
