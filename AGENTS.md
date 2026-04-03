@@ -1,154 +1,177 @@
 # AGENTS.md
 
-This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+Technical reference for AI coding assistants working with the Hive platform.
 
 ## Project Overview
 
-Hive is an open-source **multi-agent collaboration platform** — enterprise "digital employees" with persistent identity, long-term memory, private workspaces, and autonomous trigger-driven execution. Built with FastAPI (Python) backend + React 19 (TypeScript) frontend.
+Hive is an open-source **multi-agent collaboration platform** — enterprise "digital employees" with persistent identity, long-term memory, private workspaces, and autonomous trigger-driven execution.
 
-Version is tracked in the root `VERSION` file (shared by both frontend and backend).
+- **Version:** 1.7.0 (tracked in root `VERSION` file)
+- **License:** Apache 2.0
+- **Stack:** FastAPI (Python 3.12) + React 19 (TypeScript 5) + PostgreSQL 15 + Redis 7
+- **Deployment:** Docker / Railway
 
-## Development Commands
+## Commands
 
-### First-Time Setup
 ```bash
-bash setup.sh           # Production: env, PostgreSQL, backend venv, frontend npm, DB seed
-bash setup.sh --dev     # Also installs pytest, ruff, and dev tools
-```
+# Setup
+bash setup.sh --dev
 
-### Start/Stop Services
-```bash
-bash restart.sh         # Stops old processes, starts backend(:8008) + frontend(:3008)
-# Frontend: http://localhost:3008
-# Backend:  http://localhost:8008
-```
+# Run
+bash restart.sh                    # Backend(:8008) + Frontend(:3008)
 
-### Backend (cd backend/)
-```bash
-source .venv/bin/activate                    # Activate Python venv (created by setup.sh)
-uvicorn app.main:app --host 0.0.0.0 --port 8008 --reload  # Dev server
-
-# Lint
+# Backend (cd backend/)
+source .venv/bin/activate
+uvicorn app.main:app --host 0.0.0.0 --port 8008 --reload
 ruff check app/ --fix && ruff format app/
+pytest
+alembic upgrade head
+alembic revision --autogenerate -m "desc"
 
-# Tests
-pip install -e ".[dev]"
-pytest                                       # All tests
-pytest tests/test_foo.py -v                  # Single test
-pytest tests/test_foo.py::test_bar -v        # Single test case
+# Frontend (cd frontend/)
+npm run dev                        # Vite on :3008
+npm run build                      # tsc + vite build
 
-# Database migrations
-alembic upgrade head                         # Apply all migrations
-alembic revision --autogenerate -m "desc"    # Create new migration
-alembic heads                                # Check for multiple heads (must be single)
+# Docker
+docker compose up -d --build       # Full stack → :3008
 ```
 
-### Frontend (cd frontend/)
-```bash
-npm run dev              # Vite dev server on :3008 (proxies /api→:8008, /ws→ws://:8008)
-npm run build            # tsc + vite build → dist/
-npm run preview          # Serve built dist locally
-```
+## Backend Architecture (`backend/app/`)
 
-### Docker
-```bash
-cp .env.example .env
-docker compose up -d              # Full stack (postgres + redis + backend + frontend → :3008)
-docker compose up -d --build      # Rebuild after code changes
-```
+### Codebase Stats
 
-## Architecture
+| Layer | Files | LOC | Purpose |
+|-------|-------|-----|---------|
+| API Routes | 48 | ~16K | FastAPI routers |
+| Models | 31 | ~1.5K | SQLAlchemy ORM (async, RLS) |
+| Services | 58 | ~17K | Business logic |
+| Tool Domains | 20 | — | Feishu office, messaging, tasks, email |
+| Kernel | 3 | ~1.6K | Core LLM execution engine |
+| Tools | 11 | ~700 | Handler implementations |
+| Skills | 5 | ~310 | Markdown skill system |
+| Memory | 5 | ~1K | Semantic memory with FTS |
+| Migrations | 35 | — | Alembic schema versions |
 
-```
-Frontend (React 19 + Vite)
-    ↓ /api proxy (:3008 → :8008)
-Backend (FastAPI + SQLAlchemy async)
-    ↓
-PostgreSQL (asyncpg) + Redis
-```
+### API Routers (48 files)
 
-### Backend Structure (`backend/app/`)
+Core: `agents`, `auth`, `users`, `tenants`, `enterprise`, `admin`
+Agent features: `tasks`, `triggers`, `schedules`, `relationships`, `skills`, `files`, `chat_sessions`
+Channels: `feishu`, `slack`, `discord_bot`, `dingtalk`, `wecom`, `teams`
+Platform: `tools`, `packs`, `capabilities`, `plaza`, `notification`, `websocket`
+Enterprise: `organization`, `memory`, `guard_policies`, `feature_flags`, `config_history`
+Desktop: `desktop_auth`, `desktop_sync`, `desktop_agents`, `desktop_audit`
+Other: `upload`, `webhooks`, `gateway`, `llm_proxy`, `oidc`, `onboarding`, `role_templates`
 
-| Directory | Purpose |
-|-----------|---------|
-| `api/` | 33 FastAPI router modules (each is a domain: agents, auth, chat, enterprise, triggers, channels...) |
-| `models/` | 23 SQLAlchemy ORM models (all async, tenant-scoped) |
-| `services/` | 38 business logic services (agent execution, LLM client, trigger daemon, channel integrations) |
-| `core/` | Security, permissions, Redis pub/sub, middleware |
-| `schemas/` | Pydantic request/response validation |
-| `config.py` | Pydantic Settings (loads from `.env`) |
-| `database.py` | Async SQLAlchemy engine + session factory |
-| `main.py` | App entry point — lifespan startup seeds DB, starts trigger daemon + channel WebSocket managers |
+All routers mounted under `/api` and `/api/v1` prefixes.
 
-All routers are mounted under `/api` prefix. Health check: `GET /api/health`.
+### Models (31 files)
 
-**Key services:**
-- `agent_tools.py` — file-based workspace tools the agent calls (read/write/search/task management)
-- `llm_client.py` — unified LLM client (OpenAI, Anthropic, OpenAI-compatible APIs)
-- `trigger_daemon.py` — background process evaluating cron/interval/poll/webhook/on_message triggers
-- `mcp_client.py` — Model Context Protocol client for runtime tool discovery
-- `quota_guard.py` — token usage and message quota enforcement
+Core entities: `User`, `Agent`, `Tenant`, `LLMModel`, `Tool`, `Skill`, `Task`
+Agent config: `AgentTrigger`, `AgentSchedule`, `ChannelConfig`, `AgentPermission`, `AgentTemplate`
+Relationships: `AgentRelationship`, `AgentAgentRelationship`, `OrgMember`, `OrgDepartment`
+Audit: `AuditLog`, `SecurityAuditEvent`, `ChatMessage`, `ChatSession`, `AgentActivityLog`
+Platform: `CapabilityPolicy`, `CapabilityInstall`, `GuardPolicy`, `FeatureFlag`, `Notification`
+Auth: `RefreshToken`, `InvitationCode`, `Participant`
+Social: `PlazaPost`, `PlazaComment`, `PlazaLike`
 
-**Agent data:** Each agent gets a filesystem directory (`backend/agent_data/<agent-uuid>/`) containing `soul.md`, `memory.md`, skills, and workspace files.
+### Services (58 files)
 
-### Frontend Structure (`frontend/src/`)
+| Category | Services |
+|----------|---------|
+| Agent lifecycle | `agent_manager`, `agent_seeder`, `auto_dream`, `auto_provision` |
+| LLM | `llm_client` (OpenAI/Anthropic/Gemini/compatible), `llm_utils` |
+| Execution | `trigger_daemon` (15s loop), `task_executor`, `scheduler`, `heartbeat` |
+| Channels | `feishu_service`, `feishu_ws`, `dingtalk_stream`, `wecom_stream` |
+| Tools | `agent_tools`, `agent_tool_assignment_service`, `tool_seeder`, `tool_telemetry` |
+| Security | `capability_gate`, `approval_service`, `quota_guard`, `secrets_provider`, `audit_logger` |
+| Memory | `memory_service`, `conversation_summarizer`, `knowledge_inject` |
+| Integration | `mcp_client`, `mcp_registry_service`, `email_service`, `viking_client` |
+| Multi-tenant | `enterprise_sync`, `org_sync_service`, `sync_service` |
+| Other | `pack_service`, `skill_creator_content`, `text_extractor`, `token_tracker` |
 
-| Directory | Purpose |
-|-----------|---------|
-| `pages/` | 11 route pages (Login, Layout, Dashboard, Plaza, AgentCreate, AgentDetail, Chat, EnterpriseSettings, etc.) |
-| `components/` | 5 shared components (FileBrowser, MarkdownRenderer, ConfirmModal, PromptModal, ErrorBoundary) |
-| `services/api.ts` | Centralized HTTP client — all API calls go through `request<T>()` with JWT auth |
-| `stores/index.ts` | Zustand stores — `useAuthStore` (user/token) + `useAppStore` (sidebar/selection) |
-| `types/index.ts` | Core TypeScript interfaces (User, Agent, Task, ChatMessage) |
-| `i18n/` | i18next with `en.json` + `zh.json` — **both must be updated** for any UI text |
-| `utils/theme.ts` | Accent color palette generator + dark/light theme system |
-| `index.css` | Full design system (Linear-style dark theme, CSS custom properties) |
+### Kernel Engine
 
-**Data fetching:** TanStack React Query 5 for server state; Zustand for client-only UI state.
-**Routing:** React Router 7 with protected routes (redirect to `/login` without token). Default route redirects to `/plaza`.
+Stateless LLM loop with dependency injection. Zero DB imports — all I/O via 14 `KernelDependencies` callbacks.
 
-**Path alias:** `@/` maps to `src/` in both Vite and TypeScript configs.
+- Max 50 tool rounds per invocation
+- Context compaction at 85% window threshold
+- Tool result eviction: 50KB/result, 200KB/round
+- Parallel-safe tool execution
+- Vision support for multimodal models
+- Provider-specific cache hints
 
-## Critical Conventions
+### Tool Handlers (60+ tools)
 
-### Multi-Tenancy
-Every entity is company/tenant-scoped. All queries must filter by `tenant_id`. The first registered user becomes platform admin.
+| Handler | Tools |
+|---------|-------|
+| `filesystem` | list_files, read_file, write_file, edit_file, delete_file |
+| `search` | web_search, web_fetch, firecrawl_fetch, xcrawl_scrape |
+| `communication` | send_feishu_message, send_web_message |
+| `email` | send_email, read_emails, reply_email |
+| `feishu` | feishu_wiki_list, feishu_doc_read/append/create/share |
+| `plaza` | plaza_get_new_posts, plaza_create_post, plaza_add_comment |
+| `skills` | load_skill, tool_search |
+| `triggers` | set_trigger, update_trigger, list_triggers, cancel_trigger |
+| `hr` | create_digital_employee |
+| `mcp` | list_mcp_resources, read_mcp_resource, import_mcp_server |
 
-### Alembic Migrations
-- Always check `alembic heads` before creating a new migration — **must be a single head**
-- The `main.py` lifespan also applies column patches via `ALTER TABLE IF NOT EXISTS` for backwards compatibility
-- `entrypoint.sh` runs `alembic upgrade head` on container start
+## Frontend Architecture (`frontend/src/`)
 
-### i18n
-All user-facing text must have entries in both `frontend/src/i18n/en.json` and `zh.json`. Use `t('key')` from `useTranslation()`.
+### Pages (17 + 20 sections)
 
-### Agent Types
-- **Native** — uses platform-configured LLM models directly
-- **OpenClaw** — remote bot running via gateway (Docker container)
+| Page | Route | Purpose |
+|------|-------|---------|
+| Login | `/login` | Authentication |
+| CompanySetup | `/setup-company` | Tenant onboarding |
+| Dashboard | `/dashboard` | Agent metrics, activity |
+| Plaza | `/plaza` | Agent social feed |
+| AgentDetail | `/agents/:id` | Agent management hub (10 tab sections) |
+| EnterpriseSettings | `/enterprise/*` | Workspace admin (12 sections) |
+| PlatformDashboard | `/admin/*` | Platform admin |
+| UserManagement | `/enterprise/users` | User/team admin |
 
-### Autonomy Levels
-L1 (free action), L2 (some approval needed), L3 (all actions require human approval). Managed by `autonomy_service.py`.
+### Tech Stack
 
-### Channel Integrations
-Feishu/Lark, Discord, Slack, DingTalk, WeChat Work, Microsoft Teams — each has its own router in `api/` and streaming service in `services/`. Channel configs are per-agent.
+| Aspect | Choice |
+|--------|--------|
+| Framework | React 19 |
+| Bundler | Vite 6 |
+| Routing | React Router 7 (lazy loading) |
+| Server state | TanStack React Query 5 |
+| Client state | Zustand 5 |
+| i18n | i18next (en + zh) |
+| Icons | Tabler Icons |
+| Charts | Recharts 3 |
+| Tests | Vitest 4 (14 suites) |
 
-### Environment Variables
-Key vars in `.env` (see `.env.example`):
-- `DATABASE_URL` — PostgreSQL connection string (must include `?ssl=disable` for local dev)
-- `REDIS_URL` — Redis connection
-- `SECRET_KEY`, `JWT_SECRET_KEY` — security keys
-- `AGENT_DATA_DIR` — agent workspace root (default: `~/.hive/data/agents` local, `/data/agents` in Docker)
-- `EXA_API_KEY`, `TAVILY_API_KEY`, `FIRECRAWL_API_KEY`, `XCRAWL_API_KEY` — optional web/search provider keys
-- `FEISHU_APP_ID`, `FEISHU_APP_SECRET` — Feishu SSO (optional)
+### API Layer
 
-### Ports
-| Service | Port |
-|---------|------|
-| Frontend (dev) | 3008 |
-| Backend (dev) | 8008 |
-| PostgreSQL | 5432 |
-| Redis | 6379 |
-| Frontend (Docker) | 3008 (configurable via `FRONTEND_PORT`) |
+Core HTTP abstraction in `api/core/request.ts` — `get<T>()`, `post<T>()`, `put<T>()` with JWT auth and tenant header injection.
 
-### Ruff Config
-Backend uses ruff with `target-version = "py311"`, `line-length = 120`.
+20 domain adapters in `api/domains/`: agents, enterprise, tools, chat, auth, notifications, files, tasks, skills, relationships, plaza, channels, schedules, admin, activity, users, messages, system, triggers.
+
+## Conventions
+
+- **Multi-tenancy:** All entities tenant-scoped. PostgreSQL RLS. `check_agent_access()` required.
+- **Kernel invariant:** All LLM calls via `invoke_agent()` → `AgentKernel.handle()`. Never direct.
+- **Tool governance:** All tool calls via `ToolRuntimeService.execute()`. Never bypass.
+- **i18n:** Both `en.json` and `zh.json` must be updated for any UI text.
+- **Migrations:** `alembic heads` must show single head before creating new migration.
+- **Ruff:** `target-version = "py311"`, `line-length = 120`.
+- **Ports:** Frontend 3008, Backend 8008, PostgreSQL 5432, Redis 6379.
+
+## Environment Variables
+
+| Variable | Purpose |
+|----------|---------|
+| `DATABASE_URL` | PostgreSQL async connection |
+| `REDIS_URL` | Redis cache/sessions |
+| `SECRET_KEY` | Session secret |
+| `JWT_SECRET_KEY` | JWT signing |
+| `SECRETS_MASTER_KEY` | Encrypt LLM keys and channel credentials |
+| `AGENT_DATA_DIR` | Agent workspace root |
+| `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | Feishu SSO |
+| `TAVILY_API_KEY` | Web search |
+| `EXA_API_KEY` | Web search |
+| `FIRECRAWL_API_KEY` | Web crawling |
+| `XCRAWL_API_KEY` | Web crawling |

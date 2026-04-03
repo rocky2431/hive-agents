@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Hive is an open-source **multi-agent collaboration platform** — enterprise "digital employees" with persistent identity, long-term memory, private workspaces, and autonomous trigger-driven execution. Built with FastAPI (Python) backend + React 19 (TypeScript) frontend.
 
-Version is tracked in the root `VERSION` file (shared by both frontend and backend).
+**Version:** tracked in the root `VERSION` file (currently 1.7.0), shared by both frontend and backend.
 
 ## Development Commands
 
@@ -65,11 +65,11 @@ PostgreSQL (asyncpg) + Redis
 All agent execution flows through a unified kernel. This is the most important architectural layer.
 
 ```
-Entry Points (WebSocket, Feishu, Task, Trigger, Heartbeat, Agent Delegation)
+Entry Points (WebSocket, Feishu, Slack, DingTalk, WeChat, Teams, Trigger, Heartbeat, Delegation)
     ↓
 runtime/invoker.py — invoke_agent() resolves deps, builds prompt, calls kernel
     ↓
-kernel/engine.py — AgentKernel.handle() — pure LLM loop, zero DB deps
+kernel/engine.py — AgentKernel.handle() — stateless LLM loop, zero DB deps (1,505 LOC)
     ↓ (14 injected callbacks via KernelDependencies)
 tools/service.py — ToolRuntimeService.execute() — governed tool execution
     ↓
@@ -83,13 +83,13 @@ tools/executors/ — core.py, extended.py, integrations.py
 | File | Purpose |
 |------|---------|
 | `kernel/contracts.py` | `InvocationRequest`, `InvocationResult`, `RuntimeConfig` — pure dataclasses |
-| `kernel/engine.py` | `AgentKernel` — stateless LLM loop with DI (441 LOC). All I/O injected via `KernelDependencies` |
-| `runtime/invoker.py` | `invoke_agent()` — wires kernel to platform (DB, tools, memory, prompt). Single entry for ALL execution paths |
+| `kernel/engine.py` | `AgentKernel` — stateless LLM loop with DI. Context compaction, token budgeting, vision support |
+| `runtime/invoker.py` | `invoke_agent()` — wires kernel to platform (DB, tools, memory, prompt). Single entry for ALL paths |
 | `runtime/prompt_builder.py` | Assembles system prompt: agent context → knowledge → memory → active packs → skill catalog |
 | `runtime/session.py` | `SessionContext` — tracks source, channel, active_packs per invocation |
 | `core/execution_context.py` | `ExecutionIdentity` ContextVar — agent_bot vs delegated_user, read by audit |
 
-**Execution flow:** Every entry point (WebSocket chat, Feishu message, trigger, heartbeat, task executor, agent-to-agent) builds an `InvocationRequest` and calls `invoke_agent()`. The kernel runs a multi-round LLM loop (max 50 rounds) with streaming callbacks.
+**Execution flow:** Every entry point builds an `InvocationRequest` and calls `invoke_agent()`. The kernel runs a multi-round LLM loop (max 50 rounds) with streaming callbacks. Context compaction at 85% threshold, tool result eviction at 50KB/result.
 
 ### Tool System (`app/tools/`)
 
@@ -99,69 +99,62 @@ Tools follow a registry + executor + governance pattern:
 |------|---------|
 | `runtime.py` | `ToolExecutionRegistry` — name → executor mapping, `try_execute()` |
 | `service.py` | `ToolRuntimeService` — wraps governance + execution + timeout + logging |
-| `governance.py` | `run_tool_governance()` — 2-layer preflight: security zone → capability gate (with optional approval escalation) |
-| `governance_resolver.py` | Connects governance to real DB (agent security_zone, capability policies, approval service) |
-| `packs.py` | `ToolPackSpec` — static capability bundles (web_pack, feishu_pack, email_pack, etc.) |
-| `executors/core.py` | File I/O, skill loading, triggers, messaging — 13 core tool handlers |
-| `executors/extended.py` | Web search, document reader, MCP, upload — 12 extended handlers |
-| `executors/integrations.py` | Plaza, Feishu docs/calendar, email, MCP passthrough |
+| `governance.py` | `run_tool_governance()` — 2-layer preflight: security zone → capability gate |
+| `governance_resolver.py` | Connects governance to real DB (security_zone, capability policies, approval) |
+| `packs.py` | `ToolPackSpec` — static capability bundles (web, feishu, email, etc.) |
+| `handlers/` | 11 handler files: filesystem, search, communication, email, feishu, plaza, skills, triggers, hr, mcp |
 | `workspace.py` | `ensure_workspace()` — bootstraps agent filesystem (soul.md, memory/, skills/, workspace/) |
 
-**Tool governance pipeline:** Every `execute_tool()` call runs through `run_tool_governance()` which checks: (1) security zone (public/standard/restricted), (2) capability policy (tenant/agent-level allow/deny/approval). If the capability policy requires approval, it escalates to the approval service. If blocked, returns a user-friendly message.
-
-**Dynamic tool expansion:** When an agent calls `load_skill` or `discover_resources`, the kernel expands the tool list from core-only to full toolset and emits a `pack_activation` event.
+**60+ built-in tools** across categories: file I/O, web search/fetch, Feishu office (docs/wiki/sheets/base/tasks/calendar), email, messaging, plaza, triggers, skills, MCP.
 
 ### Skill System (`app/skills/`)
 
-Skills are markdown files with YAML frontmatter that define agent capabilities:
-
-```yaml
----
-name: "Web Research"
-description: "Search and analyze web content"
-tools: [web_search, web_fetch]
----
-# Instructions...
-```
-
-`SkillParser` → `WorkspaceSkillLoader` → `SkillRegistry` (dedup + fuzzy lookup). Skills are loaded progressively: catalog in prompt, full body via `load_skill` tool.
+Markdown files with YAML frontmatter defining agent capabilities. `SkillParser` → `WorkspaceSkillLoader` → `SkillRegistry`. Skills loaded progressively: catalog in prompt, full body via `load_skill` tool.
 
 ### Memory System (`app/memory/`)
 
-File-backed memory with session summaries. `FileBackedMemoryStore` loads session summaries + agent facts → injects into system prompt as `memory_context`.
+SQLite per-agent database with FTS (full-text search). 8 categories: user, feedback, project, reference, general, constraint, strategy, blocked_pattern. Assembled into `memory_context` for system prompt injection.
 
 ### Multi-Agent (`app/agents/`)
 
 `delegate_to_agent()` wraps `invoke_agent()` with `SessionContext(source="agent")` and `core_tools_only=True` to prevent nested delegation loops.
 
-### Backend Services (`backend/app/services/`)
+### Backend Layout (`backend/app/`)
 
-| Service | Purpose |
-|---------|---------|
-| `llm_client.py` | Unified LLM client — OpenAI, Anthropic, OpenAI-compatible, Gemini |
-| `agent_tools.py` | Tool definitions (OpenAI function-calling format) + legacy execute_tool |
-| `trigger_daemon.py` | 15-sec tick loop evaluating cron/interval/poll/webhook/on_message triggers |
-| `approval_service.py` | Approval request creation and resolution — integrates with Feishu approval cards |
-| `capability_gate.py` | `CAPABILITY_MAP` (tool → capability) + `check_capability()` per tenant/agent |
-| `feishu_service.py` | Feishu OAuth, messaging, interactive approval cards |
-| `pack_service.py` | Pack catalog, agent packs, capability summary, session runtime state |
+| Directory | Count | Purpose |
+|-----------|-------|---------|
+| `api/` | 48 files | FastAPI routers — agents, auth, chat, enterprise, triggers, channels, admin, plaza |
+| `models/` | 31 files | SQLAlchemy ORM — all async, tenant-scoped with RLS |
+| `services/` | 58 files | Business logic — LLM client, trigger daemon, channel streaming, quota, approval |
+| `services/agent_tool_domains/` | 20 files | Tool domain implementations — Feishu (8), messaging, tasks, workspace, email |
+| `kernel/` | 3 files | Core engine (1,590 LOC) — invocation loop, contracts, context management |
+| `tools/` | 11+ files | Tool registry, governance, handlers, workspace |
+| `skills/` | 5 files | Skill parser, loader, registry |
+| `memory/` | 5 files | Semantic memory store, retriever, assembler |
+| `core/` | — | Security, permissions, middleware, Redis pub/sub |
+| `migrations/` | 35 versions | Alembic schema evolution |
 
-### Frontend (`frontend/src/`)
+### Frontend Layout (`frontend/src/`)
 
-| Area | Key Files |
-|------|-----------|
-| Pages | `AgentCreate.tsx` (5-step wizard: Identity→Capabilities→Risk→Channel→Review), `AgentDetail.tsx` (tabs: capabilities, skills, chat, settings), `EnterpriseSettings.tsx` (LLM pool, packs, audit, SSO, capabilities) |
-| API layer | `services/api.ts` — `request<T>()` with JWT auth. Domain objects: `agentApi`, `packApi`, `capabilityApi`, `auditApi`, `oidcApi` |
-| State | TanStack React Query 5 for server state; Zustand for UI state |
-| i18n | `i18n/en.json` + `zh.json` — **both must be updated** for any UI text |
-| Components | `CapabilityPackCard.tsx`, `ChannelConfig.tsx`, `FileBrowser.tsx`, `MarkdownRenderer.tsx` |
+| Directory | Purpose |
+|-----------|---------|
+| `pages/` | 17 pages + 20 section files — Dashboard, AgentDetail, Plaza, EnterpriseSettings, Admin |
+| `components/` | 9 reusable components — ChannelConfig, FileBrowser, MarkdownRenderer, etc. |
+| `api/core/` | HTTP abstraction — `request<T>()` with JWT, error handling, upload progress |
+| `api/domains/` | 20 typed domain adapters — agents, enterprise, tools, chat, notifications, etc. |
+| `stores/` | Zustand — `useAuthStore` (user/token) + `useAppStore` (sidebar/selection) |
+| `i18n/` | i18next — `en.json` + `zh.json` (both must be updated for any UI text) |
+| `types/` | Core TypeScript interfaces — User, Agent, Task, ChatMessage |
+| `surfaces/` | Layout shells — App, Workspace, Admin with role-based guards |
 
+**State:** TanStack React Query 5 for server state; Zustand 5 for UI state.
+**Routing:** React Router 7 with lazy loading. Guards: ProtectedRoute, WorkspaceGuard, AdminGuard.
 **Path alias:** `@/` maps to `src/`.
 
 ## Critical Conventions
 
 ### Multi-Tenancy
-Every entity is tenant-scoped. All queries filter by `tenant_id`. First registered user becomes platform admin. Use `check_agent_access(db, current_user, agent_id)` before returning agent-scoped data.
+Every entity is tenant-scoped. All queries filter by `tenant_id`. First registered user becomes platform admin. Use `check_agent_access(db, current_user, agent_id)` before returning agent-scoped data. PostgreSQL RLS policies enforce isolation at DB level.
 
 ### Agent Kernel Invariant
 All agent execution goes through `invoke_agent()` → `AgentKernel.handle()`. Never call LLM directly from a route handler. The kernel is pure (zero DB imports) — all I/O via `KernelDependencies` callbacks.
@@ -181,13 +174,30 @@ Agents start with kernel-only tools (file I/O, skill loading, triggers). Capabil
 Both `en.json` and `zh.json` must be updated for any UI text. Use `t('key')` from `useTranslation()`.
 
 ### Channel Integrations
-Feishu/Lark, Discord, Slack, DingTalk, WeChat Work, Microsoft Teams — each has its own router in `api/` and streaming service in `services/`. Channel configs are per-agent.
+Feishu/Lark, Discord, Slack, DingTalk, WeChat Work, Microsoft Teams — each has its own router in `api/` and streaming service in `services/`. Channel configs are per-agent. Feishu supports WebSocket long connections via `feishu_ws.py`.
 
 ### Environment Variables
-Key vars (see `.env.example`): `DATABASE_URL`, `REDIS_URL`, `SECRET_KEY`, `JWT_SECRET_KEY`, `AGENT_DATA_DIR`, `EXA_API_KEY`, `TAVILY_API_KEY`, `FIRECRAWL_API_KEY`, `XCRAWL_API_KEY`, `FEISHU_APP_ID`/`FEISHU_APP_SECRET`.
+Key vars (see `.env.example`): `DATABASE_URL`, `REDIS_URL`, `SECRET_KEY`, `JWT_SECRET_KEY`, `SECRETS_MASTER_KEY`, `AGENT_DATA_DIR`, `EXA_API_KEY`, `TAVILY_API_KEY`, `FIRECRAWL_API_KEY`, `XCRAWL_API_KEY`, `FEISHU_APP_ID`/`FEISHU_APP_SECRET`.
 
 ### Ports
 Frontend dev: 3008, Backend dev: 8008, PostgreSQL: 5432, Redis: 6379.
 
 ### Ruff
 `target-version = "py311"`, `line-length = 120`.
+
+## Design Context
+
+See `.impeccable.md` for full details. Key points for all frontend work:
+
+**Users:** Enterprise managers and business teams (non-technical). Interface must be approachable.
+
+**Brand:** Intelligent · Cutting-edge · Refined — Vercel/Raycast sophistication with Notion/Slack warmth.
+
+**Design Principles:**
+1. **Clarity over cleverness** — obvious affordances, predictable patterns
+2. **Warm intelligence** — tech-forward but approachable, purposeful color, friendly micro-copy
+3. **Progressive disclosure** — simple path first, power on demand
+4. **Information density when it matters** — scannable dashboards, spacious chat/onboarding
+5. **Consistent motion, minimal animation** — fast (120-200ms), purposeful, never decorative
+
+**Technical:** Vanilla CSS custom properties (no framework), Inter font, Tabler Icons, 4px spacing base, dark/light mode via `data-theme`. Refer to `.impeccable.md` for full token reference.
