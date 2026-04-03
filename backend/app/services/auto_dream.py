@@ -531,62 +531,59 @@ async def _promote_to_soul(
     if not promotable:
         return
 
-    settings = get_settings()
     LEARNED_HEADER = "## Learned Behaviors"
 
     # Try LLM rephrasing
     rephrased = await _llm_rephrase_behaviors(promotable, tenant_id)
 
-    for base in [
-        Path(settings.AGENT_DATA_DIR) / str(agent_id),
-        Path("/tmp/hive_workspaces") / str(agent_id),
-    ]:
-        soul_path = base / "soul.md"
-        if not base.exists():
-            continue
-        try:
-            existing = soul_path.read_text(encoding="utf-8") if soul_path.exists() else ""
-        except Exception:
-            existing = ""
+    # Resolve canonical workspace (F3 fix: single write target)
+    from app.services.heartbeat import _get_canonical_workspace
+    ws_root = _get_canonical_workspace(agent_id)
+    if not ws_root:
+        settings = get_settings()
+        ws_root = Path(settings.AGENT_DATA_DIR) / str(agent_id)
 
-        existing_lower = existing.lower()
+    soul_path = ws_root / "soul.md"
+    try:
+        existing = soul_path.read_text(encoding="utf-8") if soul_path.exists() else ""
+    except Exception as read_err:
+        logger.debug("[AutoDream] Failed to read soul.md: %s", read_err)
+        existing = ""
 
-        # Use LLM-rephrased or raw facts
-        source = rephrased if rephrased else [f"- {c}" for c in promotable]
-        new_behaviors = []
-        for line in source:
-            # Dedup against existing soul.md
-            check = line.lstrip("- ").strip()[:80].lower()
-            if check and check not in existing_lower:
-                new_behaviors.append(line if line.startswith("- ") else f"- {line}")
+    existing_lower = existing.lower()
 
-        if not new_behaviors:
-            continue
+    source = rephrased if rephrased else [f"- {c}" for c in promotable]
+    new_behaviors = []
+    for line in source:
+        check = line.lstrip("- ").strip()[:80].lower()
+        if check and check not in existing_lower:
+            new_behaviors.append(line if line.startswith("- ") else f"- {line}")
 
-        behavior_block = "\n".join(new_behaviors) + "\n"
-        if LEARNED_HEADER in existing:
-            # Append to existing section (it's already positioned correctly)
-            idx = existing.index(LEARNED_HEADER) + len(LEARNED_HEADER)
-            updated = existing[:idx] + "\n" + behavior_block + existing[idx:]
+    if not new_behaviors:
+        return
+
+    behavior_block = "\n".join(new_behaviors) + "\n"
+    if LEARNED_HEADER in existing:
+        idx = existing.index(LEARNED_HEADER) + len(LEARNED_HEADER)
+        updated = existing[:idx] + "\n" + behavior_block + existing[idx:]
+    else:
+        # BP-D fix: Insert BEFORE the first ## heading so Learned Behaviors
+        # survive prompt budget trimming (which cuts from the end).
+        first_h2 = existing.find("\n## ")
+        if first_h2 > 0:
+            updated = (
+                existing[:first_h2]
+                + f"\n\n{LEARNED_HEADER}\n" + behavior_block
+                + existing[first_h2:]
+            )
         else:
-            # BP-D fix: Insert BEFORE the first ## heading so Learned Behaviors
-            # survive prompt budget trimming (which cuts from the end).
-            first_h2 = existing.find("\n## ")
-            if first_h2 > 0:
-                updated = (
-                    existing[:first_h2]
-                    + f"\n\n{LEARNED_HEADER}\n" + behavior_block
-                    + existing[first_h2:]
-                )
-            else:
-                # No ## headings — just prepend after any title line
-                updated = existing.rstrip() + f"\n\n{LEARNED_HEADER}\n" + behavior_block
+            updated = existing.rstrip() + f"\n\n{LEARNED_HEADER}\n" + behavior_block
 
-        try:
-            soul_path.write_text(updated, encoding="utf-8")
-            logger.info("[AutoDream] Promoted %d behaviors to soul.md for agent %s (llm=%s)", len(new_behaviors), agent_id, rephrased is not None)
-        except Exception as exc:
-            logger.debug("[AutoDream] Failed to write soul.md at %s: %s", soul_path, exc)
+    try:
+        soul_path.write_text(updated, encoding="utf-8")
+        logger.info("[AutoDream] Promoted %d behaviors to soul.md for agent %s (llm=%s)", len(new_behaviors), agent_id, rephrased is not None)
+    except Exception as exc:
+        logger.debug("[AutoDream] Failed to write soul.md at %s: %s", soul_path, exc)
 
 
 async def _llm_rephrase_behaviors(raw_facts: list[str], tenant_id: uuid.UUID) -> list[str] | None:
@@ -770,16 +767,22 @@ def _mechanical_distill_blocklist(ws_root: Path) -> list[dict]:
 
 
 def _write_to_workspaces(agent_id: uuid.UUID, rel_path: str, content: str) -> None:
-    """Write content to both workspace locations for an agent."""
-    settings = get_settings()
-    for base in [
-        Path(settings.AGENT_DATA_DIR) / str(agent_id),
-        Path("/tmp/hive_workspaces") / str(agent_id),
-    ]:
-        target = base / rel_path
-        if base.exists():
-            target.parent.mkdir(parents=True, exist_ok=True)
-            try:
-                target.write_text(content, encoding="utf-8")
-            except Exception as exc:
-                logger.debug("[AutoDream] Failed to write %s at %s: %s", rel_path, target, exc)
+    """Write content to the canonical workspace for an agent.
+
+    Uses _get_canonical_workspace to resolve the single source-of-truth
+    path instead of writing to both locations (F3 fix).
+    """
+    from app.services.heartbeat import _get_canonical_workspace
+
+    ws_root = _get_canonical_workspace(agent_id)
+    if not ws_root:
+        # Fallback: try persistent data dir
+        settings = get_settings()
+        ws_root = Path(settings.AGENT_DATA_DIR) / str(agent_id)
+
+    target = ws_root / rel_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        target.write_text(content, encoding="utf-8")
+    except Exception as exc:
+        logger.debug("[AutoDream] Failed to write %s at %s: %s", rel_path, target, exc)

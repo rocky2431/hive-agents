@@ -614,15 +614,15 @@ async def _invoke_agent_for_triggers(agent_id: uuid.UUID, triggers: list[AgentTr
             from app.services.heartbeat import (
                 _parse_heartbeat_outcome,
                 _update_evolution_files,
-                _write_evolution_to_memory,
             )
             trigger_outcome, trigger_score = _parse_heartbeat_outcome(final_reply)
             trigger_summary = final_reply[:80] if final_reply else "empty"
 
+            # Write to evolution files only — semantic_facts populated via
+            # auto_dream._distill_evolution_to_facts() during consolidation (F1 fix).
             await asyncio.to_thread(
                 _update_evolution_files, agent_id, trigger_outcome, trigger_score, f"[trigger] {trigger_summary}",
             )
-            await _write_evolution_to_memory(agent_id, trigger_outcome, trigger_score, trigger_summary, tenant_id=agent.tenant_id)
             logger.debug(
                 "[TriggerDaemon] Evolution feedback for %s: %s score=%s",
                 agent_id, trigger_outcome, trigger_score,
