@@ -227,24 +227,59 @@ def _mark_dreamed(key: str) -> None:
 
 
 async def _load_recent_summaries(agent_id: uuid.UUID, *, limit: int = 10) -> list[str]:
-    """Load recent session summaries from DB."""
+    """Load recent session summaries from DB.
+
+    Prioritizes user-facing sessions (web, feishu, slack, etc.) over internal
+    operations (heartbeat, trigger) to prevent operational noise from polluting
+    the consolidation input. Internal summaries are prefixed with [internal]
+    so the LLM can de-prioritize them.
+    """
+    _INTERNAL_CHANNELS = frozenset({"heartbeat", "trigger"})
+
     try:
         from app.database import async_session
         from app.models.chat_session import ChatSession
         from sqlalchemy import select
 
         async with async_session() as db:
-            result = await db.execute(
-                select(ChatSession.summary)
+            # Load user-facing sessions first (up to limit-2)
+            user_limit = max(limit - 2, limit // 2)
+            user_result = await db.execute(
+                select(ChatSession.summary, ChatSession.source_channel)
                 .where(
                     (ChatSession.agent_id == agent_id) | (ChatSession.peer_agent_id == agent_id),
                     ChatSession.summary.isnot(None),
+                    ChatSession.source_channel.notin_(_INTERNAL_CHANNELS),
                 )
                 .order_by(ChatSession.last_message_at.desc())
-                .limit(limit)
+                .limit(user_limit)
             )
-            rows = result.all()
-            return [row[0] for row in rows if row[0]]
+            user_rows = user_result.all()
+
+            # Fill remaining slots with internal sessions
+            internal_limit = limit - len(user_rows)
+            internal_rows: list[tuple] = []
+            if internal_limit > 0:
+                internal_result = await db.execute(
+                    select(ChatSession.summary, ChatSession.source_channel)
+                    .where(
+                        (ChatSession.agent_id == agent_id) | (ChatSession.peer_agent_id == agent_id),
+                        ChatSession.summary.isnot(None),
+                        ChatSession.source_channel.in_(_INTERNAL_CHANNELS),
+                    )
+                    .order_by(ChatSession.last_message_at.desc())
+                    .limit(internal_limit)
+                )
+                internal_rows = internal_result.all()
+
+        summaries: list[str] = []
+        for summary, _channel in user_rows:
+            if summary:
+                summaries.append(summary)
+        for summary, channel in internal_rows:
+            if summary:
+                summaries.append(f"[internal:{channel}] {summary}")
+        return summaries
     except Exception as exc:
         logger.debug("[AutoDream] Failed to load summaries: %s", exc)
         return []

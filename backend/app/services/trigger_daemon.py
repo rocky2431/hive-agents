@@ -588,6 +588,28 @@ async def _invoke_agent_for_triggers(agent_id: uuid.UUID, triggers: list[AgentTr
         # Do NOT push to user's chat WebSocket — it pollutes the conversation.
         # Users can view trigger results in the self-awareness tab.
 
+        # Evolution feedback — close the learning loop for trigger executions (BP-1 fix)
+        final_reply = reply or "".join(collected_content)
+        try:
+            from app.services.heartbeat import (
+                _parse_heartbeat_outcome,
+                _update_evolution_files,
+                _write_evolution_to_memory,
+            )
+            trigger_outcome, trigger_score = _parse_heartbeat_outcome(final_reply)
+            trigger_summary = final_reply[:80] if final_reply else "empty"
+
+            await asyncio.to_thread(
+                _update_evolution_files, agent_id, trigger_outcome, trigger_score, f"[trigger] {trigger_summary}",
+            )
+            _write_evolution_to_memory(agent_id, trigger_outcome, trigger_score, trigger_summary)
+            logger.debug(
+                "[TriggerDaemon] Evolution feedback for %s: %s score=%s",
+                agent_id, trigger_outcome, trigger_score,
+            )
+        except Exception as _evo_err:
+            logger.debug("[TriggerDaemon] Evolution feedback failed (non-fatal): %s", _evo_err)
+
         # Audit log
         await write_audit_log("trigger_fired", {
             "agent_name": agent.name,

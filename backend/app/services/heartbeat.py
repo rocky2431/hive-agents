@@ -162,9 +162,13 @@ def _parse_heartbeat_outcome(reply: str | None) -> tuple[str, int | None]:
         else:
             outcome = "noop"
 
-    score = int(score_match.group(1)) if score_match else None
-    if score is not None:
-        score = min(score, 10)
+    if score_match:
+        score = min(int(score_match.group(1)), 10)
+    else:
+        # Fallback score based on outcome type — prevents silent None that
+        # breaks _write_evolution_to_memory and inflates scorecard counters.
+        _OUTCOME_FALLBACK_SCORES = {"action_taken": 5, "failure": 2, "noop": 0}
+        score = _OUTCOME_FALLBACK_SCORES.get(outcome, 0)
 
     return outcome, score
 
@@ -349,9 +353,9 @@ def _write_evolution_to_memory(
     from app.memory.store import PersistentMemoryStore
 
     if score is None:
-        return
+        score = 0  # Defensive fallback — _parse_heartbeat_outcome should always return int now
 
-    if score >= 5 and outcome_type == "action_taken":  # L-06: lowered from 7 to capture incremental learnings
+    if score >= 5 and outcome_type == "action_taken":
         content = (
             f"FEEDBACK: Heartbeat action succeeded (score {score}). "
             f"Summary: {summary[:200]}. "
@@ -363,8 +367,18 @@ def _write_evolution_to_memory(
             f"Summary: {summary[:200]}. "
             f"How to apply: avoid this approach in similar contexts."
         )
+    elif outcome_type == "action_taken":
+        # Score 3-4: maintenance/partial progress — still worth recording (BP-3 fix)
+        content = (
+            f"STRATEGY: Partial progress (score {score}). "
+            f"Summary: {summary[:200]}. "
+            f"Pattern noted for incremental improvement."
+        )
     else:
-        return  # Mid-range scores — not worth persisting as feedback
+        return  # noop with mid-range score — genuinely nothing to record
+
+    # Pick category: strategy for partial progress, feedback for success/failure
+    category = "strategy" if content.startswith("STRATEGY:") else "feedback"
 
     settings = get_settings()
     store = PersistentMemoryStore(data_root=Path(settings.AGENT_DATA_DIR))
@@ -372,7 +386,7 @@ def _write_evolution_to_memory(
     existing.append({
         "content": content[:2000],
         "subject": f"heartbeat_{outcome_type}",
-        "category": "feedback",
+        "category": category,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     })
     store.replace_semantic_facts(agent_id, existing)
@@ -450,15 +464,23 @@ def _update_evolution_files(
         except Exception as exc:
             logger.debug(f"[Heartbeat] Failed to update scorecard for {agent_id}: {exc}")
 
-        # ── Append lineage entry ──
+        # ── Append lineage entry (skip if agent already wrote one for this timestamp) ──
         lineage_path = evo_dir / "lineage.md"
         try:
             existing = lineage_path.read_text(encoding="utf-8", errors="replace") if lineage_path.exists() else ""
             if "(no entries yet)" in existing:
                 existing = "# Evolution Lineage\n\n"
-            score_str = f", score={score}" if score is not None else ""
-            entry = f"### HB-{now}\n- Outcome: {outcome_type}{score_str}\n- Summary: {summary}\n\n"
-            new_content = existing.rstrip() + "\n\n" + entry
+
+            # BP-4 fix: Agent may have already written a lineage entry for this
+            # heartbeat via write_file during Phase 4. Check for duplicate timestamp.
+            if f"### HB-{now}" in existing:
+                logger.debug("[Heartbeat] Lineage entry HB-%s already exists (agent-written), skipping server append", now)
+            else:
+                score_str = f", score={score}" if score is not None else ""
+                entry = f"### HB-{now}\n- Outcome: {outcome_type}{score_str}\n- Summary: {summary}\n\n"
+                existing = existing.rstrip() + "\n\n" + entry
+
+            new_content = existing
 
             # Rotate lineage: keep header + last 200 entries to prevent unbounded growth
             _LINEAGE_MAX_ENTRIES = 200
