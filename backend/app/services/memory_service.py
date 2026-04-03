@@ -568,7 +568,9 @@ async def _update_agent_memory(
         new_facts = _extract_facts_simple(delta_messages)
 
     if not new_facts:
-        _set_extraction_cursor(agent_id, len(messages), session_id)
+        # BP-A fix: Do NOT advance cursor when extraction fails.
+        # Messages will be retried on next session end / idle dream.
+        logger.debug("[Memory] No facts extracted for %s (cursor stays at %d)", agent_id, cursor)
         return
 
     all_facts = _merge_memory_facts(existing_facts, new_facts)

@@ -74,8 +74,13 @@ class PersistentMemoryStore:
             )
             # Rebuild FTS index
             self._rebuild_fts(conn)
+            # Write legacy JSON INSIDE the connection context so both succeed or
+            # the DB commit is the canonical source (BP-E fix).
+            try:
+                self._write_legacy_json(agent_id, facts)
+            except Exception as json_err:
+                logger.warning("[MemoryStore] Legacy JSON write failed (DB committed): %s", json_err)
             conn.commit()
-        self._write_legacy_json(agent_id, facts)
 
     def load_semantic_facts(self, agent_id: uuid.UUID, *, limit: int | None = None) -> list[dict]:
         with self._connect(agent_id) as conn:
@@ -143,7 +148,23 @@ class PersistentMemoryStore:
             return conn
         except sqlite3.DatabaseError as exc:
             logger.warning("[MemoryStore] SQLite corrupted for agent %s, recovering: %s", agent_id, exc)
-            # Backup corrupted file and recreate
+            # Verify legacy JSON exists and is valid BEFORE destroying the DB
+            json_path = self._legacy_json_path(agent_id)
+            json_ok = False
+            if json_path.exists():
+                try:
+                    payload = json.loads(json_path.read_text(encoding="utf-8"))
+                    json_ok = isinstance(payload, list) and len(payload) > 0
+                except Exception as json_err:
+                    logger.warning("[MemoryStore] Legacy JSON also invalid for %s: %s", agent_id, json_err)
+            if not json_ok:
+                # Both stores corrupted — backup DB but warn about total memory loss
+                logger.error(
+                    "[MemoryStore] BOTH SQLite and JSON corrupted for agent %s. "
+                    "Memory will be lost. Corrupted DB preserved for manual recovery.",
+                    agent_id,
+                )
+            # Backup corrupted DB file
             corrupted = db_path.with_suffix(".sqlite3.corrupted")
             try:
                 import shutil
@@ -152,7 +173,7 @@ class PersistentMemoryStore:
             except OSError as mv_err:
                 logger.warning("[MemoryStore] Failed to backup corrupted DB: %s", mv_err)
                 db_path.unlink(missing_ok=True)
-            # Recreate fresh connection — legacy JSON will be re-imported
+            # Recreate fresh connection — legacy JSON will be re-imported if valid
             return sqlite3.connect(db_path)
 
     def search_facts(self, agent_id: uuid.UUID, query: str, *, limit: int = 5) -> list[dict]:

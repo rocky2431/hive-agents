@@ -220,12 +220,15 @@ class MemoryRetriever:
 
         # P1.6: Optional LLM-based rerank for semantic items
         if rerank_model_config and query and len(semantic_items) > _RERANK_THRESHOLD:
-            semantic_items = await _rerank_semantic_items(
+            # BP-C fix: preserve original items if rerank returns empty/None
+            _original_semantic = semantic_items[:rerank_max_select]
+            reranked = await _rerank_semantic_items(
                 semantic_items,
                 query,
                 rerank_model_config,
                 max_select=rerank_max_select,
-            ) or []
+            )
+            semantic_items = reranked if reranked else _original_semantic
 
         items.extend(semantic_items)
         items.extend(await self._retrieve_external(agent_id, query, tenant_id, limit=external_limit) or [])

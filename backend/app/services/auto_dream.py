@@ -556,10 +556,24 @@ async def _promote_to_soul(
         if not new_behaviors:
             continue
 
+        behavior_block = "\n".join(new_behaviors) + "\n"
         if LEARNED_HEADER in existing:
-            updated = existing.rstrip() + "\n" + "\n".join(new_behaviors) + "\n"
+            # Append to existing section (it's already positioned correctly)
+            idx = existing.index(LEARNED_HEADER) + len(LEARNED_HEADER)
+            updated = existing[:idx] + "\n" + behavior_block + existing[idx:]
         else:
-            updated = existing.rstrip() + f"\n\n{LEARNED_HEADER}\n" + "\n".join(new_behaviors) + "\n"
+            # BP-D fix: Insert BEFORE the first ## heading so Learned Behaviors
+            # survive prompt budget trimming (which cuts from the end).
+            first_h2 = existing.find("\n## ")
+            if first_h2 > 0:
+                updated = (
+                    existing[:first_h2]
+                    + f"\n\n{LEARNED_HEADER}\n" + behavior_block
+                    + existing[first_h2:]
+                )
+            else:
+                # No ## headings — just prepend after any title line
+                updated = existing.rstrip() + f"\n\n{LEARNED_HEADER}\n" + behavior_block
 
         try:
             soul_path.write_text(updated, encoding="utf-8")
