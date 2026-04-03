@@ -565,6 +565,7 @@ async def process_feishu_event(agent_id: uuid.UUID, body: dict, db: AsyncSession
             import httpx as _httpx
 
             sender_name = ""
+            sender_email = ""
             sender_user_id_feishu = sender_user_id_from_event  # tenant-level user_id, pre-filled from event body
             platform_user_id = creator_id  # fallback
 
@@ -633,17 +634,24 @@ async def process_feishu_event(agent_id: uuid.UUID, body: dict, db: AsyncSession
             except Exception as e:
                 logger.error(f"[Feishu] Failed to resolve sender: {e}")
 
-            # Look up platform user by feishu_user_id or feishu_open_id
+            # Look up platform user by feishu_user_id or feishu_open_id (scoped to agent tenant)
+            _agent_tenant = agent_obj.tenant_id if agent_obj else None
             if sender_user_id_feishu:
-                u_result = await db.execute(select(User).where(User.feishu_user_id == sender_user_id_feishu))
+                _uid_query = select(User).where(User.feishu_user_id == sender_user_id_feishu)
+                if _agent_tenant:
+                    _uid_query = _uid_query.where(User.tenant_id == _agent_tenant)
+                u_result = await db.execute(_uid_query)
                 found_user = u_result.scalar_one_or_none()
                 if found_user:
                     platform_user_id = found_user.id
                     logger.info(f"[Feishu] Matched user by feishu_user_id: {found_user.username}")
 
             if platform_user_id == creator_id and sender_open_id:
-                # Try by feishu_open_id (if same app ID was used for SSO)
-                u_result2 = await db.execute(select(User).where(User.feishu_open_id == sender_open_id))
+                # Try by feishu_open_id (scoped to agent tenant)
+                _oid_query = select(User).where(User.feishu_open_id == sender_open_id)
+                if _agent_tenant:
+                    _oid_query = _oid_query.where(User.tenant_id == _agent_tenant)
+                u_result2 = await db.execute(_oid_query)
                 found_user2 = u_result2.scalar_one_or_none()
                 if found_user2:
                     platform_user_id = found_user2.id
@@ -651,23 +659,42 @@ async def process_feishu_event(agent_id: uuid.UUID, body: dict, db: AsyncSession
 
             # Auto-create user if not found and we have sender info
             if platform_user_id == creator_id and sender_name:
-                from app.core.security import hash_password
+                # ── Try to match existing web user by email before creating ──
+                _linked_existing = False
+                if sender_email and _agent_tenant:
+                    _email_r = await db.execute(
+                        select(User).where(User.email == sender_email, User.tenant_id == _agent_tenant)
+                    )
+                    _existing_user = _email_r.scalar_one_or_none()
+                    if _existing_user:
+                        _existing_user.feishu_open_id = sender_open_id
+                        _existing_user.feishu_user_id = sender_user_id_feishu or _existing_user.feishu_user_id
+                        await db.flush()
+                        platform_user_id = _existing_user.id
+                        _linked_existing = True
+                        logger.info(
+                            f"[Feishu] Linked Feishu identity to existing user: "
+                            f"{_existing_user.display_name} ({sender_email})"
+                        )
 
-                new_username = f"feishu_{sender_user_id_feishu or sender_open_id[:16]}"
-                new_user = User(
-                    username=new_username,
-                    email=f"{new_username}@feishu.local",
-                    password_hash=hash_password(_uuid.uuid4().hex),  # random password
-                    display_name=sender_name,
-                    role="member",
-                    feishu_open_id=sender_open_id,
-                    feishu_user_id=sender_user_id_feishu or None,
-                    tenant_id=agent_obj.tenant_id if agent_obj else None,
-                )
-                db.add(new_user)
-                await db.flush()
-                platform_user_id = new_user.id
-                logger.info(f"[Feishu] Auto-created user: {sender_name} -> {new_username}")
+                if not _linked_existing:
+                    from app.core.security import hash_password
+
+                    new_username = f"feishu_{sender_user_id_feishu or sender_open_id[:16]}"
+                    new_user = User(
+                        username=new_username,
+                        email=sender_email or f"{new_username}@feishu.local",
+                        password_hash=hash_password(_uuid.uuid4().hex),  # random password
+                        display_name=sender_name,
+                        role="member",
+                        feishu_open_id=sender_open_id,
+                        feishu_user_id=sender_user_id_feishu or None,
+                        tenant_id=_agent_tenant,
+                    )
+                    db.add(new_user)
+                    await db.flush()
+                    platform_user_id = new_user.id
+                    logger.info(f"[Feishu] Auto-created user: {sender_name} -> {new_username}")
 
             # ── Find-or-create a ChatSession via external_conv_id (DB-based, no cache needed) ──
             from datetime import datetime as _dt, timezone as _tz

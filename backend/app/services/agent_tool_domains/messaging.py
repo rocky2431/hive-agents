@@ -75,11 +75,17 @@ async def _resolve_target_agent_runtime(from_agent_id: uuid.UUID, agent_name: st
             return None, None, None, "❌ Source agent not found"
 
         target_result = await db.execute(
-            select(Agent).where(Agent.name.ilike(f"%{agent_name}%"), Agent.id != from_agent_id)
+            select(Agent).where(
+                Agent.name.ilike(f"%{agent_name}%"),
+                Agent.id != from_agent_id,
+                Agent.tenant_id == source_agent.tenant_id,
+            )
         )
         target = target_result.scalars().first()
         if not target:
-            all_r = await db.execute(select(Agent).where(Agent.id != from_agent_id))
+            all_r = await db.execute(
+                select(Agent).where(Agent.id != from_agent_id, Agent.tenant_id == source_agent.tenant_id)
+            )
             names = [a.name for a in all_r.scalars().all()]
             return source_agent, None, None, (
                 f"❌ No agent found matching '{agent_name}'. "
@@ -134,14 +140,45 @@ async def _send_feishu_message(agent_id: uuid.UUID, args: dict) -> str:
         return "❌ Please provide member_name, user_id, or open_id"
 
     try:
-        from app.models.org import AgentRelationship
+        from app.models.agent import Agent
+        from app.models.org import AgentRelationship, OrgMember
         from app.models.channel_config import ChannelConfig
         from app.services.feishu_service import feishu_service
         from sqlalchemy.orm import selectinload
 
         async with async_session() as db:
+            # ── Resolve agent tenant_id for recipient validation ──
+            _agent_r = await db.execute(select(Agent.tenant_id).where(Agent.id == agent_id))
+            _agent_tenant_id = _agent_r.scalar_one_or_none()
+
             # ── Shortcut: if caller provided user_id or open_id directly ──
             if (direct_user_id or direct_open_id) and not member_name:
+                # Validate recipient belongs to same tenant (prevent cross-tenant sends)
+                if not _agent_tenant_id:
+                    return "❌ Agent has no tenant configured, cannot validate recipient. Please contact admin."
+                _recipient_ok = False
+                if direct_user_id:
+                    _check = await db.execute(
+                        select(OrgMember.id).where(
+                            OrgMember.feishu_user_id == direct_user_id,
+                            OrgMember.tenant_id == _agent_tenant_id,
+                        )
+                    )
+                    _recipient_ok = _check.scalar_one_or_none() is not None
+                if not _recipient_ok and direct_open_id:
+                    _check = await db.execute(
+                        select(OrgMember.id).where(
+                            OrgMember.feishu_open_id == direct_open_id,
+                            OrgMember.tenant_id == _agent_tenant_id,
+                        )
+                    )
+                    _recipient_ok = _check.scalar_one_or_none() is not None
+                if not _recipient_ok:
+                    return (
+                        f"❌ 无法验证收件人身份：user_id={direct_user_id or ''}, open_id={direct_open_id or ''}。"
+                        f"该用户不在本组织通讯录中，已阻止发送。"
+                    )
+
                 config_result = await db.execute(
                     select(ChannelConfig).where(ChannelConfig.agent_id == agent_id, ChannelConfig.channel_type == "feishu")
                 )
@@ -194,6 +231,42 @@ async def _send_feishu_message(agent_id: uuid.UUID, args: dict) -> str:
                 if r.member and r.member.name == member_name:
                     target_member = r.member
                     break
+
+            # ── Fallback: check if recipient matches agent owner/creator ──
+            if not target_member:
+                from app.models.user import User as _UserModel
+                _owner_r = await db.execute(
+                    select(Agent).where(Agent.id == agent_id)
+                )
+                _agent_obj = _owner_r.scalar_one_or_none()
+                _owner_id = _agent_obj.owner_user_id or _agent_obj.creator_id if _agent_obj else None
+                if _owner_id:
+                    _owner_r2 = await db.execute(select(_UserModel).where(_UserModel.id == _owner_id))
+                    _owner_user = _owner_r2.scalar_one_or_none()
+                    if _owner_user and member_name.lower() in (_owner_user.display_name or "").lower():
+                        # Owner matched by name — resolve feishu credentials
+                        _owner_feishu_uid = _owner_user.feishu_user_id
+                        _owner_feishu_oid = _owner_user.feishu_open_id
+                        # If owner has no feishu binding, try matching via email in OrgMember
+                        if not _owner_feishu_uid and not _owner_feishu_oid and _owner_user.email and _agent_tenant_id:
+                            _om_r = await db.execute(
+                                select(OrgMember).where(
+                                    OrgMember.tenant_id == _agent_tenant_id,
+                                    OrgMember.email == _owner_user.email,
+                                )
+                            )
+                            _om = _om_r.scalar_one_or_none()
+                            if _om:
+                                _owner_feishu_uid = _om.feishu_user_id
+                                _owner_feishu_oid = _om.feishu_open_id
+                        if _owner_feishu_uid or _owner_feishu_oid:
+                            target_member = type("_OwnerAsMember", (), {
+                                "name": _owner_user.display_name,
+                                "feishu_user_id": _owner_feishu_uid,
+                                "feishu_open_id": _owner_feishu_oid,
+                                "email": _owner_user.email,
+                                "phone": None,
+                            })()
 
             if not target_member:
                 # ── Fallback: look up via feishu_user_search (contacts cache / OrgMember / User) ──
@@ -385,19 +458,28 @@ async def _send_web_message(agent_id: uuid.UUID, args: dict) -> str:
         from datetime import datetime as _dt, timezone as _tz
 
         async with async_session() as db:
-            # Look up target user by username or display_name
+            # Resolve agent tenant for scoped query
+            from app.models.agent import Agent as _AgentModel
+            _ag_r = await db.execute(select(_AgentModel.tenant_id).where(_AgentModel.id == agent_id))
+            _agent_tenant = _ag_r.scalar_one_or_none()
+
+            # Look up target user by username or display_name (scoped to same tenant)
             from sqlalchemy import or_
-            u_result = await db.execute(
-                select(UserModel).where(
-                    or_(
-                        UserModel.username == username,
-                        UserModel.display_name == username,
-                    )
+            _user_query = select(UserModel).where(
+                or_(
+                    UserModel.username == username,
+                    UserModel.display_name == username,
                 )
             )
+            if _agent_tenant:
+                _user_query = _user_query.where(UserModel.tenant_id == _agent_tenant)
+            u_result = await db.execute(_user_query)
             target_user = u_result.scalar_one_or_none()
             if not target_user:
-                all_r = await db.execute(select(UserModel.username, UserModel.display_name).limit(20))
+                _avail_query = select(UserModel.username, UserModel.display_name).limit(20)
+                if _agent_tenant:
+                    _avail_query = _avail_query.where(UserModel.tenant_id == _agent_tenant)
+                all_r = await db.execute(_avail_query)
                 names = [f"{r.display_name or r.username}" for r in all_r.all()]
                 return f"❌ No user named '{username}' found. Available users: {', '.join(names) if names else 'none'}"
 
@@ -573,13 +655,17 @@ async def _send_message_to_agent(from_agent_id: uuid.UUID, args: dict) -> str:
             source_agent = src_result.scalar_one_or_none()
             source_name = source_agent.name if source_agent else "Unknown agent"
 
-            # Find target agent by name
-            result = await db.execute(
-                select(Agent).where(Agent.name.ilike(f"%{agent_name}%"), Agent.id != from_agent_id)
-            )
+            # Find target agent by name (scoped to same tenant)
+            _tenant_filter = [Agent.name.ilike(f"%{agent_name}%"), Agent.id != from_agent_id]
+            if source_agent and source_agent.tenant_id:
+                _tenant_filter.append(Agent.tenant_id == source_agent.tenant_id)
+            result = await db.execute(select(Agent).where(*_tenant_filter))
             target = result.scalars().first()
             if not target:
-                all_r = await db.execute(select(Agent).where(Agent.id != from_agent_id))
+                _avail_filter = [Agent.id != from_agent_id]
+                if source_agent and source_agent.tenant_id:
+                    _avail_filter.append(Agent.tenant_id == source_agent.tenant_id)
+                all_r = await db.execute(select(Agent).where(*_avail_filter))
                 names = [a.name for a in all_r.scalars().all()]
                 return f"❌ No agent found matching '{agent_name}'. Available: {', '.join(names) if names else 'none'}"
 

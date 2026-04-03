@@ -65,15 +65,28 @@ async def _feishu_user_search(agent_id: uuid.UUID, arguments: dict) -> str:
                 lines.append(f"  邮箱: {email}")
         return "\n".join(lines)
 
+    # ── Resolve agent tenant_id for scoped queries ─────────────────────────────
+    _tenant_id = None
+    try:
+        from app.database import async_session as _async_session
+        from sqlalchemy import select as _sa_select
+        from app.models.agent import Agent as _Agent
+        async with _async_session() as _db:
+            _agent_r = await _db.execute(_sa_select(_Agent.tenant_id).where(_Agent.id == agent_id))
+            _tenant_id = _agent_r.scalar_one_or_none()
+    except Exception as e:
+        logger.debug("Suppressed tenant lookup: %s", e)
+
     # ── Cache miss: try OrgMember table first (has user_id from org sync) ──────
     try:
         from app.database import async_session as _async_session
         from sqlalchemy import select as _sa_select
         from app.models.org import OrgMember as _OrgMember
+        _om_query = _sa_select(_OrgMember).where(_OrgMember.name.ilike(f"%{name}%"))
+        if _tenant_id:
+            _om_query = _om_query.where(_OrgMember.tenant_id == _tenant_id)
         async with _async_session() as _db:
-            _r = await _db.execute(
-                _sa_select(_OrgMember).where(_OrgMember.name.ilike(f"%{name}%"))
-            )
+            _r = await _db.execute(_om_query)
             _org_members = _r.scalars().all()
         if _org_members:
             lines = [f"🔍 从通讯录找到 {len(_org_members)} 位匹配「{name}」的用户：\n"]
@@ -94,10 +107,11 @@ async def _feishu_user_search(agent_id: uuid.UUID, arguments: dict) -> str:
         from app.database import async_session as _async_session
         from sqlalchemy import select as _sa_select
         from app.models.user import User as _User
+        _user_query = _sa_select(_User).where(_User.display_name.ilike(f"%{name}%"))
+        if _tenant_id:
+            _user_query = _user_query.where(_User.tenant_id == _tenant_id)
         async with _async_session() as _db:
-            _r = await _db.execute(
-                _sa_select(_User).where(_User.display_name.ilike(f"%{name}%"))
-            )
+            _r = await _db.execute(_user_query)
             _platform_users = _r.scalars().all()
         for _pu in _platform_users:
             _uid = getattr(_pu, "feishu_user_id", None)
