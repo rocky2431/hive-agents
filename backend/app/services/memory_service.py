@@ -320,29 +320,49 @@ async def persist_runtime_memory(
     if not _has_meaningful_messages(messages):
         return
 
-    try:
-        summary = await _generate_session_summary(messages, tenant_id)
-        if summary and session_id:
-            await _save_session_summary(session_id, summary)
+    _MAX_RETRIES = 2
+    _RETRY_DELAYS = (1.0, 3.0)
+    last_exc: Exception | None = None
 
-        await _update_agent_memory(agent_id, messages, tenant_id, session_id=session_id)
+    for attempt in range(_MAX_RETRIES + 1):
+        try:
+            summary = await _generate_session_summary(messages, tenant_id)
+            if summary and session_id:
+                await _save_session_summary(session_id, summary)
 
-        config = await _get_memory_config(tenant_id)
-        if config.get("extract_to_viking", False) and summary:
-            from app.services import viking_client
+            await _update_agent_memory(agent_id, messages, tenant_id, session_id=session_id)
 
-            if viking_client.is_configured():
-                await viking_client.add_resource(
-                    content=summary,
-                    to=f"viking://conversations/{agent_id}/{session_id or 'runtime'}",
-                    tenant_id=str(tenant_id),
-                    agent_id=str(agent_id),
-                    reason="conversation_summary",
+            config = await _get_memory_config(tenant_id)
+            if config.get("extract_to_viking", False) and summary:
+                from app.services import viking_client
+
+                if viking_client.is_configured():
+                    await viking_client.add_resource(
+                        content=summary,
+                        to=f"viking://conversations/{agent_id}/{session_id or 'runtime'}",
+                        tenant_id=str(tenant_id),
+                        agent_id=str(agent_id),
+                        reason="conversation_summary",
+                    )
+                    logger.info("Summary written to OpenViking for session %s", session_id or "runtime")
+
+            return  # success
+
+        except Exception as exc:
+            last_exc = exc
+            if attempt < _MAX_RETRIES:
+                import asyncio
+                delay = _RETRY_DELAYS[attempt]
+                logger.warning(
+                    "persist_runtime_memory attempt %d/%d failed, retrying in %.1fs: %s",
+                    attempt + 1, _MAX_RETRIES + 1, delay, exc,
                 )
-                logger.info("Summary written to OpenViking for session %s", session_id or "runtime")
-
-    except Exception as exc:
-        logger.error("persist_runtime_memory failed (non-fatal): %s", exc, exc_info=True)
+                await asyncio.sleep(delay)
+            else:
+                logger.error(
+                    "persist_runtime_memory failed after %d attempts (non-fatal): %s",
+                    _MAX_RETRIES + 1, last_exc, exc_info=True,
+                )
 
 
 # ============================================================================
@@ -605,7 +625,7 @@ async def _extract_facts_with_llm(messages: list[dict], model_config: dict) -> l
             continue
 
         if role in ("user", "assistant") and "tool_calls" not in msg:
-            conversation_text.append(role + ": " + content[:300])
+            conversation_text.append(role + ": " + content[:600])
         elif role == "tool":
             # P0.3: Include high-value tool results in extraction input
             _tc_id = msg.get("tool_call_id", "")
@@ -615,7 +635,7 @@ async def _extract_facts_with_llm(messages: list[dict], model_config: dict) -> l
                 "list_files", "get_current_time", "list_triggers",
                 "list_tasks", "check_async_task", "tool_search",
             ):
-                _preview = content[:200] if len(content) > 200 else content
+                _preview = content[:500] if len(content) > 500 else content
                 conversation_text.append("tool(" + _tool_name + "): " + _preview)
 
         # Track tool_calls for name resolution
@@ -627,7 +647,7 @@ async def _extract_facts_with_llm(messages: list[dict], model_config: dict) -> l
         return []
 
     # Was -40, too narrow for long conversations — tool results in early rounds got skipped
-    text = "\n".join(conversation_text[-80:])
+    text = "\n".join(conversation_text[-120:])
     prompt_text = _build_memory_extraction_prompt(text)
 
     client = create_llm_client(**model_config)

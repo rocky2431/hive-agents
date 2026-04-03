@@ -156,6 +156,9 @@ async def run_dream(agent_id: uuid.UUID, tenant_id: uuid.UUID) -> dict:
         _mark_dreamed(key)
         return {"consolidated": 0, "removed": 0, "added": 0}
 
+    # Backup existing facts before consolidation (BP-3 fix)
+    _backup_facts(agent_id, existing_facts)
+
     # Try LLM consolidation
     consolidated = await _consolidate_with_llm(existing_facts, summaries, tenant_id)
     if consolidated is None:
@@ -164,6 +167,15 @@ async def run_dream(agent_id: uuid.UUID, tenant_id: uuid.UUID) -> dict:
 
     before_count = len(existing_facts)
     after_count = len(consolidated)
+
+    # Safety gate: reject consolidation if it loses >70% of facts
+    if after_count < before_count * 0.3 and before_count >= 5:
+        logger.warning(
+            "[AutoDream] Rejected consolidation for %s: %d → %d facts (>70%% loss). Backup preserved.",
+            agent_id, before_count, after_count,
+        )
+        _mark_dreamed(key)
+        return {"consolidated": before_count, "removed": 0, "added": 0}
 
     store.replace_semantic_facts(agent_id, consolidated)
     _mark_dreamed(key)
@@ -178,6 +190,31 @@ async def run_dream(agent_id: uuid.UUID, tenant_id: uuid.UUID) -> dict:
         agent_id, before_count, after_count, result["removed"], result["added"],
     )
     return result
+
+
+_DREAM_BACKUP_MAX = 3
+
+
+def _backup_facts(agent_id: uuid.UUID, facts: list[dict]) -> None:
+    """Write a timestamped backup of facts before consolidation. Keep last 3."""
+    backup_dir = Path(get_settings().AGENT_DATA_DIR) / str(agent_id) / "memory" / "dream_backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    backup_path = backup_dir / f"dream_backup_{stamp}.json"
+    try:
+        backup_path.write_text(json.dumps(facts, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as exc:
+        logger.debug("[AutoDream] Failed to write backup: %s", exc)
+        return
+
+    # Rotate: keep only the most recent backups
+    backups = sorted(backup_dir.glob("dream_backup_*.json"), key=lambda p: p.name)
+    for old in backups[:-_DREAM_BACKUP_MAX]:
+        try:
+            old.unlink()
+        except OSError as rm_err:
+            logger.debug("[AutoDream] Failed to remove old backup %s: %s", old.name, rm_err)
 
 
 def _mark_dreamed(key: str) -> None:

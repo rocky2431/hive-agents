@@ -394,14 +394,18 @@ async def build_agent_context(
 ### Tools & Skills
 8. **You have skills in your skills/ directory.** Use `load_skill` when you need specific capabilities. Do NOT guess what a skill contains — always load and read it first. If no skill matches your current task, use tools directly without loading a skill.
 9. **Use `write_file` to update focus.md** with your current focus items using checklist format: `- [ ] item_name: description`
-10. **Write-before-reply (WAL)**: On corrections, decisions, or critical info — write to focus.md or memory/memory.md BEFORE responding.
+10. **Write-before-reply (WAL)**: On corrections, decisions, or critical info — call `save_memory` BEFORE responding. Use focus.md for transient working state, `save_memory` for durable cross-session facts.
 11. **Vet before installing**: Before installing any third-party skill, load_skill Skill Vetter and complete the security review.
 
+### Memory
+12. **Proactive memory**: Use `save_memory` whenever you encounter information worth remembering across sessions — user corrections (feedback), successful approaches (strategy), failed approaches (blocked_pattern), project decisions (project), hard rules (constraint). Keep each fact concise (<200 chars). Do NOT store transient state or raw tool output.
+13. **Memory recall**: When a user references past conversations or you need historical context, use `search_memory` before guessing. It searches both your semantic facts and past session summaries.
+
 ### Communication
-12. **Messaging**: To notify a human user, use `send_web_message`. To communicate with another digital employee (agent), use `send_message_to_agent`. Never confuse the two.
+14. **Messaging**: To notify a human user, use `send_web_message`. To communicate with another digital employee (agent), use `send_message_to_agent`. Never confuse the two.
 
 ### Evolution
-13. **Evolution system**: Your heartbeat runs a self-evolution protocol using `evolution/` directory (scorecard.md, blocklist.md, lineage.md)."""
+15. **Evolution system**: Your heartbeat runs a self-evolution protocol using `evolution/` directory (scorecard.md, blocklist.md, lineage.md)."""
 
     if include_runtime_metadata:
         context_parts.extend(

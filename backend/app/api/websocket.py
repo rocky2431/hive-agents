@@ -665,6 +665,24 @@ async def websocket_chat(
                                         await _dc_db.commit()
                                 except Exception as _dc_err:
                                     logger.debug(f"[WS] Partial save on disconnect failed: {_dc_err}")
+
+                            # Best-effort memory persistence on disconnect (BP-2 fix)
+                            # Without this, all learnings from the session are lost.
+                            if conversation and len(conversation) > 1 and agent.tenant_id:
+                                try:
+                                    from app.services.memory_service import persist_runtime_memory
+                                    await asyncio.wait_for(
+                                        persist_runtime_memory(
+                                            agent_id=agent_id,
+                                            session_id=conv_id,
+                                            tenant_id=agent.tenant_id,
+                                            messages=conversation,
+                                        ),
+                                        timeout=5.0,
+                                    )
+                                    logger.info("[WS] Memory persisted on disconnect for session %s", conv_id)
+                                except Exception as _mem_err:
+                                    logger.debug("[WS] Memory persist on disconnect failed (non-fatal): %s", _mem_err)
                             raise
 
                     assistant_response = await llm_task
