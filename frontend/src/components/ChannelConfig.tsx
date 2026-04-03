@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { channelApi } from '../api/domains/channels';
@@ -285,6 +285,14 @@ export default function ChannelConfig({ mode, agentId, canManage = true, values,
     const [agentbayTesting, setAgentbayTesting] = useState(false);
     const [agentbayTestResult, setAgentbayTestResult] = useState<{ ok: boolean; message?: string; error?: string } | null>(null);
 
+    // ─── Email config state ────────────────────────────────
+    const [emailExpanded, setEmailExpanded] = useState(false);
+    const [emailForm, setEmailForm] = useState<Record<string, string>>({ email_provider: 'gmail', email_address: '', auth_code: '' });
+    const [emailSaving, setEmailSaving] = useState(false);
+    const [emailTesting, setEmailTesting] = useState(false);
+    const [emailTestResult, setEmailTestResult] = useState<{ ok: boolean; imap?: string; smtp?: string; error?: string } | null>(null);
+    const [emailSaved, setEmailSaved] = useState(false);
+
     // ─── Edit mode: queries for each channel ────────────
     const enabled = mode === 'edit' && !!agentId;
 
@@ -358,6 +366,33 @@ export default function ChannelConfig({ mode, agentId, canManage = true, values,
         queryFn: () => toolsApi.getAgentFeishuRuntimeStatus(agentId!),
         enabled: enabled,
     });
+
+    // Load email tool config (via agent tools with config API)
+    const { data: emailToolsData } = useQuery({
+        queryKey: ['agent-tools-with-config', agentId],
+        queryFn: async () => {
+            const res = await fetch(`/api/tools/agents/${agentId}/with-config`, {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+            });
+            if (!res.ok) return [];
+            return res.json();
+        },
+        enabled: enabled,
+    });
+    // Initialize email form from loaded config
+    useEffect(() => {
+        if (!emailToolsData) return;
+        const emailTool = (emailToolsData as any[]).find((t: any) => t.name === 'send_email');
+        if (emailTool?.agent_config) {
+            setEmailForm(prev => ({
+                ...prev,
+                email_provider: emailTool.agent_config.email_provider || 'gmail',
+                email_address: emailTool.agent_config.email_address || '',
+                auth_code: emailTool.agent_config.auth_code || '',
+            }));
+            if (emailTool.agent_config.email_address) setEmailExpanded(true);
+        }
+    }, [emailToolsData]);
 
     // Helper: get config data for a channel
     const getConfig = (id: string): any => {
@@ -974,6 +1009,137 @@ export default function ChannelConfig({ mode, agentId, canManage = true, values,
                 </div>
             ) : null}
             {CHANNEL_REGISTRY.map(renderEditChannel)}
+
+            {/* ─── Email Configuration ─────────────────────── */}
+            {mode === 'edit' && agentId && (
+                <div className="card" style={{ padding: '14px 16px', marginBottom: '8px' }}>
+                    <div
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
+                        onClick={() => setEmailExpanded(!emailExpanded)}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <span style={{ fontSize: '20px' }}>📧</span>
+                            <div>
+                                <div style={{ fontWeight: 500, fontSize: '14px' }}>Email (SMTP/IMAP)</div>
+                                <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                                    {emailForm.email_address
+                                        ? `${emailForm.email_address}`
+                                        : t('agent.settings.channel.notConfigured')}
+                                </div>
+                            </div>
+                        </div>
+                        <span style={{ fontSize: '12px', color: 'var(--text-tertiary)', transform: emailExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}>▼</span>
+                    </div>
+
+                    {emailExpanded && (
+                        <div style={{ marginTop: '14px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                            <div className="form-group" style={{ marginBottom: 0 }}>
+                                <label className="form-label">Email Provider</label>
+                                <select
+                                    className="form-input"
+                                    value={emailForm.email_provider || 'gmail'}
+                                    onChange={e => setEmailForm(f => ({ ...f, email_provider: e.target.value }))}
+                                >
+                                    <option value="gmail">Gmail</option>
+                                    <option value="outlook">Outlook / Microsoft 365</option>
+                                    <option value="qq">QQ Mail</option>
+                                    <option value="163">163 Mail</option>
+                                    <option value="qq_enterprise">Tencent Enterprise Mail</option>
+                                    <option value="aliyun">Alibaba Enterprise Mail</option>
+                                    <option value="custom">Custom SMTP/IMAP</option>
+                                </select>
+                            </div>
+                            <div className="form-group" style={{ marginBottom: 0 }}>
+                                <label className="form-label">Email Address</label>
+                                <input
+                                    className="form-input"
+                                    type="email"
+                                    placeholder="you@example.com"
+                                    value={emailForm.email_address || ''}
+                                    onChange={e => setEmailForm(f => ({ ...f, email_address: e.target.value }))}
+                                />
+                            </div>
+                            <div className="form-group" style={{ marginBottom: 0 }}>
+                                <label className="form-label">Authorization Code / App Password</label>
+                                <input
+                                    className="form-input"
+                                    type="password"
+                                    placeholder="Enter authorization code"
+                                    value={emailForm.auth_code || ''}
+                                    onChange={e => setEmailForm(f => ({ ...f, auth_code: e.target.value }))}
+                                />
+                                <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
+                                    Not your login password. Generate an app password or authorization code from your email provider.
+                                </div>
+                            </div>
+
+                            {emailTestResult && (
+                                <div style={{
+                                    padding: '8px 12px', borderRadius: '6px', fontSize: '12px',
+                                    background: emailTestResult.ok ? 'rgba(16,185,129,0.08)' : 'rgba(239,68,68,0.08)',
+                                    border: `1px solid ${emailTestResult.ok ? 'rgba(16,185,129,0.25)' : 'rgba(239,68,68,0.25)'}`,
+                                    color: emailTestResult.ok ? 'var(--success)' : 'var(--error)',
+                                    whiteSpace: 'pre-wrap',
+                                }}>
+                                    {emailTestResult.ok
+                                        ? `IMAP: ${emailTestResult.imap || 'OK'}\nSMTP: ${emailTestResult.smtp || 'OK'}`
+                                        : emailTestResult.error || 'Connection failed'}
+                                </div>
+                            )}
+
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                                <button
+                                    className="btn btn-secondary"
+                                    disabled={emailTesting || !emailForm.email_address || !emailForm.auth_code}
+                                    onClick={async () => {
+                                        setEmailTesting(true);
+                                        setEmailTestResult(null);
+                                        try {
+                                            const res = await toolsApi.testEmail({ config: emailForm });
+                                            setEmailTestResult(res as any);
+                                        } catch (err: any) {
+                                            setEmailTestResult({ ok: false, error: err.message });
+                                        } finally {
+                                            setEmailTesting(false);
+                                        }
+                                    }}
+                                >
+                                    {emailTesting ? 'Testing...' : 'Test Connection'}
+                                </button>
+                                <button
+                                    className="btn btn-primary"
+                                    disabled={emailSaving || !emailForm.email_address || !emailForm.auth_code}
+                                    onClick={async () => {
+                                        setEmailSaving(true);
+                                        try {
+                                            // Find send_email tool ID
+                                            const emailTool = (emailToolsData as any[] || []).find((t: any) => t.name === 'send_email');
+                                            if (emailTool?.agent_tool_id) {
+                                                await toolsApi.updateToolConfig(agentId!, emailTool.agent_tool_id, emailForm);
+                                            }
+                                            // Also save to read_emails and reply_email tools
+                                            for (const toolName of ['read_emails', 'reply_email']) {
+                                                const tool = (emailToolsData as any[] || []).find((t: any) => t.name === toolName);
+                                                if (tool?.agent_tool_id) {
+                                                    await toolsApi.updateToolConfig(agentId!, tool.agent_tool_id, emailForm);
+                                                }
+                                            }
+                                            setEmailSaved(true);
+                                            setTimeout(() => setEmailSaved(false), 2000);
+                                        } catch (err: any) {
+                                            alert(`Save failed: ${err.message}`);
+                                        } finally {
+                                            setEmailSaving(false);
+                                        }
+                                    }}
+                                >
+                                    {emailSaving ? t('common.saving') : emailSaved ? '✓ Saved' : t('common.save')}
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
     );
 }
