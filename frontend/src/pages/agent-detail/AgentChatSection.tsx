@@ -609,7 +609,7 @@ export default function AgentChatSection({
                 {t('agent.chat.clickToStart')}
               </div>
             ) : (
-              sessions.map((session) => {
+              sessions.filter((s: any) => s.source_channel !== 'heartbeat').map((session) => {
                 const isActive = activeSession?.id === session.id;
                 const isOwn = session.user_id === currentUserId;
                 const sessionChannelLabel = channelLabel[session.source_channel];
@@ -732,6 +732,7 @@ export default function AgentChatSection({
               ) : null}
               {!allSessionsLoading &&
                 allSessions
+                  .filter((session: any) => session.source_channel !== 'heartbeat')
                   .filter((session) => !allUserFilter || (session.username || session.user_id) === allUserFilter)
                   .map((session) => {
                     const isActive = activeSession?.id === session.id;
