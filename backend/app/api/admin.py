@@ -6,9 +6,9 @@ and control platform-level settings.
 
 import secrets
 import uuid
-from datetime import datetime
+from datetime import date as dt_date, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func as sqla_func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -222,3 +222,137 @@ async def update_platform_settings(
 
     await db.flush()
     return await get_platform_settings(current_user=current_user, db=db)
+
+
+# ─── Metrics ──────────────────────────────────────────────
+
+
+class TimeseriesPoint(BaseModel):
+    date: str
+    total_companies: int = 0
+    new_companies: int = 0
+    total_users: int = 0
+    new_users: int = 0
+    total_tokens: int = 0
+    new_tokens: int = 0
+
+
+class LeaderboardEntry(BaseModel):
+    name: str
+    tokens: int = 0
+    company: str | None = None
+
+
+class MetricsLeaderboard(BaseModel):
+    top_companies: list[LeaderboardEntry]
+    top_agents: list[LeaderboardEntry]
+
+
+_MAX_TIMESERIES_DAYS = 90
+
+
+@router.get("/metrics/timeseries", response_model=list[TimeseriesPoint])
+async def get_metrics_timeseries(
+    start_date: dt_date = Query(...),
+    end_date: dt_date = Query(...),
+    current_user: User = Depends(require_role("platform_admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Daily time series for companies and users.
+
+    Token time series requires a daily usage log table (not yet implemented),
+    so token fields return 0 for now.
+    """
+    if start_date > end_date:
+        raise HTTPException(status_code=422, detail="start_date must be <= end_date")
+    if (end_date - start_date).days > _MAX_TIMESERIES_DAYS:
+        raise HTTPException(status_code=422, detail=f"Date range must not exceed {_MAX_TIMESERIES_DAYS} days")
+
+    # Daily new counts via SQL aggregation
+    new_co_rows = await db.execute(
+        select(
+            sqla_func.date(Tenant.created_at).label("d"),
+            sqla_func.count().label("cnt"),
+        )
+        .where(sqla_func.date(Tenant.created_at).between(start_date, end_date))
+        .group_by(sqla_func.date(Tenant.created_at))
+    )
+    new_companies: dict[str, int] = {str(r.d): r.cnt for r in new_co_rows}
+
+    new_usr_rows = await db.execute(
+        select(
+            sqla_func.date(User.created_at).label("d"),
+            sqla_func.count().label("cnt"),
+        )
+        .where(sqla_func.date(User.created_at).between(start_date, end_date))
+        .group_by(sqla_func.date(User.created_at))
+    )
+    new_users_map: dict[str, int] = {str(r.d): r.cnt for r in new_usr_rows}
+
+    # Cumulative base before start (single COUNT query each)
+    pre_co = await db.execute(
+        select(sqla_func.count()).select_from(Tenant).where(sqla_func.date(Tenant.created_at) < start_date)
+    )
+    cum_companies = pre_co.scalar() or 0
+
+    pre_usr = await db.execute(
+        select(sqla_func.count()).select_from(User).where(sqla_func.date(User.created_at) < start_date)
+    )
+    cum_users = pre_usr.scalar() or 0
+
+    # Build series
+    result: list[TimeseriesPoint] = []
+    current = start_date
+    while current <= end_date:
+        date_str = current.isoformat()
+        nc = new_companies.get(date_str, 0)
+        nu = new_users_map.get(date_str, 0)
+        cum_companies += nc
+        cum_users += nu
+        result.append(TimeseriesPoint(
+            date=date_str,
+            total_companies=cum_companies,
+            new_companies=nc,
+            total_users=cum_users,
+            new_users=nu,
+        ))
+        current += timedelta(days=1)
+
+    return result
+
+
+@router.get("/metrics/leaderboards", response_model=MetricsLeaderboard)
+async def get_metrics_leaderboards(
+    current_user: User = Depends(require_role("platform_admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Top 20 companies and agents by token usage."""
+    # Top 20 companies
+    top_co = await db.execute(
+        select(
+            Tenant.name,
+            sqla_func.coalesce(sqla_func.sum(Agent.tokens_used_total), 0).label("tokens"),
+        )
+        .join(Agent, Agent.tenant_id == Tenant.id, isouter=True)
+        .group_by(Tenant.id, Tenant.name)
+        .order_by(sqla_func.coalesce(sqla_func.sum(Agent.tokens_used_total), 0).desc())
+        .limit(20)
+    )
+
+    # Top 20 agents
+    agent_tokens = sqla_func.coalesce(Agent.tokens_used_total, 0)
+    top_ag = await db.execute(
+        select(
+            Agent.name,
+            Tenant.name.label("company"),
+            agent_tokens.label("tokens"),
+        )
+        .join(Tenant, Tenant.id == Agent.tenant_id, isouter=True)
+        .order_by(agent_tokens.desc())
+        .limit(20)
+    )
+
+    return MetricsLeaderboard(
+        top_companies=[LeaderboardEntry(name=r.name, tokens=r.tokens) for r in top_co],
+        top_agents=[LeaderboardEntry(name=r.name, company=r.company or "", tokens=r.tokens) for r in top_ag],
+    )

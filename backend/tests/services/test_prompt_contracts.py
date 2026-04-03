@@ -105,6 +105,21 @@ def test_core_tool_descriptions_define_when_not_to_use_and_fallbacks() -> None:
     assert "Return skill slugs" in tools["search_clawhub"]
 
 
+def test_web_search_config_schema_only_exposes_supported_search_providers() -> None:
+    from app.tools.handlers.search import web_search
+
+    fields = web_search.meta.config_schema["fields"]
+    search_engine_field = next(field for field in fields if field["key"] == "search_engine")
+    option_values = {option["value"] for option in search_engine_field["options"]}
+    field_keys = {field["key"] for field in fields}
+
+    assert option_values == {"auto", "exa", "tavily", "duckduckgo"}
+    assert "google" not in option_values
+    assert "bing" not in option_values
+    assert "google_api_key" not in field_keys
+    assert "bing_api_key" not in field_keys
+
+
 def test_skill_catalog_footer_discourages_speculative_loading() -> None:
     from app.skills.registry import SkillRegistry
     from app.skills.types import ParsedSkill, SkillMetadata
