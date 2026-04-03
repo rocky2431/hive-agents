@@ -105,20 +105,18 @@ async def _build_feishu_runtime_status(agent_id: uuid.UUID | None = None) -> dic
             "channel_configured": channel_configured,
             "office_access": office_access,
             "docs_read_ready": office_access,
-            "base_tasks_ready": cli_access,
+            "base_tasks_ready": office_access,
             "ok": channel_configured or office_access or cli_enabled or cli_available,
         }
     )
-    if channel_configured and cli_access:
-        payload["message"] = "Feishu channel auth and lark-cli are both ready. All Feishu office tools can run."
-    elif channel_configured and not cli_access:
-        payload["message"] = "Feishu channel auth is ready for Docs/Wiki/Sheets, but Base/Tasks still need lark-cli auth."
+    if channel_configured:
+        payload["message"] = "Feishu channel auth is ready. All office tools (Docs/Wiki/Sheets/Base/Tasks) can run."
     elif cli_access:
         payload["message"] = "lark-cli is ready. Feishu office tools can run even without a channel binding."
     elif cli_enabled:
         payload["message"] = "Feishu CLI is enabled but not authenticated. Channel auth is also unavailable for this agent."
     else:
-        payload["message"] = "This agent has no Feishu channel auth, and lark-cli is disabled."
+        payload["message"] = "This agent has no Feishu channel auth. Configure it in Enterprise Settings → Channels."
     return payload
 
 

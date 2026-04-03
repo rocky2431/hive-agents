@@ -240,7 +240,7 @@ async def feishu_sheet_read(agent_id: uuid.UUID, arguments: dict) -> str:
     governance="safe",
 ))
 async def feishu_base_table_list(agent_id: uuid.UUID, arguments: dict) -> str:
-    if not await _check_feishu_cli_access():
+    if not await _check_feishu_office_access(agent_id):
         return _FEISHU_NOT_CONFIGURED_MSG
     from app.services.agent_tools import _feishu_base_table_list
     return await _feishu_base_table_list(agent_id, arguments)
@@ -289,7 +289,7 @@ async def feishu_base_table_list(agent_id: uuid.UUID, arguments: dict) -> str:
     governance="safe",
 ))
 async def feishu_base_record_list(agent_id: uuid.UUID, arguments: dict) -> str:
-    if not await _check_feishu_cli_access():
+    if not await _check_feishu_office_access(agent_id):
         return _FEISHU_NOT_CONFIGURED_MSG
     from app.services.agent_tools import _feishu_base_record_list
     return await _feishu_base_record_list(agent_id, arguments)
@@ -334,7 +334,7 @@ async def feishu_base_record_list(agent_id: uuid.UUID, arguments: dict) -> str:
     governance="sensitive",
 ))
 async def feishu_base_record_upsert(agent_id: uuid.UUID, arguments: dict) -> str:
-    if not await _check_feishu_cli_access():
+    if not await _check_feishu_office_access(agent_id):
         return _FEISHU_NOT_CONFIGURED_MSG
     from app.services.agent_tools import _feishu_base_record_upsert
     return await _feishu_base_record_upsert(agent_id, arguments)
@@ -379,7 +379,7 @@ async def feishu_base_record_upsert(agent_id: uuid.UUID, arguments: dict) -> str
     governance="safe",
 ))
 async def feishu_base_field_list(agent_id: uuid.UUID, arguments: dict) -> str:
-    if not await _check_feishu_cli_access():
+    if not await _check_feishu_office_access(agent_id):
         return _FEISHU_NOT_CONFIGURED_MSG
     from app.services.agent_tools import _feishu_base_field_list
     return await _feishu_base_field_list(agent_id, arguments)
@@ -413,7 +413,7 @@ async def feishu_base_field_list(agent_id: uuid.UUID, arguments: dict) -> str:
     governance="sensitive",
 ))
 async def feishu_base_record_upload_attachment(agent_id: uuid.UUID, arguments: dict) -> str:
-    if not await _check_feishu_cli_access():
+    if not await _check_feishu_office_access(agent_id):
         return _FEISHU_NOT_CONFIGURED_MSG
     from app.services.agent_tools import _feishu_base_record_upload_attachment
     return await _feishu_base_record_upload_attachment(agent_id, arguments)
@@ -469,7 +469,7 @@ async def feishu_base_record_upload_attachment(agent_id: uuid.UUID, arguments: d
     governance="safe",
 ))
 async def feishu_task_list(agent_id: uuid.UUID, arguments: dict) -> str:
-    if not await _check_feishu_cli_access():
+    if not await _check_feishu_office_access(agent_id):
         return _FEISHU_NOT_CONFIGURED_MSG
     from app.services.agent_tools import _feishu_task_list
     return await _feishu_task_list(agent_id, arguments)
@@ -522,7 +522,7 @@ async def feishu_task_list(agent_id: uuid.UUID, arguments: dict) -> str:
     governance="sensitive",
 ))
 async def feishu_task_create(agent_id: uuid.UUID, arguments: dict) -> str:
-    if not await _check_feishu_cli_access():
+    if not await _check_feishu_office_access(agent_id):
         return _FEISHU_NOT_CONFIGURED_MSG
     from app.services.agent_tools import _feishu_task_create
     return await _feishu_task_create(agent_id, arguments)
@@ -554,7 +554,7 @@ async def feishu_task_create(agent_id: uuid.UUID, arguments: dict) -> str:
     governance="sensitive",
 ))
 async def feishu_task_complete(agent_id: uuid.UUID, arguments: dict) -> str:
-    if not await _check_feishu_cli_access():
+    if not await _check_feishu_office_access(agent_id):
         return _FEISHU_NOT_CONFIGURED_MSG
     from app.services.agent_tools import _feishu_task_complete
     return await _feishu_task_complete(agent_id, arguments)
@@ -590,7 +590,7 @@ async def feishu_task_complete(agent_id: uuid.UUID, arguments: dict) -> str:
     governance="sensitive",
 ))
 async def feishu_task_comment(agent_id: uuid.UUID, arguments: dict) -> str:
-    if not await _check_feishu_cli_access():
+    if not await _check_feishu_office_access(agent_id):
         return _FEISHU_NOT_CONFIGURED_MSG
     from app.services.agent_tools import _feishu_task_comment
     return await _feishu_task_comment(agent_id, arguments)

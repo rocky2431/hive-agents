@@ -55,14 +55,14 @@ async def test_feishu_sheet_info_handler_allows_cli_without_channel(monkeypatch:
 async def test_feishu_task_create_handler_uses_cli_only_access(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.tools.handlers import feishu as feishu_handler
 
-    async def fake_check_feishu_cli_access() -> bool:
+    async def fake_check_feishu_office_access(_agent_id) -> bool:
         return True
 
     async def fake_task_create(agent_id: uuid.UUID, arguments: dict) -> str:
         assert arguments == {"summary": "跟进客户", "due": "2026-04-03"}
         return f"task:{agent_id}"
 
-    monkeypatch.setattr(feishu_handler, "_check_feishu_cli_access", fake_check_feishu_cli_access)
+    monkeypatch.setattr(feishu_handler, "_check_feishu_office_access", fake_check_feishu_office_access)
     monkeypatch.setattr("app.services.agent_tools._feishu_task_create", fake_task_create, raising=False)
 
     result = await feishu_handler.feishu_task_create(uuid.uuid4(), {"summary": "跟进客户", "due": "2026-04-03"})
@@ -74,7 +74,7 @@ async def test_feishu_task_create_handler_uses_cli_only_access(monkeypatch: pyte
 async def test_feishu_base_record_upsert_handler_uses_cli_only_access(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.tools.handlers import feishu as feishu_handler
 
-    async def fake_check_feishu_cli_access() -> bool:
+    async def fake_check_feishu_office_access(_agent_id) -> bool:
         return True
 
     async def fake_record_upsert(agent_id: uuid.UUID, arguments: dict) -> str:
@@ -85,7 +85,7 @@ async def test_feishu_base_record_upsert_handler_uses_cli_only_access(monkeypatc
         }
         return f"base:{agent_id}"
 
-    monkeypatch.setattr(feishu_handler, "_check_feishu_cli_access", fake_check_feishu_cli_access)
+    monkeypatch.setattr(feishu_handler, "_check_feishu_office_access", fake_check_feishu_office_access)
     monkeypatch.setattr("app.services.agent_tools._feishu_base_record_upsert", fake_record_upsert, raising=False)
 
     result = await feishu_handler.feishu_base_record_upsert(
@@ -100,14 +100,14 @@ async def test_feishu_base_record_upsert_handler_uses_cli_only_access(monkeypatc
 async def test_feishu_task_complete_handler_uses_cli_only_access(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.tools.handlers import feishu as feishu_handler
 
-    async def fake_check_feishu_cli_access() -> bool:
+    async def fake_check_feishu_office_access(_agent_id) -> bool:
         return True
 
     async def fake_task_complete(agent_id: uuid.UUID, arguments: dict) -> str:
         assert arguments == {"task_id": "task_1"}
         return f"complete:{agent_id}"
 
-    monkeypatch.setattr(feishu_handler, "_check_feishu_cli_access", fake_check_feishu_cli_access)
+    monkeypatch.setattr(feishu_handler, "_check_feishu_office_access", fake_check_feishu_office_access)
     monkeypatch.setattr("app.services.agent_tools._feishu_task_complete", fake_task_complete, raising=False)
 
     result = await feishu_handler.feishu_task_complete(uuid.uuid4(), {"task_id": "task_1"})
@@ -119,14 +119,14 @@ async def test_feishu_task_complete_handler_uses_cli_only_access(monkeypatch: py
 async def test_feishu_base_field_list_handler_uses_cli_only_access(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.tools.handlers import feishu as feishu_handler
 
-    async def fake_check_feishu_cli_access() -> bool:
+    async def fake_check_feishu_office_access(_agent_id) -> bool:
         return True
 
     async def fake_field_list(agent_id: uuid.UUID, arguments: dict) -> str:
         assert arguments == {"base_token": "app-token", "table_id": "tbl_1"}
         return f"fields:{agent_id}"
 
-    monkeypatch.setattr(feishu_handler, "_check_feishu_cli_access", fake_check_feishu_cli_access)
+    monkeypatch.setattr(feishu_handler, "_check_feishu_office_access", fake_check_feishu_office_access)
     monkeypatch.setattr("app.services.agent_tools._feishu_base_field_list", fake_field_list, raising=False)
 
     result = await feishu_handler.feishu_base_field_list(
@@ -141,7 +141,7 @@ async def test_feishu_base_field_list_handler_uses_cli_only_access(monkeypatch: 
 async def test_feishu_base_record_upload_attachment_handler_uses_cli_only_access(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.tools.handlers import feishu as feishu_handler
 
-    async def fake_check_feishu_cli_access() -> bool:
+    async def fake_check_feishu_office_access(_agent_id) -> bool:
         return True
 
     async def fake_upload(agent_id: uuid.UUID, arguments: dict) -> str:
@@ -154,7 +154,7 @@ async def test_feishu_base_record_upload_attachment_handler_uses_cli_only_access
         }
         return f"attachment:{agent_id}"
 
-    monkeypatch.setattr(feishu_handler, "_check_feishu_cli_access", fake_check_feishu_cli_access)
+    monkeypatch.setattr(feishu_handler, "_check_feishu_office_access", fake_check_feishu_office_access)
     monkeypatch.setattr("app.services.agent_tools._feishu_base_record_upload_attachment", fake_upload, raising=False)
 
     result = await feishu_handler.feishu_base_record_upload_attachment(

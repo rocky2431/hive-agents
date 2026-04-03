@@ -247,8 +247,6 @@ _FEISHU_OFFICE_TOOL_NAMES = {
     "feishu_doc_read",
     "feishu_sheet_info",
     "feishu_sheet_read",
-}
-_FEISHU_CLI_ONLY_TOOL_NAMES = {
     "feishu_base_field_list",
     "feishu_base_table_list",
     "feishu_base_record_list",
@@ -259,6 +257,7 @@ _FEISHU_CLI_ONLY_TOOL_NAMES = {
     "feishu_task_create",
     "feishu_task_list",
 }
+_FEISHU_CLI_ONLY_TOOL_NAMES: set[str] = set()
 _always_core_tools: list[dict] | None = None
 _feishu_tools: list[dict] | None = None
 _hr_tools: list[dict] | None = None

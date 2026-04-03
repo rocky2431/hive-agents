@@ -5,6 +5,23 @@ import json
 import pytest
 
 
+# All CLI-path tests need _get_feishu_token to return None so the code
+# skips the OpenAPI path and falls through to the CLI fallback.
+@pytest.fixture(autouse=True)
+def _no_openapi_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _fake_get_feishu_token(_agent_id):
+        return None
+
+    monkeypatch.setattr(
+        "app.services.agent_tool_domains.feishu_base._get_feishu_token",
+        _fake_get_feishu_token,
+    )
+    monkeypatch.setattr(
+        "app.services.agent_tool_domains.feishu_tasks._get_feishu_token",
+        _fake_get_feishu_token,
+    )
+
+
 def _extract_tool_error_payload(result: str) -> dict:
     marker = "<tool_error>"
     end_marker = "</tool_error>"

@@ -237,7 +237,7 @@ async def test_get_agent_feishu_runtime_status_reports_agent_access(monkeypatch)
     assert result["channel_configured"] is True
     assert result["office_access"] is True
     assert result["cli_available"] is False
-    assert result["base_tasks_ready"] is False
+    assert result["base_tasks_ready"] is True  # Base/Tasks now use Open API, same as office_access
 
 
 # ── MCP tool dedup tests ──────────────────────────────────────────────
