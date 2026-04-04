@@ -348,7 +348,33 @@ class AgentManager:
             state["name"] = agent.name
             state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2))
 
+        # Push default builtin skills (web-research, workspace-guide, etc.) into this agent's workspace
+        await self._push_default_skills_to_agent(db, agent.id, agent_dir)
+
         logger.info(f"Initialized agent files at {agent_dir}")
+
+    async def _push_default_skills_to_agent(
+        self, db: AsyncSession, agent_id: uuid.UUID, agent_dir: Path
+    ) -> None:
+        """Write default skill files from DB into a single agent's workspace."""
+        from app.models.skill import Skill
+        from sqlalchemy.orm import selectinload
+
+        result = await db.execute(
+            select(Skill).where(Skill.is_default).options(selectinload(Skill.files))
+        )
+        default_skills = result.scalars().all()
+        skills_dir = agent_dir / "skills"
+        for skill in default_skills:
+            if not skill.files:
+                continue
+            skill_folder = skills_dir / skill.folder_name
+            skill_folder.mkdir(parents=True, exist_ok=True)
+            for sf in skill.files:
+                fp = (skill_folder / sf.path).resolve()
+                fp.parent.mkdir(parents=True, exist_ok=True)
+                fp.write_text(sf.content, encoding="utf-8")
+            logger.info(f"[AgentManager] Pushed skill '{skill.name}' to agent {agent_id}")
 
     def _generate_openclaw_config(self, agent: Agent, model: LLMModel | None) -> dict:
         """Generate openclaw.json config for the agent container."""

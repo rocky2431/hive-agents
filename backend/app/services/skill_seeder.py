@@ -11,7 +11,7 @@ from app.models.skill import Skill, SkillFile
 
 
 RETIRED_BUILTIN_SKILL_FOLDERS = {
-    "web-research",
+    "web-research-guide",
     "data-analysis",
     "content-writing",
     "competitive-analysis",
@@ -254,11 +254,11 @@ Plan would be:
         "files": [],  # populated at runtime from templates/system_skills/
     },
     {
-        "name": "Web Research Guide",
-        "description": "网络搜索和网页阅读工具使用指南",
+        "name": "Web Research",
+        "description": "网络搜索和网页阅读工具使用指南 — 激活 web_search / web_fetch / firecrawl_fetch / xcrawl_scrape",
         "category": "system",
         "icon": "🌐",
-        "folder_name": "web-research-guide",
+        "folder_name": "web-research",
         "is_default": True,
         "files": [],  # populated at runtime from templates/system_skills/
     },
@@ -368,7 +368,7 @@ async def seed_skills():
 
         # System operational guides + channel integration skills — load ALL files from templates/system_skills/<folder>/
         elif s["folder_name"] in (
-            "workspace-guide", "trigger-guide", "web-research-guide",
+            "workspace-guide", "trigger-guide", "web-research",
             "feishu-integration", "dingtalk-integration", "atlassian-rovo",
         ) and not s["files"]:
             _sys_skills_dir = Path(__file__).parent.parent / "templates" / "system_skills"

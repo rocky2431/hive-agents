@@ -95,7 +95,9 @@ def _load_dream_state(agent_id: uuid.UUID) -> tuple[datetime | None, int]:
     last = None
     if isinstance(last_raw, str):
         try:
-            last = datetime.fromisoformat(last_raw)
+            parsed = datetime.fromisoformat(last_raw)
+            # Ensure timezone-aware — naive datetimes cause TypeError in should_dream()
+            last = parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
         except ValueError:
             last = None
     if last is not None:

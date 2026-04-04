@@ -184,7 +184,7 @@ def test_auto_dream_prompt_distinguishes_memory_from_evolution_policy() -> None:
 def test_runtime_templates_no_longer_reference_jina() -> None:
     project_root = Path(__file__).resolve().parents[3]
     app_root = project_root / "backend" / "app"
-    web_research_guide = (app_root / "templates" / "system_skills" / "web-research-guide" / "SKILL.md").read_text(
+    web_research_guide = (app_root / "templates" / "system_skills" / "web-research" / "SKILL.md").read_text(
         encoding="utf-8"
     )
     find_skills = (app_root / "templates" / "skills" / "find-skills" / "SKILL.md").read_text(
