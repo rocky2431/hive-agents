@@ -7,6 +7,10 @@ Files written:
 - enterprise_info_{tenant_id}/company_profile.md  ← company name, intro, culture
 - enterprise_info_{tenant_id}/org_structure.md    ← departments + members
 - {agent_id}/relationships.md                     ← agent owner + peer agents
+
+Optimization: content is compared before writing. If the file already has the
+same content, the write is skipped to avoid unnecessary I/O and prompt cache
+invalidation in the kernel.
 """
 
 import logging
@@ -24,6 +28,19 @@ from app.models.user import User
 logger = logging.getLogger(__name__)
 
 WORKSPACE_ROOT = Path(get_settings().AGENT_DATA_DIR)
+
+
+def _write_if_changed(path: Path, content: str) -> bool:
+    """Write file only if content differs. Returns True if written."""
+    if path.exists():
+        try:
+            if path.read_text(encoding="utf-8") == content:
+                return False
+        except Exception as exc:
+            logger.debug("[workspace-sync] Could not read %s for comparison, overwriting: %s", path, exc)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    return True
 
 
 def _enterprise_dir(tenant_id: uuid.UUID) -> Path:
@@ -66,8 +83,8 @@ async def sync_company_profile(db: AsyncSession, tenant_id: uuid.UUID) -> None:
     else:
         lines.append("_公司简介尚未填写。请在公司设置-公司信息中编辑。_")
 
-    path.write_text("\n".join(lines), encoding="utf-8")
-    logger.info(f"[workspace-sync] Wrote company_profile.md for tenant {tenant_id}")
+    if _write_if_changed(path, "\n".join(lines)):
+        logger.info(f"[workspace-sync] Wrote company_profile.md for tenant {tenant_id}")
 
 
 # ─── Organization Structure ─────────────────────────────
@@ -110,8 +127,8 @@ async def sync_org_structure(db: AsyncSession, tenant_id: uuid.UUID) -> None:
     if not departments and not members:
         lines.append("_组织架构尚未同步。请在公司设置-组织结构中同步。_")
 
-    path.write_text("\n".join(lines), encoding="utf-8")
-    logger.info(f"[workspace-sync] Wrote org_structure.md for tenant {tenant_id}")
+    if _write_if_changed(path, "\n".join(lines)):
+        logger.info(f"[workspace-sync] Wrote org_structure.md for tenant {tenant_id}")
 
 
 # ─── Agent Relationships ────────────────────────────────
@@ -163,8 +180,8 @@ async def sync_agent_relationships(db: AsyncSession, agent_id: uuid.UUID) -> Non
     if len(lines) <= 2:
         lines.append("_暂无关系信息。_")
 
-    (ws / "relationships.md").write_text("\n".join(lines), encoding="utf-8")
-    logger.info(f"[workspace-sync] Wrote relationships.md for agent {agent.name}")
+    if _write_if_changed(ws / "relationships.md", "\n".join(lines)):
+        logger.info(f"[workspace-sync] Wrote relationships.md for agent {agent.name}")
 
 
 # ─── Full Sync ──────────────────────────────────────────

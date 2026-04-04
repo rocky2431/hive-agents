@@ -1021,7 +1021,7 @@ async def _heartbeat_tick():
 
                 # Fire heartbeat
                 if not _try_acquire_heartbeat_lease(agent.id, now=now):
-                    logger.info("[Heartbeat] Agent %s already has an in-flight heartbeat", agent.id)
+                    logger.info(f"[Heartbeat] Agent {agent.name} already has an in-flight heartbeat")
                     continue
                 logger.info(f"💓 Triggering heartbeat for {agent.name}")
                 await write_audit_log("heartbeat_fire", {"agent_name": agent.name}, agent_id=agent.id)
