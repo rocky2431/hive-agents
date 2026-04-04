@@ -24,13 +24,19 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from app.config import get_settings
+from app.memory.store import PersistentMemoryStore
 
 logger = logging.getLogger(__name__)
 
 # Consolidation gates — tuned for active agents that run heartbeats/triggers.
 # Both conditions must be met: enough time elapsed AND enough new sessions.
-MIN_HOURS_BETWEEN_DREAMS = 6
+MIN_HOURS_BETWEEN_DREAMS = 4  # B4 fix: lowered from 6 for better coverage
 MIN_SESSIONS_SINCE_DREAM = 3
+
+# Soft dream: lightweight maintenance (dedup + memory.md regen, no LLM)
+# Triggers when facts approach the 150 cap but full dream gate isn't met yet.
+_SOFT_DREAM_FACT_THRESHOLD = 100
+_MIN_HOURS_BETWEEN_SOFT_DREAMS = 2
 
 # Per-agent tracking (in-memory, resets on process restart)
 _last_dream_time: dict[str, datetime] = {}
@@ -146,13 +152,68 @@ def should_dream(agent_id: uuid.UUID) -> bool:
     return sessions >= MIN_SESSIONS_SINCE_DREAM
 
 
+def should_soft_dream(agent_id: uuid.UUID) -> bool:
+    """Check if a lightweight soft dream should run.
+
+    Triggers when semantic_facts are approaching the 150-fact cap but the full
+    dream gate isn't met. Only does programmatic dedup + memory.md regen (no LLM).
+    """
+    last, sessions = _load_dream_state(agent_id)
+    if sessions < 1:
+        return False
+    # Don't soft-dream if full dream is about to trigger
+    if sessions >= MIN_SESSIONS_SINCE_DREAM:
+        return False
+    # Time gate for soft dream
+    if last is not None:
+        hours_since = (datetime.now(timezone.utc) - last).total_seconds() / 3600
+        if hours_since < _MIN_HOURS_BETWEEN_SOFT_DREAMS:
+            return False
+    # Check fact count
+    store = PersistentMemoryStore(data_root=Path(get_settings().AGENT_DATA_DIR))
+    facts = store.load_semantic_facts(agent_id)
+    return len(facts) >= _SOFT_DREAM_FACT_THRESHOLD
+
+
+async def run_soft_dream(agent_id: uuid.UUID) -> dict:
+    """Lightweight maintenance: dedup + memory.md regen without LLM calls.
+
+    Runs between full dreams to prevent fact accumulation and keep memory.md fresh.
+    """
+    settings = get_settings()
+    store = PersistentMemoryStore(data_root=Path(settings.AGENT_DATA_DIR))
+
+    existing_facts = store.load_semantic_facts(agent_id)
+    if not existing_facts:
+        return {"soft_dream": True, "consolidated": 0, "removed": 0}
+
+    before_count = len(existing_facts)
+    deduped = _simple_dedup(existing_facts)
+    after_count = len(deduped)
+
+    if after_count < before_count:
+        store.replace_semantic_facts(agent_id, deduped)
+
+    # Regen memory.md programmatically (no LLM cost)
+    content = _render_facts_as_markdown(deduped)
+    _write_to_workspaces(agent_id, "memory/memory.md", content)
+
+    removed = max(0, before_count - after_count)
+    logger.info(
+        "[AutoDream] Soft dream for %s: %d → %d facts (%d deduped), memory.md refreshed",
+        agent_id,
+        before_count,
+        after_count,
+        removed,
+    )
+    return {"soft_dream": True, "consolidated": after_count, "removed": removed}
+
+
 async def run_dream(agent_id: uuid.UUID, tenant_id: uuid.UUID) -> dict:
     """Execute memory consolidation for an agent.
 
     Returns a summary dict with keys: consolidated, removed, added.
     """
-    from app.memory.store import PersistentMemoryStore
-
     key = agent_id.hex
     settings = get_settings()
     store = PersistentMemoryStore(data_root=Path(settings.AGENT_DATA_DIR))
@@ -222,6 +283,13 @@ async def run_dream(agent_id: uuid.UUID, tenant_id: uuid.UUID) -> dict:
 
         consolidated = _merge_memory_facts(consolidated, evolution_facts)
 
+    # Ingest learnings/*.md — files that were previously orphaned (断点 B2)
+    learnings_facts = await _ingest_learnings(agent_id, tenant_id)
+    if learnings_facts:
+        from app.services.memory_service import _merge_memory_facts
+
+        consolidated = _merge_memory_facts(consolidated, learnings_facts)
+
     store.replace_semantic_facts(agent_id, consolidated)
 
     after_count = len(consolidated)
@@ -232,6 +300,12 @@ async def run_dream(agent_id: uuid.UUID, tenant_id: uuid.UUID) -> dict:
 
     # L3→L1 promotion: LLM rephrases high-frequency feedback as personality traits
     await _promote_to_soul(agent_id, consolidated, tenant_id)
+
+    # B8 fix: clean up stale focus.md items
+    _cleanup_focus(agent_id)
+
+    # B6 fix: expire old blocklist entries
+    _review_blocklist(agent_id)
 
     _mark_dreamed(
         key,
@@ -815,6 +889,47 @@ def _render_facts_as_markdown(facts: list[dict]) -> str:
 
 # ── L3 → L1 promotion: high-frequency feedback/constraint → soul.md ──
 
+_MAX_LEARNED_BEHAVIORS = 20
+
+
+def _cap_learned_behaviors(text: str, header: str) -> str:
+    """Enforce a cap on the number of Learned Behaviors entries in soul.md.
+
+    Keeps the most recent _MAX_LEARNED_BEHAVIORS entries (newest = last appended).
+    Older entries are dropped — they already exist in semantic_facts.
+    """
+    if header not in text:
+        return text
+
+    header_start = text.index(header)
+    after_header = header_start + len(header)
+
+    # Find the end of the Learned Behaviors section (next ## or EOF)
+    next_section = text.find("\n## ", after_header)
+    if next_section == -1:
+        section_end = len(text)
+        tail = ""
+    else:
+        section_end = next_section
+        tail = text[next_section:]
+
+    section_body = text[after_header:section_end]
+    behavior_lines = [ln for ln in section_body.splitlines() if ln.strip().startswith("- ")]
+
+    if len(behavior_lines) <= _MAX_LEARNED_BEHAVIORS:
+        return text
+
+    kept = behavior_lines[-_MAX_LEARNED_BEHAVIORS:]
+    trimmed_count = len(behavior_lines) - _MAX_LEARNED_BEHAVIORS
+    logger.info(
+        "[AutoDream] Capped Learned Behaviors: %d → %d (removed %d oldest)",
+        len(behavior_lines),
+        len(kept),
+        trimmed_count,
+    )
+
+    return text[:header_start] + header + "\n" + "\n".join(kept) + "\n" + tail
+
 
 async def _promote_to_soul(
     agent_id: uuid.UUID,
@@ -895,6 +1010,9 @@ async def _promote_to_soul(
         else:
             updated = existing.rstrip() + f"\n\n{LEARNED_HEADER}\n" + behavior_block
 
+    # B3 fix: cap Learned Behaviors at _MAX_LEARNED_BEHAVIORS to prevent soul.md bloat
+    updated = _cap_learned_behaviors(updated, LEARNED_HEADER)
+
     try:
         soul_path.write_text(updated, encoding="utf-8")
         logger.info(
@@ -940,6 +1058,337 @@ async def _llm_rephrase_behaviors(raw_facts: list[str], tenant_id: uuid.UUID) ->
     except Exception as exc:
         logger.debug("[AutoDream] LLM behavior rephrasing failed: %s", exc)
         return None
+
+
+# ── Focus cleanup: remove stale items from focus.md (断点 B8 fix) ──
+
+_FOCUS_MAX_AGE_DAYS = 7
+_FOCUS_MAX_CHARS = 3000
+
+_DATE_PATTERN = _re.compile(r"\[(\d{4}-\d{2}-\d{2})\]")
+
+
+def _cleanup_focus(agent_id: uuid.UUID) -> None:
+    """Remove stale items from focus.md to prevent Working Memory bloat.
+
+    Removes:
+    - Items with dates older than _FOCUS_MAX_AGE_DAYS
+    - Completed checkbox items (- [x])
+    - Truncates to _FOCUS_MAX_CHARS if still too large
+    """
+    from app.services.heartbeat import _get_canonical_workspace
+
+    ws_root = _get_canonical_workspace(agent_id)
+    if not ws_root:
+        ws_root = Path(get_settings().AGENT_DATA_DIR) / str(agent_id)
+
+    focus_path = ws_root / "focus.md"
+    if not focus_path.exists():
+        return
+
+    try:
+        content = focus_path.read_text(encoding="utf-8")
+    except Exception as read_err:
+        logger.debug("[AutoDream] Failed to read focus.md for cleanup: %s", read_err)
+        return
+
+    lines = content.splitlines()
+    if len(lines) < 5:
+        return  # Too small to need cleanup
+
+    now = datetime.now(timezone.utc).date()
+    kept: list[str] = []
+    removed_count = 0
+
+    for line in lines:
+        stripped = line.strip()
+
+        # Remove completed checkboxes
+        if stripped.startswith("- [x]") or stripped.startswith("- [X]"):
+            removed_count += 1
+            continue
+
+        # Remove items with expired dates
+        date_match = _DATE_PATTERN.search(stripped)
+        if date_match:
+            try:
+                item_date = datetime.strptime(date_match.group(1), "%Y-%m-%d").date()
+                age_days = (now - item_date).days
+                if age_days > _FOCUS_MAX_AGE_DAYS:
+                    removed_count += 1
+                    continue
+            except ValueError as date_err:
+                logger.debug("[AutoDream] Malformed date in focus.md, keeping line: %s", date_err)
+
+        kept.append(line)
+
+    if removed_count == 0:
+        # No stale items found; check size only
+        if len(content) <= _FOCUS_MAX_CHARS:
+            return
+        # Truncate from the middle, keep header + tail
+        kept = kept[:3] + ["", "(older items removed by auto-dream)", ""] + kept[-10:]
+
+    cleaned = "\n".join(kept)
+    if len(cleaned) > _FOCUS_MAX_CHARS:
+        cleaned = cleaned[:_FOCUS_MAX_CHARS] + "\n...(truncated by auto-dream)\n"
+
+    try:
+        focus_path.write_text(cleaned, encoding="utf-8")
+        logger.info("[AutoDream] Cleaned focus.md for %s: removed %d stale items", agent_id, removed_count)
+    except Exception as exc:
+        logger.debug("[AutoDream] Failed to clean focus.md: %s", exc)
+
+
+# ── Blocklist review: expire old entries (断点 B6 fix) ──
+
+_BLOCKLIST_EXPIRY_DAYS = 60
+_BLOCKLIST_DATE_RE = _re.compile(r"^\s*-\s*\[(\d{4}-\d{2}-\d{2})\]")
+
+
+def _review_blocklist(agent_id: uuid.UUID) -> None:
+    """Remove expired blocklist entries (older than _BLOCKLIST_EXPIRY_DAYS).
+
+    Conservative approach: no LLM needed, just date-based expiry.
+    Old blocked patterns may no longer be relevant after environment changes.
+    """
+    from app.services.heartbeat import _get_canonical_workspace
+
+    ws_root = _get_canonical_workspace(agent_id)
+    if not ws_root:
+        ws_root = Path(get_settings().AGENT_DATA_DIR) / str(agent_id)
+
+    blocklist_path = ws_root / "evolution" / "blocklist.md"
+    if not blocklist_path.exists():
+        return
+
+    try:
+        content = blocklist_path.read_text(encoding="utf-8", errors="replace")
+    except Exception as read_err:
+        logger.debug("[AutoDream] Failed to read blocklist.md: %s", read_err)
+        return
+
+    lines = content.splitlines()
+    now = datetime.now(timezone.utc).date()
+    kept: list[str] = []
+    expired_count = 0
+
+    for line in lines:
+        date_match = _BLOCKLIST_DATE_RE.match(line)
+        if date_match:
+            try:
+                entry_date = datetime.strptime(date_match.group(1), "%Y-%m-%d").date()
+                age_days = (now - entry_date).days
+                if age_days > _BLOCKLIST_EXPIRY_DAYS:
+                    expired_count += 1
+                    continue
+            except ValueError as date_err:
+                logger.debug("[AutoDream] Malformed blocklist date: %s", date_err)
+        kept.append(line)
+
+    if expired_count == 0:
+        return
+
+    try:
+        blocklist_path.write_text("\n".join(kept) + "\n", encoding="utf-8")
+        logger.info(
+            "[AutoDream] Expired %d blocklist entries for %s (>%d days)",
+            expired_count,
+            agent_id,
+            _BLOCKLIST_EXPIRY_DAYS,
+        )
+    except Exception as write_err:
+        logger.debug("[AutoDream] Failed to write blocklist.md: %s", write_err)
+
+
+# ── Learnings ingestion: learnings/*.md → semantic_facts (断点 B2 fix) ──
+
+_LEARNINGS_DISTILL_PROMPT = (
+    "You are distilling an agent's operational learnings into structured memory facts.\n"
+    "You will receive error logs, learnings, and feature requests from the agent's workspace.\n\n"
+    "Produce a JSON array of facts. Each fact has: content (str), category (str).\n"
+    "Categories to use:\n"
+    "- blocked_pattern: approaches that repeatedly failed\n"
+    "- strategy: approaches that worked or best practices discovered\n"
+    "- feedback: corrections from users or self-discovered improvements\n"
+    "- reference: capability gaps, feature requests, tool limitations\n\n"
+    "Rules:\n"
+    "- Each fact under 200 chars, actionable and specific\n"
+    "- Extract 3-10 facts total (only the most important)\n"
+    "- Skip generic observations — only concrete, reusable insights\n"
+    "- Merge similar entries into single facts\n"
+    "- Write in the same language as the input\n"
+    "- Return ONLY the JSON array, no other text"
+)
+
+_LEARNINGS_FILES = [
+    ("memory/learnings/ERRORS.md", "Errors"),
+    ("memory/learnings/LEARNINGS.md", "Learnings"),
+    ("memory/learnings/FEATURE_REQUESTS.md", "Feature Requests"),
+]
+
+_LEARNINGS_TRUNCATE_KEEP = 10  # Keep last N entries after ingestion
+
+
+async def _ingest_learnings(agent_id: uuid.UUID, tenant_id: uuid.UUID) -> list[dict]:
+    """Read learnings/*.md files, extract facts, then truncate originals.
+
+    These files were previously orphaned — agent wrote to them but nothing
+    ever read and distilled them into the semantic memory pipeline.
+    """
+    from app.services.heartbeat import _get_canonical_workspace
+
+    ws_root = _get_canonical_workspace(agent_id)
+    if not ws_root:
+        return []
+
+    # Collect content from all learnings files
+    parts: list[str] = []
+    files_with_content: list[tuple[Path, str]] = []
+    for rel_path, label in _LEARNINGS_FILES:
+        fpath = ws_root / rel_path
+        if not fpath.exists():
+            continue
+        try:
+            content = fpath.read_text(encoding="utf-8", errors="replace").strip()
+            # Skip files with only the header
+            lines = [ln for ln in content.splitlines() if ln.strip() and not ln.startswith("# ")]
+            if len(lines) < 2:
+                continue
+            parts.append(f"## {label}\n{content[:3000]}")
+            files_with_content.append((fpath, content))
+        except Exception as read_err:
+            logger.debug("[AutoDream] Failed to read %s: %s", rel_path, read_err)
+
+    if not parts:
+        return []
+
+    learnings_text = "\n\n".join(parts)
+
+    # Try LLM distillation
+    facts = await _llm_distill_learnings(learnings_text, tenant_id)
+    if not facts:
+        # Fallback: mechanical extraction of bullet points
+        facts = _mechanical_distill_learnings(files_with_content)
+
+    # Truncate original files after successful ingestion
+    if facts:
+        _truncate_learnings_files(files_with_content)
+
+    logger.info("[AutoDream] Ingested %d facts from learnings/*.md for agent %s", len(facts), agent_id)
+    return facts
+
+
+async def _llm_distill_learnings(learnings_text: str, tenant_id: uuid.UUID) -> list[dict] | None:
+    """Use LLM to distill learnings into structured facts."""
+    try:
+        from app.services.memory_service import _get_summary_model_config
+        from app.services.llm_client import LLMMessage, create_llm_client
+    except ImportError as imp_err:
+        logger.debug("[AutoDream] LLM imports unavailable for learnings distill: %s", imp_err)
+        return None
+
+    model_config = await _get_summary_model_config(tenant_id)
+    if not model_config:
+        return None
+
+    try:
+        client = create_llm_client(**model_config)
+        response = await client.stream(
+            messages=[
+                LLMMessage(role="system", content=_LEARNINGS_DISTILL_PROMPT),
+                LLMMessage(role="user", content=f"Agent learnings to distill:\n\n{learnings_text[:4000]}"),
+            ],
+            max_tokens=1500,
+            temperature=0.3,
+        )
+        content = response.content if hasattr(response, "content") else str(response)
+        if hasattr(client, "close"):
+            await client.close()
+        start = content.find("[")
+        end = content.rfind("]") + 1
+        if start >= 0 and end > start:
+            parsed = json.loads(content[start:end])
+            if isinstance(parsed, list):
+                now = datetime.now(timezone.utc).isoformat()
+                valid = []
+                for f in parsed:
+                    if isinstance(f, dict) and f.get("content"):
+                        cat = f.get("category", "strategy")
+                        if cat not in ("blocked_pattern", "strategy", "feedback", "reference"):
+                            cat = "strategy"
+                        valid.append(
+                            {
+                                "content": str(f["content"])[:200],
+                                "category": cat,
+                                "subject": "learnings_digest",
+                                "timestamp": now,
+                                "importance": 0.7,
+                            }
+                        )
+                return valid if valid else None
+    except Exception as exc:
+        logger.debug("[AutoDream] LLM learnings distill failed: %s", exc)
+
+    return None
+
+
+def _mechanical_distill_learnings(
+    files_with_content: list[tuple[Path, str]],
+) -> list[dict]:
+    """Fallback: extract bullet-point entries from learnings files."""
+    now = datetime.now(timezone.utc).isoformat()
+    facts: list[dict] = []
+    _CATEGORY_MAP = {
+        "ERRORS": "blocked_pattern",
+        "LEARNINGS": "strategy",
+        "FEATURE_REQUESTS": "reference",
+    }
+    for fpath, content in files_with_content:
+        fname = fpath.stem
+        cat = _CATEGORY_MAP.get(fname, "strategy")
+        for line in content.splitlines():
+            line = line.strip()
+            if line.startswith("- ") and len(line) > 10 and not line.startswith("- ["):
+                facts.append(
+                    {
+                        "content": line[2:].strip()[:200],
+                        "category": cat,
+                        "subject": "learnings_digest",
+                        "timestamp": now,
+                        "importance": 0.6,
+                    }
+                )
+    return facts[:10]
+
+
+def _truncate_learnings_files(
+    files_with_content: list[tuple[Path, str]],
+) -> None:
+    """Keep only the header + last N entries in each learnings file."""
+    for fpath, content in files_with_content:
+        lines = content.splitlines()
+        # Find header (first line starting with #)
+        header_lines: list[str] = []
+        body_lines: list[str] = []
+        in_header = True
+        for line in lines:
+            if in_header and (line.startswith("#") or not line.strip()):
+                header_lines.append(line)
+            else:
+                in_header = False
+                body_lines.append(line)
+
+        if len(body_lines) <= _LEARNINGS_TRUNCATE_KEEP:
+            continue  # File is small enough, skip truncation
+
+        # Keep header + last N body lines
+        kept = header_lines + ["\n(earlier entries archived by auto-dream)\n"] + body_lines[-_LEARNINGS_TRUNCATE_KEEP:]
+        try:
+            fpath.write_text("\n".join(kept) + "\n", encoding="utf-8")
+            logger.info("[AutoDream] Truncated %s: %d → %d lines", fpath.name, len(lines), len(kept))
+        except Exception as exc:
+            logger.debug("[AutoDream] Failed to truncate %s: %s", fpath.name, exc)
 
 
 # ── Evolution distillation: evolution/* → semantic_facts ──────────

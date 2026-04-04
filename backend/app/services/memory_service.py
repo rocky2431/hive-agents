@@ -338,14 +338,22 @@ async def on_conversation_end(
 
     # P3.1: Auto-dream gate check — fire-and-forget if conditions met
     try:
-        from app.services.auto_dream import record_session_end, should_dream, run_dream
+        from app.services.auto_dream import (
+            record_session_end,
+            should_dream,
+            run_dream,
+            should_soft_dream,
+            run_soft_dream,
+        )
+        import asyncio
 
         record_session_end(agent_id)
         if should_dream(agent_id):
-            import asyncio
-
             asyncio.create_task(run_dream(agent_id, tenant_id))
             logger.info("[Memory] Auto-dream triggered for agent %s", agent_id)
+        elif should_soft_dream(agent_id):
+            asyncio.create_task(run_soft_dream(agent_id))
+            logger.info("[Memory] Soft dream triggered for agent %s", agent_id)
     except Exception as _dream_err:
         logger.debug("[Memory] Auto-dream check failed: %s", _dream_err)
 
@@ -630,6 +638,105 @@ async def _update_agent_memory(
         len(all_facts),
         len(delta_messages),
     )
+
+    # B5 fix: inline L2→L1 promotion — promote high-frequency feedback to soul.md
+    # without waiting for auto_dream (which may run infrequently for low-activity agents).
+    _try_inline_promotion(agent_id, all_facts)
+
+
+# ── Inline L2→L1 promotion (断点 B5 fix) ──
+
+_INLINE_PROMOTION_INTERVAL_SECS = 3600  # 1 hour
+_last_inline_promotion: dict[str, float] = {}  # agent_hex → time.time() timestamp
+
+
+def _try_inline_promotion(agent_id: uuid.UUID, facts: list[dict]) -> None:
+    """Promote high-frequency feedback/constraint facts to soul.md inline.
+
+    Runs at end of each session (not just auto_dream). No LLM call — direct append.
+    Throttled to at most once per hour per agent.
+    """
+    import time
+    from collections import Counter
+
+    key = agent_id.hex
+    now = time.time()
+
+    # Throttle: at most once per hour
+    last = _last_inline_promotion.get(key)
+    if last is not None and (now - last) < _INLINE_PROMOTION_INTERVAL_SECS:
+        return
+
+    promotable_categories = {"feedback", "constraint"}
+    subject_counts: Counter[str] = Counter()
+    subject_content: dict[str, str] = {}
+    for fact in facts:
+        cat = fact.get("category", "")
+        if cat not in promotable_categories:
+            continue
+        subject = fact.get("subject") or fact.get("content", "")[:60].strip()
+        if not subject:
+            continue
+        subject_counts[subject] += 1
+        content = fact.get("content", "").strip()
+        if len(content) > len(subject_content.get(subject, "")):
+            subject_content[subject] = content
+
+    # Only promote subjects that appear 3+ times
+    promotable = [
+        subject_content[subj] for subj, count in subject_counts.items() if count >= 3 and subj in subject_content
+    ]
+    if not promotable:
+        return
+
+    LEARNED_HEADER = "## Learned Behaviors"
+
+    # Resolve canonical workspace
+    try:
+        from app.services.heartbeat import _get_canonical_workspace
+
+        ws_root = _get_canonical_workspace(agent_id)
+    except Exception:
+        ws_root = None
+    if not ws_root:
+        settings = get_settings()
+        ws_root = Path(settings.AGENT_DATA_DIR) / str(agent_id)
+
+    soul_path = ws_root / "soul.md"
+    try:
+        existing = soul_path.read_text(encoding="utf-8") if soul_path.exists() else ""
+    except Exception as read_err:
+        logger.debug("[Memory] Failed to read soul.md for inline promotion: %s", read_err)
+        return
+
+    existing_lower = existing.lower()
+    new_behaviors = []
+    for content in promotable:
+        check = content[:80].lower()
+        if check and check not in existing_lower:
+            new_behaviors.append(f"- {content}")
+
+    if not new_behaviors:
+        _last_inline_promotion[key] = now
+        return
+
+    behavior_block = "\n".join(new_behaviors) + "\n"
+    if LEARNED_HEADER in existing:
+        idx = existing.index(LEARNED_HEADER) + len(LEARNED_HEADER)
+        updated = existing[:idx] + "\n" + behavior_block + existing[idx:]
+    else:
+        first_h2 = existing.find("\n## ")
+        if first_h2 > 0:
+            updated = existing[:first_h2] + f"\n\n{LEARNED_HEADER}\n" + behavior_block + existing[first_h2:]
+        else:
+            updated = existing.rstrip() + f"\n\n{LEARNED_HEADER}\n" + behavior_block
+
+    try:
+        soul_path.write_text(updated, encoding="utf-8")
+        _last_inline_promotion[key] = now
+        logger.info("[Memory] Inline promotion: %d behaviors → soul.md for agent %s", len(new_behaviors), agent_id)
+    except Exception as exc:
+        logger.debug("[Memory] Failed to write soul.md for inline promotion: %s", exc)
 
 
 def _load_agent_memory(agent_id: uuid.UUID) -> str:

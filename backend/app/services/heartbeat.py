@@ -9,6 +9,7 @@ Runs as a background task inside the FastAPI process.
 
 import asyncio
 import fcntl
+import json
 import os
 import re
 import tempfile
@@ -90,6 +91,7 @@ def _is_in_active_hours(active_hours: str, tz_name: str = "UTC") -> bool:
     """
     try:
         from zoneinfo import ZoneInfo
+
         start_str, end_str = active_hours.split("-")
         sh, sm = map(int, start_str.strip().split(":"))
         eh, em = map(int, end_str.strip().split(":"))
@@ -133,7 +135,6 @@ def _load_heartbeat_instruction(agent_id: uuid.UUID) -> str:
         return _compose_heartbeat_instruction(custom)
 
     return _compose_heartbeat_instruction(_get_default_heartbeat_instruction())
-
 
 
 def _parse_heartbeat_outcome(reply: str | None) -> tuple[str, int | None]:
@@ -231,9 +232,7 @@ async def _build_evolution_context(agent_id: uuid.UUID, recent_activities: list)
         # Detect repeated failure patterns
         error_summaries = [a.summary[:80] for a in recent_activities if a.action_type == "error"]
         repeated_errors = [
-            f"  - '{err}' (x{count})"
-            for err, count in Counter(error_summaries).most_common(3)
-            if count > 1
+            f"  - '{err}' (x{count})" for err, count in Counter(error_summaries).most_common(3) if count > 1
         ]
 
         # Tool usage frequency
@@ -261,7 +260,9 @@ async def _build_evolution_context(agent_id: uuid.UUID, recent_activities: list)
             f"- Tool calls: {tool_count}\n"
         )
         if repeated_errors:
-            pattern_section += "- **Repeated failures** (MUST NOT retry these approaches):\n" + "\n".join(repeated_errors) + "\n"
+            pattern_section += (
+                "- **Repeated failures** (MUST NOT retry these approaches):\n" + "\n".join(repeated_errors) + "\n"
+            )
         if error_details:
             pattern_section += "- **Recent error details** (learn from these):\n" + "\n".join(error_details) + "\n"
         if top_tools:
@@ -274,7 +275,8 @@ async def _build_evolution_context(agent_id: uuid.UUID, recent_activities: list)
         if top_tools and tool_count >= 8:
             # Check if any tool appears frequently enough to be worth a skill
             frequent_tools = [
-                name for name, count in Counter(tool_names).most_common(3)
+                name
+                for name, count in Counter(tool_names).most_common(3)
                 if count >= _SKILL_THRESHOLD
                 and name not in ("read_file", "write_file", "list_files", "edit_file", "save_memory", "search_memory")
             ]
@@ -299,8 +301,7 @@ async def _build_evolution_context(agent_id: uuid.UUID, recent_activities: list)
         # to catch intermittent failure patterns like [ok, fail, ok, fail, fail]
         recent_heartbeats = [a for a in recent_activities if a.action_type == "heartbeat"]
         total_failures = sum(
-            1 for hb in recent_heartbeats[:6]
-            if (hb.detail_json or {}).get("outcome_type", "") in ("crash", "failure")
+            1 for hb in recent_heartbeats[:6] if (hb.detail_json or {}).get("outcome_type", "") in ("crash", "failure")
         )
 
         if total_failures >= 5:
@@ -337,6 +338,53 @@ async def _build_evolution_context(agent_id: uuid.UUID, recent_activities: list)
             )
 
     return "\n\n".join(parts) if parts else ""
+
+
+_LINEAGE_ARCHIVE_MAX = 500
+
+
+def _archive_lineage_entries(evo_dir: Path, discarded_segments: list[str], agent_id: uuid.UUID) -> None:
+    """Archive rotated lineage entries to lineage_archive.json before they are lost.
+
+    Extracts date/strategy/outcome/score from each entry as compact summaries.
+    Keeps last _LINEAGE_ARCHIVE_MAX entries in the archive file.
+    """
+    archive_path = evo_dir / "lineage_archive.json"
+    existing: list[dict] = []
+    if archive_path.exists():
+        try:
+            existing = json.loads(archive_path.read_text(encoding="utf-8"))
+            if not isinstance(existing, list):
+                existing = []
+        except (json.JSONDecodeError, OSError) as load_err:
+            logger.debug("[Heartbeat] Failed to load lineage archive: %s", load_err)
+
+    for segment in discarded_segments:
+        entry: dict[str, str | int | None] = {}
+        # Extract date from "HB-YYYY-MM-DD-HH:MM"
+        if segment[:10].count("-") >= 2:
+            entry["date"] = segment[:16].strip()
+        for line in segment.splitlines():
+            line = line.strip()
+            if line.startswith("- Strategy:"):
+                entry["strategy"] = line[11:].strip()[:150]
+            elif line.startswith("- Outcome:"):
+                entry["outcome"] = line[10:].strip()[:50]
+            elif line.startswith("- Score:"):
+                try:
+                    entry["score"] = int(line[8:].strip().split()[0])
+                except (ValueError, IndexError) as parse_err:
+                    logger.debug("[Heartbeat] Failed to parse score: %s", parse_err)
+        if entry.get("date") or entry.get("strategy"):
+            existing.append(entry)
+
+    # Cap archive size
+    existing = existing[-_LINEAGE_ARCHIVE_MAX:]
+    try:
+        archive_path.write_text(json.dumps(existing, ensure_ascii=False, indent=1), encoding="utf-8")
+        logger.info("[Heartbeat] Archived %d rotated lineage entries for %s", len(discarded_segments), agent_id)
+    except Exception as write_err:
+        logger.debug("[Heartbeat] Failed to write lineage archive: %s", write_err)
 
 
 def _atomic_write(path: Path, content: str) -> None:
@@ -440,7 +488,9 @@ def _update_evolution_files(
             # BP-4 fix: Agent may have already written a lineage entry for this
             # heartbeat via write_file during Phase 4. Check for duplicate timestamp.
             if f"### HB-{now}" in existing:
-                logger.debug("[Heartbeat] Lineage entry HB-%s already exists (agent-written), skipping server append", now)
+                logger.debug(
+                    "[Heartbeat] Lineage entry HB-%s already exists (agent-written), skipping server append", now
+                )
             else:
                 score_str = f", score={score}" if score is not None else ""
                 entry = f"### HB-{now}\n- Outcome: {outcome_type}{score_str}\n- Summary: {summary}\n\n"
@@ -452,6 +502,11 @@ def _update_evolution_files(
             _LINEAGE_MAX_ENTRIES = 200
             segments = new_content.split("### HB-")
             if len(segments) > _LINEAGE_MAX_ENTRIES + 1:  # +1 for header segment
+                # B7 fix: archive rotated entries before discarding
+                discarded = segments[1:-_LINEAGE_MAX_ENTRIES]  # Skip header segment
+                if discarded:
+                    _archive_lineage_entries(evo_dir, discarded, agent_id)
+
                 header = "# Evolution Lineage\n\n"
                 trimmed = header + "### HB-".join(segments[-_LINEAGE_MAX_ENTRIES:])
                 _atomic_write(lineage_path, trimmed)
@@ -464,13 +519,20 @@ def _update_evolution_files(
         # If last 3 lineage entries are all failures, add summary to blocklist.
         if outcome_type in ("failure", "crash") and (score is not None and score <= 2):
             try:
-                lineage_text = lineage_path.read_text(encoding="utf-8", errors="replace") if lineage_path.exists() else ""
+                lineage_text = (
+                    lineage_path.read_text(encoding="utf-8", errors="replace") if lineage_path.exists() else ""
+                )
                 outcome_matches = re.findall(r"- Outcome:\s*(\w+)", lineage_text)
                 last_3 = outcome_matches[-3:] if len(outcome_matches) >= 3 else []
                 if len(last_3) == 3 and all(o in ("failure", "crash") for o in last_3):
                     blocklist_path = evo_dir / "blocklist.md"
-                    bl_text = blocklist_path.read_text(encoding="utf-8", errors="replace") if blocklist_path.exists() else "# Blocklist\n"
-                    entry = f"- {summary[:150]} (3 consecutive failures, auto-blocked {now})"
+                    bl_text = (
+                        blocklist_path.read_text(encoding="utf-8", errors="replace")
+                        if blocklist_path.exists()
+                        else "# Blocklist\n"
+                    )
+                    date_str = now.strftime("%Y-%m-%d") if hasattr(now, "strftime") else str(now)[:10]
+                    entry = f"- [{date_str}] {summary[:150]} (3 consecutive failures)"
                     if summary[:60].lower() not in bl_text.lower():
                         _atomic_write(blocklist_path, bl_text.rstrip() + "\n" + entry + "\n")
                         logger.info("[Heartbeat] Auto-blocked approach for agent %s: %s", agent_id, summary[:80])
@@ -501,7 +563,9 @@ def _auto_seed_evolution(agent_id: uuid.UUID) -> None:
             now = datetime.now(timezone.utc).strftime("%Y-%m-%d-%H:%M")
             # Seed scorecard with initial counters
             scorecard = evo_dir / "scorecard.md"
-            if not scorecard.exists() or "(updated each heartbeat)" in scorecard.read_text(encoding="utf-8", errors="replace"):
+            if not scorecard.exists() or "(updated each heartbeat)" in scorecard.read_text(
+                encoding="utf-8", errors="replace"
+            ):
                 scorecard.write_text(
                     "# Evolution Scorecard\n\n## Metrics\n"
                     "- total_heartbeats: 3\n- useful_heartbeats: 0\n"
@@ -545,14 +609,14 @@ def _validate_bootstrap_completion(agent_id: uuid.UUID) -> None:
             if not fpath.exists() or fpath.stat().st_size < 10:
                 missing.append(required)
         if missing:
-            logger.info(
-                f"[Heartbeat] Bootstrap incomplete for {agent_id}: missing {', '.join(missing)} — auto-seeding"
-            )
+            logger.info(f"[Heartbeat] Bootstrap incomplete for {agent_id}: missing {', '.join(missing)} — auto-seeding")
             _auto_seed_evolution(agent_id)
             # Seed focus.md if missing
             focus = ws_root / "focus.md"
             if not focus.exists() or focus.stat().st_size < 10:
-                focus.write_text("# Focus\n\nBootstrap in progress — awaiting first heartbeat action.\n", encoding="utf-8")
+                focus.write_text(
+                    "# Focus\n\nBootstrap in progress — awaiting first heartbeat action.\n", encoding="utf-8"
+                )
         return
 
 
@@ -589,9 +653,6 @@ def _get_canonical_workspace(agent_id: uuid.UUID) -> "Path | None":
     return None
 
 
-
-
-
 def _build_heartbeat_tool_executor(agent_id: uuid.UUID, creator_id: uuid.UUID):
     """Build a tool executor with per-heartbeat plaza posting limits."""
     plaza_posts_made = 0
@@ -619,6 +680,7 @@ async def _touch_last_heartbeat(agent_id: uuid.UUID) -> None:
     try:
         from app.database import async_session as _async_session
         from app.models.agent import Agent as _Agent
+
         async with _async_session() as _db:
             _result = await _db.execute(select(_Agent).where(_Agent.id == agent_id))
             _agent = _result.scalar_one_or_none()
@@ -662,6 +724,7 @@ async def _execute_heartbeat(agent_id: uuid.UUID, *, lease_acquired: bool = Fals
 
             # Set execution identity — autonomous heartbeat action
             from app.core.execution_context import set_agent_bot_identity
+
             set_agent_bot_identity(agent_id, agent.name, source="heartbeat")
 
             model_id = agent.primary_model_id or agent.fallback_model_id
@@ -681,15 +744,29 @@ async def _execute_heartbeat(agent_id: uuid.UUID, *, lease_acquired: bool = Fals
 
             # Fetch recent activity for evolution context
             from app.models.activity_log import AgentActivityLog
+
             try:
                 recent_result = await db.execute(
                     select(AgentActivityLog)
                     .where(AgentActivityLog.agent_id == agent_id)
-                    .where(AgentActivityLog.action_type.in_([
-                        "chat_reply", "tool_call", "task_created", "task_updated",
-                        "error", "heartbeat", "web_msg_sent", "feishu_msg_sent",
-                        "agent_msg_sent", "file_written", "schedule_run", "plaza_post",
-                    ]))
+                    .where(
+                        AgentActivityLog.action_type.in_(
+                            [
+                                "chat_reply",
+                                "tool_call",
+                                "task_created",
+                                "task_updated",
+                                "error",
+                                "heartbeat",
+                                "web_msg_sent",
+                                "feishu_msg_sent",
+                                "agent_msg_sent",
+                                "file_written",
+                                "schedule_run",
+                                "plaza_post",
+                            ]
+                        )
+                    )
                     .order_by(AgentActivityLog.created_at.desc())
                     .limit(50)
                 )
@@ -723,14 +800,16 @@ async def _execute_heartbeat(agent_id: uuid.UUID, *, lease_acquired: bool = Fals
             session_id = session.id
 
             # Save heartbeat instruction as first message
-            db.add(ChatMessage(
-                agent_id=agent_id,
-                conversation_id=str(session_id),
-                role="user",
-                content=heartbeat_instruction[:4000],
-                user_id=agent.creator_id,
-                participant_id=agent_participant_id,
-            ))
+            db.add(
+                ChatMessage(
+                    agent_id=agent_id,
+                    conversation_id=str(session_id),
+                    role="user",
+                    content=heartbeat_instruction[:4000],
+                    user_id=agent.creator_id,
+                    participant_id=agent_participant_id,
+                )
+            )
             await db.commit()
 
             # Tool call persistence callback
@@ -739,19 +818,25 @@ async def _execute_heartbeat(agent_id: uuid.UUID, *, lease_acquired: bool = Fals
                     return
                 try:
                     async with async_session() as _tc_db:
-                        _tc_db.add(ChatMessage(
-                            agent_id=agent_id,
-                            conversation_id=str(session_id),
-                            role="tool_call",
-                            content=_json.dumps({
-                                "name": data["name"],
-                                "args": data.get("args"),
-                                "status": "done",
-                                "result": str(data.get("result", ""))[:2000],
-                            }, ensure_ascii=False, default=str),
-                            user_id=agent.creator_id,
-                            participant_id=agent_participant_id,
-                        ))
+                        _tc_db.add(
+                            ChatMessage(
+                                agent_id=agent_id,
+                                conversation_id=str(session_id),
+                                role="tool_call",
+                                content=_json.dumps(
+                                    {
+                                        "name": data["name"],
+                                        "args": data.get("args"),
+                                        "status": "done",
+                                        "result": str(data.get("result", ""))[:2000],
+                                    },
+                                    ensure_ascii=False,
+                                    default=str,
+                                ),
+                                user_id=agent.creator_id,
+                                participant_id=agent_participant_id,
+                            )
+                        )
                         await _tc_db.commit()
                 except Exception as tc_err:
                     logger.debug(f"Failed to persist heartbeat tool call: {tc_err}")
@@ -790,14 +875,16 @@ async def _execute_heartbeat(agent_id: uuid.UUID, *, lease_acquired: bool = Fals
 
             # Save assistant reply to Reflection Session
             async with async_session() as db2:
-                db2.add(ChatMessage(
-                    agent_id=agent_id,
-                    conversation_id=str(session_id),
-                    role="assistant",
-                    content=reply or "",
-                    user_id=agent.creator_id,
-                    participant_id=agent_participant_id,
-                ))
+                db2.add(
+                    ChatMessage(
+                        agent_id=agent_id,
+                        conversation_id=str(session_id),
+                        role="assistant",
+                        content=reply or "",
+                        user_id=agent.creator_id,
+                        participant_id=agent_participant_id,
+                    )
+                )
                 await db2.commit()
 
             # Parse structured outcome from LLM reply
@@ -816,9 +903,11 @@ async def _execute_heartbeat(agent_id: uuid.UUID, *, lease_acquired: bool = Fals
             # M-20: Activity log MUST be written before evolution files
             # so evolution context sees the latest activity on next heartbeat
             from app.services.activity_logger import log_activity
+
             summary = reply[:80] if reply else "empty"
             await log_activity(
-                agent_id, "heartbeat",
+                agent_id,
+                "heartbeat",
                 f"Heartbeat [{outcome_type}]: {summary}",
                 detail={
                     "reply": reply[:500] if reply else "",
@@ -839,6 +928,7 @@ async def _execute_heartbeat(agent_id: uuid.UUID, *, lease_acquired: bool = Fals
             # low user-chat but high heartbeat activity still trigger distillation.
             try:
                 from app.services.auto_dream import record_session_end, should_dream, run_dream
+
                 record_session_end(agent_id)
                 if should_dream(agent_id) and agent.tenant_id:
                     asyncio.create_task(run_dream(agent_id, agent.tenant_id))
@@ -871,8 +961,10 @@ async def _execute_heartbeat(agent_id: uuid.UUID, *, lease_acquired: bool = Fals
         # every-minute storm (if timestamp stays None, agent is always eligible)
         try:
             from app.database import async_session as _async_session
+
             async with _async_session() as _db:
                 from app.models.agent import Agent as _Agent
+
                 _result = await _db.execute(select(_Agent).where(_Agent.id == agent_id))
                 _agent = _result.scalar_one_or_none()
                 if _agent:
@@ -883,8 +975,10 @@ async def _execute_heartbeat(agent_id: uuid.UUID, *, lease_acquired: bool = Fals
         # Log crash to activity so evolution system can see it
         try:
             from app.services.activity_logger import log_activity
+
             await log_activity(
-                agent_id, "heartbeat",
+                agent_id,
+                "heartbeat",
                 f"Heartbeat crash: {str(e)[:80]}",
                 detail={"outcome_type": "crash", "error": str(e)[:300]},
             )
@@ -921,6 +1015,7 @@ async def _auto_cancel_completed_triggers(agent_id: uuid.UUID) -> None:
         return
 
     import re
+
     completed_refs: set[str] = set()
     for match in re.finditer(r"- \[x\]\s*(\S+)", focus_text, re.IGNORECASE):
         completed_refs.add(match.group(1).strip().lower())
@@ -949,7 +1044,9 @@ async def _auto_cancel_completed_triggers(agent_id: uuid.UUID) -> None:
                 cancelled += 1
                 logger.info(
                     "[Heartbeat] Auto-cancelled trigger '%s' (focus_ref '%s' completed) for agent %s",
-                    trigger.name, trigger.focus_ref, agent_id,
+                    trigger.name,
+                    trigger.focus_ref,
+                    agent_id,
                 )
 
         if cancelled > 0:
@@ -979,6 +1076,7 @@ async def _heartbeat_tick():
             # Periodic workspace sync — write DB data to files agents can read
             synced_tenants: set[uuid.UUID] = set()
             from app.services.workspace_sync import sync_all_for_tenant
+
             for a in agents:
                 if a.tenant_id and a.tenant_id not in synced_tenants:
                     for attempt in range(2):
@@ -991,7 +1089,9 @@ async def _heartbeat_tick():
                                 logger.warning(f"Workspace sync failed for tenant {a.tenant_id}, retrying: {sync_err}")
                                 await asyncio.sleep(1)
                             else:
-                                logger.warning(f"Workspace sync failed for tenant {a.tenant_id} after retry: {sync_err}")
+                                logger.warning(
+                                    f"Workspace sync failed for tenant {a.tenant_id} after retry: {sync_err}"
+                                )
 
             # Pre-load tenants for timezone resolution
             tenant_ids = {a.tenant_id for a in agents if a.tenant_id}

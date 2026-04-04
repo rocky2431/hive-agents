@@ -117,12 +117,15 @@ async def _build_runtime_metadata_sections(
     agent_local_now = now_in_timezone(agent_tz_name)
     now_str = agent_local_now.strftime(f"%Y-%m-%d %H:%M:%S ({agent_tz_name})")
     parts.append(f"\n## Current Time\n{now_str}")
-    parts.append(f"Your timezone is **{agent_tz_name}**. When setting cron triggers, use this timezone for time references.")
+    parts.append(
+        f"Your timezone is **{agent_tz_name}**. When setting cron triggers, use this timezone for time references."
+    )
 
     try:
         from app.database import async_session
         from app.models.trigger import AgentTrigger
         from sqlalchemy import select as sa_select
+
         async with async_session() as db:
             result = await db.execute(
                 sa_select(AgentTrigger).where(
@@ -149,7 +152,9 @@ async def _build_runtime_metadata_sections(
         logger.debug("Failed to load active triggers for agent {}: {}", agent_id, exc)
 
     if current_user_name:
-        parts.append(f"\n## Current Conversation\nYou are currently chatting with **{current_user_name}**. Address them by name when appropriate.")
+        parts.append(
+            f"\n## Current Conversation\nYou are currently chatting with **{current_user_name}**. Address them by name when appropriate."
+        )
 
     return parts
 
@@ -177,9 +182,9 @@ async def build_agent_context(
     role_description: str = "",
     current_user_name: str | None = None,
     *,
-    include_memory_file: bool = True,
+    include_memory_file: bool = True,  # deprecated: memory flows via 4-layer retriever
     include_runtime_metadata: bool = True,
-    include_focus: bool = True,
+    include_focus: bool = True,  # deprecated: focus flows via retriever Working Memory
     budget_profile: ContextBudget | None = None,
     execution_mode: str = "conversation",
 ) -> str:
@@ -187,33 +192,38 @@ async def build_agent_context(
 
     Reads from workspace files:
     - soul.md → personality
-    - memory.md → long-term memory
     - skills/ → skill names + summaries
     - relationships.md → relationship descriptions
+
+    NOTE: memory.md and focus.md are NOT loaded here. They flow through the
+    4-layer retrieval pipeline (MemoryRetriever) which loads semantic_facts
+    (for memory) and focus.md (as Working Memory, score=1.0). Loading them
+    here as well would cause double-injection into the prompt.
     """
     tool_ws = TOOL_WORKSPACE / str(agent_id)
     data_ws = PERSISTENT_DATA / str(agent_id)
 
     # --- Soul ---
     soul_budget = budget_profile.soul_budget_chars if budget_profile else 16000
-    memory_budget = budget_profile.memory_budget_chars if budget_profile else 2000
     skill_budget = budget_profile.skill_catalog_budget_chars if budget_profile else 4000
     relationships_budget = budget_profile.relationships_budget_chars if budget_profile else 2000
     company_info_budget = budget_profile.company_info_budget_chars if budget_profile else 5000
     org_structure_budget = budget_profile.org_structure_budget_chars if budget_profile else 2000
-    focus_budget = budget_profile.focus_budget_chars if budget_profile else 3000
-
     soul = _read_file_safe(tool_ws / "soul.md", soul_budget) or _read_file_safe(data_ws / "soul.md", soul_budget)
     soul = _strip_primary_heading(soul)
 
     # --- Memory ---
-    memory = _read_file_safe(tool_ws / "memory" / "memory.md", memory_budget) or _read_file_safe(tool_ws / "memory.md", memory_budget)
-    memory = _strip_primary_heading(memory)
+    # NOTE: memory.md is no longer loaded here. Semantic facts flow through the
+    # 4-layer retrieval pipeline (MemoryRetriever → [Semantic Memory] section).
+    # Loading memory.md here would double-inject the same data.
+    # memory.md is still written by auto_dream as a human-readable backup.
 
     # --- Skills index (progressive disclosure, capped to prevent prompt overflow) ---
     skills_text = _load_skills_index(agent_id, budget_chars=max(skill_budget, 800))
     if len(skills_text) > skill_budget:
-        skills_text = skills_text[:skill_budget] + "\n\n...(skill catalog truncated — use `load_skill` to see full details)"
+        skills_text = (
+            skills_text[:skill_budget] + "\n\n...(skill catalog truncated — use `load_skill` to see full details)"
+        )
 
     # --- Relationships ---
     relationships = _read_file_safe(data_ws / "relationships.md", relationships_budget)
@@ -251,6 +261,7 @@ async def build_agent_context(
         from app.models.channel_config import ChannelConfig
         from app.database import async_session as _ctx_session
         from sqlalchemy import select as sa_select
+
         async with _ctx_session() as _ctx_db:
             _cfgs = await _ctx_db.execute(
                 sa_select(ChannelConfig).where(
@@ -276,6 +287,7 @@ async def build_agent_context(
         from app.models.agent import Agent as _AgentModel
         from app.models.system_settings import SystemSetting
         from sqlalchemy import select as sa_select
+
         async with async_session() as db:
             # Resolve agent's tenant_id
             _ag_r = await db.execute(sa_select(_AgentModel.tenant_id).where(_AgentModel.id == agent_id))
@@ -287,6 +299,7 @@ async def build_agent_context(
             if _agent_tenant_id:
                 try:
                     from app.models.tenant_setting import TenantSetting
+
                     result = await db.execute(
                         sa_select(TenantSetting).where(
                             TenantSetting.tenant_id == _agent_tenant_id,
@@ -302,18 +315,14 @@ async def build_agent_context(
             # Priority 2: system_settings with tenant-scoped key (backward compat)
             if not company_intro and _agent_tenant_id:
                 tenant_key = f"company_intro_{_agent_tenant_id}"
-                result = await db.execute(
-                    sa_select(SystemSetting).where(SystemSetting.key == tenant_key)
-                )
+                result = await db.execute(sa_select(SystemSetting).where(SystemSetting.key == tenant_key))
                 setting = result.scalar_one_or_none()
                 if setting and setting.value and setting.value.get("content"):
                     company_intro = setting.value["content"].strip()
 
             # Priority 3: global system_settings fallback
             if not company_intro:
-                result = await db.execute(
-                    sa_select(SystemSetting).where(SystemSetting.key == "company_intro")
-                )
+                result = await db.execute(sa_select(SystemSetting).where(SystemSetting.key == "company_intro"))
                 setting = result.scalar_one_or_none()
                 if setting and setting.value and setting.value.get("content"):
                     company_intro = setting.value["content"].strip()
@@ -340,8 +349,7 @@ async def build_agent_context(
     if soul and soul not in ("_描述你的角色和职责。_", "_Describe your role and responsibilities._"):
         context_parts.append(f"### Personality\n{soul}")
 
-    if include_memory_file and memory and memory not in ("_这里记录重要的信息和学到的知识。_", "_Record important information and knowledge here._"):
-        context_parts.append(f"### Memory\n{memory}")
+    # memory.md removed from prompt — semantic_facts loaded via 4-layer retriever
 
     if skills_text:
         context_parts.append(f"### Skills\n{skills_text}")
@@ -350,16 +358,9 @@ async def build_agent_context(
         context_parts.append(f"### Relationships\n{relationships}")
 
     # --- Focus (working memory) ---
-    focus = (
-        _read_file_safe(tool_ws / "focus.md", focus_budget)
-        or _read_file_safe(data_ws / "focus.md", focus_budget)
-        # Backward compat: also check old name
-        or _read_file_safe(tool_ws / "agenda.md", focus_budget)
-        or _read_file_safe(data_ws / "agenda.md", focus_budget)
-    )
-    if include_focus and focus and focus.strip() not in ("# Focus", "# Agenda"):
-        focus = _strip_primary_heading(focus)
-        context_parts.append(f"### Focus\n{focus}")
+    # NOTE: focus.md is no longer loaded here. It flows through the 4-layer
+    # retrieval pipeline as [Working Memory] (score=1.0, highest priority).
+    # Loading it here would double-inject the same data.
 
     # Evolution context (blocklist, scorecard, lineage) is NO LONGER directly
     # injected here. Instead, auto_dream._distill_evolution_to_facts() converts
