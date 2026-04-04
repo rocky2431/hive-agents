@@ -199,5 +199,4 @@ async def sync_all_for_tenant(db: AsyncSession, tenant_id: uuid.UUID) -> int:
     for agent in agents:
         await sync_agent_relationships(db, agent.id)
 
-    logger.info(f"[workspace-sync] Full sync done for tenant {tenant_id}: {len(agents)} agents")
     return len(agents)
