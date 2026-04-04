@@ -29,6 +29,37 @@ from app.services.conversation_summarizer import estimate_tokens, _extract_summa
 
 logger = logging.getLogger(__name__)
 
+
+# ── Importance scoring (inspired by Machine Dream ImportanceCalculator) ──
+# Category-based baseline importance: high-signal categories get higher scores.
+_CATEGORY_IMPORTANCE: dict[str, float] = {
+    "feedback": 0.85,
+    "constraint": 0.85,
+    "blocked_pattern": 0.85,
+    "strategy": 0.70,
+    "user": 0.60,
+    "project": 0.50,
+    "reference": 0.50,
+    "general": 0.40,
+}
+
+
+def _compute_importance(fact: dict) -> float:
+    """Score a fact's importance (0.0-1.0) based on category and content signals."""
+    category = fact.get("category", "general")
+    base = _CATEGORY_IMPORTANCE.get(category, 0.4)
+
+    content = fact.get("content", "")
+    # Boost for explicit user corrections or instructions
+    if fact.get("source") == "pattern_extraction":
+        base = min(base + 0.1, 1.0)
+    # Boost for longer, more specific facts (>80 chars suggests detail)
+    if len(content) > 80:
+        base = min(base + 0.05, 1.0)
+
+    return round(base, 2)
+
+
 CompactionCallback = Callable[[dict], Awaitable[None] | None]
 
 
@@ -184,10 +215,9 @@ async def compute_history_limit_for_agent(agent_id: uuid.UUID) -> int:
     try:
         from app.models.agent import Agent
         from app.models.llm import LLMModel
+
         async with async_session() as db:
-            agent_r = await db.execute(
-                select(Agent).where(Agent.id == agent_id)
-            )
+            agent_r = await db.execute(select(Agent).where(Agent.id == agent_id))
             agent = agent_r.scalar_one_or_none()
             if agent and agent.primary_model_id:
                 model_r = await db.execute(
@@ -196,7 +226,8 @@ async def compute_history_limit_for_agent(agent_id: uuid.UUID) -> int:
                 model = model_r.scalar_one_or_none()
                 if model:
                     return compute_history_limit(
-                        model.provider, model.model,
+                        model.provider,
+                        model.model,
                         getattr(model, "max_input_tokens", None),
                     )
     except Exception:
@@ -244,7 +275,10 @@ async def maybe_compress_messages(
 
     logger.info(
         "Memory compress: %d tokens > %d threshold (context=%d), summarizing %d old messages",
-        current_tokens, trigger_tokens, context_limit, len(old_messages),
+        current_tokens,
+        trigger_tokens,
+        context_limit,
+        len(old_messages),
     )
 
     # Try LLM-powered summarization
@@ -252,14 +286,17 @@ async def maybe_compress_messages(
     if summary_model:
         try:
             from app.services.conversation_summarizer import _llm_summarize
+
             summary = await _llm_summarize(old_messages, summary_model)
             if summary:
                 if on_compaction:
-                    maybe_result = on_compaction({
-                        "summary": summary,
-                        "original_message_count": len(messages),
-                        "kept_message_count": len(recent_messages) + 1,
-                    })
+                    maybe_result = on_compaction(
+                        {
+                            "summary": summary,
+                            "original_message_count": len(messages),
+                            "kept_message_count": len(recent_messages) + 1,
+                        }
+                    )
                     if maybe_result is not None:
                         await maybe_result
                 return [{"role": "system", "content": f"[Previous conversation summary]\n{summary}"}] + recent_messages
@@ -273,11 +310,13 @@ async def maybe_compress_messages(
         logger.warning("[Memory] Both LLM and extraction summaries empty — skipping compression")
         return messages
     if on_compaction:
-        maybe_result = on_compaction({
-            "summary": summary,
-            "original_message_count": len(messages),
-            "kept_message_count": len(recent_messages) + 1,
-        })
+        maybe_result = on_compaction(
+            {
+                "summary": summary,
+                "original_message_count": len(messages),
+                "kept_message_count": len(recent_messages) + 1,
+            }
+        )
         if maybe_result is not None:
             await maybe_result
     return [{"role": "system", "content": f"[Previous conversation summary]\n{summary}"}] + recent_messages
@@ -300,9 +339,11 @@ async def on_conversation_end(
     # P3.1: Auto-dream gate check — fire-and-forget if conditions met
     try:
         from app.services.auto_dream import record_session_end, should_dream, run_dream
+
         record_session_end(agent_id)
         if should_dream(agent_id):
             import asyncio
+
             asyncio.create_task(run_dream(agent_id, tenant_id))
             logger.info("[Memory] Auto-dream triggered for agent %s", agent_id)
     except Exception as _dream_err:
@@ -352,16 +393,22 @@ async def persist_runtime_memory(
             last_exc = exc
             if attempt < _MAX_RETRIES:
                 import asyncio
+
                 delay = _RETRY_DELAYS[attempt]
                 logger.warning(
                     "persist_runtime_memory attempt %d/%d failed, retrying in %.1fs: %s",
-                    attempt + 1, _MAX_RETRIES + 1, delay, exc,
+                    attempt + 1,
+                    _MAX_RETRIES + 1,
+                    delay,
+                    exc,
                 )
                 await asyncio.sleep(delay)
             else:
                 logger.error(
                     "persist_runtime_memory failed after %d attempts (non-fatal): %s",
-                    _MAX_RETRIES + 1, last_exc, exc_info=True,
+                    _MAX_RETRIES + 1,
+                    last_exc,
+                    exc_info=True,
                 )
 
 
@@ -376,6 +423,7 @@ def _get_input_context_limit(provider: str, model_name: str, override: int | Non
         return override
 
     from app.services.llm_client import get_provider_spec
+
     spec = get_provider_spec(provider)
     if spec:
         return spec.max_input_tokens
@@ -459,6 +507,7 @@ async def _generate_session_summary(messages: list[dict], tenant_id: uuid.UUID) 
     if summary_model:
         try:
             from app.services.conversation_summarizer import _llm_summarize
+
             return await _llm_summarize(messages, summary_model)
         except Exception as e:
             logger.warning("LLM session summary failed, using extraction: %s", e)
@@ -499,11 +548,7 @@ def _persist_extraction_cursor_state(agent_id: uuid.UUID) -> None:
     path = _extraction_cursor_state_path(agent_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     prefix = f"{agent_id.hex}:"
-    state = {
-        key[len(prefix):]: value
-        for key, value in _extraction_cursors.items()
-        if key.startswith(prefix)
-    }
+    state = {key[len(prefix) :]: value for key, value in _extraction_cursors.items() if key.startswith(prefix)}
     path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
@@ -546,7 +591,10 @@ async def _update_agent_memory(
         delta_messages = messages[cursor:]
         logger.debug(
             "[Memory] Incremental extraction for %s: %d new messages (cursor=%d, total=%d)",
-            agent_id, len(delta_messages), cursor, len(messages),
+            agent_id,
+            len(delta_messages),
+            cursor,
+            len(messages),
         )
     else:
         delta_messages = messages
@@ -576,7 +624,12 @@ async def _update_agent_memory(
     all_facts = _merge_memory_facts(existing_facts, new_facts)
     semantic_store.replace_semantic_facts(agent_id, all_facts)
     _set_extraction_cursor(agent_id, len(messages), session_id)
-    logger.info("Updated semantic memory store for agent %s: %d facts (delta=%d msgs)", agent_id, len(all_facts), len(delta_messages))
+    logger.info(
+        "Updated semantic memory store for agent %s: %d facts (delta=%d msgs)",
+        agent_id,
+        len(all_facts),
+        len(delta_messages),
+    )
 
 
 def _load_agent_memory(agent_id: uuid.UUID) -> str:
@@ -634,8 +687,12 @@ async def _extract_facts_with_llm(messages: list[dict], model_config: dict) -> l
             _tool_name = _tool_names.get(_tc_id, "unknown_tool")
             # Skip low-value tools (list_files, get_current_time, etc.)
             if _tool_name not in (
-                "list_files", "get_current_time", "list_triggers",
-                "list_tasks", "check_async_task", "tool_search",
+                "list_files",
+                "get_current_time",
+                "list_triggers",
+                "list_tasks",
+                "check_async_task",
+                "tool_search",
             ):
                 _preview = content[:500] if len(content) > 500 else content
                 conversation_text.append("tool(" + _tool_name + "): " + _preview)
@@ -697,7 +754,10 @@ async def _extract_facts_with_llm(messages: list[dict], model_config: dict) -> l
 
         facts = json.loads(raw)
         if isinstance(facts, list):
-            return [f for f in facts if isinstance(f, dict) and f.get("content")]
+            valid = [f for f in facts if isinstance(f, dict) and f.get("content")]
+            for f in valid:
+                f["importance"] = _compute_importance(f)
+            return valid
     except (json.JSONDecodeError, Exception) as e:
         logger.debug("Failed to parse LLM fact extraction: %s", e)
     finally:
@@ -766,13 +826,17 @@ def _extract_facts_simple(messages: list[dict]) -> list[dict]:
                 dedup_key = snippet[:60].lower()
                 if dedup_key not in seen_snippets:
                     seen_snippets.add(dedup_key)
-                    facts.append({
-                        "content": snippet,
-                        "category": category,
-                        "source": "pattern_extraction",
-                    })
+                    facts.append(
+                        {
+                            "content": snippet,
+                            "category": category,
+                            "source": "pattern_extraction",
+                        }
+                    )
                 break  # One category per message
 
+    for f in facts:
+        f["importance"] = _compute_importance(f)
     return facts[-8:]
 
 
@@ -833,6 +897,7 @@ async def _save_session_summary(session_id: str, summary: str) -> None:
             session.summary = summary
             # Update last_message_at so episodic retriever ranks this session correctly
             from datetime import datetime, timezone
+
             session.last_message_at = datetime.now(timezone.utc)
             await db.commit()
             logger.info("Session summary saved for %s", session_id)

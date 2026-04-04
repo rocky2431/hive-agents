@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import json
+import re as _re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -45,8 +46,7 @@ _AUTO_DREAM_SYSTEM_PROMPT = (
 
 def _build_dream_consolidation_prompt(*, facts: list[dict], summaries: list[str]) -> str:
     facts_text = "\n".join(
-        str(i) + ". [" + f.get("category", "general") + "] " + f.get("content", "")[:200]
-        for i, f in enumerate(facts)
+        str(i) + ". [" + f.get("category", "general") + "] " + f.get("content", "")[:200] for i, f in enumerate(facts)
     )
     summaries_text = "\n---\n".join(s[:500] for s in summaries[:5])
     return (
@@ -76,6 +76,11 @@ def _dream_state_path(agent_id: uuid.UUID) -> Path:
     return Path(get_settings().AGENT_DATA_DIR) / str(agent_id) / "memory" / "auto_dream_state.json"
 
 
+_dream_version: dict[str, int] = {}
+_dream_history: dict[str, list[dict]] = {}
+_DREAM_HISTORY_MAX = 10
+
+
 def _load_dream_state(agent_id: uuid.UUID) -> tuple[datetime | None, int]:
     key = agent_id.hex
     if key in _sessions_since_dream or key in _last_dream_time:
@@ -103,6 +108,8 @@ def _load_dream_state(agent_id: uuid.UUID) -> tuple[datetime | None, int]:
     if last is not None:
         _last_dream_time[key] = last
     _sessions_since_dream[key] = sessions if isinstance(sessions, int) else 0
+    _dream_version[key] = payload.get("version", 0)
+    _dream_history[key] = payload.get("history", [])
     return _last_dream_time.get(key), _sessions_since_dream.get(key, 0)
 
 
@@ -110,9 +117,12 @@ def _persist_dream_state(agent_id: uuid.UUID) -> None:
     key = agent_id.hex
     path = _dream_state_path(agent_id)
     path.parent.mkdir(parents=True, exist_ok=True)
+    last_time = _last_dream_time.get(key)
     payload = {
-        "last_dream_time": _last_dream_time.get(key).isoformat() if _last_dream_time.get(key) else None,
+        "last_dream_time": last_time.isoformat() if last_time else None,
         "sessions_since_dream": _sessions_since_dream.get(key, 0),
+        "version": _dream_version.get(key, 0),
+        "history": _dream_history.get(key, [])[-_DREAM_HISTORY_MAX:],
     }
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -162,20 +172,44 @@ async def run_dream(agent_id: uuid.UUID, tenant_id: uuid.UUID) -> dict:
     # Backup existing facts before consolidation (BP-3 fix)
     _backup_facts(agent_id, existing_facts)
 
-    # Try LLM consolidation
-    consolidated = await _consolidate_with_llm(existing_facts, summaries, tenant_id)
-    if consolidated is None:
-        # LLM failed — fall back to simple dedup
-        consolidated = _simple_dedup(existing_facts)
-
     before_count = len(existing_facts)
+
+    # Importance filter: only consolidate facts with importance ≥ 0.5
+    # Low-importance facts are preserved as-is (not sent to LLM).
+    _IMPORTANCE_THRESHOLD = 0.5
+    high_importance = [f for f in existing_facts if float(f.get("importance", 0.5)) >= _IMPORTANCE_THRESHOLD]
+    low_importance = [f for f in existing_facts if float(f.get("importance", 0.5)) < _IMPORTANCE_THRESHOLD]
+    if low_importance:
+        logger.info(
+            "[AutoDream] Importance filter: %d high / %d low (skipped) for %s",
+            len(high_importance),
+            len(low_importance),
+            agent_id,
+        )
+
+    # Cluster-then-synthesize consolidation (Machine Dream pattern)
+    facts_to_consolidate = high_importance if high_importance else existing_facts
+    clusters = _cluster_facts(facts_to_consolidate)
+    consolidated = await _consolidate_clustered(facts_to_consolidate, summaries, tenant_id)
+    strategy = "clustered" if len(clusters) > 1 else "monolithic"
+    if consolidated is None:
+        # All LLM paths failed — fall back to simple dedup
+        consolidated = _simple_dedup(facts_to_consolidate)
+        strategy = "dedup_fallback"
+
+    # Re-merge low-importance facts (preserved without LLM processing)
+    if low_importance:
+        consolidated.extend(low_importance)
+
     after_count = len(consolidated)
 
     # Safety gate: reject consolidation if it loses >70% of facts
     if after_count < before_count * 0.3 and before_count >= 5:
         logger.warning(
             "[AutoDream] Rejected consolidation for %s: %d → %d facts (>70%% loss). Backup preserved.",
-            agent_id, before_count, after_count,
+            agent_id,
+            before_count,
+            after_count,
         )
         _mark_dreamed(key)
         return {"consolidated": before_count, "removed": 0, "added": 0}
@@ -185,9 +219,12 @@ async def run_dream(agent_id: uuid.UUID, tenant_id: uuid.UUID) -> dict:
     evolution_facts = await _distill_evolution_to_facts(agent_id, tenant_id)
     if evolution_facts:
         from app.services.memory_service import _merge_memory_facts
+
         consolidated = _merge_memory_facts(consolidated, evolution_facts)
 
     store.replace_semantic_facts(agent_id, consolidated)
+
+    after_count = len(consolidated)
 
     # L3→L2 sync: LLM synthesizes consolidated facts into memory/memory.md
     # so agent_context "### Memory" section stays current with semantic store.
@@ -196,7 +233,15 @@ async def run_dream(agent_id: uuid.UUID, tenant_id: uuid.UUID) -> dict:
     # L3→L1 promotion: LLM rephrases high-frequency feedback as personality traits
     await _promote_to_soul(agent_id, consolidated, tenant_id)
 
-    _mark_dreamed(key)
+    _mark_dreamed(
+        key,
+        consolidation_result={
+            "facts_before": before_count,
+            "facts_after": after_count,
+            "strategy": strategy,
+            "clusters": len(clusters),
+        },
+    )
 
     result = {
         "consolidated": after_count,
@@ -204,8 +249,14 @@ async def run_dream(agent_id: uuid.UUID, tenant_id: uuid.UUID) -> dict:
         "added": max(0, after_count - before_count),
     }
     logger.info(
-        "[AutoDream] Consolidated memory for %s: %d → %d facts (%d removed, %d added)",
-        agent_id, before_count, after_count, result["removed"], result["added"],
+        "[AutoDream] Consolidated memory for %s: %d → %d facts (%d removed, %d added, strategy=%s, clusters=%d)",
+        agent_id,
+        before_count,
+        after_count,
+        result["removed"],
+        result["added"],
+        strategy,
+        len(clusters),
     )
     return result
 
@@ -235,9 +286,33 @@ def _backup_facts(agent_id: uuid.UUID, facts: list[dict]) -> None:
             logger.debug("[AutoDream] Failed to remove old backup %s: %s", old.name, rm_err)
 
 
-def _mark_dreamed(key: str) -> None:
+def _mark_dreamed(
+    key: str,
+    *,
+    consolidation_result: dict | None = None,
+) -> None:
     _last_dream_time[key] = datetime.now(timezone.utc)
+    sessions_processed = _sessions_since_dream.get(key, 0)
     _sessions_since_dream[key] = 0
+
+    # Increment version and record history entry
+    prev_version = _dream_version.get(key, 0)
+    _dream_version[key] = prev_version + 1
+
+    if consolidation_result:
+        history_entry = {
+            "version": _dream_version[key],
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "facts_before": consolidation_result.get("facts_before", 0),
+            "facts_after": consolidation_result.get("facts_after", 0),
+            "sessions_processed": sessions_processed,
+            "strategy": consolidation_result.get("strategy", "unknown"),
+            "clusters": consolidation_result.get("clusters", 0),
+        }
+        _dream_history.setdefault(key, []).append(history_entry)
+        # Trim to keep only recent history
+        _dream_history[key] = _dream_history[key][-_DREAM_HISTORY_MAX:]
+
     try:
         _persist_dream_state(uuid.UUID(hex=key))
     except Exception:
@@ -340,6 +415,7 @@ async def _consolidate_with_llm(
             await client.close()
 
         import json
+
         start = content.find("[")
         end = content.rfind("]") + 1
         if start >= 0 and end > start:
@@ -362,6 +438,233 @@ def _simple_dedup(facts: list[dict]) -> list[dict]:
             seen.add(content)
             unique.append(fact)
     return unique
+
+
+# ── Cluster-then-synthesize (inspired by Machine Dream FastClusterV2) ──
+
+_CJK_RE_DREAM = _re.compile(r"[\u4e00-\u9fff\u3400-\u4dbf\uF900-\uFAFF]")
+_STOP_WORDS = frozenset(
+    {
+        "the",
+        "a",
+        "an",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "being",
+        "have",
+        "has",
+        "had",
+        "do",
+        "does",
+        "did",
+        "will",
+        "would",
+        "could",
+        "should",
+        "may",
+        "might",
+        "can",
+        "shall",
+        "to",
+        "of",
+        "in",
+        "for",
+        "on",
+        "with",
+        "at",
+        "by",
+        "from",
+        "as",
+        "into",
+        "about",
+        "that",
+        "this",
+        "it",
+        "not",
+        "but",
+        "and",
+        "or",
+        "if",
+        "then",
+        "so",
+        "的",
+        "了",
+        "是",
+        "在",
+        "和",
+        "有",
+        "不",
+        "也",
+        "都",
+        "就",
+    }
+)
+
+
+def _extract_keywords(text: str) -> set[str]:
+    """Extract meaningful keywords from text (English words + CJK chars)."""
+    words = set()
+    for w in text.lower().split():
+        w = w.strip(".,;:!?，。；：！？\"'()[]{}/-")
+        if len(w) >= 2 and w not in _STOP_WORDS:
+            words.add(w)
+    # CJK: extract 2-char bigrams
+    cjk_chars = [c for c in text if _CJK_RE_DREAM.match(c)]
+    for i in range(len(cjk_chars) - 1):
+        words.add(cjk_chars[i] + cjk_chars[i + 1])
+    return words
+
+
+def _keyword_similarity(kw_a: set[str], kw_b: set[str]) -> float:
+    """Compute keyword overlap ratio between two keyword sets."""
+    if not kw_a or not kw_b:
+        return 0.0
+    intersection = len(kw_a & kw_b)
+    return intersection / min(len(kw_a), len(kw_b))
+
+
+def _cluster_facts(facts: list[dict]) -> list[list[dict]]:
+    """Group facts by category, then sub-cluster by keyword similarity.
+
+    Returns a list of clusters, each cluster being a list of related facts.
+    Small categories (≤3 facts) are kept as a single cluster.
+    """
+    # Phase 1: group by category
+    by_category: dict[str, list[dict]] = {}
+    for fact in facts:
+        cat = fact.get("category", "general")
+        by_category.setdefault(cat, []).append(fact)
+
+    clusters: list[list[dict]] = []
+
+    for cat, cat_facts in by_category.items():
+        # Small groups don't need sub-clustering
+        if len(cat_facts) <= 3:
+            clusters.append(cat_facts)
+            continue
+
+        # Phase 2: keyword-based sub-clustering within category
+        kw_cache = [_extract_keywords(f.get("content", "")) for f in cat_facts]
+        assigned = [False] * len(cat_facts)
+
+        for i in range(len(cat_facts)):
+            if assigned[i]:
+                continue
+            cluster = [cat_facts[i]]
+            assigned[i] = True
+
+            for j in range(i + 1, len(cat_facts)):
+                if assigned[j]:
+                    continue
+                if _keyword_similarity(kw_cache[i], kw_cache[j]) >= 0.3:
+                    cluster.append(cat_facts[j])
+                    assigned[j] = True
+
+            clusters.append(cluster)
+
+    return clusters
+
+
+_CLUSTER_CONSOLIDATION_PROMPT = (
+    "You are consolidating a CLUSTER of related memory facts for an agent.\n"
+    "These facts share a common theme. Merge, deduplicate, and produce a clean set.\n\n"
+    "Rules:\n"
+    "- Remove duplicates, keep the more specific/recent version\n"
+    "- Merge closely related facts into concise combined statements\n"
+    "- Each output fact: {content, category} — under 200 chars\n"
+    "- Preserve the category from input facts\n"
+    "- Return ONLY a JSON array, no other text\n"
+)
+
+
+async def _consolidate_clustered(
+    facts: list[dict],
+    summaries: list[str],
+    tenant_id: uuid.UUID,
+) -> list[dict] | None:
+    """Cluster-then-synthesize consolidation pipeline.
+
+    1. Cluster facts by category + keyword overlap
+    2. Small clusters (≤2 facts): keep as-is (no LLM cost)
+    3. Larger clusters: LLM consolidates each independently
+    4. Merge all cluster results
+
+    Falls back to monolithic consolidation if clustering produces only 1 cluster.
+    """
+    clusters = _cluster_facts(facts)
+
+    # If only 1 cluster, fall back to monolithic (no benefit from clustering)
+    if len(clusters) <= 1:
+        return await _consolidate_with_llm(facts, summaries, tenant_id)
+
+    logger.info(
+        "[AutoDream] Clustered %d facts into %d clusters (sizes: %s)",
+        len(facts),
+        len(clusters),
+        [len(c) for c in clusters],
+    )
+
+    try:
+        from app.services.memory_service import _get_summary_model_config
+        from app.services.llm_client import LLMMessage, create_llm_client
+    except ImportError:
+        return await _consolidate_with_llm(facts, summaries, tenant_id)
+
+    model_config = await _get_summary_model_config(tenant_id)
+    if not model_config:
+        return await _consolidate_with_llm(facts, summaries, tenant_id)
+
+    # Add session context as a brief summary block for all clusters
+    summaries_brief = "\n---\n".join(s[:300] for s in summaries[:3])
+
+    consolidated: list[dict] = []
+    for cluster in clusters:
+        # Small clusters: keep without LLM processing
+        if len(cluster) <= 2:
+            consolidated.extend(cluster)
+            continue
+
+        # Build per-cluster prompt
+        fact_lines = "\n".join(f"- [{f.get('category', 'general')}] {f.get('content', '')[:200]}" for f in cluster)
+        prompt = (
+            f"## Cluster Facts ({len(cluster)} items)\n{fact_lines}\n\n"
+            f"## Recent Session Context\n{summaries_brief}\n\n"
+            "Consolidate these related facts. Return JSON array."
+        )
+
+        try:
+            client = create_llm_client(**model_config)
+            response = await client.stream(
+                messages=[
+                    LLMMessage(role="system", content=_CLUSTER_CONSOLIDATION_PROMPT),
+                    LLMMessage(role="user", content=prompt),
+                ],
+                max_tokens=1500,
+                temperature=0.3,
+            )
+            content = response.content if hasattr(response, "content") else str(response)
+            if hasattr(client, "close"):
+                await client.close()
+
+            start = content.find("[")
+            end = content.rfind("]") + 1
+            if start >= 0 and end > start:
+                parsed = json.loads(content[start:end])
+                if isinstance(parsed, list):
+                    valid = [f for f in parsed if isinstance(f, dict) and f.get("content")]
+                    consolidated.extend(valid)
+                    continue
+        except Exception as exc:
+            logger.debug("[AutoDream] Cluster consolidation failed for cluster of %d: %s", len(cluster), exc)
+
+        # Fallback: keep original cluster facts on LLM failure
+        consolidated.extend(cluster)
+
+    return consolidated if consolidated else None
 
 
 # ── L3 → L2 sync: semantic_facts → memory/memory.md ──────────────
@@ -395,8 +698,14 @@ _SOUL_PROMOTION_PROMPT = (
 )
 
 _CATEGORY_DISPLAY_ORDER = [
-    "constraint", "feedback", "user", "strategy",
-    "blocked_pattern", "project", "reference", "general",
+    "constraint",
+    "feedback",
+    "user",
+    "strategy",
+    "blocked_pattern",
+    "project",
+    "reference",
+    "general",
 ]
 
 _CATEGORY_HEADERS = {
@@ -412,7 +721,9 @@ _CATEGORY_HEADERS = {
 
 
 async def _sync_facts_to_memory_md(
-    agent_id: uuid.UUID, facts: list[dict], tenant_id: uuid.UUID,
+    agent_id: uuid.UUID,
+    facts: list[dict],
+    tenant_id: uuid.UUID,
 ) -> None:
     """Synthesize consolidated facts into memory/memory.md via LLM.
 
@@ -440,7 +751,12 @@ async def _sync_facts_to_memory_md(
         content = _render_facts_as_markdown(facts)
 
     _write_to_workspaces(agent_id, "memory/memory.md", content)
-    logger.info("[AutoDream] Synced %d facts → memory.md for agent %s (llm=%s)", len(facts), agent_id, content != _render_facts_as_markdown(facts))
+    logger.info(
+        "[AutoDream] Synced %d facts → memory.md for agent %s (llm=%s)",
+        len(facts),
+        agent_id,
+        content != _render_facts_as_markdown(facts),
+    )
 
 
 async def _llm_synthesize_memory(fact_text: str, tenant_id: uuid.UUID) -> str | None:
@@ -501,7 +817,9 @@ def _render_facts_as_markdown(facts: list[dict]) -> str:
 
 
 async def _promote_to_soul(
-    agent_id: uuid.UUID, facts: list[dict], tenant_id: uuid.UUID,
+    agent_id: uuid.UUID,
+    facts: list[dict],
+    tenant_id: uuid.UUID,
 ) -> None:
     """Promote high-frequency feedback/constraint facts to soul.md via LLM.
 
@@ -527,9 +845,7 @@ async def _promote_to_soul(
             subject_content[subject] = content
 
     promotable = [
-        subject_content[subj]
-        for subj, count in subject_counts.items()
-        if count >= 3 and subj in subject_content
+        subject_content[subj] for subj, count in subject_counts.items() if count >= 3 and subj in subject_content
     ]
     if not promotable:
         return
@@ -541,6 +857,7 @@ async def _promote_to_soul(
 
     # Resolve canonical workspace (F3 fix: single write target)
     from app.services.heartbeat import _get_canonical_workspace
+
     ws_root = _get_canonical_workspace(agent_id)
     if not ws_root:
         settings = get_settings()
@@ -574,17 +891,18 @@ async def _promote_to_soul(
         # survive prompt budget trimming (which cuts from the end).
         first_h2 = existing.find("\n## ")
         if first_h2 > 0:
-            updated = (
-                existing[:first_h2]
-                + f"\n\n{LEARNED_HEADER}\n" + behavior_block
-                + existing[first_h2:]
-            )
+            updated = existing[:first_h2] + f"\n\n{LEARNED_HEADER}\n" + behavior_block + existing[first_h2:]
         else:
             updated = existing.rstrip() + f"\n\n{LEARNED_HEADER}\n" + behavior_block
 
     try:
         soul_path.write_text(updated, encoding="utf-8")
-        logger.info("[AutoDream] Promoted %d behaviors to soul.md for agent %s (llm=%s)", len(new_behaviors), agent_id, rephrased is not None)
+        logger.info(
+            "[AutoDream] Promoted %d behaviors to soul.md for agent %s (llm=%s)",
+            len(new_behaviors),
+            agent_id,
+            rephrased is not None,
+        )
     except Exception as exc:
         logger.debug("[AutoDream] Failed to write soul.md at %s: %s", soul_path, exc)
 
@@ -644,7 +962,8 @@ _EVOLUTION_DISTILL_PROMPT = (
 
 
 async def _distill_evolution_to_facts(
-    agent_id: uuid.UUID, tenant_id: uuid.UUID,
+    agent_id: uuid.UUID,
+    tenant_id: uuid.UUID,
 ) -> list[dict]:
     """Read evolution files and distill them into typed semantic facts.
 
@@ -694,7 +1013,8 @@ async def _distill_evolution_to_facts(
 
 
 async def _llm_distill_evolution(
-    evolution_text: str, tenant_id: uuid.UUID,
+    evolution_text: str,
+    tenant_id: uuid.UUID,
 ) -> list[dict] | None:
     """Use LLM to distill evolution data into structured facts."""
     try:
@@ -731,12 +1051,14 @@ async def _llm_distill_evolution(
                         cat = f.get("category", "strategy")
                         if cat not in ("blocked_pattern", "strategy", "feedback"):
                             cat = "strategy"
-                        valid.append({
-                            "content": str(f["content"])[:200],
-                            "category": cat,
-                            "subject": "evolution_digest",
-                            "timestamp": now,
-                        })
+                        valid.append(
+                            {
+                                "content": str(f["content"])[:200],
+                                "category": cat,
+                                "subject": "evolution_digest",
+                                "timestamp": now,
+                            }
+                        )
                 logger.info("[AutoDream] Distilled %d evolution facts for agent", len(valid))
                 return valid if valid else None
     except Exception as exc:
@@ -760,12 +1082,14 @@ def _mechanical_distill_blocklist(ws_root: Path) -> list[dict]:
     for line in text.splitlines():
         line = line.strip()
         if line.startswith("- ") and len(line) > 10:
-            facts.append({
-                "content": line[2:].strip()[:200],
-                "category": "blocked_pattern",
-                "subject": "evolution_digest",
-                "timestamp": now,
-            })
+            facts.append(
+                {
+                    "content": line[2:].strip()[:200],
+                    "category": "blocked_pattern",
+                    "subject": "evolution_digest",
+                    "timestamp": now,
+                }
+            )
     return facts[:10]
 
 

@@ -18,16 +18,18 @@ MemoryLoader = Callable[[uuid.UUID], str]
 
 # Valid memory categories — extended for unified evolution schema (P1.2).
 # Core 4 (Claude Code aligned) + evolution types + general default.
-MEMORY_CATEGORIES = frozenset({
-    "user",            # preferences, role, knowledge, working style
-    "feedback",        # corrections, confirmations, behavioral guidance
-    "project",         # goals, deadlines, decisions, status updates
-    "reference",       # pointers to external systems, URLs, tool names
-    "general",         # anything else
-    "constraint",      # hard rules agent must follow
-    "strategy",        # successful approaches worth reusing
-    "blocked_pattern", # approaches proven to fail — do not retry
-})
+MEMORY_CATEGORIES = frozenset(
+    {
+        "user",  # preferences, role, knowledge, working style
+        "feedback",  # corrections, confirmations, behavioral guidance
+        "project",  # goals, deadlines, decisions, status updates
+        "reference",  # pointers to external systems, URLs, tool names
+        "general",  # anything else
+        "constraint",  # hard rules agent must follow
+        "strategy",  # successful approaches worth reusing
+        "blocked_pattern",  # approaches proven to fail — do not retry
+    }
+)
 
 
 class PersistentMemoryStore:
@@ -55,6 +57,7 @@ class PersistentMemoryStore:
                 category = payload.pop("category", "general")
                 if category not in MEMORY_CATEGORIES:
                     category = "general"
+                importance = float(payload.pop("importance", 0.5))
                 rows.append(
                     (
                         index,
@@ -63,12 +66,13 @@ class PersistentMemoryStore:
                         str(timestamp) if timestamp else None,
                         json.dumps(payload, ensure_ascii=False) if payload else None,
                         category,
+                        importance,
                     )
                 )
             conn.executemany(
                 """
-                INSERT INTO semantic_facts(position, content, subject, timestamp, metadata_json, category)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO semantic_facts(position, content, subject, timestamp, metadata_json, category, importance)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 rows,
             )
@@ -87,7 +91,7 @@ class PersistentMemoryStore:
             self._ensure_schema(conn)
             self._import_legacy_json_if_needed(agent_id, conn)
             query = (
-                "SELECT content, subject, timestamp, metadata_json, category FROM semantic_facts "
+                "SELECT content, subject, timestamp, metadata_json, category, importance FROM semantic_facts "
                 "ORDER BY position ASC"
             )
             params: tuple[object, ...] = ()
@@ -100,7 +104,8 @@ class PersistentMemoryStore:
         for row in rows:
             content, subject, timestamp, metadata_json = row[0], row[1], row[2], row[3]
             category = row[4] if len(row) > 4 else "general"
-            fact: dict = {"content": content, "category": category or "general"}
+            importance = row[5] if len(row) > 5 else 0.5
+            fact: dict = {"content": content, "category": category or "general", "importance": importance}
             if subject:
                 fact["subject"] = subject
             if timestamp:
@@ -168,6 +173,7 @@ class PersistentMemoryStore:
             corrupted = db_path.with_suffix(".sqlite3.corrupted")
             try:
                 import shutil
+
                 shutil.move(str(db_path), str(corrupted))
                 logger.info("[MemoryStore] Corrupted DB backed up to %s", corrupted)
             except OSError as mv_err:
@@ -189,7 +195,7 @@ class PersistentMemoryStore:
             try:
                 rows = conn.execute(
                     """
-                    SELECT sf.content, sf.subject, sf.timestamp, sf.metadata_json, sf.category
+                    SELECT sf.content, sf.subject, sf.timestamp, sf.metadata_json, sf.category, sf.importance
                     FROM semantic_facts_fts fts
                     JOIN semantic_facts sf ON sf.rowid = fts.rowid
                     WHERE fts MATCH ?
@@ -204,7 +210,7 @@ class PersistentMemoryStore:
                 like_pattern = f"%{query}%"
                 rows = conn.execute(
                     """
-                    SELECT content, subject, timestamp, metadata_json, category
+                    SELECT content, subject, timestamp, metadata_json, category, importance
                     FROM semantic_facts
                     WHERE content LIKE ? OR subject LIKE ?
                     ORDER BY position DESC
@@ -217,7 +223,8 @@ class PersistentMemoryStore:
         for row in rows:
             content, subject, timestamp, metadata_json = row[0], row[1], row[2], row[3]
             category = row[4] if len(row) > 4 else "general"
-            fact: dict = {"content": content, "category": category or "general"}
+            importance = row[5] if len(row) > 5 else 0.5
+            fact: dict = {"content": content, "category": category or "general", "importance": importance}
             if subject:
                 fact["subject"] = subject
             if timestamp:
@@ -241,19 +248,20 @@ class PersistentMemoryStore:
                 subject TEXT,
                 timestamp TEXT,
                 metadata_json TEXT,
-                category TEXT DEFAULT 'general'
+                category TEXT DEFAULT 'general',
+                importance REAL DEFAULT 0.5
             )
             """
         )
-        # Migrate existing DBs: add category column if missing
+        # Migrate existing DBs: add missing columns
         cols = {row[1] for row in conn.execute("PRAGMA table_info(semantic_facts)").fetchall()}
         if "category" not in cols:
             conn.execute("ALTER TABLE semantic_facts ADD COLUMN category TEXT DEFAULT 'general'")
+        if "importance" not in cols:
+            conn.execute("ALTER TABLE semantic_facts ADD COLUMN importance REAL DEFAULT 0.5")
         # Standalone FTS5 table — kept in sync manually via _rebuild_fts()
         try:
-            conn.execute(
-                "CREATE VIRTUAL TABLE IF NOT EXISTS semantic_facts_fts USING fts5(content, subject)"
-            )
+            conn.execute("CREATE VIRTUAL TABLE IF NOT EXISTS semantic_facts_fts USING fts5(content, subject)")
         except sqlite3.OperationalError:
             logger.warning("[MemoryStore] FTS5 not available on this SQLite build, falling back to LIKE search")
 
@@ -325,6 +333,7 @@ class PersistentMemoryStore:
         # Atomic write: write to temp file then rename to prevent corruption on crash
         import os
         import tempfile
+
         tmp_fd, tmp_path = tempfile.mkstemp(dir=str(memory_file.parent), suffix=".tmp")
         fd_closed = False
         try:
