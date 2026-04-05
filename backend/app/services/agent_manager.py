@@ -46,18 +46,17 @@ def _render_agent_soul_from_blueprint(
     boundaries: str = "",
     blueprint: dict | None = None,
 ) -> str:
-    """Render a richer soul contract from blueprint-like inputs."""
+    """Render soul.md — the agent's durable identity contract.
+
+    Soul is the top of the 4-layer memory pyramid (T0→T2→T3→soul).
+    Only permanent identity belongs here. Operational details (tools,
+    focus, triggers, capabilities) go to focus.md or prompt sections.
+    """
     blueprint = blueprint or {}
     personality_lines = _lines_from_text(personality)
     boundary_lines = _lines_from_text(boundaries)
-    focus_lines = _lines_from_text(str(blueprint.get("focus_content", "")))
-    heartbeat_lines = _lines_from_text(str(blueprint.get("heartbeat_topics", "")))
     primary_users = [str(item) for item in blueprint.get("primary_users", []) if str(item).strip()]
     core_outputs = [str(item) for item in blueprint.get("core_outputs", []) if str(item).strip()]
-    trigger_names = [str(item.get("name", "")).strip() for item in blueprint.get("triggers", []) if isinstance(item, dict)]
-    permission_scope = str(blueprint.get("permission_scope", "company") or "company").strip() or "company"
-    skill_names = [str(item) for item in blueprint.get("skill_names", []) if str(item).strip()]
-    mcp_server_ids = [str(item) for item in blueprint.get("mcp_server_ids", []) if str(item).strip()]
 
     mission = role_description.strip() or "执行明确业务任务并持续维护高质量工作产出"
     operating_style = personality_lines or [
@@ -65,88 +64,56 @@ def _render_agent_soul_from_blueprint(
         "State assumptions and risks explicitly when information is incomplete.",
         "Keep updates concise and action-oriented.",
     ]
-    tool_preferences = [
-        "Start with builtin tools, workspace context, and installed default skills.",
-        "Use extra skills only when they clearly match the task.",
-        "Escalate to MCP or marketplace installs only when builtin paths are insufficient.",
-    ]
-    if skill_names:
-        tool_preferences.append(f"Installed extra platform skills: {', '.join(skill_names)}.")
-    if mcp_server_ids:
-        tool_preferences.append(f"Requested MCP extensions: {', '.join(mcp_server_ids)}.")
 
     parts = [
         f"# Soul — {agent_name}",
         "",
-        "## Identity & Mission",
+        "## Identity",
         f"- **Name**: {agent_name}",
         f"- **Role**: {mission}",
         f"- **Creator**: {creator_name}",
         f"- **Created**: {created_at}",
         "",
-        "## What Good Looks Like",
-        _markdown_bullets([
-            f"Produce outputs that directly support this mission: {mission}.",
-            "Keep artifacts, findings, and next actions explicit enough for fast review.",
-            "Do not present half-configured capabilities as ready-to-use.",
-        ]),
-        "",
-        "## Primary Users & Stakeholders",
+        "## Who I Serve",
         _markdown_bullets(
             primary_users,
-            fallback=["The creator and their immediate team are the default primary users."],
+            fallback=["The creator and their immediate team."],
         ),
         "",
         "## Core Outputs",
         _markdown_bullets(
             core_outputs,
-            fallback=["Produce clear, reviewable artifacts tied to the mission."],
+            fallback=["Clear, reviewable artifacts tied to the mission."],
         ),
         "",
         "## Operating Style",
         _markdown_bullets(operating_style),
         "",
-        "## Decision Rules",
+        "## Quality Standard",
         _markdown_bullets([
-            "Prefer builtin tools and installed skills before requesting new extensions.",
-            "If an external install is required, explain why the builtin path is insufficient.",
-            "When blocked, state the blocker, impact, and next best action instead of improvising.",
+            f"Every output directly supports the mission: {mission}.",
+            "Artifacts, findings, and next actions are explicit enough for fast review.",
+            "Never present half-configured capabilities as ready-to-use.",
         ]),
         "",
-        "## Tool Preferences",
-        _markdown_bullets(tool_preferences),
-        "",
-        "## Operating Cadence",
-        _markdown_bullets(
-            [
-                f"Usage scope: {'team-wide' if permission_scope == 'company' else 'creator-only'} access by default.",
-                *( [f"Planned trigger workflows: {', '.join(trigger_names)}."] if trigger_names else [] ),
-                "Review setup debt before declaring recurring workflows ready.",
-            ],
-        ),
-        "",
-        "## Communication Contract",
-        _markdown_bullets([
-            "Summaries should be concise, concrete, and traceable to artifacts.",
-            "Highlight warnings, missing setup, and follow-up actions explicitly.",
-            "Do not claim success until the current environment has validated the path.",
-        ]),
-        "",
-        "## Boundaries & Red Lines",
+        "## Boundaries",
         _markdown_bullets(
             boundary_lines,
             fallback=[
                 "Do not fabricate sources, facts, or completion status.",
-                "Flag sensitive or external side effects before proceeding when approval is required.",
-                "Treat unavailable integrations as blocked until verified.",
+                "Flag sensitive or external side effects before proceeding.",
+                "When blocked, state the blocker and next best action — do not improvise.",
             ],
         ),
         "",
-        "## Early Focus",
-        _markdown_bullets(
-            focus_lines + heartbeat_lines,
-            fallback=["Review focus.md, verify installed capabilities, and deliver the first visible win."],
-        ),
+        "## How I Learn",
+        "This agent has a 4-layer memory system that runs automatically:",
+        "- **Conversations** are extracted into learnings after each response",
+        "- **Heartbeat** periodically curates learnings into durable memory",
+        "- **Dream** consolidates memory and promotes key insights to this soul",
+        "- User corrections and confirmed patterns are the highest-value signals",
+        "",
+        "_Operational details (current focus, tools, triggers) are in focus.md._",
     ]
     return "\n".join(parts).rstrip() + "\n"
 
@@ -154,61 +121,65 @@ def _render_agent_soul_from_blueprint(
 def _render_focus_from_blueprint(
     *,
     focus_content: str = "",
-    heartbeat_topics: str = "",
-    primary_users: list[str] | None = None,
-    core_outputs: list[str] | None = None,
     ready_now: list[str] | None = None,
     manual_steps: list[str] | None = None,
     triggers: list[dict] | None = None,
+    skill_names: list[str] | None = None,
+    mcp_server_ids: list[str] | None = None,
+    permission_scope: str = "company",
 ) -> str:
-    """Render onboarding focus.md from structured creation inputs."""
+    """Render focus.md — the agent's current operational priorities.
+
+    Focus is volatile: updated by the agent and heartbeat curation.
+    Contains everything that changes: tasks, capabilities, triggers.
+    """
     focus_lines = _lines_from_text(focus_content)
-    heartbeat_lines = _lines_from_text(heartbeat_topics)
     pending_steps = manual_steps or []
     trigger_lines = [
         str(item.get("name", "")).strip()
         for item in (triggers or [])
         if isinstance(item, dict) and str(item.get("name", "")).strip()
     ]
+    tool_notes: list[str] = [
+        "Start with builtin tools and installed default skills.",
+        "Use extra skills only when they clearly match the task.",
+    ]
+    if skill_names:
+        tool_notes.append(f"Installed extra platform skills: {', '.join(skill_names)}.")
+    if mcp_server_ids:
+        tool_notes.append(f"Requested MCP extensions: {', '.join(mcp_server_ids)}.")
+
     parts = [
         "# Focus",
         "",
-        "## Initial Mission",
+        "## Current Mission",
         (focus_lines[0] if focus_lines else "Understand the mission, verify capabilities, and deliver a first visible outcome."),
-        "",
-        "## Who This Agent Serves",
-        _markdown_bullets(primary_users or ["The creator and immediate collaborators."]),
-        "",
-        "## Expected Outputs",
-        _markdown_bullets(core_outputs or ["One concrete, reviewable deliverable tied to the mission."]),
         "",
         "## First 3 Tasks",
         _markdown_bullets(
             focus_lines[:3],
             fallback=[
-                "Read soul.md and confirm the mission and decision rules.",
-                "Verify the currently available capabilities end-to-end.",
-                "Produce one concrete deliverable that proves the agent is operational.",
+                "Read soul.md and confirm identity and boundaries.",
+                "Verify currently available capabilities end-to-end.",
+                "Produce one concrete deliverable that proves operational readiness.",
             ],
         ),
         "",
-        "## Required Capabilities Already Installed",
+        "## Capabilities",
+        f"- Access: {'team-wide' if permission_scope == 'company' else 'creator-only'}",
         _markdown_bullets(ready_now or ["builtin tools + 14 default skills"]),
         "",
-        "## Capabilities Still Needing Human Setup",
-        (_markdown_bullets(pending_steps) if pending_steps else "- None currently."),
+        "## Setup Debt",
+        (_markdown_bullets(pending_steps) if pending_steps else "- None — all capabilities ready."),
         "",
-        "## Planned Trigger Work",
-        _markdown_bullets(trigger_lines, fallback=["No recurring trigger is active yet."]),
+        "## Active Triggers",
+        _markdown_bullets(trigger_lines, fallback=["No recurring triggers configured yet."]),
         "",
-        "## Heartbeat Exploration Topics",
-        _markdown_bullets(
-            heartbeat_lines,
-            fallback=["Review recent work, refine priorities, and surface the next best opportunity."],
-        ),
+        "## Tool Routing",
+        _markdown_bullets(tool_notes),
         "",
-        "## First Success Check",
-        "- Confirm the first task can be completed end-to-end using currently available capabilities.",
+        "## Success Check",
+        "- First task can be completed end-to-end using currently available capabilities.",
     ]
     return "\n".join(parts).rstrip() + "\n"
 
@@ -330,12 +301,12 @@ class AgentManager:
             focus_path.write_text(
                 _render_focus_from_blueprint(
                     focus_content=str(blueprint.get("focus_content", "")),
-                    heartbeat_topics=str(blueprint.get("heartbeat_topics", "")),
-                    primary_users=[str(item) for item in blueprint.get("primary_users", []) if str(item).strip()],
-                    core_outputs=[str(item) for item in blueprint.get("core_outputs", []) if str(item).strip()],
                     ready_now=[str(item) for item in blueprint.get("ready_now", []) if str(item).strip()],
                     manual_steps=[str(item) for item in blueprint.get("manual_steps", []) if str(item).strip()],
                     triggers=[item for item in blueprint.get("triggers", []) if isinstance(item, dict)],
+                    skill_names=[str(item) for item in blueprint.get("skill_names", []) if str(item).strip()],
+                    mcp_server_ids=[str(item) for item in blueprint.get("mcp_server_ids", []) if str(item).strip()],
+                    permission_scope=str(blueprint.get("permission_scope", "company") or "company"),
                 ),
                 encoding="utf-8",
             )
