@@ -330,9 +330,9 @@
     },
     "mind": {
       "soulDesc": "Core identity, personality, and behavior boundaries — who this employee is.",
-      "memoryDesc": "What this employee has learned from past conversations and experiences.",
-      "heartbeatDesc": "Instructions for periodic self-checks. Your employee reads this file on each routine check.",
-      "heartbeatTitle": "Heartbeat"
+      "memoryDesc": "Long-term knowledge curated from conversations. Feedback, strategies, blocked patterns, and project knowledge.",
+      "evolutionTitle": "Evolution",
+      "evolutionDesc": "Curation history, performance scorecard, and blocked approaches."
     },
 
     "skills": {

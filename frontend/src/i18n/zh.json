@@ -329,9 +329,9 @@
     },
     "mind": {
       "soulDesc": "核心身份、人格和行为边界 — 定义这位员工是谁。",
-      "memoryDesc": "从过去对话和经验中积累的学习记忆。",
-      "heartbeatDesc": "定期自检的指令。员工在每次例行检查时读取此文件。",
-      "heartbeatTitle": "Heartbeat"
+      "memoryDesc": "从对话中蒸馏的长期知识 — 用户反馈、策略、已阻止的方法和项目知识。",
+      "evolutionTitle": "进化",
+      "evolutionDesc": "蒸馏历史、绩效记分卡和已阻止的方法。"
     },
 
     "skills": {

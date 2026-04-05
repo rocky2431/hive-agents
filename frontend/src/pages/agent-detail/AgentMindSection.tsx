@@ -33,17 +33,17 @@ export default function AgentMindSection({ agentId, canEdit }: AgentMindSectionP
       <div>
         <h3 style={{ marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>🧠 {t('agent.memory.title')}</h3>
         <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
-          {t('agent.mind.memoryDesc', 'Persistent memory accumulated through conversations and experiences.')}
+          {t('agent.mind.memoryDesc', 'Long-term knowledge curated from conversations. Feedback, strategies, blocked patterns, and project knowledge.')}
         </p>
-        <FileBrowser api={adapter} rootPath="memory" readOnly features={{}} />
+        <FileBrowser api={adapter} rootPath="memory" features={{ edit: canEdit }} />
       </div>
 
       <div>
-        <h3 style={{ marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>💓 {t('agent.mind.heartbeatTitle', 'Heartbeat')}</h3>
+        <h3 style={{ marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>📓 {t('agent.mind.evolutionTitle', 'Evolution')}</h3>
         <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
-          {t('agent.mind.heartbeatDesc', 'Instructions for periodic awareness checks. The agent reads this file during each heartbeat.')}
+          {t('agent.mind.evolutionDesc', 'Curation history, performance scorecard, and blocked approaches.')}
         </p>
-        <FileBrowser api={adapter} singleFile="HEARTBEAT.md" title="" features={{ edit: canEdit }} />
+        <FileBrowser api={adapter} rootPath="evolution" readOnly features={{}} />
       </div>
     </div>
   );
