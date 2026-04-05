@@ -1105,6 +1105,27 @@ class AgentKernel:
                                 )
                         if request.agent_id and accumulated_tokens > 0:
                             await _maybe_await(self._deps.record_token_usage(request.agent_id, accumulated_tokens))
+
+                        # ── RESPONSE_COMPLETE hook: fire-and-forget extraction trigger ──
+                        _session_source = request.session_context.source if request.session_context else "runtime"
+                        if _session_source != "heartbeat":
+                            try:
+                                from app.runtime.hooks import HookEvent, emit_hook
+
+                                asyncio.ensure_future(emit_hook(
+                                    HookEvent.RESPONSE_COMPLETE,
+                                    agent_id=request.agent_id,
+                                    session_id=request.memory_session_id,
+                                    messages=_llm_messages_to_dicts(api_messages[1:]),
+                                    source=_session_source,
+                                    metadata={
+                                        "last_response": final_content[:2000] if final_content else "",
+                                        "turn_count": round_i + 1,
+                                    },
+                                ))
+                            except Exception as _hook_err:
+                                logger.debug("[Kernel] RESPONSE_COMPLETE hook failed (non-fatal): %s", _hook_err)
+
                         return InvocationResult(
                             content=final_content,
                             tokens_used=accumulated_tokens,
@@ -1436,6 +1457,20 @@ class AgentKernel:
                         # because compress_threshold is relative to context_limit which
                         # already reserves space for the prompt via compute_history_limit.
                         conv_dicts = _llm_messages_to_dicts(api_messages[1:])
+
+                        # ── PRE_COMPACTION hook: extract before compression ──
+                        from app.runtime.hooks import HookEvent as _HE, emit_hook as _emit
+
+                        try:
+                            await _emit(
+                                _HE.PRE_COMPACTION,
+                                agent_id=request.agent_id,
+                                session_id=request.memory_session_id,
+                                messages=conv_dicts,
+                                metadata={"trigger": "auto", "round": round_i + 1},
+                            )
+                        except Exception as _pre_err:
+                            logger.debug("[Kernel] PRE_COMPACTION hook failed (non-fatal): %s", _pre_err)
                         compressed = await _maybe_await(
                             self._deps.maybe_compress_messages(
                                 conv_dicts,
@@ -1481,6 +1516,23 @@ class AgentKernel:
                                     "restored": bool(_restored),
                                 },
                             )
+
+                            # ── POST_COMPACTION hook: summary available ──
+                            try:
+                                _compact_summary = compressed[0].get("content", "") if compressed else ""
+                                asyncio.ensure_future(_emit(
+                                    _HE.POST_COMPACTION,
+                                    agent_id=request.agent_id,
+                                    session_id=request.memory_session_id,
+                                    metadata={
+                                        "trigger": "auto",
+                                        "summary": _compact_summary[:3000],
+                                        "before_msgs": len(conv_dicts) + 1,
+                                        "after_msgs": len(api_messages),
+                                    },
+                                ))
+                            except Exception as _post_err:
+                                logger.debug("[Kernel] POST_COMPACTION hook failed (non-fatal): %s", _post_err)
                             # Persist compacted state so recovery doesn't lose progress
                             await self._persist_before_exit(
                                 request, runtime_config,

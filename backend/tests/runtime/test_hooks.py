@@ -91,7 +91,7 @@ class TestHookRegistry:
 
     @pytest.mark.asyncio
     async def test_no_handlers_returns_none(self, registry) -> None:
-        result = await registry.emit(HookContext(event=HookEvent.SESSION_END))
+        result = await registry.emit(HookContext(event=HookEvent.SESSION_CLOSE))
         assert result is None
 
     def test_unregister_removes_handler(self, registry) -> None:
@@ -155,6 +155,79 @@ class TestHookContext:
 
     def test_metadata_default_factory(self) -> None:
         ctx1 = HookContext(event=HookEvent.SESSION_START)
-        ctx2 = HookContext(event=HookEvent.SESSION_END)
+        ctx2 = HookContext(event=HookEvent.SESSION_CLOSE)
         ctx1.metadata["key"] = "val"
         assert "key" not in ctx2.metadata
+
+    def test_messages_and_source_fields(self) -> None:
+        msgs = [{"role": "user", "content": "hello"}]
+        ctx = HookContext(
+            event=HookEvent.RESPONSE_COMPLETE,
+            agent_id="test-agent",
+            messages=msgs,
+            source="websocket",
+        )
+        assert ctx.messages == msgs
+        assert ctx.source == "websocket"
+
+    def test_messages_defaults_to_none(self) -> None:
+        ctx = HookContext(event=HookEvent.SESSION_START)
+        assert ctx.messages is None
+        assert ctx.source is None
+
+
+class TestHookEvents:
+    """Verify all 16 hook events exist and registry initializes them."""
+
+    def test_all_15_events_defined(self) -> None:
+        events = list(HookEvent)
+        assert len(events) == 15
+
+    def test_new_events_exist(self) -> None:
+        assert HookEvent.RESPONSE_COMPLETE == "response_complete"
+        assert HookEvent.SESSION_IDLE == "session_idle"
+        assert HookEvent.SESSION_CLOSE == "session_close"
+        assert HookEvent.TRIGGER_END == "trigger_end"
+        assert HookEvent.HEARTBEAT_TICK_END == "heartbeat_tick_end"
+        assert HookEvent.DREAM_END == "dream_end"
+
+    def test_old_session_end_removed(self) -> None:
+        event_values = [e.value for e in HookEvent]
+        assert "session_end" not in event_values
+
+    def test_registry_initializes_all_events(self) -> None:
+        reg = HookRegistry()
+        for event in HookEvent:
+            assert reg.handler_count(event) == 0
+        reg.clear()
+
+    @pytest.mark.asyncio
+    async def test_response_complete_fires(self) -> None:
+        reg = HookRegistry()
+        calls = []
+        reg.register(HookEvent.RESPONSE_COMPLETE, lambda ctx: calls.append(ctx.source))
+        await reg.emit(HookContext(
+            event=HookEvent.RESPONSE_COMPLETE,
+            messages=[{"role": "assistant", "content": "hi"}],
+            source="websocket",
+        ))
+        assert calls == ["websocket"]
+        reg.clear()
+
+    @pytest.mark.asyncio
+    async def test_session_idle_fires(self) -> None:
+        reg = HookRegistry()
+        calls = []
+        reg.register(HookEvent.SESSION_IDLE, lambda ctx: calls.append("idle"))
+        await reg.emit(HookContext(event=HookEvent.SESSION_IDLE, messages=[]))
+        assert calls == ["idle"]
+        reg.clear()
+
+    @pytest.mark.asyncio
+    async def test_dream_end_fires(self) -> None:
+        reg = HookRegistry()
+        calls = []
+        reg.register(HookEvent.DREAM_END, lambda ctx: calls.append(ctx.agent_id))
+        await reg.emit(HookContext(event=HookEvent.DREAM_END, agent_id="agent-1"))
+        assert calls == ["agent-1"]
+        reg.clear()

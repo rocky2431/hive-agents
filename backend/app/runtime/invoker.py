@@ -637,6 +637,24 @@ async def invoke_agent(request: AgentInvocationRequest) -> AgentInvocationResult
         execution_mode=request.execution_mode,
     )
 
+    # ── SESSION_START hook ──
+    try:
+        from app.runtime.hooks import HookEvent, emit_hook
+
+        _session_source = request.session_context.source if request.session_context else "runtime"
+        await emit_hook(
+            HookEvent.SESSION_START,
+            agent_id=request.agent_id,
+            session_id=request.memory_session_id,
+            source=_session_source,
+            metadata={
+                "model": getattr(request.model, "name", str(request.model)) if request.model else None,
+                "execution_mode": request.execution_mode,
+            },
+        )
+    except Exception as _start_err:
+        logging.getLogger(__name__).debug("[Invoker] SESSION_START hook failed (non-fatal): %s", _start_err)
+
     result = await get_agent_kernel().handle(kernel_request)
     return AgentInvocationResult(
         content=result.content,

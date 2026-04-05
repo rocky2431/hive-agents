@@ -428,12 +428,27 @@ async def websocket_chat(
                 data = await _aio_idle.wait_for(websocket.receive_json(), timeout=_wait_timeout)
             except _aio_idle.TimeoutError:
                 if not _idle_dreamed and _DREAM_IDLE_SECONDS > 0 and len(conversation) > 1:
-                    # Phase 1: Idle dream — extract memories while user is away
+                    # Phase 1: SESSION_IDLE — extract memories while user is away
                     _idle_dreamed = True
-                    logger.info("[WS] Idle dream triggered for %s (session %s)", agent_name, conv_id)
+                    logger.info("[WS] SESSION_IDLE triggered for %s (session %s)", agent_name, conv_id)
                     try:
                         await websocket.send_json({"type": "dreaming", "status": "started"})
+                        from app.runtime.hooks import HookEvent, emit_hook
+
+                        await _aio_idle.wait_for(
+                            emit_hook(
+                                HookEvent.SESSION_IDLE,
+                                agent_id=agent_id,
+                                session_id=conv_id,
+                                messages=conversation,
+                                source="websocket",
+                                metadata={"idle_seconds": _DREAM_IDLE_SECONDS},
+                            ),
+                            timeout=15.0,
+                        )
+                        # Backward compat: still call persist_runtime_memory for existing memory path
                         from app.services.memory_service import persist_runtime_memory
+
                         if agent.tenant_id:
                             await _aio_idle.wait_for(
                                 persist_runtime_memory(
@@ -445,17 +460,30 @@ async def websocket_chat(
                                 timeout=15.0,
                             )
                         await websocket.send_json({"type": "dreaming", "status": "completed"})
-                        logger.info("[WS] Idle dream completed for %s", agent_name)
+                        logger.info("[WS] SESSION_IDLE completed for %s", agent_name)
                     except Exception as _dream_err:
-                        logger.debug("[WS] Idle dream failed (non-fatal): %s", _dream_err)
+                        logger.debug("[WS] SESSION_IDLE failed (non-fatal): %s", _dream_err)
                         try:
                             await websocket.send_json({"type": "dreaming", "status": "completed"})
                         except Exception as _ws_err:
                             logger.debug("[WS] Failed to send dream completion event: %s", _ws_err)
                     continue  # Back to waiting for user messages
                 else:
-                    # Phase 2: Full idle timeout — close connection
-                    logger.info(f"[WS] Idle timeout ({_idle_timeout}s) for {agent_name}, closing")
+                    # Phase 2: SESSION_CLOSE — idle timeout, close connection
+                    logger.info(f"[WS] SESSION_CLOSE (idle timeout {_idle_timeout}s) for {agent_name}")
+                    try:
+                        from app.runtime.hooks import HookEvent, emit_hook
+
+                        await emit_hook(
+                            HookEvent.SESSION_CLOSE,
+                            agent_id=agent_id,
+                            session_id=conv_id,
+                            messages=conversation,
+                            source="websocket",
+                            metadata={"reason": "idle_timeout"},
+                        )
+                    except Exception as _close_err:
+                        logger.debug("[WS] SESSION_CLOSE hook failed (non-fatal): %s", _close_err)
                     await websocket.send_json({"type": "info", "content": "Connection closed due to inactivity. Reconnect to continue."})
                     await websocket.close(code=1000)
                     return
@@ -810,6 +838,20 @@ async def websocket_chat(
 
     except WebSocketDisconnect:
         logger.info(f"[WS] Client disconnected: {agent_name}")
+        # SESSION_CLOSE hook: drain pending extractions on disconnect
+        try:
+            from app.runtime.hooks import HookEvent, emit_hook
+
+            await emit_hook(
+                HookEvent.SESSION_CLOSE,
+                agent_id=agent_id,
+                session_id=conv_id,
+                messages=conversation,
+                source="websocket",
+                metadata={"reason": "ws_disconnect"},
+            )
+        except Exception as _close_err:
+            logger.debug("[WS] SESSION_CLOSE hook on disconnect failed (non-fatal): %s", _close_err)
         await manager.disconnect(agent_id_str, websocket)
     except Exception as e:
         logger.error(f"[WS] Error in message loop: {type(e).__name__}: {e}")

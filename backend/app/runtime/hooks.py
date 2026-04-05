@@ -19,16 +19,58 @@ logger = logging.getLogger(__name__)
 
 
 class HookEvent(StrEnum):
-    """Core runtime lifecycle events."""
+    """Runtime lifecycle events — 16 events for memory system + tool governance.
+
+    Tool lifecycle (3, already wired):
+        PRE_TOOL_USE, POST_TOOL_USE, POST_TOOL_FAILURE
+
+    Session lifecycle (4, replaces old SESSION_END):
+        SESSION_START      — invoke begins, frozen prompt assembled
+        RESPONSE_COMPLETE  — each agent response, main extraction trigger (CC Stop hook)
+        SESSION_IDLE       — idle timeout, fallback extraction + T0 write
+        SESSION_CLOSE      — WebSocket disconnect / new session / invoke return, drain
+
+    Context compression (2):
+        PRE_COMPACTION     — before LLM summarize, extract to preserve context
+        POST_COMPACTION    — after summarize, compact_summary available
+
+    Delegation (2):
+        DELEGATION_START, DELEGATION_END
+
+    Hive-specific (3):
+        TRIGGER_END        — trigger execution complete
+        HEARTBEAT_TICK_END — heartbeat tick complete
+        DREAM_END          — dream consolidation complete
+
+    Notification (1):
+        MEMORY_EXTRACTED   — extraction finished (debug/monitoring)
+    """
+
+    # ── Tool lifecycle (wired in engine.py) ──
     PRE_TOOL_USE = "pre_tool_use"
     POST_TOOL_USE = "post_tool_use"
     POST_TOOL_FAILURE = "post_tool_failure"
+
+    # ── Session lifecycle ──
     SESSION_START = "session_start"
-    SESSION_END = "session_end"
+    RESPONSE_COMPLETE = "response_complete"
+    SESSION_IDLE = "session_idle"
+    SESSION_CLOSE = "session_close"
+
+    # ── Context compression ──
     PRE_COMPACTION = "pre_compaction"
     POST_COMPACTION = "post_compaction"
+
+    # ── Delegation ──
     DELEGATION_START = "delegation_start"
     DELEGATION_END = "delegation_end"
+
+    # ── Hive-specific ──
+    TRIGGER_END = "trigger_end"
+    HEARTBEAT_TICK_END = "heartbeat_tick_end"
+    DREAM_END = "dream_end"
+
+    # ── Notification ──
     MEMORY_EXTRACTED = "memory_extracted"
 
 
@@ -43,6 +85,9 @@ class HookContext:
     tool_result: str | None = None
     error: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    # Session lifecycle fields (RESPONSE_COMPLETE, SESSION_IDLE, SESSION_CLOSE)
+    messages: list[dict] | None = None
+    source: str | None = None
 
 
 @dataclass(slots=True)
