@@ -965,6 +965,21 @@ async def _invoke_focus_wake(agent_id: uuid.UUID, agent_dir: Path):
             ))
             await db.commit()
 
+        # Emit SESSION_CLOSE → T0 log + drain extractor (focus wake bypasses WS layer)
+        try:
+            from app.runtime.hooks import HookEvent, emit_hook
+            await emit_hook(
+                HookEvent.SESSION_CLOSE,
+                agent_id=agent_id,
+                session_id=str(session_id),
+                messages=[{"role": "user", "content": instruction},
+                          {"role": "assistant", "content": reply or "".join(collected_content)}],
+                source="focus_wake",
+                metadata={"reason": "focus_wake_complete"},
+            )
+        except Exception as _hook_err:
+            logger.debug("[FocusWake] SESSION_CLOSE hook failed (non-fatal): %s", _hook_err)
+
         logger.info("[FocusWake] Agent %s completed focus task", agent_id)
 
         # Re-wake if focus.md still has uncompleted tasks
