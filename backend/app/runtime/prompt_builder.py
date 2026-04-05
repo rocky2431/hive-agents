@@ -77,11 +77,22 @@ def build_frozen_prompt_prefix(
 ) -> str:
     """Build the session-stable prompt prefix.
 
-    Contains: agent identity/soul/role, kernel tools catalog,
+    Contains: agent identity/soul/role, § System, § Doing Tasks, § Using Your Tools,
     skill catalog, and session-start memory snapshot.
     These do NOT change within a single session.
     """
-    parts = [agent_context]
+    from app.runtime.prompt_sections import (
+        build_system_section,
+        build_tasks_section,
+        build_tools_section,
+    )
+
+    parts = [
+        agent_context,
+        build_system_section(),
+        build_tasks_section(),
+        build_tools_section(),
+    ]
     if memory_snapshot:
         parts.append(memory_snapshot)
     if skill_catalog:
@@ -115,14 +126,24 @@ def build_dynamic_prompt_suffix(
     retrieval_context: str = "",
     system_prompt_suffix: str = "",
     budget_profile: ContextBudget | None = None,
+    memory_snapshot: str = "",
+    user_name: str = "",
+    channel: str = "",
+    agent_name: str = "",
 ) -> str:
     """Build the per-round dynamic suffix.
 
-    Contains: active capability packs, knowledge retrieval results,
-    compaction hints, and request-specific suffix.
+    Contains: § Memory, active capability packs, knowledge retrieval results,
+    § Environment, and request-specific suffix.
     These CAN change between rounds within the same session.
     """
+    from app.runtime.prompt_sections import build_environment_section, build_memory_section
+
     parts: list[str] = []
+
+    # § Memory (4-layer pyramid + current T3 snapshot)
+    if memory_snapshot:
+        parts.append(build_memory_section(memory_snapshot))
 
     packs_budget = budget_profile.active_packs_budget_chars if budget_profile else _ACTIVE_PACKS_CHAR_BUDGET
     retrieval_budget = budget_profile.retrieval_budget_chars if budget_profile else _RETRIEVAL_CHAR_BUDGET
@@ -142,6 +163,11 @@ def build_dynamic_prompt_suffix(
         for pack_name in budget_profile.task_profile.suggested_pack_names:
             hint_lines.append(f"- {pack_name}")
         parts.append(_trim_block("\n".join(hint_lines), budget_chars=packs_budget))
+
+    # § Environment (user, channel, time)
+    env_section = build_environment_section(user_name=user_name, channel=channel, agent_name=agent_name)
+    if env_section:
+        parts.append(env_section)
 
     if system_prompt_suffix:
         parts.append(system_prompt_suffix)

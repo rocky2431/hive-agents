@@ -52,7 +52,10 @@ async def test_build_system_prompt_uses_static_agent_context_only(monkeypatch):
         current_user_name="Rocky",
     )
 
-    assert prompt == "STATIC_AGENT_CONTEXT\n\nMEMORY_SNAPSHOT"
+    # Frozen prefix now includes System/Tasks/Tools sections after agent context
+    assert "STATIC_AGENT_CONTEXT" in prompt
+    assert "MEMORY_SNAPSHOT" in prompt
+    assert "## System" in prompt
     assert captured["kwargs"]["include_memory_file"] is False
     assert captured["kwargs"]["include_runtime_metadata"] is False
 
@@ -219,8 +222,12 @@ async def test_invoke_agent_composes_system_prompt_once(monkeypatch):
 
     assert result.content == "done"
     system_prompt = fake_client.calls[0]["messages"][0].content
-    # Memory is in frozen prefix; boundary marker; knowledge is in dynamic suffix
-    assert system_prompt == "BASE_PROMPT\n\nMEMORY_CONTEXT\n\n__PROMPT_DYNAMIC_BOUNDARY__\n\nKB_CONTEXT"
+    # Frozen prefix includes agent context + sections + memory; dynamic suffix has knowledge
+    assert "BASE_PROMPT" in system_prompt
+    assert "MEMORY_CONTEXT" in system_prompt
+    assert "## System" in system_prompt
+    assert "__PROMPT_DYNAMIC_BOUNDARY__" in system_prompt
+    assert "KB_CONTEXT" in system_prompt
 
 
 @pytest.mark.asyncio
@@ -584,7 +591,11 @@ async def test_invoke_agent_loads_and_persists_runtime_memory(monkeypatch):
 
     assert result.content == "done"
     assert captured["loaded"] == (agent_id, tenant_id, "session-1")
-    assert fake_client.calls[0]["messages"][0].content == "BASE_PROMPT\n\nRUNTIME_MEMORY\n\nMANUAL_MEMORY"
+    _sys_prompt = fake_client.calls[0]["messages"][0].content
+    assert "BASE_PROMPT" in _sys_prompt
+    assert "RUNTIME_MEMORY" in _sys_prompt
+    assert "MANUAL_MEMORY" in _sys_prompt
+    assert "## System" in _sys_prompt
     assert captured["persisted"] == {
         "agent_id": agent_id,
         "session_id": "session-1",
