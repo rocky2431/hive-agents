@@ -155,9 +155,13 @@ async def ensure_workspace(agent_id: uuid.UUID, tenant_id: str | None = None) ->
         shutil.move(str(ws / "memory.md"), str(ws / "memory" / "memory.md"))
 
     # Pre-create learnings standard files so heartbeat/skills don't waste tool calls on missing files
+    # Uppercase files: legacy heartbeat system. Lowercase files: T2 extractor pipeline.
     for learnings_file, learnings_seed in [
         ("memory/learnings/ERRORS.md", "# Errors\n\nRecord operation failures here for review during heartbeat.\n"),
         ("memory/learnings/LEARNINGS.md", "# Learnings\n\nRecord corrections, insights, and best practices here.\n"),
+        ("memory/learnings/insights.md", "# Insights\n\nUser corrections, preferences, and agent discoveries.\n"),
+        ("memory/learnings/errors.md", "# Errors\n\nExecution failures and blocked approaches.\n"),
+        ("memory/learnings/requests.md", "# Requests\n\nCapability gaps and user wishes.\n"),
     ]:
         lpath = ws / learnings_file
         if not lpath.exists():

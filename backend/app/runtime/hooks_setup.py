@@ -1,31 +1,25 @@
 """Memory system hook handler registration.
 
-Phase 0: logging-only handlers for events not yet upgraded.
+Phase 0: logging-only for SESSION_START, POST_COMPACTION, MEMORY_EXTRACTED.
 Phase 1: T0 raw log writers for SESSION_CLOSE/IDLE, TRIGGER_END,
          DELEGATION_END, HEARTBEAT_TICK_END, DREAM_END.
-Phase 2+: real extraction / curation handlers will replace remaining stubs.
+Phase 2: Extractor for RESPONSE_COMPLETE, PRE_COMPACTION, SESSION_CLOSE drain.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 
 from app.runtime.hooks import HookContext, HookEvent, hook_registry
+from app.services.extract_agent import extract_agent
 from app.services.t0_logger import write_t0_log
 
 logger = logging.getLogger(__name__)
 
 
-# ── Logging-only handlers (Phase 0 baseline, kept for events without T0 writer) ──
-
-
-async def _log_response_complete(ctx: HookContext) -> None:
-    turn = ctx.metadata.get("turn_count", "?")
-    logger.info(
-        "[Hooks] RESPONSE_COMPLETE: agent=%s source=%s turn=%s",
-        ctx.agent_id, ctx.source, turn,
-    )
+# ── Logging-only handlers (Phase 0, kept for events without active handler) ──
 
 
 async def _log_session_start(ctx: HookContext) -> None:
@@ -34,14 +28,10 @@ async def _log_session_start(ctx: HookContext) -> None:
         "[Hooks] SESSION_START: agent=%s source=%s model=%s",
         ctx.agent_id, ctx.source, model,
     )
-
-
-async def _log_pre_compaction(ctx: HookContext) -> None:
-    trigger = ctx.metadata.get("trigger", "?")
-    logger.info(
-        "[Hooks] PRE_COMPACTION: agent=%s trigger=%s msgs=%d",
-        ctx.agent_id, trigger, len(ctx.messages or []),
-    )
+    # Reset extractor cursor on new session
+    agent_id = _parse_agent_id(ctx)
+    if agent_id:
+        extract_agent.reset_cursor(agent_id)
 
 
 async def _log_post_compaction(ctx: HookContext) -> None:
@@ -57,6 +47,49 @@ async def _log_memory_extracted(ctx: HookContext) -> None:
     logger.info("[Hooks] MEMORY_EXTRACTED: agent=%s", ctx.agent_id)
 
 
+# ── Extractor handlers (Phase 2) ──
+
+
+async def _extract_on_response(ctx: HookContext) -> None:
+    """RESPONSE_COMPLETE → fire-and-forget extraction to T2."""
+    agent_id = _parse_agent_id(ctx)
+    if not agent_id:
+        return
+    turn = ctx.metadata.get("turn_count", "?")
+    logger.info("[Hooks] RESPONSE_COMPLETE: agent=%s source=%s turn=%s", ctx.agent_id, ctx.source, turn)
+    # Fire-and-forget: don't block the response
+    tenant_id = ctx.metadata.get("tenant_id")
+    agent_name = ctx.metadata.get("agent_name", "Agent")
+    asyncio.create_task(
+        extract_agent.extract(
+            agent_id=agent_id,
+            messages=ctx.messages,
+            source=ctx.source or "web",
+            tenant_id=uuid.UUID(str(tenant_id)) if tenant_id else None,
+            agent_name=agent_name,
+        )
+    )
+
+
+async def _extract_on_pre_compaction(ctx: HookContext) -> None:
+    """PRE_COMPACTION → synchronous extraction before context is lost."""
+    agent_id = _parse_agent_id(ctx)
+    if not agent_id:
+        return
+    trigger = ctx.metadata.get("trigger", "?")
+    logger.info("[Hooks] PRE_COMPACTION: agent=%s trigger=%s msgs=%d", ctx.agent_id, trigger, len(ctx.messages or []))
+    # Synchronous: must finish before compaction discards messages
+    tenant_id = ctx.metadata.get("tenant_id")
+    agent_name = ctx.metadata.get("agent_name", "Agent")
+    await extract_agent.extract(
+        agent_id=agent_id,
+        messages=ctx.messages,
+        source="compaction",
+        tenant_id=uuid.UUID(str(tenant_id)) if tenant_id else None,
+        agent_name=agent_name,
+    )
+
+
 # ── T0 writers (Phase 1) ──
 
 
@@ -70,12 +103,14 @@ def _parse_agent_id(ctx: HookContext) -> uuid.UUID | None:
 
 
 async def _t0_session_close(ctx: HookContext) -> None:
-    """SESSION_CLOSE → write chat T0 log."""
+    """SESSION_CLOSE → drain extractor + write chat T0 log."""
     agent_id = _parse_agent_id(ctx)
     if not agent_id:
         return
     reason = ctx.metadata.get("reason", "unknown")
     logger.info("[Hooks] SESSION_CLOSE: agent=%s reason=%s msgs=%d", ctx.agent_id, reason, len(ctx.messages or []))
+    # Drain pending extractions before session ends
+    await extract_agent.drain(agent_id, timeout_s=10.0)
     write_t0_log(
         agent_id,
         behavior_type="chat",
@@ -159,17 +194,20 @@ def register_memory_hooks() -> None:
     """Register all memory system hook handlers.
 
     Called from main.py lifespan during startup.
-    Phase 0: logging-only for RESPONSE_COMPLETE, SESSION_START, PRE/POST_COMPACTION, MEMORY_EXTRACTED.
+    Phase 0: logging-only for SESSION_START, POST_COMPACTION, MEMORY_EXTRACTED.
     Phase 1: T0 writers for SESSION_CLOSE/IDLE, TRIGGER_END, DELEGATION_END, HEARTBEAT_TICK_END, DREAM_END.
+    Phase 2: Extractor for RESPONSE_COMPLETE, PRE_COMPACTION; drain on SESSION_CLOSE.
     """
-    # Phase 0: logging-only (no T0 writer needed yet)
-    hook_registry.register(HookEvent.RESPONSE_COMPLETE, _log_response_complete)
+    # Phase 0: logging-only
     hook_registry.register(HookEvent.SESSION_START, _log_session_start)
-    hook_registry.register(HookEvent.PRE_COMPACTION, _log_pre_compaction)
     hook_registry.register(HookEvent.POST_COMPACTION, _log_post_compaction)
     hook_registry.register(HookEvent.MEMORY_EXTRACTED, _log_memory_extracted)
 
-    # Phase 1: T0 raw log writers
+    # Phase 2: Extractor (fire-and-forget on response, sync on compaction)
+    hook_registry.register(HookEvent.RESPONSE_COMPLETE, _extract_on_response)
+    hook_registry.register(HookEvent.PRE_COMPACTION, _extract_on_pre_compaction)
+
+    # Phase 1: T0 raw log writers (SESSION_CLOSE also drains extractor)
     hook_registry.register(HookEvent.SESSION_CLOSE, _t0_session_close)
     hook_registry.register(HookEvent.SESSION_IDLE, _t0_session_idle)
     hook_registry.register(HookEvent.TRIGGER_END, _t0_trigger_end)
@@ -177,4 +215,4 @@ def register_memory_hooks() -> None:
     hook_registry.register(HookEvent.HEARTBEAT_TICK_END, _t0_heartbeat_tick_end)
     hook_registry.register(HookEvent.DREAM_END, _t0_dream_end)
 
-    logger.info("[Hooks] Memory system hooks registered: %d handlers (5 logging + 6 T0)", 11)
+    logger.info("[Hooks] Memory system hooks registered: %d handlers (3 log + 2 extract + 6 T0)", 11)
