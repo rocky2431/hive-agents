@@ -217,21 +217,22 @@ class MemoryRetriever:
         rerank_max_select = retrieval_profile.rerank_max_select if retrieval_profile else _RERANK_MAX_SELECT
 
         items.extend(await self._retrieve_episodic(agent_id, session_id, previous_limit=episodic_limit) or [])
-        semantic_items = self._retrieve_semantic(agent_id, query, limit=semantic_limit) or []
 
-        # P1.6: Optional LLM-based rerank for semantic items
-        if rerank_model_config and query and len(semantic_items) > _RERANK_THRESHOLD:
-            # BP-C fix: preserve original items if rerank returns empty/None
-            _original_semantic = semantic_items[:rerank_max_select]
-            reranked = await _rerank_semantic_items(
-                semantic_items,
-                query,
-                rerank_model_config,
-                max_select=rerank_max_select,
-            )
-            semantic_items = reranked if reranked else _original_semantic
+        # Semantic layer (memory.sqlite3) is demoted to recall-only (FTS5 search index).
+        # T3 MD files are the source of truth for prompt injection (loaded above via _retrieve_t3_direct).
+        # sqlite semantic_facts are still used by the `recall` / `search_memory` tool,
+        # but no longer injected into the prompt to avoid duplicate content with T3 files.
+        # To re-enable: uncomment the block below.
+        #
+        # semantic_items = self._retrieve_semantic(agent_id, query, limit=semantic_limit) or []
+        # if rerank_model_config and query and len(semantic_items) > _RERANK_THRESHOLD:
+        #     _original_semantic = semantic_items[:rerank_max_select]
+        #     reranked = await _rerank_semantic_items(
+        #         semantic_items, query, rerank_model_config, max_select=rerank_max_select,
+        #     )
+        #     semantic_items = reranked if reranked else _original_semantic
+        # items.extend(semantic_items)
 
-        items.extend(semantic_items)
         items.extend(await self._retrieve_external(agent_id, query, tenant_id, limit=external_limit) or [])
         return items
 
