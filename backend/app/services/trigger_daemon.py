@@ -767,10 +767,173 @@ async def _tick():
             logger.warning("[TriggerDaemon] Failed to process agent %s: %s", agent_id, _agent_err)
 
 
+async def _focus_wake_check():
+    """Check for agents with .focus_wake marker and invoke them.
+
+    When focus.md is written with tasks (e.g., during agent creation),
+    a .focus_wake marker file is created. This function picks it up,
+    deletes the marker, and invokes the agent with a focus-driven instruction.
+    """
+    from app.config import get_settings
+
+    agents_dir = Path(get_settings().AGENT_DATA_DIR)
+    if not agents_dir.exists():
+        return
+
+    for agent_dir in agents_dir.iterdir():
+        if not agent_dir.is_dir():
+            continue
+        wake_file = agent_dir / ".focus_wake"
+        if not wake_file.exists():
+            continue
+
+        agent_id_str = agent_dir.name
+        try:
+            agent_id = uuid.UUID(agent_id_str)
+        except ValueError:
+            continue
+
+        # Remove marker first (prevent re-fire on next tick)
+        try:
+            wake_file.unlink()
+        except FileNotFoundError:
+            continue
+
+        # Check dedup — don't wake if recently invoked
+        last = _last_invoke.get(agent_id)
+        if last and (datetime.now(timezone.utc) - last).total_seconds() < DEDUP_WINDOW:
+            logger.debug("[FocusWake] Agent %s invoked recently, skipping", agent_id)
+            continue
+
+        # Read focus.md for context
+        focus_path = agent_dir / "focus.md"
+        focus_snippet = ""
+        if focus_path.exists():
+            try:
+                focus_snippet = focus_path.read_text(encoding="utf-8")[:2000]
+            except Exception as _read_err:
+                logger.debug("[FocusWake] Failed to read focus.md for %s: %s", agent_id, _read_err)
+
+        logger.info("[FocusWake] Waking agent %s — focus.md has tasks", agent_id)
+        asyncio.create_task(_invoke_focus_wake(agent_id))
+
+
+async def _invoke_focus_wake(agent_id: uuid.UUID):
+    """Invoke an agent based on its focus.md tasks. Mirrors trigger invocation pattern."""
+    from app.api.websocket import call_llm
+    from app.kernel.contracts import ExecutionIdentityRef
+    from app.models.llm import LLMModel
+    from app.models.audit import ChatMessage
+    from app.models.chat_session import ChatSession
+    from app.models.participant import Participant
+    from app.core.execution_context import set_agent_bot_identity
+
+    try:
+        async with async_session() as db:
+            result = await db.execute(select(Agent).where(Agent.id == agent_id))
+            agent = result.scalar_one_or_none()
+            if not agent or agent.status in ("expired", "stopped", "error", "archived"):
+                return
+
+            set_agent_bot_identity(agent_id, agent.name, source="focus_wake")
+
+            if not agent.primary_model_id:
+                logger.warning("[FocusWake] Agent %s has no LLM model", agent_id)
+                return
+            result = await db.execute(
+                select(LLMModel).where(LLMModel.id == agent.primary_model_id, LLMModel.tenant_id == agent.tenant_id)
+            )
+            model = result.scalar_one_or_none()
+            if not model:
+                return
+
+            session_id = uuid.uuid4()
+            db.add(ChatSession(
+                id=session_id, agent_id=agent_id,
+                user_id=agent.creator_id,
+                title="Focus Wake",
+                source_channel="focus_wake",
+            ))
+
+            result = await db.execute(
+                select(Participant).where(Participant.type == "agent", Participant.ref_id == agent_id)
+            )
+            agent_participant = result.scalar_one_or_none()
+
+            instruction = (
+                "You just woke up. Read focus.md to understand your current mission and priorities, "
+                "then start working on the highest priority uncompleted task. "
+                "Use your available tools to produce concrete output."
+            )
+            db.add(ChatMessage(
+                agent_id=agent_id, conversation_id=str(session_id),
+                role="user", content=instruction,
+                user_id=agent.creator_id,
+                participant_id=agent_participant.id if agent_participant else None,
+            ))
+            await db.commit()
+            agent_participant_id = agent_participant.id if agent_participant else None
+
+        _last_invoke[agent_id] = datetime.now(timezone.utc)
+
+        collected_content: list[str] = []
+
+        async def on_chunk(text):
+            collected_content.append(text)
+
+        async def on_tool_call(data):
+            try:
+                async with async_session() as _tc_db:
+                    if data["status"] == "done":
+                        _tc_db.add(ChatMessage(
+                            agent_id=agent_id, conversation_id=str(session_id),
+                            role="tool_call",
+                            content=_json.dumps({
+                                "name": data["name"], "args": data.get("args"),
+                                "status": "done", "result": str(data.get("result", ""))[:2000],
+                            }, ensure_ascii=False, default=str),
+                            user_id=agent.creator_id,
+                            participant_id=agent_participant_id,
+                        ))
+                    await _tc_db.commit()
+            except Exception as e:
+                logger.warning("[FocusWake] Failed to persist tool call: %s", e)
+
+        reply = await call_llm(
+            model=model,
+            messages=[{"role": "user", "content": instruction}],
+            agent_name=agent.name,
+            role_description=agent.role_description or "",
+            agent_id=agent_id,
+            user_id=agent.creator_id,
+            on_chunk=on_chunk,
+            on_tool_call=on_tool_call,
+            session_id=str(session_id),
+            execution_identity=ExecutionIdentityRef(
+                identity_type="agent_bot",
+                identity_id=agent_id,
+                label=f"Agent: {agent.name} (focus_wake)",
+            ),
+        )
+
+        async with async_session() as db:
+            db.add(ChatMessage(
+                agent_id=agent_id, conversation_id=str(session_id),
+                role="assistant", content=reply or "".join(collected_content),
+                user_id=agent.creator_id,
+                participant_id=agent_participant_id,
+            ))
+            await db.commit()
+
+        logger.info("[FocusWake] Agent %s completed focus task", agent_id)
+    except Exception as e:
+        logger.warning("[FocusWake] Failed to invoke agent %s: %s", agent_id, e)
+
+
 async def start_trigger_daemon():
     """Start the background trigger daemon loop. Called from FastAPI startup."""
     _load_dedup_state()
-    logger.info("⚡ Trigger Daemon started (15s tick, heartbeat every ~60s)")
+    logger.info("⚡ Trigger Daemon started (15s tick, heartbeat every ~60s, focus wake)")
     _heartbeat_counter = 0
     while True:
         try:
@@ -780,6 +943,12 @@ async def start_trigger_daemon():
             logger.error(f"Trigger Daemon error: {e}")
             import traceback
             traceback.print_exc()
+
+        # Focus wake check — every tick (lightweight file exists check)
+        try:
+            await _focus_wake_check()
+        except Exception as e:
+            logger.warning(f"Focus wake check error: {e}")
 
         # Run heartbeat check every 4th tick (~60 seconds)
         _heartbeat_counter += 1
