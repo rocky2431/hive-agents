@@ -27,7 +27,7 @@ class HookEvent(StrEnum):
     Session lifecycle (4, replaces old SESSION_END):
         SESSION_START      — invoke begins, frozen prompt assembled
         RESPONSE_COMPLETE  — each agent response, main extraction trigger (CC Stop hook)
-        SESSION_IDLE       — idle timeout, fallback extraction + T0 write
+        SESSION_IDLE       — idle timeout, incremental T0 write (cursor-based)
         SESSION_CLOSE      — WebSocket disconnect / new session / invoke return, drain
 
     Context compression (2):

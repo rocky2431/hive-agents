@@ -1,8 +1,9 @@
 """Memory system hook handler registration.
 
 Phase 0: logging-only for SESSION_START, POST_COMPACTION, MEMORY_EXTRACTED.
-Phase 1: T0 raw log writers for SESSION_CLOSE/IDLE, TRIGGER_END,
+Phase 1: T0 cursor-based log writers for SESSION_CLOSE/IDLE, TRIGGER_END,
          DELEGATION_END, HEARTBEAT_TICK_END, DREAM_END.
+         Chat T0 uses cursor to write only new messages — safe across reconnects.
 Phase 2: Extractor for RESPONSE_COMPLETE, PRE_COMPACTION, SESSION_CLOSE drain.
 """
 
@@ -102,34 +103,37 @@ def _parse_agent_id(ctx: HookContext) -> uuid.UUID | None:
         return None
 
 
-_t0_written_sessions: set[str] = set()  # Track sessions that already wrote T0 (prevent duplicates)
+_t0_cursors: dict[str, int] = {}  # "agent_id:session_id" → message index of last T0 write
 
 
 async def _t0_session_close(ctx: HookContext) -> None:
-    """SESSION_CLOSE → drain extractor + write chat T0 log (skip if SESSION_IDLE already wrote)."""
+    """SESSION_CLOSE → drain extractor + write incremental T0 (cursor-based)."""
     agent_id = _parse_agent_id(ctx)
     if not agent_id:
         return
     reason = ctx.metadata.get("reason", "unknown")
-    logger.info("[Hooks] SESSION_CLOSE: agent=%s reason=%s msgs=%d", ctx.agent_id, reason, len(ctx.messages or []))
+    messages = ctx.messages or []
+    logger.info("[Hooks] SESSION_CLOSE: agent=%s reason=%s msgs=%d", ctx.agent_id, reason, len(messages))
     # Drain pending extractions before session ends
     await extract_agent.drain(agent_id, timeout_s=10.0)
-    # Skip T0 write if SESSION_IDLE already wrote for this session
+    # Write only new messages since last T0 cursor
     session_key = f"{agent_id}:{ctx.session_id}"
-    if session_key in _t0_written_sessions:
-        _t0_written_sessions.discard(session_key)
-        logger.debug("[Hooks] SESSION_CLOSE: skipping T0 write (SESSION_IDLE already wrote)")
+    cursor = _t0_cursors.get(session_key, 0)
+    new_messages = messages[cursor:]
+    if not new_messages:
+        logger.debug("[Hooks] SESSION_CLOSE: no new messages since cursor=%d, skipping T0", cursor)
         return
     write_t0_log(
         agent_id,
         behavior_type="chat",
-        messages=ctx.messages or [],
-        metadata={**ctx.metadata, "source": ctx.source or "web"},
+        messages=new_messages,
+        metadata={**ctx.metadata, "source": ctx.source or "web", "cursor_start": cursor},
     )
+    _t0_cursors[session_key] = len(messages)
 
 
 async def _t0_session_idle(ctx: HookContext) -> None:
-    """SESSION_IDLE → write T0 log (session boundary marker).
+    """SESSION_IDLE → write incremental T0 log (cursor-based, no duplication).
 
     Extraction is NOT triggered here — RESPONSE_COMPLETE already extracts
     after every agent response (cursor-based, no duplicates). SESSION_IDLE
@@ -139,16 +143,24 @@ async def _t0_session_idle(ctx: HookContext) -> None:
     agent_id = _parse_agent_id(ctx)
     if not agent_id:
         return
+    messages = ctx.messages or []
     idle_s = ctx.metadata.get("idle_seconds", "?")
-    logger.info("[Hooks] SESSION_IDLE: agent=%s idle=%ss msgs=%d", ctx.agent_id, idle_s, len(ctx.messages or []))
+    # Write only new messages since last T0 cursor
+    session_key = f"{agent_id}:{ctx.session_id}"
+    cursor = _t0_cursors.get(session_key, 0)
+    new_messages = messages[cursor:]
+    if not new_messages:
+        logger.debug("[Hooks] SESSION_IDLE: agent=%s no new messages since cursor=%d", ctx.agent_id, cursor)
+        return
+    logger.info("[Hooks] SESSION_IDLE: agent=%s idle=%ss new_msgs=%d (cursor %d→%d)",
+                ctx.agent_id, idle_s, len(new_messages), cursor, len(messages))
     write_t0_log(
         agent_id,
         behavior_type="chat",
-        messages=ctx.messages or [],
-        metadata={**ctx.metadata, "source": ctx.source or "web"},
+        messages=new_messages,
+        metadata={**ctx.metadata, "source": ctx.source or "web", "cursor_start": cursor},
     )
-    # Mark this session as T0-written so SESSION_CLOSE won't duplicate
-    _t0_written_sessions.add(f"{agent_id}:{ctx.session_id}")
+    _t0_cursors[session_key] = len(messages)
 
 
 async def _t0_trigger_end(ctx: HookContext) -> None:
@@ -216,7 +228,7 @@ def register_memory_hooks() -> None:
 
     Called from main.py lifespan during startup.
     Phase 0: logging-only for SESSION_START, POST_COMPACTION, MEMORY_EXTRACTED.
-    Phase 1: T0 writers for SESSION_CLOSE/IDLE, TRIGGER_END, DELEGATION_END, HEARTBEAT_TICK_END, DREAM_END.
+    Phase 1: T0 cursor-based writers for SESSION_CLOSE/IDLE, TRIGGER_END, DELEGATION_END, HEARTBEAT_TICK_END, DREAM_END.
     Phase 2: Extractor for RESPONSE_COMPLETE, PRE_COMPACTION; drain on SESSION_CLOSE.
     """
     # Phase 0: logging-only
