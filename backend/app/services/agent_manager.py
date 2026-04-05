@@ -125,36 +125,24 @@ def _render_agent_soul_from_blueprint(
 def _render_focus_from_blueprint(
     *,
     focus_content: str = "",
-    manual_steps: list[str] | None = None,
-    triggers: list[dict] | None = None,
     first_tasks: list[str] | None = None,
 ) -> str:
-    """Render focus.md — the agent's current operational priorities.
+    """Render focus.md — the agent's current mission and tasks.
 
-    Focus is volatile: updated by the agent and heartbeat curation.
-    Only contains what the system prompt does NOT provide dynamically:
-    current mission, tasks, setup debt, triggers.
-
-    Capabilities and tool routing are NOT included here — the system
-    prompt injects those dynamically via ToolRuntimeService and
-    SessionContext.active_packs, so they never go stale.
+    Focus is volatile: updated by the agent, triggers, and heartbeat.
+    Only two things: what the mission is, and what to do next.
+    Everything else (capabilities, triggers, setup) lives in DB/system prompt.
     """
     focus_lines = _lines_from_text(focus_content)
-    pending_steps = manual_steps or []
-    trigger_lines = [
-        str(item.get("name", "")).strip()
-        for item in (triggers or [])
-        if isinstance(item, dict) and str(item.get("name", "")).strip()
-    ]
     task_items = first_tasks or focus_lines[:3]
 
     parts = [
         "# Focus",
         "",
-        "## Current Mission",
+        "## Mission",
         (focus_lines[0] if focus_lines else "Understand the mission, verify capabilities, and deliver a first visible outcome."),
         "",
-        "## First 3 Tasks",
+        "## Tasks",
         _markdown_bullets(
             task_items,
             fallback=[
@@ -163,15 +151,6 @@ def _render_focus_from_blueprint(
                 "Produce one concrete deliverable that proves operational readiness.",
             ],
         ),
-        "",
-        "## Setup Debt",
-        (_markdown_bullets(pending_steps) if pending_steps else "- None — all capabilities ready."),
-        "",
-        "## Active Triggers",
-        _markdown_bullets(trigger_lines, fallback=["No recurring triggers configured yet."]),
-        "",
-        "## Success Check",
-        "- First task can be completed end-to-end using currently available capabilities.",
     ]
     return "\n".join(parts).rstrip() + "\n"
 
@@ -296,8 +275,6 @@ class AgentManager:
             focus_path.write_text(
                 _render_focus_from_blueprint(
                     focus_content=str(blueprint.get("focus_content", "")),
-                    manual_steps=[str(item) for item in blueprint.get("manual_steps", []) if str(item).strip()],
-                    triggers=[item for item in blueprint.get("triggers", []) if isinstance(item, dict)],
                     first_tasks=[str(t) for t in blueprint.get("first_tasks", []) if str(t).strip()],
                 ),
                 encoding="utf-8",
