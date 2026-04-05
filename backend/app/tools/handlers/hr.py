@@ -1169,6 +1169,23 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
                     ))
                 await db.flush()
 
+            # Boot trigger — auto-start the first task so the agent doesn't sit idle.
+            # Uses 'once' trigger type that fires at the next daemon tick (~15s).
+            _first_tasks = _refined.get("first_tasks", [])
+            _boot_task = _first_tasks[0] if _first_tasks else str(args.get("focus_content", "")).strip()
+            if _boot_task:
+                from app.models.trigger import AgentTrigger
+                _boot_at = (_dt.now(_tz.utc) + __import__("datetime").timedelta(seconds=30)).isoformat()
+                db.add(AgentTrigger(
+                    agent_id=agent.id,
+                    name="boot",
+                    type="once",
+                    config={"at": _boot_at},
+                    reason=f"Read focus.md to understand your full mission, then start with this first task: {_boot_task}",
+                ))
+                await db.flush()
+                logger.info("[HR] Added boot trigger for agent %s: %s", agent.id, _boot_task[:80])
+
             # Copy default skills + requested skills
             from sqlalchemy.orm import selectinload
 

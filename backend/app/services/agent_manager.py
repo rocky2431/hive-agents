@@ -213,8 +213,11 @@ class AgentManager:
             return
 
         if template_dir.exists():
-            # Copy template
-            shutil.copytree(str(template_dir), str(agent_dir))
+            # Copy template — skip dotfiles (AI tool configs like .claude, .vibe, etc.)
+            shutil.copytree(
+                str(template_dir), str(agent_dir),
+                ignore=shutil.ignore_patterns(".*"),
+            )
             # Ensure required dirs exist even if template was incomplete
             for d in ["memory", "memory/learnings", "skills", "evolution", "workspace"]:
                 (agent_dir / d).mkdir(parents=True, exist_ok=True)
