@@ -256,9 +256,11 @@ async def maybe_compress_messages(
     threshold = compress_threshold if compress_threshold is not None else config.get("compress_threshold", 82) / 100.0
     recent_count = keep_recent if keep_recent is not None else config.get("keep_recent", 10)
 
-    # Resolve context window
+    # Resolve context window — reserve space for summary output (CC: MAX_OUTPUT_TOKENS_FOR_SUMMARY=20K)
+    _SUMMARY_OUTPUT_RESERVE = 20000
     context_limit = _get_input_context_limit(model_provider, model_name, max_input_tokens_override)
-    trigger_tokens = int(context_limit * threshold)
+    effective_limit = max(context_limit - _SUMMARY_OUTPUT_RESERVE, context_limit // 2)
+    trigger_tokens = int(effective_limit * threshold)
 
     current_tokens = estimate_tokens(messages, provider=model_provider)
     if current_tokens <= trigger_tokens:
@@ -306,9 +308,10 @@ async def maybe_compress_messages(
     # Fallback: text extraction
     summary = _extract_summary(old_messages)
     if not summary:
-        # CR-03: If extraction also produces empty summary, keep original messages
-        logger.warning("[Memory] Both LLM and extraction summaries empty — skipping compression")
-        return messages
+        # G4: Last-resort trim — drop old messages with a marker, keep recent
+        logger.warning("[Memory] Both LLM and extraction summaries empty — last-resort trim")
+        marker = {"role": "system", "content": "[Older messages trimmed to fit context window]"}
+        return [marker] + recent_messages
     if on_compaction:
         maybe_result = on_compaction(
             {

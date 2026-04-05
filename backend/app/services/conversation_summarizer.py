@@ -265,16 +265,32 @@ def _extract_summary(messages: list[dict]) -> str:
     decisions = _extract_decisions(messages)
     reasoning_text = "\n".join(f"- {d}" for d in decisions) if decisions else "- (none captured)"
 
+    # Problem Solving: extract attempted approaches from assistant messages
+    _problem_hints = ("tried", "attempted", "failed", "succeeded", "worked", "didn't work", "error", "fix")
+    problem_items: list[str] = []
+    for ans in assistant_answers[-10:]:
+        for hint in _problem_hints:
+            if hint in ans.lower():
+                problem_items.append(ans[:200])
+                break
+    problem_text = "\n".join(f"- {p}" for p in problem_items) if problem_items else "- (none captured)"
+
+    # Current Work: last assistant message
+    current_work = assistant_answers[-1][:300] if assistant_answers else "(none captured)"
+
     return "\n".join(
         [
-            f"**Task Ledger:** {task}",
-            f"**Decision Ledger:** {decision_text}",
-            f"**Reasoning Ledger:**\n{reasoning_text}",
-            f"**Artifact Ledger:**\n{artifact_text}",
-            f"**Tool Ledger:**\n{tool_summary}",
-            f"**Preference Ledger:**\n{preference_text}",
-            f"**Pending Ledger:**\n{pending_text}",
-            f"**Narrative Snapshot:** {narrative}",
+            f"**Primary Request and Intent:** {task}",
+            f"**Key Technical Decisions:** {decision_text}",
+            f"**Files and Code Sections:**\n{artifact_text}",
+            f"**Problem Solving:**\n{problem_text}",
+            f"**Errors and Fixes:**\n{reasoning_text}",
+            f"**All User Messages:** " + "; ".join(u[:100] for u in user_asks[-10:]) if user_asks else "**All User Messages:** (none)",
+            f"**User Preferences:**\n{preference_text}",
+            f"**Tool Outcomes:**\n{tool_summary}",
+            f"**Pending Tasks:**\n{pending_text}",
+            f"**Current Work:** {current_work}",
+            "**Recovery Context:** Raw session log available at logs/ for full detail",
         ]
     )
 
@@ -307,7 +323,7 @@ CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.
 - Your entire response must be plain text: an <analysis> block followed by a <summary> block.
 - Session summaries preserve working state so the next turn can continue safely.
 - Do NOT rewrite this summary as long-term memory or policy.
-- Stable preferences, lessons, and policies can be extracted later into memory and evolution systems.
+- Stable preferences, lessons, and policies are automatically extracted to the memory system.
 
 Your task is to create a detailed summary of the conversation, preserving critical context \
 for continuing work without losing state.
@@ -317,19 +333,21 @@ First, wrap your detailed analysis in <analysis> tags:
 2. Note ALL file paths, code snippets, function signatures, and technical decisions
 3. Pay special attention to user corrections and feedback
 4. Identify errors encountered and how they were resolved
+5. Track problem-solving approaches — what was tried, what worked, what didn't
 
 Then provide your final summary in <summary> tags using EXACTLY this format:
 
-**Task Ledger:** [what was being worked on — be specific about the goal and current status]
-**Decision Ledger:** [decisions made, user corrections, constraints learned]
-**Artifact Ledger:** [file paths, URLs, IDs, resource handles — list each on its own line]
-**Code Snapshot:** [key code changes, function signatures, or config values — include short snippets for critical changes]
-**Tool Ledger:** [tools called and their key results — focus on outcomes, not individual calls]
-**User Messages:** [ALL non-trivial user messages summarized — these are critical for understanding changing intent]
-**Preference Ledger:** [stable user preferences or instructions for future behavior]
-**Error Ledger:** [errors encountered, root causes, and resolutions]
-**Pending Ledger:** [incomplete items and next steps — include direct quotes from recent messages showing where work left off]
-**Narrative Snapshot:** [1-2 line recap of the current state]
+**Primary Request and Intent:** [core goal + current status — be specific]
+**Key Technical Decisions:** [architecture choices, constraints, tradeoffs decided]
+**Files and Code Sections:** [file_path:line_number + key snippets for critical changes]
+**Problem Solving:** [approaches tried, what worked, what didn't — prevent re-trying failed approaches]
+**Errors and Fixes:** [errors encountered + root causes + resolutions]
+**All User Messages:** [ALL non-trivial user messages summarized — critical for tracking changing intent]
+**User Preferences:** [corrections, stated preferences, feedback — highest priority to preserve]
+**Tool Outcomes:** [key tool calls and their results — focus on outcomes, not individual calls]
+**Pending Tasks:** [incomplete items + where work left off — include direct quotes from recent messages]
+**Current Work:** [what was actively being done when compression triggered]
+**Recovery Context:** [raw session log available at logs/ for full detail if needed]
 
 Be thorough in preserving technical details — code snippets and file paths are more valuable than prose.
 Respond in the same language as the conversation.\

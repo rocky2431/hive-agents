@@ -33,7 +33,9 @@ _MIDLOOP_COMPACT_CHECK_INTERVAL = 3
 _MIDLOOP_COMPACT_THRESHOLD = 0.85  # 85% of context window
 
 # Prompt-Too-Long reactive retry: compress and retry when provider rejects oversized prompt.
-_PTL_MAX_RETRIES = 2
+# Aligned with Claude Code MAX_PTL_RETRIES = 3.
+# Strategy: attempt 1-2 = drop 20% oldest round-groups, attempt 3 = full compression fallback.
+_PTL_MAX_RETRIES = 3
 # Provider-specific error patterns indicating prompt exceeds context window.
 _PTL_ERROR_PATTERNS = (
     "context_length_exceeded",
@@ -55,8 +57,10 @@ _TOOL_RESULT_PREVIEW_LENGTH = 4000  # chars to keep inline — was 2K, 256K mode
 # Per-round aggregate budget: prevents N parallel tools from overloading context.
 # Aligned with Claude Code's MAX_TOOL_RESULTS_PER_MESSAGE_CHARS (200,000).
 _TOOL_RESULTS_AGGREGATE_BUDGET = 200000  # chars per round (CC: 200K)
-# Time-based microcompact: clear old tool results by round age to delay heavy compaction.
-_MICROCOMPACT_ROUND_AGE = 20  # rounds old — tool results older than this get cleared
+# Time-based microcompact: clear old tool results to delay heavy compaction.
+# Aligned with Claude Code TimeBasedMCConfig: gapThresholdMinutes=60, keepRecent=5.
+_MICROCOMPACT_GAP_SECONDS = 3600  # 60 minutes — tool results older than this get cleared
+_MICROCOMPACT_KEEP_RECENT = 5     # always keep the N most recent tool results
 _MICROCOMPACT_CLEARED_MARKER = "[Old tool result cleared to save context space]"
 
 # Tools whose output should never be evicted (small, structural results).
@@ -186,6 +190,36 @@ def _is_prompt_too_long(exc: Exception) -> bool:
     """Detect if an LLMError indicates the prompt exceeded the context window."""
     msg = str(exc).lower()
     return any(pattern in msg for pattern in _PTL_ERROR_PATTERNS)
+
+
+def _group_messages_by_api_round(messages: list[LLMMessage]) -> list[list[LLMMessage]]:
+    """Group messages by API round (each round ends with a non-tool-calling assistant msg).
+
+    Aligned with Claude Code groupMessagesByApiRound().
+    """
+    groups: list[list[LLMMessage]] = []
+    current: list[LLMMessage] = []
+    for msg in messages:
+        current.append(msg)
+        if msg.role == "assistant" and not msg.tool_calls:
+            groups.append(current)
+            current = []
+    if current:
+        groups.append(current)
+    return groups
+
+
+def _truncate_head_for_ptl(messages: list[LLMMessage], drop_ratio: float = 0.2) -> list[LLMMessage]:
+    """Drop the oldest N% of round-groups to reduce prompt size.
+
+    Aligned with Claude Code truncateHeadForPTLRetry().
+    """
+    groups = _group_messages_by_api_round(messages)
+    if len(groups) <= 2:
+        return messages
+    drop_count = max(1, int(len(groups) * drop_ratio))
+    kept = groups[drop_count:]
+    return [msg for group in kept for msg in group]
 
 
 def _build_error_result(
@@ -959,7 +993,7 @@ class AgentKernel:
                                 round_i + 1,
                                 exc,
                             )
-                            # ── PTL reactive retry: compress context and retry ──
+                            # ── PTL reactive retry: round-group drop (1-2) → full compress (3) ──
                             if _is_prompt_too_long(exc) and ptl_retries < _PTL_MAX_RETRIES:
                                 if len(api_messages) <= 4:
                                     logger.warning(
@@ -968,29 +1002,16 @@ class AgentKernel:
                                     )
                                 else:
                                     ptl_retries += 1
-                                    logger.warning(
-                                        "[Kernel] PTL detected (attempt %d/%d), compressing context before retry",
-                                        ptl_retries, _PTL_MAX_RETRIES,
-                                    )
-                                    conv_dicts = _llm_messages_to_dicts(api_messages[1:])
-                                    _before_chars = sum(len(d.get("content", "") or "") for d in conv_dicts)
-                                    compressed = await _maybe_await(
-                                        self._deps.maybe_compress_messages(
-                                            conv_dicts,
-                                            model_provider=active_model.provider,
-                                            model_name=active_model.model,
-                                            max_input_tokens_override=getattr(
-                                                active_model, "max_input_tokens", None
-                                            ),
-                                            tenant_id=runtime_config.tenant_id,
-                                            compress_threshold=0.5,  # aggressive — force compression
-                                            on_compaction=_emit_compaction_event,
+                                    _before_msgs = len(api_messages)
+
+                                    if ptl_retries <= 2:
+                                        # Attempt 1-2: drop 20% oldest round-groups (CC: truncateHeadForPTLRetry)
+                                        logger.warning(
+                                            "[Kernel] PTL round-group drop (attempt %d/%d)",
+                                            ptl_retries, _PTL_MAX_RETRIES,
                                         )
-                                    )
-                                    _after_chars = sum(len(d.get("content", "") or "") for d in compressed)
-                                    # Only retry if compression achieved meaningful reduction (>20%)
-                                    if _after_chars < _before_chars * 0.8:
-                                        # B-02 fix: rebuild system prompt with fresh dynamic suffix after compression
+                                        _truncated = _truncate_head_for_ptl(api_messages[1:], drop_ratio=0.2)
+                                        # Rebuild system prompt
                                         _ptl_dynamic = build_dynamic_prompt_suffix(
                                             active_packs=session_ctx.active_packs if session_ctx else [],
                                             retrieval_context=resolved_retrieval_context,
@@ -1004,28 +1025,65 @@ class AgentKernel:
                                             context_window_tokens=_ctx_window,
                                             budget_profile=budget_profile,
                                         )
-                                        api_messages = [LLMMessage(role="system", content=_ptl_system)] + _dicts_to_llm_messages(compressed)
+                                        api_messages = [LLMMessage(role="system", content=_ptl_system)] + _truncated
                                         logger.info(
-                                            "[Kernel] PTL retry: %d→%d chars, %d→%d msgs (attempt %d/%d)",
-                                            _before_chars, _after_chars,
-                                            len(conv_dicts) + 1, len(api_messages),
+                                            "[Kernel] PTL round-group: %d→%d msgs (attempt %d/%d)",
+                                            _before_msgs, len(api_messages),
                                             ptl_retries, _PTL_MAX_RETRIES,
-                                            extra={
-                                                "metric": "ptl_retry",
-                                                "attempt": ptl_retries,
-                                                "before_chars": _before_chars,
-                                                "after_chars": _after_chars,
-                                                "before_msgs": len(conv_dicts) + 1,
-                                                "after_msgs": len(api_messages),
-                                            },
+                                            extra={"metric": "ptl_retry", "attempt": ptl_retries, "strategy": "round_group"},
                                         )
-                                        continue  # retry the LLM call with compressed context
+                                        continue
                                     else:
+                                        # Attempt 3: full compression fallback
                                         logger.warning(
-                                            "[Kernel] PTL compression insufficient: %d→%d chars (%.0f%%), falling through",
-                                            _before_chars, _after_chars,
-                                            (_after_chars / _before_chars * 100) if _before_chars else 0,
+                                            "[Kernel] PTL full compress fallback (attempt %d/%d)",
+                                            ptl_retries, _PTL_MAX_RETRIES,
                                         )
+                                        conv_dicts = _llm_messages_to_dicts(api_messages[1:])
+                                        _before_chars = sum(len(d.get("content", "") or "") for d in conv_dicts)
+                                        compressed = await _maybe_await(
+                                            self._deps.maybe_compress_messages(
+                                                conv_dicts,
+                                                model_provider=active_model.provider,
+                                                model_name=active_model.model,
+                                                max_input_tokens_override=getattr(
+                                                    active_model, "max_input_tokens", None
+                                                ),
+                                                tenant_id=runtime_config.tenant_id,
+                                                compress_threshold=0.5,
+                                                on_compaction=_emit_compaction_event,
+                                            )
+                                        )
+                                        _after_chars = sum(len(d.get("content", "") or "") for d in compressed)
+                                        if _after_chars < _before_chars * 0.8:
+                                            _ptl_dynamic = build_dynamic_prompt_suffix(
+                                                active_packs=session_ctx.active_packs if session_ctx else [],
+                                                retrieval_context=resolved_retrieval_context,
+                                                system_prompt_suffix=_effective_suffix,
+                                                budget_profile=budget_profile,
+                                            )
+                                            _ptl_prefix = (session_ctx.prompt_prefix if session_ctx else None) or prompt_prefix
+                                            _ptl_system = assemble_runtime_prompt(
+                                                _ptl_prefix,
+                                                _ptl_dynamic,
+                                                context_window_tokens=_ctx_window,
+                                                budget_profile=budget_profile,
+                                            )
+                                            api_messages = [LLMMessage(role="system", content=_ptl_system)] + _dicts_to_llm_messages(compressed)
+                                            logger.info(
+                                                "[Kernel] PTL full compress: %d→%d chars, %d→%d msgs (attempt %d/%d)",
+                                                _before_chars, _after_chars,
+                                                _before_msgs, len(api_messages),
+                                                ptl_retries, _PTL_MAX_RETRIES,
+                                                extra={"metric": "ptl_retry", "attempt": ptl_retries, "strategy": "full_compress"},
+                                            )
+                                            continue
+                                        else:
+                                            logger.warning(
+                                                "[Kernel] PTL compression insufficient: %d→%d chars (%.0f%%), falling through",
+                                                _before_chars, _after_chars,
+                                                (_after_chars / _before_chars * 100) if _before_chars else 0,
+                                            )
 
                             # ── Fallback model retry ──
                             if fallback_model is not None and active_model is request.model:
@@ -1412,16 +1470,33 @@ class AgentKernel:
                             )
 
                     # ── L1: Time-based microcompact — clear old tool results ──
-                    if round_i >= _MICROCOMPACT_ROUND_AGE and (round_i + 1) % _MIDLOOP_COMPACT_CHECK_INTERVAL == 0:
-                        _mc_cleared = 0
-                        _cutoff_round = round_i - _MICROCOMPACT_ROUND_AGE
+                    # Aligned with Claude Code TimeBasedMCConfig: clear tool results
+                    # older than 60min, always keep the 5 most recent.
+                    if (round_i + 1) % _MIDLOOP_COMPACT_CHECK_INTERVAL == 0:
+                        import time as _time_mod
+
+                        _now = _time_mod.time()
+                        # Collect all substantial tool results with their timestamps
+                        _tool_entries: list[tuple[int, float, LLMMessage]] = []
                         for _mi, _msg in enumerate(api_messages):
                             if (
                                 _msg.role == "tool"
-                                and _mi < _cutoff_round * 3  # rough: ~3 messages per round
                                 and _msg.content != _MICROCOMPACT_CLEARED_MARKER
                                 and len(_msg.content or "") > 500
                             ):
+                                _tool_entries.append((_mi, _msg.created_at, _msg))
+
+                        if _tool_entries:
+                            # Sort by timestamp descending — keep the most recent N
+                            _sorted_by_time = sorted(_tool_entries, key=lambda x: x[1], reverse=True)
+                            _keep_indices = {x[0] for x in _sorted_by_time[:_MICROCOMPACT_KEEP_RECENT]}
+
+                            _mc_cleared = 0
+                            for _mi, _ts, _msg in _tool_entries:
+                                if _mi in _keep_indices:
+                                    continue
+                                if (_now - _ts) < _MICROCOMPACT_GAP_SECONDS:
+                                    continue
                                 # Check if the tool is exempt
                                 _tc_id = _msg.tool_call_id or ""
                                 _is_exempt = any(
@@ -1436,12 +1511,12 @@ class AgentKernel:
                                 if not _is_exempt:
                                     _msg.content = _MICROCOMPACT_CLEARED_MARKER
                                     _mc_cleared += 1
-                        if _mc_cleared:
-                            logger.info(
-                                "[Kernel] Microcompact: cleared %d old tool results (round %d, cutoff round %d)",
-                                _mc_cleared, round_i + 1, _cutoff_round,
-                                extra={"metric": "microcompact", "cleared": _mc_cleared, "round": round_i + 1},
-                            )
+                            if _mc_cleared:
+                                logger.info(
+                                    "[Kernel] Microcompact: cleared %d old tool results (round %d, gap=%ds, kept=%d recent)",
+                                    _mc_cleared, round_i + 1, _MICROCOMPACT_GAP_SECONDS, _MICROCOMPACT_KEEP_RECENT,
+                                    extra={"metric": "microcompact", "cleared": _mc_cleared, "round": round_i + 1},
+                                )
 
                     # ── L3: Mid-loop context compaction ──────────────────────────
                     if (round_i + 1) % _MIDLOOP_COMPACT_CHECK_INTERVAL == 0 and len(api_messages) > 6:

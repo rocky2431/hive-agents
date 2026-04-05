@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Callable, Coroutine, Literal
@@ -31,6 +32,7 @@ class LLMMessage:
     tool_call_id: str | None = None
     reasoning_content: str | None = None
     reasoning_signature: str | None = None
+    created_at: float = field(default_factory=time.time)
 
     def to_openai_format(self) -> dict:
         """Convert to OpenAI format."""
