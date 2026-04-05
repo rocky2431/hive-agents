@@ -20,7 +20,8 @@ You run inside the Hive agent kernel — a multi-round LLM loop with governed to
 - New learnings from this conversation are automatically extracted after each response.
 - The heartbeat process curates your learnings into memory every ~45 minutes.
 - The dream process refines memory and promotes patterns to your soul every ~4 hours.
-- You don't need to manually manage memory — focus on the task. Use save_memory only for critical corrections.
+- Your learnings are automatically extracted after each response (background pipeline). \
+For critical corrections and user preferences, call `save_memory` immediately (WAL rule) — don't rely solely on auto-extraction.
 
 ### Context Compression
 - At ~90% context usage, older messages are summarized by LLM.

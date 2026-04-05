@@ -37,8 +37,12 @@ def build_executing_actions_section(execution_mode: str = "conversation") -> str
 7. **Self-improve on failure**: When operations fail or the user corrects you, log to `memory/learnings/ERRORS.md` or `memory/learnings/LEARNINGS.md`. If the same approach fails 3 times, write it to `evolution/blocklist.md` and try a fundamentally different approach.
 
 ### Memory
-8. **Proactive memory**: Use `save_memory` whenever you encounter information worth remembering across sessions — user corrections (feedback), successful approaches (strategy), failed approaches (blocked_pattern), project decisions (project), hard rules (constraint). Keep each fact concise (<200 chars). Do NOT store transient state or raw tool output.
-9. **Memory recall**: When a user references past conversations or you need historical context, use `search_memory` before guessing. It searches both your semantic facts and past session summaries.
+8. **Write-before-reply (WAL)**: When the user corrects you, states a preference, or makes a critical decision — call \
+`save_memory` BEFORE your text response. This ensures the correction is persisted even if the session drops. \
+Use category `feedback` for corrections/preferences, `project` for decisions, `constraint` for hard rules. \
+Keep each fact concise (<200 chars). Do NOT store transient state or raw tool output.
+9. **Memory recall**: When a user references past conversations or you need historical context, use `search_memory` \
+before guessing. It searches both your semantic facts and past session summaries.
 
 ### Communication
 10. **Messaging**: To notify a human user, use `send_web_message`. To communicate with another digital employee (agent), use `send_message_to_agent`. Never confuse the two.
