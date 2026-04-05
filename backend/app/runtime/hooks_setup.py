@@ -129,7 +129,13 @@ async def _t0_session_close(ctx: HookContext) -> None:
 
 
 async def _t0_session_idle(ctx: HookContext) -> None:
-    """SESSION_IDLE → write T0 log + trigger extraction (idle = last chance before user leaves)."""
+    """SESSION_IDLE → write T0 log (session boundary marker).
+
+    Extraction is NOT triggered here — RESPONSE_COMPLETE already extracts
+    after every agent response (cursor-based, no duplicates). SESSION_IDLE
+    only writes the T0 snapshot and marks the session for dream gate counting.
+    Aligned with Claude Code: CC has no idle-triggered extraction either.
+    """
     agent_id = _parse_agent_id(ctx)
     if not agent_id:
         return
@@ -143,20 +149,6 @@ async def _t0_session_idle(ctx: HookContext) -> None:
     )
     # Mark this session as T0-written so SESSION_CLOSE won't duplicate
     _t0_written_sessions.add(f"{agent_id}:{ctx.session_id}")
-    # Trigger extraction — idle is the last reliable chance to extract before user disappears.
-    # Synchronous (await) since we're already in the idle window, no urgency to return.
-    tenant_id = ctx.metadata.get("tenant_id")
-    agent_name = ctx.metadata.get("agent_name", "Agent")
-    try:
-        await extract_agent.extract(
-            agent_id=agent_id,
-            messages=ctx.messages,
-            source="idle",
-            tenant_id=uuid.UUID(str(tenant_id)) if tenant_id else None,
-            agent_name=agent_name,
-        )
-    except Exception as _ext_err:
-        logger.debug("[Hooks] SESSION_IDLE extraction failed (non-fatal): %s", _ext_err)
 
 
 async def _t0_trigger_end(ctx: HookContext) -> None:

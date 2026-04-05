@@ -333,7 +333,7 @@ function AgentDetailInner() {
     const [isWaiting, setIsWaiting] = useState(false);
     const [isStreaming, setIsStreaming] = useState(false);
     const [transportNotice, setTransportNotice] = useState<string | null>(null);
-    const [isDreaming, setIsDreaming] = useState(false);
+
     const [uploadProgress, setUploadProgress] = useState(-1);
     const uploadAbortRef = useRef<(() => void) | null>(null);
     const [attachedFiles, setAttachedFiles] = useState<{ name: string; text: string; path?: string; imageUrl?: string }[]>([]);
@@ -540,9 +540,8 @@ function AgentDetailInner() {
                 return;
             }
 
-            // Idle dream events — memory consolidation while user is away
+            // Idle dream events — ignored (extraction now per-response, not idle-triggered)
             if (d.type === 'dreaming') {
-                setIsDreaming(d.status === 'started');
                 return;
             }
 
@@ -1243,7 +1242,7 @@ function AgentDetailInner() {
                             runtimeSummary={runtimeSummary}
                             transportNotice={transportNotice}
                             isWaiting={isWaiting}
-                            isDreaming={isDreaming}
+
                             chatEndRef={chatEndRef}
                             showScrollBtn={showScrollBtn}
                             onScrollToBottom={scrollToBottom}
