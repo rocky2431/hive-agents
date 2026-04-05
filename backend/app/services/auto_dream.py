@@ -49,6 +49,159 @@ _AUTO_DREAM_SYSTEM_PROMPT = (
     "Return only a JSON array — no prose, no explanation."
 )
 
+# Dream gate expansion: heartbeat ticks also count toward triggering dreams
+MIN_HEARTBEAT_TICKS_SINCE_DREAM = 2
+_heartbeat_ticks_since_dream: dict[str, int] = {}
+
+# DREAM.md template path
+_DREAM_TEMPLATE_PATH = Path(__file__).parent.parent / "templates" / "DREAM.md"
+
+# ── T3 MD read/write/dedup functions (Phase 6) ──
+
+_T3_FILES = ["feedback.md", "knowledge.md", "strategies.md", "blocked.md", "user.md"]
+_T3_MAX_ENTRIES_PER_FILE = 50
+
+
+def _read_all_t3(agent_id: uuid.UUID) -> dict[str, str]:
+    """Read all T3 memory files. Returns {filename: content}."""
+    memory_dir = Path(get_settings().AGENT_DATA_DIR) / str(agent_id) / "memory"
+    result: dict[str, str] = {}
+    for fname in _T3_FILES:
+        fpath = memory_dir / fname
+        if fpath.exists():
+            try:
+                result[fname] = fpath.read_text(encoding="utf-8", errors="replace")
+            except Exception as exc:
+                logger.warning("[Dream] Failed to read T3 %s: %s", fpath, exc)
+    return result
+
+
+def _write_t3_file(agent_id: uuid.UUID, filename: str, content: str) -> None:
+    """Write a T3 memory file."""
+    fpath = Path(get_settings().AGENT_DATA_DIR) / str(agent_id) / "memory" / filename
+    fpath.parent.mkdir(parents=True, exist_ok=True)
+    fpath.write_text(content, encoding="utf-8")
+
+
+def _programmatic_dedup(lines: list[str], similarity_threshold: float = 0.7) -> list[str]:
+    """Remove near-duplicate lines using SequenceMatcher. Zero LLM dependency."""
+    from difflib import SequenceMatcher
+
+    if len(lines) <= 1:
+        return lines
+
+    kept: list[str] = []
+    for line in lines:
+        is_dup = False
+        line_lower = line.lower().strip()
+        for existing in kept:
+            ratio = SequenceMatcher(None, line_lower, existing.lower().strip()).ratio()
+            if ratio >= similarity_threshold:
+                is_dup = True
+                break
+        if not is_dup:
+            kept.append(line)
+    return kept
+
+
+def _consolidate_t3_files(agent_id: uuid.UUID) -> dict[str, int]:
+    """Programmatic T3 consolidation: dedup + cap per file. Returns {filename: entries_removed}."""
+    stats: dict[str, int] = {}
+    t3_files = _read_all_t3(agent_id)
+
+    for fname, content in t3_files.items():
+        lines = content.strip().splitlines()
+        # Separate header from entry lines
+        header_lines: list[str] = []
+        entry_lines: list[str] = []
+        for line in lines:
+            if line.startswith("- [") or line.startswith("- "):
+                entry_lines.append(line)
+            else:
+                if not entry_lines:
+                    header_lines.append(line)
+                else:
+                    entry_lines.append(line)
+
+        before = len(entry_lines)
+        # Dedup
+        deduped = _programmatic_dedup(entry_lines)
+        # Cap: keep most recent (last N entries)
+        if len(deduped) > _T3_MAX_ENTRIES_PER_FILE:
+            deduped = deduped[-_T3_MAX_ENTRIES_PER_FILE:]
+
+        after = len(deduped)
+        removed = before - after
+
+        if removed > 0:
+            new_content = "\n".join(header_lines + deduped) + "\n"
+            _write_t3_file(agent_id, fname, new_content)
+            logger.info("[Dream] T3 %s: %d → %d entries (%d removed)", fname, before, after, removed)
+        stats[fname] = removed
+
+    return stats
+
+
+def _truncate_t2(agent_id: uuid.UUID, keep: int = 10) -> int:
+    """Truncate T2 learnings files to keep only the most recent N entries each."""
+    learnings_dir = Path(get_settings().AGENT_DATA_DIR) / str(agent_id) / "memory" / "learnings"
+    if not learnings_dir.exists():
+        return 0
+
+    total_removed = 0
+    for fname in ["insights.md", "errors.md", "requests.md"]:
+        fpath = learnings_dir / fname
+        if not fpath.exists():
+            continue
+        try:
+            content = fpath.read_text(encoding="utf-8", errors="replace")
+            lines = content.strip().splitlines()
+            header: list[str] = []
+            entries: list[str] = []
+            for line in lines:
+                if line.startswith("- ["):
+                    entries.append(line)
+                elif not entries:
+                    header.append(line)
+
+            if len(entries) > keep:
+                removed = len(entries) - keep
+                total_removed += removed
+                entries = entries[-keep:]
+                fpath.write_text("\n".join(header + entries) + "\n", encoding="utf-8")
+                logger.info("[Dream] T2 %s truncated: kept %d, removed %d", fname, keep, removed)
+        except Exception as exc:
+            logger.warning("[Dream] Failed to truncate T2 %s: %s", fname, exc)
+
+    return total_removed
+
+
+def _update_index_md(agent_id: uuid.UUID) -> None:
+    """Regenerate memory/INDEX.md from current T3 file contents."""
+    memory_dir = Path(get_settings().AGENT_DATA_DIR) / str(agent_id) / "memory"
+    lines = ["# Memory Index", "", "Updated by dream consolidation.", ""]
+
+    for fname in _T3_FILES:
+        fpath = memory_dir / fname
+        if fpath.exists():
+            try:
+                content = fpath.read_text(encoding="utf-8", errors="replace")
+                entry_count = sum(1 for ln in content.splitlines() if ln.startswith("- [") or ln.startswith("- "))
+                lines.append(f"- **{fname}**: {entry_count} entries")
+            except Exception:
+                lines.append(f"- **{fname}**: (read error)")
+        else:
+            lines.append(f"- **{fname}**: (not created)")
+
+    index_path = memory_dir / "INDEX.md"
+    index_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def record_heartbeat_tick(agent_id: uuid.UUID) -> None:
+    """Increment heartbeat tick counter for dream gate evaluation."""
+    key = agent_id.hex
+    _heartbeat_ticks_since_dream[key] = _heartbeat_ticks_since_dream.get(key, 0) + 1
+
 
 def _build_dream_consolidation_prompt(*, facts: list[dict], summaries: list[str]) -> str:
     facts_text = "\n".join(
@@ -142,14 +295,16 @@ def record_session_end(agent_id: uuid.UUID) -> None:
 
 
 def should_dream(agent_id: uuid.UUID) -> bool:
-    """Check if both time and session gates are met for consolidation."""
+    """Check if time gate + (session OR heartbeat tick) gates are met for consolidation."""
     last, sessions = _load_dream_state(agent_id)
     if last is not None:
         hours_since = (datetime.now(timezone.utc) - last).total_seconds() / 3600
         if hours_since < MIN_HOURS_BETWEEN_DREAMS:
             return False
 
-    return sessions >= MIN_SESSIONS_SINCE_DREAM
+    # Expanded gate: sessions OR heartbeat ticks
+    ticks = _heartbeat_ticks_since_dream.get(agent_id.hex, 0)
+    return sessions >= MIN_SESSIONS_SINCE_DREAM or ticks >= MIN_HEARTBEAT_TICKS_SINCE_DREAM
 
 
 def should_soft_dream(agent_id: uuid.UUID) -> bool:
@@ -317,18 +472,31 @@ async def run_dream(agent_id: uuid.UUID, tenant_id: uuid.UUID) -> dict:
         },
     )
 
+    # ── Phase 6: MD→MD consolidation (T3 dedup + T2 truncate + INDEX) ──
+    t3_stats = _consolidate_t3_files(agent_id)
+    t3_removed = sum(t3_stats.values())
+    t2_removed = _truncate_t2(agent_id, keep=10)
+    _update_index_md(agent_id)
+    if t3_removed or t2_removed:
+        logger.info("[AutoDream] MD consolidation for %s: T3 deduped %d, T2 truncated %d", agent_id, t3_removed, t2_removed)
+
     # T0 cleanup: remove log directories older than 30 days
     from app.services.t0_logger import cleanup_old_logs
 
     cleanup_old_logs(agent_id, retention_days=30)
 
+    # Reset heartbeat tick counter (dream completes the cycle)
+    _heartbeat_ticks_since_dream.pop(key, None)
+
     result = {
         "consolidated": after_count,
         "removed": max(0, before_count - after_count),
         "added": max(0, after_count - before_count),
+        "t3_deduped": t3_removed,
+        "t2_truncated": t2_removed,
     }
     logger.info(
-        "[AutoDream] Consolidated memory for %s: %d → %d facts (%d removed, %d added, strategy=%s, clusters=%d)",
+        "[AutoDream] Consolidated memory for %s: %d → %d facts (%d removed, %d added, strategy=%s, clusters=%d, t3_dedup=%d, t2_trunc=%d)",
         agent_id,
         before_count,
         after_count,
@@ -336,6 +504,8 @@ async def run_dream(agent_id: uuid.UUID, tenant_id: uuid.UUID) -> dict:
         result["added"],
         strategy,
         len(clusters),
+        t3_removed,
+        t2_removed,
     )
     return result
 
