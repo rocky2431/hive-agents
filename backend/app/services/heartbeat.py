@@ -1017,7 +1017,7 @@ async def _execute_heartbeat(agent_id: uuid.UUID, *, lease_acquired: bool = Fals
                         on_tool_call=_on_tool_call,
                         tool_executor=_build_heartbeat_tool_executor(agent_id, agent.creator_id),
                         core_tools_only=False,
-                        max_tool_rounds=25,
+                        max_tool_rounds=15,  # Pure curation: OBSERVE ~3 + CURATE ~8 + LOG ~4
                     )
                 ),
                 timeout=_HEARTBEAT_TIMEOUT_SECONDS,
