@@ -120,7 +120,7 @@ async def _t0_session_close(ctx: HookContext) -> None:
 
 
 async def _t0_session_idle(ctx: HookContext) -> None:
-    """SESSION_IDLE → write chat T0 log (idle-triggered)."""
+    """SESSION_IDLE → write T0 log + trigger extraction (idle = last chance before user leaves)."""
     agent_id = _parse_agent_id(ctx)
     if not agent_id:
         return
@@ -132,6 +132,20 @@ async def _t0_session_idle(ctx: HookContext) -> None:
         messages=ctx.messages or [],
         metadata={**ctx.metadata, "source": ctx.source or "web"},
     )
+    # Trigger extraction — idle is the last reliable chance to extract before user disappears.
+    # Synchronous (await) since we're already in the idle window, no urgency to return.
+    tenant_id = ctx.metadata.get("tenant_id")
+    agent_name = ctx.metadata.get("agent_name", "Agent")
+    try:
+        await extract_agent.extract(
+            agent_id=agent_id,
+            messages=ctx.messages,
+            source="idle",
+            tenant_id=uuid.UUID(str(tenant_id)) if tenant_id else None,
+            agent_name=agent_name,
+        )
+    except Exception as _ext_err:
+        logger.debug("[Hooks] SESSION_IDLE extraction failed (non-fatal): %s", _ext_err)
 
 
 async def _t0_trigger_end(ctx: HookContext) -> None:

@@ -442,23 +442,28 @@ async def websocket_chat(
                                 session_id=conv_id,
                                 messages=conversation,
                                 source="websocket",
-                                metadata={"idle_seconds": _DREAM_IDLE_SECONDS},
+                                metadata={
+                                    "idle_seconds": _DREAM_IDLE_SECONDS,
+                                    "tenant_id": str(agent.tenant_id) if agent.tenant_id else None,
+                                    "agent_name": agent.name or "Agent",
+                                },
                             ),
                             timeout=15.0,
                         )
-                        # Backward compat: still call persist_runtime_memory for existing memory path
-                        from app.services.memory_service import persist_runtime_memory
+                        # Session summary for Episodic layer (DB) — kept for retriever._retrieve_episodic()
+                        # NOTE: _update_agent_memory (sqlite semantic_facts) removed — T2→T3 pipeline handles it.
+                        if agent.tenant_id and conv_id:
+                            try:
+                                from app.services.memory_service import _generate_session_summary, _save_session_summary
 
-                        if agent.tenant_id:
-                            await _aio_idle.wait_for(
-                                persist_runtime_memory(
-                                    agent_id=agent_id,
-                                    session_id=conv_id,
-                                    tenant_id=agent.tenant_id,
-                                    messages=conversation,
-                                ),
-                                timeout=15.0,
-                            )
+                                _idle_summary = await _aio_idle.wait_for(
+                                    _generate_session_summary(conversation, agent.tenant_id),
+                                    timeout=10.0,
+                                )
+                                if _idle_summary:
+                                    await _save_session_summary(conv_id, _idle_summary)
+                            except Exception as _sum_err:
+                                logger.debug("[WS] Session summary on idle failed (non-fatal): %s", _sum_err)
                         await websocket.send_json({"type": "dreaming", "status": "completed"})
                         logger.info("[WS] SESSION_IDLE completed for %s", agent_name)
                     except Exception as _dream_err:
