@@ -125,17 +125,19 @@ def _render_agent_soul_from_blueprint(
 def _render_focus_from_blueprint(
     *,
     focus_content: str = "",
-    ready_now: list[str] | None = None,
     manual_steps: list[str] | None = None,
     triggers: list[dict] | None = None,
-    skill_names: list[str] | None = None,
-    mcp_server_ids: list[str] | None = None,
-    permission_scope: str = "company",
+    first_tasks: list[str] | None = None,
 ) -> str:
     """Render focus.md — the agent's current operational priorities.
 
     Focus is volatile: updated by the agent and heartbeat curation.
-    Contains everything that changes: tasks, capabilities, triggers.
+    Only contains what the system prompt does NOT provide dynamically:
+    current mission, tasks, setup debt, triggers.
+
+    Capabilities and tool routing are NOT included here — the system
+    prompt injects those dynamically via ToolRuntimeService and
+    SessionContext.active_packs, so they never go stale.
     """
     focus_lines = _lines_from_text(focus_content)
     pending_steps = manual_steps or []
@@ -144,14 +146,7 @@ def _render_focus_from_blueprint(
         for item in (triggers or [])
         if isinstance(item, dict) and str(item.get("name", "")).strip()
     ]
-    tool_notes: list[str] = [
-        "Start with builtin tools and installed default skills.",
-        "Use extra skills only when they clearly match the task.",
-    ]
-    if skill_names:
-        tool_notes.append(f"Installed extra platform skills: {', '.join(skill_names)}.")
-    if mcp_server_ids:
-        tool_notes.append(f"Requested MCP extensions: {', '.join(mcp_server_ids)}.")
+    task_items = first_tasks or focus_lines[:3]
 
     parts = [
         "# Focus",
@@ -161,7 +156,7 @@ def _render_focus_from_blueprint(
         "",
         "## First 3 Tasks",
         _markdown_bullets(
-            focus_lines[:3],
+            task_items,
             fallback=[
                 "Read soul.md and confirm identity and boundaries.",
                 "Verify currently available capabilities end-to-end.",
@@ -169,18 +164,11 @@ def _render_focus_from_blueprint(
             ],
         ),
         "",
-        "## Capabilities",
-        f"- Access: {'team-wide' if permission_scope == 'company' else 'creator-only'}",
-        _markdown_bullets(ready_now or ["builtin tools + 14 default skills"]),
-        "",
         "## Setup Debt",
         (_markdown_bullets(pending_steps) if pending_steps else "- None — all capabilities ready."),
         "",
         "## Active Triggers",
         _markdown_bullets(trigger_lines, fallback=["No recurring triggers configured yet."]),
-        "",
-        "## Tool Routing",
-        _markdown_bullets(tool_notes),
         "",
         "## Success Check",
         "- First task can be completed end-to-end using currently available capabilities.",
@@ -305,12 +293,9 @@ class AgentManager:
             focus_path.write_text(
                 _render_focus_from_blueprint(
                     focus_content=str(blueprint.get("focus_content", "")),
-                    ready_now=[str(item) for item in blueprint.get("ready_now", []) if str(item).strip()],
                     manual_steps=[str(item) for item in blueprint.get("manual_steps", []) if str(item).strip()],
                     triggers=[item for item in blueprint.get("triggers", []) if isinstance(item, dict)],
-                    skill_names=[str(item) for item in blueprint.get("skill_names", []) if str(item).strip()],
-                    mcp_server_ids=[str(item) for item in blueprint.get("mcp_server_ids", []) if str(item).strip()],
-                    permission_scope=str(blueprint.get("permission_scope", "company") or "company"),
+                    first_tasks=[str(t) for t in blueprint.get("first_tasks", []) if str(t).strip()],
                 ),
                 encoding="utf-8",
             )

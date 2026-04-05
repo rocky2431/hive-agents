@@ -159,7 +159,7 @@ the dream consolidation process.
 
 Produce a JSON object with these exact keys:
 
-  "role_description", "personality", "boundaries", "primary_users", "core_outputs", "quality_standards"
+  "role_description", "personality", "boundaries", "primary_users", "core_outputs", "quality_standards", "first_tasks"
 
 ## Field Requirements
 
@@ -208,6 +208,15 @@ and guide how the dream process evaluates this agent's work.
 GOOD: ["Every analytical conclusion must be traceable to at least one data source",
 "Recommendations must include actionable next steps and risk flags"]
 
+**first_tasks** (list of strings, exactly 3 items):
+The agent's first 3 tasks after creation. These go into focus.md (volatile, not soul).
+Each task must be immediately actionable using the agent's installed capabilities.
+BAD: ["Read soul.md", "Check capabilities", "Do something useful"] (generic, tells nothing)
+GOOD for a research role:
+["Compile an overview of this week's top 5 AI infrastructure funding rounds with source links",
+"Build a competitive landscape draft for one target company in the semiconductor sector",
+"Produce a template for the weekly sector brief and populate it with this week's data"]
+
 ## Critical Rules
 
 1. Write in the SAME LANGUAGE as the inputs. If inputs are Chinese, output Chinese.
@@ -247,6 +256,7 @@ async def _refine_soul_inputs(
         "primary_users": primary_users,
         "core_outputs": core_outputs,
         "quality_standards": [],
+        "first_tasks": [],
     }
     if not model_config:
         return raw
@@ -293,6 +303,8 @@ async def _refine_soul_inputs(
             result["core_outputs"] = [str(o) for o in refined["core_outputs"] if str(o).strip()]
         if isinstance(refined.get("quality_standards"), list) and refined["quality_standards"]:
             result["quality_standards"] = [str(q) for q in refined["quality_standards"] if str(q).strip()]
+        if isinstance(refined.get("first_tasks"), list) and refined["first_tasks"]:
+            result["first_tasks"] = [str(t) for t in refined["first_tasks"] if str(t).strip()]
 
         logger.info(
             "[HR] Soul refined by LLM: role %d→%d, personality %d→%d, boundaries %d→%d, quality_standards=%d",
@@ -1081,6 +1093,7 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
                 "primary_users": _refined.get("primary_users", preview_payload["blueprint"].get("primary_users", [])),
                 "core_outputs": _refined.get("core_outputs", preview_payload["blueprint"].get("core_outputs", [])),
                 "quality_standards": _refined.get("quality_standards", []),
+                "first_tasks": _refined.get("first_tasks", []),
                 "ready_now": list(_DEFAULT_READY_NOW),
                 "manual_steps": manual_steps,
             }
