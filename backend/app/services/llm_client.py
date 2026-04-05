@@ -26,7 +26,7 @@ class LLMMessage:
     """Unified message format."""
 
     role: Literal["system", "user", "assistant", "tool"]
-    content: str | None = None
+    content: str | list | None = None
     tool_calls: list[dict] | None = None
     tool_call_id: str | None = None
     reasoning_content: str | None = None
@@ -154,7 +154,7 @@ class LLMClient(ABC):
         timeout: float = 120.0,
     ):
         self.api_key = api_key
-        self.base_url = base_url
+        self.base_url: str = base_url or ""
         self.model = model
         self.timeout = timeout
 
@@ -187,6 +187,10 @@ class LLMClient(ABC):
     @abstractmethod
     def _get_headers(self) -> dict[str, str]:
         """Get request headers."""
+        pass
+
+    async def close(self) -> None:
+        """Close underlying HTTP client. Subclasses override as needed."""
         pass
 
 
@@ -240,9 +244,26 @@ class OpenAICompatibleClient(LLMClient):
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Build request payload."""
+        # Demote mid-conversation system messages to user role.
+        # Only the first system message is kept as-is; providers like MiniMax
+        # reject system role anywhere except position 0.
+        seen_system = False
+        sanitized: list[dict] = []
+        for m in messages:
+            fmt = m.to_openai_format()
+            if fmt["role"] == "system":
+                if not seen_system:
+                    seen_system = True
+                else:
+                    fmt["role"] = "user"
+                    raw = fmt.get("content", "")
+                    if isinstance(raw, str):
+                        fmt["content"] = f"[System Notice] {raw}"
+            sanitized.append(fmt)
+
         payload: dict[str, Any] = {
             "model": self.model,
-            "messages": [m.to_openai_format() for m in messages],
+            "messages": sanitized,
             "temperature": temperature,
             "stream": stream,
         }
@@ -1378,7 +1399,19 @@ class AnthropicClient(LLMClient):
 
         for msg in messages:
             if msg.role == "system":
-                system_content = msg.content
+                if system_content is None:
+                    system_content = msg.content
+                else:
+                    # Demote extra system messages; merge into previous user msg if possible
+                    notice = f"[System Notice] {msg.content or ''}"
+                    if anthropic_messages and anthropic_messages[-1]["role"] == "user":
+                        prev = anthropic_messages[-1]["content"]
+                        if isinstance(prev, str):
+                            anthropic_messages[-1]["content"] = prev + "\n\n" + notice
+                        else:
+                            anthropic_messages.append({"role": "user", "content": notice})
+                    else:
+                        anthropic_messages.append({"role": "user", "content": notice})
             else:
                 formatted = msg.to_anthropic_format()
                 if formatted:

@@ -102,8 +102,18 @@ async def read_file(
             return FileContent(path=path, content="")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
 
-    async with aiofiles.open(target, "r", encoding="utf-8") as f:
-        content = await f.read()
+    _BINARY_EXTS = {".pdf", ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp",
+                     ".zip", ".tar", ".gz", ".7z", ".rar", ".exe", ".dll", ".so",
+                     ".woff", ".woff2", ".ttf", ".otf", ".mp3", ".mp4", ".wav",
+                     ".sqlite", ".db", ".bin", ".pyc", ".pyo"}
+    if target.suffix.lower() in _BINARY_EXTS:
+        return FileContent(path=path, content=f"[二进制文件: {target.name}, {target.stat().st_size} bytes]")
+
+    try:
+        async with aiofiles.open(target, "r", encoding="utf-8") as f:
+            content = await f.read()
+    except (UnicodeDecodeError, ValueError):
+        return FileContent(path=path, content=f"[二进制文件: {target.name}, {target.stat().st_size} bytes]")
     return FileContent(path=path, content=content)
 
 

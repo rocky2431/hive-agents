@@ -22,7 +22,7 @@ async def log_activity(
             db.add(AgentActivityLog(
                 agent_id=agent_id,
                 action_type=action_type,
-                summary=summary,
+                summary=summary[:500] if summary else "",
                 detail_json=detail,
                 related_id=related_id,
             ))
@@ -31,6 +31,6 @@ async def log_activity(
         if db is not None:
             try:
                 await db.rollback()
-            except Exception:
-                pass
+            except Exception as rollback_err:
+                logger.warning(f"[ActivityLog] Rollback also failed: {rollback_err}")
         logger.error(f"[ActivityLog] Failed to log {action_type}: {e}")

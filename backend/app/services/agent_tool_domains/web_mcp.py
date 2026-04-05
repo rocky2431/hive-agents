@@ -17,6 +17,14 @@ from app.tools.result_envelope import classify_http_status, render_tool_error, r
 logger = logging.getLogger(__name__)
 
 
+def _safe_int(value, default: int) -> int:
+    """Safely cast LLM-provided value to int, falling back to *default*."""
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return default
+
+
 _URL_HOST_RE = re.compile(r"^[A-Za-z0-9.-]+\.[A-Za-z]{2,}(/.*)?$")
 
 
@@ -153,7 +161,7 @@ async def _web_search(arguments: dict) -> str:
 
     configured_engine = config.get("search_engine") or "auto"
     engine = configured_engine
-    max_results = min(arguments.get("max_results", config.get("max_results", 5)), 10)
+    max_results = min(_safe_int(arguments.get("max_results", config.get("max_results", 5)), 5), 10)
     language = config.get("language", "zh-CN")
     fallback_note = None
     exa_api_key = config.get("exa_api_key") or config.get("api_key", "") or await _get_exa_api_key()
@@ -331,7 +339,7 @@ async def _web_fetch(arguments: dict) -> str:
             hint="Use a valid URL. If you only have keywords, use web_search first.",
         )
 
-    max_chars = min(arguments.get("max_chars", 8000), 20000)
+    max_chars = min(_safe_int(arguments.get("max_chars", 8000), 8000), 20000)
 
     try:
         async with httpx.AsyncClient(follow_redirects=True, timeout=20) as client:
@@ -699,7 +707,7 @@ async def _search_bing(query: str, api_key: str, max_results: int, language: str
     return f'🔍 Bing search for "{query}" ({len(results)} items):\n\n' + "\n\n---\n\n".join(results)
 
 
-async def _execute_mcp_tool(tool_name: str, arguments: dict, agent_id=None) -> str:
+async def _execute_mcp_tool(tool_name: str, arguments: dict, agent_id: "uuid.UUID | None" = None) -> str:
     try:
         from app.models.tool import AgentTool, Tool
         from app.services.mcp_client import MCPClient
@@ -728,7 +736,7 @@ async def _execute_mcp_tool(tool_name: str, arguments: dict, agent_id=None) -> s
             return await _execute_via_smithery_connect(mcp_url, mcp_name, arguments, merged_config, agent_id=agent_id)
 
         direct_api_key = merged_config.get("api_key") or merged_config.get("atlassian_api_key")
-        if not direct_api_key and tool.mcp_server_name == "Atlassian Rovo":
+        if not direct_api_key and tool.mcp_server_name == "Atlassian Rovo" and agent_id is not None:
             try:
                 from app.api.atlassian import get_atlassian_api_key_for_agent
 
@@ -814,7 +822,7 @@ async def _execute_via_smithery_connect(
                         data = json_mod.loads(line[6:])
                         break
                     except json_mod.JSONDecodeError:
-                        pass
+                        logger.debug("[web_mcp] Failed to parse SSE data line as JSON")
 
             if data is None:
                 try:
@@ -924,7 +932,7 @@ async def _discover_resources(arguments: dict) -> str:
     query = arguments.get("query", "")
     if not query:
         return "❌ Please provide a search query describing the capability you need."
-    max_results = min(arguments.get("max_results", 5), 10)
+    max_results = min(_safe_int(arguments.get("max_results", 5), 5), 10)
 
     from app.services.resource_discovery import search_smithery
 

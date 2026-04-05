@@ -531,7 +531,7 @@ def _update_evolution_files(
                         if blocklist_path.exists()
                         else "# Blocklist\n"
                     )
-                    date_str = now.strftime("%Y-%m-%d") if hasattr(now, "strftime") else str(now)[:10]
+                    date_str = now[:10]
                     entry = f"- [{date_str}] {summary[:150]} (3 consecutive failures)"
                     if summary[:60].lower() not in bl_text.lower():
                         _atomic_write(blocklist_path, bl_text.rstrip() + "\n" + entry + "\n")
@@ -1105,6 +1105,9 @@ async def _heartbeat_tick():
             skipped_interval = 0
             for agent in agents:
                 # Resolve timezone
+                if agent.tenant_id is None:
+                    skipped_interval += 1
+                    continue
                 tenant = tenants_by_id.get(agent.tenant_id)
                 tz_name = get_agent_timezone_sync(agent, tenant)
 
@@ -1114,7 +1117,7 @@ async def _heartbeat_tick():
                     continue
 
                 # Check interval
-                interval = timedelta(minutes=agent.heartbeat_interval_minutes or 30)
+                interval = timedelta(minutes=agent.heartbeat_interval_minutes or 120)
                 if agent.last_heartbeat_at and (now - agent.last_heartbeat_at) < interval:
                     skipped_interval += 1
                     continue
