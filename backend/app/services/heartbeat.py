@@ -1113,6 +1113,7 @@ async def _execute_heartbeat(agent_id: uuid.UUID, *, lease_acquired: bool = Fals
                         "outcome": outcome_type,
                         "score": heartbeat_score,
                         "summary": summary[:200] if summary else "",
+                        "action": summary[:100] if outcome_type == "action_taken" else "none",
                     },
                 )
             except Exception as _hook_err:

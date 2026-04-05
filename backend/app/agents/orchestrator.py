@@ -359,7 +359,9 @@ async def _delegate(request: AgentDelegationRequest) -> AgentDelegationResult:
                 "depth": request.depth,
                 "status": _delegation_status,
                 "failed": delegation_result.failed,
-                "reply_len": len(delegation_result.content or ""),
+                "task": (request.conversation_messages[-1].get("content", "")[:500]
+                         if request.conversation_messages else ""),
+                "result": (delegation_result.content or "")[:2000],
             },
         )
     except Exception as _hook_err:

@@ -1207,6 +1207,8 @@ class AgentKernel:
                                     metadata={
                                         "last_response": final_content[:2000] if final_content else "",
                                         "turn_count": round_i + 1,
+                                        "tenant_id": str(runtime_config.tenant_id) if runtime_config.tenant_id else None,
+                                        "agent_name": request.agent_name or "Agent",
                                     },
                                 ))
                             except Exception as _hook_err:

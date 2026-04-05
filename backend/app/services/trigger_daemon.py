@@ -659,10 +659,13 @@ async def _invoke_agent_for_triggers(agent_id: uuid.UUID, triggers: list[AgentTr
                 messages=messages,
                 source="trigger",
                 metadata={
+                    "trigger_name": trigger_names[0] if trigger_names else "unknown",
+                    "trigger_type": triggers[0].type if triggers else "unknown",
                     "trigger_names": trigger_names,
                     "trigger_types": [t.type for t in triggers],
                     "status": "success",
-                    "reply_len": len(final_reply) if final_reply else 0,
+                    "instruction": trigger_context[:1000] if trigger_context else "",
+                    "result": final_reply[:2000] if final_reply else "",
                 },
             )
         except Exception as _hook_err:

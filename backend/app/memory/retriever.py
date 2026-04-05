@@ -210,6 +210,7 @@ class MemoryRetriever:
         """
         items: list[MemoryItem] = []
         items.extend(self._retrieve_working(agent_id) or [])
+        items.extend(self._retrieve_t3_direct(agent_id) or [])
         episodic_limit = retrieval_profile.episodic_limit if retrieval_profile else 3
         semantic_limit = retrieval_profile.semantic_limit if retrieval_profile else limit
         external_limit = retrieval_profile.external_limit if retrieval_profile else 5
@@ -249,6 +250,57 @@ class MemoryRetriever:
         except OSError:
             logger.debug("Failed to read focus.md for agent %s", agent_id)
             return []
+
+    # -- T3 Direct layer: memory/*.md files (MD = Source of Truth) --
+
+    # P0 files are always loaded; P1/P2 loaded with lower scores.
+    _T3_FILES: list[tuple[str, str, float]] = [
+        ("memory/feedback.md", "feedback", 0.95),     # P0: user corrections
+        ("memory/blocked.md", "blocked_pattern", 0.95),  # P0: failed approaches
+        ("memory/knowledge.md", "knowledge", 0.80),   # P1: project knowledge
+        ("memory/strategies.md", "strategy", 0.80),   # P1: effective approaches
+        ("memory/user.md", "user", 0.70),             # P2: user profile
+    ]
+
+    def _retrieve_t3_direct(self, agent_id: uuid.UUID) -> list[MemoryItem]:
+        """Read T3 memory/*.md files directly — the MD source of truth.
+
+        These files are written by heartbeat (T2→T3 curation) and refined
+        by dream (dedup + soul promotion). Reading them directly ensures
+        the agent always sees the latest curated knowledge, regardless of
+        whether memory.sqlite3 is in sync.
+        """
+        ws = self.data_root / str(agent_id)
+        items: list[MemoryItem] = []
+
+        for rel_path, category, base_score in self._T3_FILES:
+            fpath = ws / rel_path
+            try:
+                content = fpath.read_text(encoding="utf-8").strip()
+            except (FileNotFoundError, OSError):
+                continue
+
+            if not content:
+                continue
+
+            # Skip empty templates (only heading, no actual entries)
+            lines = [ln for ln in content.splitlines() if ln.strip() and not ln.startswith("#")]
+            if not lines:
+                continue
+
+            # Extract entry lines (skip heading/blank) and format as memory block
+            entry_text = "\n".join(lines)
+            items.append(
+                MemoryItem(
+                    kind=MemoryKind.SEMANTIC,
+                    content=f"[{category}]\n{entry_text}",
+                    score=base_score,
+                    source=rel_path,
+                    metadata={"category": category, "source_type": "t3_direct"},
+                )
+            )
+
+        return items
 
     # -- Episodic layer: session summaries from DB --
 
