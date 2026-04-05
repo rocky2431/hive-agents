@@ -4,7 +4,10 @@ Open-source multi-agent collaboration platform for enterprise. Build persistent 
 
 ## Features
 
-- **Persistent Agent Identity** — Each agent has a soul (personality/instructions), memory, skills, and workspace that persist across conversations
+- **Persistent Agent Identity** — Each agent has a soul contract, focus priorities, memory, skills, and workspace that persist across conversations
+- **4-Layer Memory Pyramid** — T0 raw logs → T2 episodic learnings → T3 semantic memory → soul.md identity, with automatic extraction, heartbeat curation, and dream consolidation
+- **15-Event Hook System** — Lifecycle event bus powering the memory pipeline: per-response extraction, cursor-based T0 writes, session idle/close handling
+- **HR Agent with LLM Soul Refinement** — Conversational agent creation in 2-3 rounds; LLM crafts rich, role-specific soul contracts with system-aware prompts
 - **6-Channel Integration** — Feishu/Lark, Slack, Discord, DingTalk, WeChat Work, Microsoft Teams
 - **Tool Governance** — Security zones, capability policies, and human-in-the-loop approval flows
 - **Autonomous Triggers** — Cron, interval, webhook, poll, and event-driven execution
@@ -56,6 +59,17 @@ Entry Points (WebSocket, Feishu, Slack, Trigger, Heartbeat, Delegation)
     -> tools/service.py      (governed tool execution)
     -> tools/governance.py   (security zone -> capability gate -> approval)
 ```
+
+### Memory Pipeline
+
+```
+T0 (raw logs) -> T2 (learnings) -> T3 (memory) -> soul.md
+     ^                ^                ^               ^
+SESSION_IDLE    RESPONSE_COMPLETE   Heartbeat        Dream
+cursor-based    per-response LLM    45min curation   4h+3s gate
+```
+
+MD files are the source of truth; SQLite is a recall-only FTS index.
 
 ### Backend
 

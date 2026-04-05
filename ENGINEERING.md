@@ -1,6 +1,6 @@
 # Hive Engineering Documentation
 
-Version 1.7.0 | FastAPI + React 19 | Apache 2.0
+Version 1.8.0 | FastAPI + React 19 | Apache 2.0
 
 ## Table of Contents
 
@@ -14,7 +14,9 @@ Version 1.7.0 | FastAPI + React 19 | Apache 2.0
   - [Tool Packs](#tool-packs)
   - [Trigger Daemon](#trigger-daemon)
   - [LLM Client](#llm-client)
-  - [Memory System](#memory-system)
+  - [Memory System](#memory-system--4-layer-md-pyramid)
+  - [Hook System](#hook-system-runtimehookspy)
+  - [HR Agent](#hr-agent--agent-creation-pipeline)
   - [Authentication & Authorization](#authentication--authorization)
   - [Database & Multi-Tenancy](#database--multi-tenancy)
   - [Configuration Reference](#configuration-reference)
@@ -80,7 +82,8 @@ Background Tasks:
    - Atlassian Rovo config + tool import
    - Default skills seeding
    - Default agent seeding
-5. **Background tasks** (4 async tasks):
+5. **Memory hook registration** — `register_memory_hooks()`: 11 handlers (3 log + 2 extract + 6 T0)
+6. **Background tasks** (4 async tasks):
    - `trigger_daemon` — evaluates cron/interval/poll/webhook/on_message triggers
    - `feishu_ws_manager.start_all()` — Feishu WebSocket listeners
    - `dingtalk_stream_manager.start_all()` — DingTalk stream listeners
@@ -148,25 +151,29 @@ All agent execution flows through a unified kernel (`kernel/engine.py`, 1,505 LO
 
 ### Prompt Assembly
 
-Three-layer architecture (`runtime/prompt_builder.py`):
+Three-layer architecture (`runtime/prompt_builder.py`) with 14 modular prompt sections (`runtime/prompt_sections/`):
 
 ```
 Layer 1: Frozen Prefix (session-stable, cached)
-  - Agent identity (soul, role, personality)
+  - Agent identity (soul contract via agent_context.py)
+  - T3 memory injection (feedback, knowledge, strategies, blocked, user — via memory_context.py)
   - Kernel tools catalog
   - Skill catalog
-  - Memory snapshot
   - Marked with __PROMPT_CACHE_BOUNDARY__
 
 Layer 2: Dynamic Suffix (per-round)
   - Active capability packs
+  - Task state + verification rules (tasks.py)
+  - Output efficiency rules (output_efficiency.py)
+  - Memory save rules (executing_actions.py)
   - Knowledge retrieval results
   - Compaction hints
-  - System prompt suffix
 
 Layer 3: Conversation Messages
   - User/assistant/tool messages
 ```
+
+**Prompt sections** (`runtime/prompt_sections/`): `agent_context`, `memory_context`, `tasks`, `executing_actions`, `output_efficiency` — each returns a section string assembled by the builder. Cache boundary separates frozen (soul+memory+tools) from dynamic (tasks+session).
 
 Budget allocation scales with context window. Frozen prefix trimmed if total exceeds budget (dynamic preserved for per-round accuracy).
 
@@ -255,20 +262,92 @@ Unified client (`llm_client.py`, 2,132 LOC) supporting 14+ providers:
 
 Features: streaming with usage tracking, 429 retry (3x exponential backoff), connection error retry (3x), prompt caching (Anthropic), vision support.
 
-### Memory System
+### Memory System — 4-Layer MD Pyramid
 
-SQLite per-agent database with FTS (`memory/`, 1,003 LOC):
+MD files are the source of truth. SQLite is demoted to FTS recall index only.
 
-| Component | Purpose |
-|-----------|---------|
-| `store.py` | SQLite CRUD, FTS search, legacy JSON migration |
-| `retriever.py` | Load facts, filter by category, rank by relevance |
-| `assembler.py` | Build memory context string for system prompt |
-| `types.py` | 8 category enums |
+```
+T0 (raw logs, 30d)  →  T2 (learnings/*.md)  →  T3 (memory/*.md)  →  soul.md
+     ↑ write               ↑ extract               ↑ curate             ↑ dream
+SESSION_IDLE/CLOSE   RESPONSE_COMPLETE         Heartbeat (45min)    Dream (4h+3s gate)
+  cursor-based         cursor-based             T2→T3 curation      T3→soul consolidation
+```
 
-**Categories:** user, feedback, project, reference, general, constraint, strategy, blocked_pattern
+| Layer | Location | Written By | Retention |
+|-------|----------|-----------|-----------|
+| **T0** | `logs/YYYY-MM-DD/{type}-{HHmm}-{id}.md` | `t0_logger.py` (cursor-based) | 30 days |
+| **T2** | `memory/learnings/*.md` | `extract_agent.py` (LLM, per-response) | Until curated |
+| **T3** | `memory/feedback.md`, `knowledge.md`, `strategies.md`, `blocked.md`, `user.md` | Heartbeat (KAIROS persistent session) | Until dream dedup |
+| **soul.md** | Agent root | Dream consolidation | Permanent |
+| **focus.md** | Agent root | Agent + heartbeat | Volatile |
 
-Storage at `/data/agents/{agent_id}/memory.db`.
+**Key files:**
+
+| File | Purpose |
+|------|---------|
+| `services/t0_logger.py` | Write T0 MD logs: chat, trigger, delegation, heartbeat, dream |
+| `services/extract_agent.py` | LLM extraction T0→T2 (cursor-based, fire-and-forget on RESPONSE_COMPLETE) |
+| `services/heartbeat.py` | T2→T3 curation with persistent session across ticks (45min interval) |
+| `services/auto_dream.py` | T3→soul consolidation (gate: 4h since last + 3 sessions since last) |
+| `memory/retriever.py` | Read T3 MD files directly into prompt; sqlite for recall-only FTS |
+| `memory/assembler.py` | Build memory context string for system prompt injection |
+| `runtime/hooks_setup.py` | Hook handlers: T0 writers (cursor), extraction triggers, drain on close |
+
+**T0 cursor dedup:** SESSION_IDLE and SESSION_CLOSE track a per-session cursor into the messages list, writing only new messages since the last T0 write. Safe across WebSocket reconnects — the cursor persists in memory.
+
+**Extraction cursor:** `extract_agent.py` maintains a separate cursor per agent+session. RESPONSE_COMPLETE advances it. No extraction on SESSION_IDLE (aligned with Claude Code — CC has no idle-triggered extraction).
+
+### Hook System (`runtime/hooks.py`)
+
+15-event lifecycle bus for memory pipeline and tool governance. Handlers registered in `hooks_setup.py` during startup.
+
+| Category | Events | Handler |
+|----------|--------|---------|
+| Session | `SESSION_START` | Log + reset extractor cursor |
+| | `RESPONSE_COMPLETE` | Fire-and-forget LLM extraction to T2 |
+| | `SESSION_IDLE` | Incremental T0 write (cursor-based) |
+| | `SESSION_CLOSE` | Drain extractor + incremental T0 write |
+| Tool | `PRE_TOOL_USE` | Governance preflight (can block) |
+| | `POST_TOOL_USE`, `POST_TOOL_FAILURE` | Audit logging |
+| Compression | `PRE_COMPACTION` | Synchronous extraction before context lost |
+| | `POST_COMPACTION` | Logging |
+| Delegation | `DELEGATION_START`, `DELEGATION_END` | Logging + T0 write |
+| Hive-specific | `TRIGGER_END` | T0 trigger log |
+| | `HEARTBEAT_TICK_END` | T0 heartbeat log |
+| | `DREAM_END` | T0 dream log + reset heartbeat session |
+| Notification | `MEMORY_EXTRACTED` | Debug/monitoring |
+
+**Hook mechanics:** `HookRegistry` (global singleton) dispatches events to registered async handlers. PRE_TOOL_USE can return `HookResult(block=True)` to prevent tool execution. All other events are fire-and-forget.
+
+### HR Agent — Agent Creation Pipeline
+
+HR agent (`hr_agent_template/`) creates new agents through a 2-3 round conversational flow with LLM soul refinement.
+
+**Creation flow:**
+
+```
+HR conversation → create_digital_employee tool call
+                      ↓
+                _refine_soul_inputs() — LLM refinement
+                  Input: raw name, role_description, personality, boundaries
+                  Prompt: full 4-layer architecture awareness, soul-vs-focus boundary,
+                          BAD/GOOD examples for each field
+                  Output: role_description (3-5 sentences), personality (4-6 behaviors),
+                          boundaries (3-5 risk-specific rules), quality_standards,
+                          primary_users, core_outputs, first_tasks
+                      ↓
+                _render_agent_soul_from_blueprint() — structured template
+                  soul.md: Identity / Who I Serve / Core Outputs / Operating Style /
+                           Quality Standard / Boundaries / How I Learn
+                      ↓
+                _render_focus_from_blueprint() — operational priorities
+                  focus.md: Mission / First 3 Tasks / Setup Debt / Active Triggers
+                  (NO capabilities, NO tool routing — system prompt handles those dynamically)
+```
+
+**Soul-vs-focus boundary rule:** If it changes when a skill is installed or a trigger is added, it belongs in focus.md, not soul.md. Soul is permanent identity; focus is volatile operations.
+
+**Tools:** `create_digital_employee` (governance: sensitive), `preview_agent_blueprint` (governance: safe). HR agent class: `internal_system`. Created lazily per tenant via `GET /agents/system/hr`.
 
 ### Authentication & Authorization
 
@@ -430,7 +509,7 @@ Dark/light mode via `data-theme` attribute, stored in localStorage.
 |-----|----------|
 | status | 3-column metrics, capability installs, activity snippet |
 | aware | Trigger list (5s poll), focus.md viewer, reflection sessions |
-| mind | Role description + bio editors |
+| mind | Memory browser (T3 files, editable) + Evolution browser (lineage/scorecard) |
 | tools | Tool catalog, install/remove |
 | skills | Installed skills, management |
 | relationships | Inter-agent relationship editor |

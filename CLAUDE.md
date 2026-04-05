@@ -111,9 +111,83 @@ Tools follow a registry + executor + governance pattern:
 
 Markdown files with YAML frontmatter defining agent capabilities. `SkillParser` → `WorkspaceSkillLoader` → `SkillRegistry`. Skills loaded progressively: catalog in prompt, full body via `load_skill` tool.
 
-### Memory System (`app/memory/`)
+### Memory System — 4-Layer MD Pyramid
 
-SQLite per-agent database with FTS (full-text search). 8 categories: user, feedback, project, reference, general, constraint, strategy, blocked_pattern. Assembled into `memory_context` for system prompt injection.
+MD files are the source of truth. SQLite is demoted to FTS recall index only.
+
+```
+T0 (raw logs, 30d)  →  T2 (learnings/*.md, episodic)  →  T3 (memory/*.md, semantic)  →  soul.md (identity)
+     ↑ write                    ↑ extract                       ↑ curate                      ↑ dream
+SESSION_IDLE/CLOSE      RESPONSE_COMPLETE              Heartbeat (45min)              Dream (4h+3s gate)
+  cursor-based            cursor-based                  T2→T3 curation               T3→soul consolidation
+```
+
+| Layer | Location | Written By | Read By |
+|-------|----------|-----------|---------|
+| **T0** | `logs/YYYY-MM-DD/*.md` | `t0_logger.py` (cursor-based, incremental) | Dream gate counting |
+| **T2** | `memory/learnings/*.md` | `extract_agent.py` (LLM per-response) | Heartbeat curation |
+| **T3** | `memory/feedback.md`, `knowledge.md`, `strategies.md`, `blocked.md`, `user.md` | Heartbeat (T2→T3) | Prompt injection via `retriever.py` |
+| **soul.md** | Root workspace | Dream consolidation | Prompt injection (frozen prefix) |
+| **focus.md** | Root workspace | Agent + heartbeat | Prompt injection (dynamic suffix) |
+
+**Key files:**
+
+| File | Purpose |
+|------|---------|
+| `services/t0_logger.py` | Write T0 MD logs (chat, trigger, delegation, heartbeat, dream) |
+| `services/extract_agent.py` | LLM extraction T0→T2 (cursor-based, per-response via RESPONSE_COMPLETE hook) |
+| `services/heartbeat.py` | T2→T3 curation (KAIROS persistent session, 45min ticks) |
+| `services/auto_dream.py` | T3→soul consolidation (4h + 3 sessions gate) |
+| `memory/retriever.py` | Read T3 MD files directly into prompt (sqlite for recall-only) |
+| `runtime/hooks_setup.py` | Hook handlers: T0 writers, extraction triggers, drain on close |
+
+### Hook System (`app/runtime/hooks.py`)
+
+15-event lifecycle bus for memory pipeline and tool governance:
+
+| Category | Events |
+|----------|--------|
+| Session | `SESSION_START`, `RESPONSE_COMPLETE`, `SESSION_IDLE`, `SESSION_CLOSE` |
+| Tool | `PRE_TOOL_USE`, `POST_TOOL_USE`, `POST_TOOL_FAILURE` |
+| Compression | `PRE_COMPACTION`, `POST_COMPACTION` |
+| Delegation | `DELEGATION_START`, `DELEGATION_END` |
+| Hive-specific | `TRIGGER_END`, `HEARTBEAT_TICK_END`, `DREAM_END` |
+| Notification | `MEMORY_EXTRACTED` |
+
+Memory pipeline hooks (registered in `hooks_setup.py`):
+- `RESPONSE_COMPLETE` → fire-and-forget LLM extraction to T2 (CC Stop hook equivalent)
+- `PRE_COMPACTION` → synchronous extraction before context is lost
+- `SESSION_IDLE` → incremental T0 write (cursor-based, no duplication on reconnect)
+- `SESSION_CLOSE` → drain extractor + incremental T0 write
+
+### Prompt Architecture (`app/runtime/prompt_sections/`)
+
+14 modular prompt sections assembled by `prompt_builder.py`:
+
+| Section | Source |
+|---------|--------|
+| `agent_context.py` | Soul identity + tone/style rules |
+| `memory_context.py` | T3 MD files (feedback, knowledge, strategies, blocked, user) |
+| `tasks.py` | Active tasks + verification rules |
+| `executing_actions.py` | Tool usage + memory save rules |
+| `output_efficiency.py` | Response format and conciseness |
+
+Cache boundary: frozen prefix (soul + memory + tools) + dynamic suffix (tasks + session context).
+
+### HR Agent — Agent Creation Pipeline
+
+HR agent (`hr_agent_template/`) creates new agents through conversational guidance. The creation pipeline includes LLM soul refinement:
+
+```
+HR conversation (2-3 rounds) → _refine_soul_inputs() → _render_agent_soul_from_blueprint()
+                                    ↓ LLM call                    ↓ Python template
+                              Refined: role_description,     Structured soul.md:
+                              personality, boundaries,        Identity / Users / Outputs /
+                              quality_standards, first_tasks  Style / Quality / Boundaries /
+                                                              How I Learn
+```
+
+Soul refinement prompt teaches the LLM the full 4-layer architecture, soul-vs-focus boundary, and produces role-specific content with BAD/GOOD examples. Falls back to raw inputs if LLM fails.
 
 ### Multi-Agent (`app/agents/`)
 
@@ -127,10 +201,11 @@ SQLite per-agent database with FTS (full-text search). 8 categories: user, feedb
 | `models/` | 31 files | SQLAlchemy ORM — all async, tenant-scoped with RLS |
 | `services/` | 58 files | Business logic — LLM client, trigger daemon, channel streaming, quota, approval |
 | `services/agent_tool_domains/` | 20 files | Tool domain implementations — Feishu (8), messaging, tasks, workspace, email |
-| `kernel/` | 3 files | Core engine (1,590 LOC) — invocation loop, contracts, context management |
+| `kernel/` | 3 files | Core engine — invocation loop, contracts, context management |
+| `runtime/` | 8+ files | Hooks, invoker, prompt builder, prompt sections, session context |
 | `tools/` | 11+ files | Tool registry, governance, handlers, workspace |
 | `skills/` | 5 files | Skill parser, loader, registry |
-| `memory/` | 5 files | Semantic memory store, retriever, assembler |
+| `memory/` | 5 files | Retriever (T3 MD → prompt), assembler, sqlite FTS (recall-only) |
 | `core/` | — | Security, permissions, middleware, Redis pub/sub |
 | `migrations/` | 35 versions | Alembic schema evolution |
 
