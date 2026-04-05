@@ -302,8 +302,6 @@ class AgentManager:
                 ),
                 encoding="utf-8",
             )
-            # Focus wake marker — trigger daemon will pick this up and invoke the agent
-            (agent_dir / ".focus_wake").write_text("boot", encoding="utf-8")
 
         # Customize state.json
         state_path = agent_dir / "state.json"

@@ -1169,8 +1169,25 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
                     ))
                 await db.flush()
 
-            # Focus wake is handled by .focus_wake marker file (written during
-            # initialize_agent_files). Trigger daemon picks it up and invokes the agent.
+            # Convert focus tasks into standard once-triggers so agent auto-starts.
+            # Staggered 30s apart so trigger daemon processes them sequentially.
+            _first_tasks = _refined.get("first_tasks", [])
+            if _first_tasks:
+                from app.models.trigger import AgentTrigger
+                for i, task in enumerate(_first_tasks[:5]):
+                    task_str = str(task).strip()
+                    if not task_str:
+                        continue
+                    _fire_at = (_dt.now(_tz.utc) + __import__("datetime").timedelta(seconds=30 + i * 30)).isoformat()
+                    db.add(AgentTrigger(
+                        agent_id=agent.id,
+                        name=f"focus_task_{i + 1}",
+                        type="once",
+                        config={"at": _fire_at},
+                        reason=f"Read focus.md for full context, then execute this task: {task_str}",
+                    ))
+                await db.flush()
+                logger.info("[HR] Created %d focus task triggers for agent %s", len(_first_tasks), agent.id)
 
             # Copy default skills + requested skills
             from sqlalchemy.orm import selectinload
