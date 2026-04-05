@@ -177,7 +177,7 @@ async def _t0_heartbeat_tick_end(ctx: HookContext) -> None:
 
 
 async def _t0_dream_end(ctx: HookContext) -> None:
-    """DREAM_END → write dream T0 log."""
+    """DREAM_END → write dream T0 log + reset heartbeat persistent session."""
     agent_id = _parse_agent_id(ctx)
     if not agent_id:
         return
@@ -188,6 +188,10 @@ async def _t0_dream_end(ctx: HookContext) -> None:
         messages=ctx.messages or [],
         metadata=ctx.metadata,
     )
+    # Phase 5: Reset heartbeat KAIROS session after dream completes
+    # so next heartbeat tick starts fresh with updated T3 memory.
+    from app.services.heartbeat import _reset_heartbeat_session
+    _reset_heartbeat_session(agent_id)
 
 
 def register_memory_hooks() -> None:

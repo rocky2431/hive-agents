@@ -52,6 +52,109 @@ _HEARTBEAT_STRATEGY_SUFFIX = """
 """
 
 
+# ── KAIROS persistent session state ──
+# Instead of creating a fresh invocation each tick, maintain conversation
+# history across ticks so the agent has continuity of thought.
+_heartbeat_contexts: dict[uuid.UUID, list[dict]] = {}
+_heartbeat_session_ids: dict[uuid.UUID, uuid.UUID] = {}
+_heartbeat_tick_counts: dict[uuid.UUID, int] = {}
+_t2_mtimes: dict[uuid.UUID, dict[str, float]] = {}
+
+
+def _reset_heartbeat_session(agent_id: uuid.UUID) -> None:
+    """Reset heartbeat persistent session (called after dream, day change, or process restart)."""
+    _heartbeat_contexts.pop(agent_id, None)
+    _heartbeat_session_ids.pop(agent_id, None)
+    _heartbeat_tick_counts.pop(agent_id, None)
+    _t2_mtimes.pop(agent_id, None)
+    logger.info("[Heartbeat] Session reset for %s", agent_id)
+
+
+def _read_t2_full(agent_id: uuid.UUID) -> str:
+    """Read all T2 learnings files (full content) for first tick initialization."""
+    from app.config import get_settings
+
+    learnings_dir = Path(get_settings().AGENT_DATA_DIR) / str(agent_id) / "memory" / "learnings"
+    if not learnings_dir.exists():
+        return "(no learnings yet)"
+
+    parts: list[str] = []
+    current_mtimes: dict[str, float] = {}
+    for fname in ["insights.md", "errors.md", "requests.md"]:
+        fpath = learnings_dir / fname
+        if fpath.exists():
+            try:
+                content = fpath.read_text(encoding="utf-8", errors="replace").strip()
+                if content and content != f"# {fname.replace('.md', '').title()}":
+                    parts.append(f"### {fname}\n{content}")
+                current_mtimes[fname] = fpath.stat().st_mtime
+            except Exception as exc:
+                logger.debug("[Heartbeat] Failed to read %s: %s", fpath, exc)
+
+    # Initialize mtime tracking for incremental reads
+    _t2_mtimes[agent_id] = current_mtimes
+    return "\n\n".join(parts) if parts else "(no learnings yet)"
+
+
+def _read_t3_summary(agent_id: uuid.UUID) -> str:
+    """Read T3 memory files summary (reference for dedup during curation)."""
+    from app.config import get_settings
+
+    memory_dir = Path(get_settings().AGENT_DATA_DIR) / str(agent_id) / "memory"
+    if not memory_dir.exists():
+        return "(no memory files)"
+
+    parts: list[str] = []
+    for fname in ["feedback.md", "knowledge.md", "strategies.md", "blocked.md", "user.md"]:
+        fpath = memory_dir / fname
+        if fpath.exists():
+            try:
+                content = fpath.read_text(encoding="utf-8", errors="replace").strip()
+                if content:
+                    # Truncate to first 500 chars per file for reference
+                    parts.append(f"### {fname}\n{content[:500]}")
+            except Exception as exc:
+                logger.debug("[Heartbeat] Failed to read T3 %s: %s", fpath, exc)
+    return "\n\n".join(parts) if parts else "(no memory files)"
+
+
+def _read_incremental_t2(agent_id: uuid.UUID) -> str:
+    """Read only new T2 entries since last tick (via mtime comparison)."""
+    from app.config import get_settings
+
+    learnings_dir = Path(get_settings().AGENT_DATA_DIR) / str(agent_id) / "memory" / "learnings"
+    if not learnings_dir.exists():
+        return ""
+
+    new_entries: list[str] = []
+    current_mtimes = _t2_mtimes.get(agent_id, {})
+
+    for fname in ["insights.md", "errors.md", "requests.md"]:
+        fpath = learnings_dir / fname
+        if not fpath.exists():
+            continue
+        try:
+            mtime = fpath.stat().st_mtime
+        except Exception:
+            continue
+
+        if fname in current_mtimes and mtime <= current_mtimes[fname]:
+            continue  # File unchanged since last tick
+
+        try:
+            content = fpath.read_text(encoding="utf-8", errors="replace")
+            lines = [ln for ln in content.strip().splitlines() if ln.startswith("- [")]
+            if lines:
+                new_entries.append(f"**{fname}**:")
+                new_entries.extend(lines[-10:])  # Last 10 entries from changed file
+            current_mtimes[fname] = mtime
+        except Exception as exc:
+            logger.debug("[Heartbeat] Failed to read incremental %s: %s", fpath, exc)
+
+    _t2_mtimes[agent_id] = current_mtimes
+    return "\n".join(new_entries) if new_entries else ""
+
+
 def _get_default_heartbeat_instruction() -> str:
     """Read default heartbeat instruction from templates/HEARTBEAT.md (single source of truth)."""
     try:
@@ -776,41 +879,89 @@ async def _execute_heartbeat(agent_id: uuid.UUID, *, lease_acquired: bool = Fals
                 logger.warning(f"Failed to build evolution context for heartbeat: {e}")
                 evolution_context = ""
 
-            heartbeat_instruction = _load_heartbeat_instruction(agent_id)
-            if evolution_context:
-                heartbeat_instruction += "\n\n" + evolution_context
-            runtime_messages = [{"role": "user", "content": heartbeat_instruction}]
+            # ── KAIROS persistent session: first tick vs subsequent tick ──
+            tick_count = _heartbeat_tick_counts.get(agent_id, 0) + 1
+            _heartbeat_tick_counts[agent_id] = tick_count
 
-            # --- Create Reflection Session for observability ---
+            # Resolve participant for DB session
             p_result = await db.execute(
                 select(Participant).where(Participant.type == "agent", Participant.ref_id == agent_id)
             )
             agent_participant = p_result.scalar_one_or_none()
             agent_participant_id = agent_participant.id if agent_participant else None
 
-            session = ChatSession(
-                agent_id=agent_id,
-                user_id=agent.creator_id,
-                participant_id=agent_participant_id,
-                source_channel="heartbeat",
-                title=f"💓 Heartbeat: {agent.name}"[:200],
-            )
-            db.add(session)
-            await db.flush()
-            session_id = session.id
+            if agent_id not in _heartbeat_contexts:
+                # ═══ First tick: full initialization ═══
+                heartbeat_instruction = _load_heartbeat_instruction(agent_id)
+                if evolution_context:
+                    heartbeat_instruction += "\n\n" + evolution_context
 
-            # Save heartbeat instruction as first message
-            db.add(
-                ChatMessage(
+                # Inject T2 learnings (full) + T3 memory (reference for dedup)
+                t2_content = _read_t2_full(agent_id)
+                t3_summary = _read_t3_summary(agent_id)
+                heartbeat_instruction += f"\n\n## Current T2 Learnings\n{t2_content}"
+                heartbeat_instruction += f"\n\n## Current T3 Memory (reference — don't duplicate these)\n{t3_summary}"
+
+                runtime_messages = [{"role": "user", "content": heartbeat_instruction}]
+
+                # Create new DB session (only on first tick)
+                session = ChatSession(
                     agent_id=agent_id,
-                    conversation_id=str(session_id),
-                    role="user",
-                    content=heartbeat_instruction[:4000],
                     user_id=agent.creator_id,
                     participant_id=agent_participant_id,
+                    source_channel="heartbeat",
+                    title=f"💓 Heartbeat: {agent.name}"[:200],
                 )
-            )
-            await db.commit()
+                db.add(session)
+                await db.flush()
+                session_id = session.id
+                _heartbeat_session_ids[agent_id] = session_id
+
+                # Save heartbeat instruction as first message
+                db.add(
+                    ChatMessage(
+                        agent_id=agent_id,
+                        conversation_id=str(session_id),
+                        role="user",
+                        content=heartbeat_instruction[:4000],
+                        user_id=agent.creator_id,
+                        participant_id=agent_participant_id,
+                    )
+                )
+                await db.commit()
+                logger.info("[Heartbeat] Tick #%d (full init) for %s", tick_count, agent.name)
+            else:
+                # ═══ Subsequent tick: <tick> + incremental T2 ═══
+                new_t2 = _read_incremental_t2(agent_id)
+                if not new_t2:
+                    # Idle protection: no new T2 entries → skip this tick
+                    logger.info("[Heartbeat] Skip tick #%d for %s: no new T2 entries", tick_count, agent.name)
+                    _release_heartbeat_lease(agent_id)
+                    await _touch_last_heartbeat(agent_id)
+                    return
+
+                session_id = _heartbeat_session_ids[agent_id]
+                runtime_messages = _heartbeat_contexts[agent_id]
+
+                tick_msg = (
+                    f"<tick>{datetime.now(timezone.utc).isoformat()} tick #{tick_count}</tick>\n\n"
+                    f"## New T2 Entries\n{new_t2}"
+                )
+                runtime_messages.append({"role": "user", "content": tick_msg})
+
+                # Save tick message to DB session
+                db.add(
+                    ChatMessage(
+                        agent_id=agent_id,
+                        conversation_id=str(session_id),
+                        role="user",
+                        content=tick_msg[:4000],
+                        user_id=agent.creator_id,
+                        participant_id=agent_participant_id,
+                    )
+                )
+                await db.commit()
+                logger.info("[Heartbeat] Tick #%d (incremental, %d new entries) for %s", tick_count, new_t2.count("\n") + 1, agent.name)
 
             # Tool call persistence callback
             async def _on_tool_call(data: dict) -> None:
@@ -872,6 +1023,10 @@ async def _execute_heartbeat(agent_id: uuid.UUID, *, lease_acquired: bool = Fals
                 timeout=_HEARTBEAT_TIMEOUT_SECONDS,
             )
             reply = result.content
+
+            # KAIROS: append assistant response to persistent context
+            runtime_messages.append({"role": "assistant", "content": reply or ""})
+            _heartbeat_contexts[agent_id] = runtime_messages
 
             # Save assistant reply to Reflection Session
             async with async_session() as db2:
