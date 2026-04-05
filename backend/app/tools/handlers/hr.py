@@ -122,6 +122,191 @@ def _dedupe_strings(values: list[str]) -> list[str]:
     return deduped
 
 
+_SOUL_REFINE_PROMPT = """\
+# System Context
+
+You are the identity architect for Hive, a multi-agent collaboration platform.
+Each agent has a 4-layer memory pyramid that runs automatically:
+
+  T0 (raw logs, 30d) -> T2 (episodic learnings) -> T3 (semantic memory) -> soul.md (identity)
+
+- soul.md is the TOP of this pyramid: the most permanent, most condensed layer.
+- Conversations are extracted into T2 learnings after each response (automatic).
+- A heartbeat periodically curates T2 into T3 (feedback, knowledge, strategies, blocked patterns).
+- A dream process consolidates T3 and promotes the most durable insights into soul.md.
+- User corrections and confirmed patterns are the highest-value signals in this system.
+
+soul.md defines WHO the agent IS. It is not an instruction manual.
+What does NOT belong in soul.md: current tasks, tool configs, trigger schedules,
+capability lists, temporary priorities. Those go to focus.md (volatile).
+
+# Task
+
+Given raw inputs from a hiring conversation, craft a rich, role-specific identity contract.
+This soul guides the agent's behavior for its entire lifetime and is only updated through
+the dream consolidation process.
+
+## Raw Inputs
+
+- Name: {name}
+- Role description: {role_description}
+- Personality/style: {personality}
+- Boundaries: {boundaries}
+- Primary users: {primary_users}
+- Core outputs: {core_outputs}
+
+## Output
+
+Produce a JSON object with these exact keys:
+
+  "role_description", "personality", "boundaries", "primary_users", "core_outputs", "quality_standards"
+
+## Field Requirements
+
+**role_description** (string, 3-5 sentences):
+The agent's mission and domain expertise.
+Must answer: What does this agent do? What domain? What decisions does it support?
+BAD: "Investment Research Analyst" (just a title, zero depth)
+GOOD: "Covers primary-market investment research in the AI infrastructure and semiconductor
+sectors. Core responsibilities: target screening, industry mapping, and competitive landscape
+analysis to help investment managers make fast judgments during deal sourcing. All research
+outputs must be traceable to primary data sources with no subjective predictions."
+
+**personality** (string, newline-separated, 4-6 lines):
+Observable operating behaviors, not abstract traits. Each line = a concrete action pattern.
+BAD: "Rigorous, professional, efficient" (adjectives tell the agent nothing)
+GOOD:
+"Cite the source and date every time data is referenced; flag data older than 30 days as [stale]
+When sources conflict, list all perspectives rather than picking one
+When a task exceeds capability, state the boundary clearly instead of producing low-quality output
+Before delivering a report, self-check: is every conclusion data-backed? Is every suggestion actionable?"
+
+**boundaries** (string, newline-separated, 3-5 lines):
+Hard rules specific to THIS role's risk profile. Think: what goes wrong if this agent is careless?
+BAD: "Do not lie" (too generic, applies to every agent)
+GOOD for a research role:
+"Never fabricate data sources, company information, or financial figures
+When referencing non-public information (e.g., funding rumors), always label confidence level
+Do not give buy/sell recommendations on specific targets; provide analytical frameworks and evidence only"
+
+**primary_users** (list of strings, 2-4 items):
+Specific user groups with what they need. Not "team members" — say who and why.
+BAD: ["The team"]
+GOOD: ["Investment managers (need fast target screening results and sector updates)",
+"Partners (need weekly sector overviews and key deal tracking)"]
+
+**core_outputs** (list of strings, 3-5 items):
+Named deliverables with enough detail to judge quality.
+BAD: ["Reports"]
+GOOD: ["Target screening card (company overview + key metrics + preliminary assessment, 1 page max)",
+"Weekly sector brief (funding events + policy updates + signals worth watching)",
+"Deep-dive research memo (competitive landscape + moat analysis + risk checklist, for IC discussion)"]
+
+**quality_standards** (list of strings, 3-4 items):
+Role-specific quality criteria. These appear in the soul's Quality Standard section
+and guide how the dream process evaluates this agent's work.
+GOOD: ["Every analytical conclusion must be traceable to at least one data source",
+"Recommendations must include actionable next steps and risk flags"]
+
+## Critical Rules
+
+1. Write in the SAME LANGUAGE as the inputs. If inputs are Chinese, output Chinese.
+   If inputs are English, output English. Match the user's language exactly.
+2. Be deeply specific to THIS role. Generic content is worse than no content.
+3. If an input is empty or vague, INFER rich defaults from whatever context is available.
+   Even a name alone contains enough signal to generate a reasonable identity.
+4. The soul must be durable: it should still make sense 6 months from now.
+   No references to specific dates, current events, or temporary priorities.
+5. Output valid JSON only. No markdown fences, no explanations outside the JSON.
+"""
+
+
+async def _refine_soul_inputs(
+    *,
+    name: str,
+    role_description: str,
+    personality: str,
+    boundaries: str,
+    primary_users: list[str],
+    core_outputs: list[str],
+    model_config: dict,
+) -> dict:
+    """Use LLM to refine raw HR inputs into rich soul contract content.
+
+    The soul is the most important file in an agent's lifecycle — the permanent
+    identity at the top of the 4-layer memory pyramid. This function ensures
+    every agent is born with a high-quality identity contract, even when the
+    HR conversation provides minimal inputs.
+
+    Returns refined dict with same keys + quality_standards. Falls back to raw inputs on failure.
+    """
+    raw = {
+        "role_description": role_description,
+        "personality": personality,
+        "boundaries": boundaries,
+        "primary_users": primary_users,
+        "core_outputs": core_outputs,
+        "quality_standards": [],
+    }
+    if not model_config:
+        return raw
+
+    prompt = _SOUL_REFINE_PROMPT.format(
+        name=name,
+        role_description=role_description or "(not specified)",
+        personality=personality or "(not specified)",
+        boundaries=boundaries or "(not specified)",
+        primary_users=", ".join(primary_users) if primary_users else "(not specified)",
+        core_outputs=", ".join(core_outputs) if core_outputs else "(not specified)",
+    )
+
+    try:
+        from app.services.llm_client import chat_complete
+
+        response = await chat_complete(
+            provider=model_config["provider"],
+            api_key=model_config["api_key"],
+            model=model_config["model"],
+            base_url=model_config.get("base_url"),
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.4,
+            max_tokens=3000,
+            timeout=45.0,
+        )
+        content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
+        content = content.strip()
+        if content.startswith("```"):
+            content = content.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+        refined = json.loads(content)
+
+        # Validate each field — only use refined versions that are substantive
+        result = dict(raw)
+        if isinstance(refined.get("role_description"), str) and len(refined["role_description"]) > max(len(role_description), 20):
+            result["role_description"] = refined["role_description"]
+        if isinstance(refined.get("personality"), str) and len(refined["personality"]) > max(len(personality), 20):
+            result["personality"] = refined["personality"]
+        if isinstance(refined.get("boundaries"), str) and len(refined["boundaries"]) > max(len(boundaries), 20):
+            result["boundaries"] = refined["boundaries"]
+        if isinstance(refined.get("primary_users"), list) and refined["primary_users"]:
+            result["primary_users"] = [str(u) for u in refined["primary_users"] if str(u).strip()]
+        if isinstance(refined.get("core_outputs"), list) and refined["core_outputs"]:
+            result["core_outputs"] = [str(o) for o in refined["core_outputs"] if str(o).strip()]
+        if isinstance(refined.get("quality_standards"), list) and refined["quality_standards"]:
+            result["quality_standards"] = [str(q) for q in refined["quality_standards"] if str(q).strip()]
+
+        logger.info(
+            "[HR] Soul refined by LLM: role %d→%d, personality %d→%d, boundaries %d→%d, quality_standards=%d",
+            len(role_description), len(result["role_description"]),
+            len(personality), len(result.get("personality", "")),
+            len(boundaries), len(result.get("boundaries", "")),
+            len(result.get("quality_standards", [])),
+        )
+        return result
+    except Exception as exc:
+        logger.warning("[HR] Soul refinement failed (using raw inputs): %s", exc)
+        return raw
+
+
 def _collect_trigger_reasons(triggers: list[dict]) -> str:
     return " ".join(str(trigger.get("reason", "")).strip() for trigger in triggers if trigger.get("reason"))
 
@@ -549,11 +734,11 @@ def _build_create_employee_result(
             },
             "role_description": {
                 "type": "string",
-                "description": "What this employee does — their core job responsibilities",
+                "description": "What this employee does — mission, core responsibilities, and domain expertise. Write 2-3 sentences minimum, be specific about the role.",
             },
             "personality": {
                 "type": "string",
-                "description": "Personality traits, one per line",
+                "description": "Operating style as concrete behaviors (e.g. 'Always cite sources when presenting data', 'Proactively flag risks before they escalate'). One per line, 3-5 lines.",
             },
             "primary_users": {
                 "type": "array",
@@ -567,7 +752,7 @@ def _build_create_employee_result(
             },
             "boundaries": {
                 "type": "string",
-                "description": "Behavioral boundaries, one per line",
+                "description": "Hard rules and red lines specific to this role's risk profile (e.g. 'Never fabricate financial data', 'Do not share user PII externally'). One per line, 3-5 lines.",
             },
             "skill_names": {
                 "type": "array",
@@ -763,6 +948,28 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
                     "Please add at least one enabled LLM model in Enterprise Settings → LLM Pool."
                 )
 
+            # LLM soul refinement — enrich raw HR inputs into proper identity content
+            _model_r = await db.execute(select(LLMModel).where(LLMModel.id == primary_model_id))
+            _llm_obj = _model_r.scalar_one_or_none()
+            _model_cfg = {
+                "provider": _llm_obj.provider,
+                "model": _llm_obj.model,
+                "api_key": _llm_obj.api_key,
+                "base_url": _llm_obj.base_url,
+            } if _llm_obj else {}
+            _refined = await _refine_soul_inputs(
+                name=name,
+                role_description=role_description,
+                personality=personality,
+                boundaries=boundaries,
+                primary_users=_parse_list(args.get("primary_users")),
+                core_outputs=_parse_list(args.get("core_outputs")),
+                model_config=_model_cfg,
+            )
+            role_description = _refined["role_description"]
+            personality = _refined.get("personality", personality)
+            boundaries = _refined.get("boundaries", boundaries)
+
             install_plan = build_capability_install_plan(
                 skill_names=skill_names,
                 mcp_server_ids=mcp_server_ids,
@@ -868,15 +1075,20 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
             await db.flush()
 
             # Initialize agent file system (standard template)
+            # Override blueprint with LLM-refined values for soul/focus rendering
+            _bp = {
+                **preview_payload["blueprint"],
+                "primary_users": _refined.get("primary_users", preview_payload["blueprint"].get("primary_users", [])),
+                "core_outputs": _refined.get("core_outputs", preview_payload["blueprint"].get("core_outputs", [])),
+                "quality_standards": _refined.get("quality_standards", []),
+                "ready_now": list(_DEFAULT_READY_NOW),
+                "manual_steps": manual_steps,
+            }
             await agent_manager.initialize_agent_files(
                 db, agent,
                 personality=personality,
                 boundaries=boundaries,
-                blueprint={
-                    **preview_payload["blueprint"],
-                    "ready_now": list(_DEFAULT_READY_NOW),
-                    "manual_steps": manual_steps,
-                },
+                blueprint=_bp,
             )
 
             agent_dir = agent_manager._agent_dir(agent.id)

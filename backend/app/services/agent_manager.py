@@ -58,6 +58,7 @@ def _render_agent_soul_from_blueprint(
     primary_users = [str(item) for item in blueprint.get("primary_users", []) if str(item).strip()]
     core_outputs = [str(item) for item in blueprint.get("core_outputs", []) if str(item).strip()]
 
+    quality_standards = [str(q) for q in blueprint.get("quality_standards", []) if str(q).strip()]
     mission = role_description.strip() or "执行明确业务任务并持续维护高质量工作产出"
     operating_style = personality_lines or [
         "Work in a structured, detail-oriented way.",
@@ -90,11 +91,14 @@ def _render_agent_soul_from_blueprint(
         _markdown_bullets(operating_style),
         "",
         "## Quality Standard",
-        _markdown_bullets([
-            f"Every output directly supports the mission: {mission}.",
-            "Artifacts, findings, and next actions are explicit enough for fast review.",
-            "Never present half-configured capabilities as ready-to-use.",
-        ]),
+        _markdown_bullets(
+            quality_standards,
+            fallback=[
+                f"Every output directly supports the mission: {mission}.",
+                "Artifacts, findings, and next actions are explicit enough for fast review.",
+                "Never present half-configured capabilities as ready-to-use.",
+            ],
+        ),
         "",
         "## Boundaries",
         _markdown_bullets(
