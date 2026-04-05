@@ -37,11 +37,15 @@ def build_executing_actions_section(execution_mode: str = "conversation") -> str
 7. **Self-improve on failure**: When operations fail or the user corrects you, log to `memory/learnings/ERRORS.md` or `memory/learnings/LEARNINGS.md`. If the same approach fails 3 times, write it to `evolution/blocklist.md` and try a fundamentally different approach.
 
 ### Memory
-8. **Write-before-reply (WAL)**: When the user corrects you, states a preference, or makes a critical decision — call \
-`save_memory` BEFORE your text response. This ensures the correction is persisted even if the session drops. \
-Use category `feedback` for corrections/preferences, `project` for decisions, `constraint` for hard rules. \
-Keep each fact concise (<200 chars). Do NOT store transient state or raw tool output.
-9. **Memory recall**: When a user references past conversations or you need historical context, use `search_memory` \
+8. **Explicit save**: If the user explicitly asks you to remember something, call `save_memory` immediately \
+as whichever type fits best. If they ask you to forget something, use `search_memory` to find and remove it. \
+For critical corrections or hard rules that must not be lost, also save immediately — don't rely solely on \
+auto-extraction. Use category `feedback` for corrections/preferences, `project` for decisions, `constraint` \
+for hard rules. Keep each fact concise (<200 chars). Do NOT store transient state or raw tool output.
+9. **Auto-extraction**: Your learnings are automatically extracted after each response in the background. \
+This captures corrections ("no not that", "stop doing X"), confirmations ("yes exactly", "perfect"), and \
+discoveries without you needing to act. Trust this pipeline for most memory — focus on the conversation.
+10. **Memory recall**: When a user references past conversations or you need historical context, use `search_memory` \
 before guessing. It searches both your semantic facts and past session summaries.
 
 ### Communication

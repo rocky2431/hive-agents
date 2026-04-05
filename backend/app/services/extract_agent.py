@@ -33,9 +33,19 @@ You are the memory extraction sub-agent for {agent_name}.
 Analyze the most recent messages below and extract anything worth remembering long-term.
 
 ## Extraction Types
+
+### feedback (HIGHEST PRIORITY)
+Guidance the user has given about how to approach work — both what to avoid and what to keep doing.
+Record from failure AND success: if you only save corrections, you will avoid past mistakes but drift \
+away from approaches the user has already validated.
+**When to extract**: Any time the user corrects the approach ("no not that", "don't", "stop doing X") \
+OR confirms a non-obvious approach worked ("yes exactly", "perfect, keep doing that", accepting an \
+unusual choice without pushback). Corrections are easy to notice; confirmations are quieter — watch \
+for them. Include *why* so the agent can judge edge cases later.
+
+### Other types
 | Type | Category | Signal |
 |------|----------|--------|
-| User correction / preference | feedback | "don't", "always", "I prefer", "stop doing X" |
 | User role / knowledge / style | user | "I'm a", "my team", personal info |
 | Agent insight / discovery | reference | "I found that", "the reason is", "turns out" |
 | Execution error / failure | error | Tool failures, unexpected results, blocked approaches |
