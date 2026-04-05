@@ -132,6 +132,7 @@ async def ensure_workspace(agent_id: uuid.UUID, tenant_id: str | None = None) ->
     _nested_ws = ws / "workspace" / "workspace"
     if _nested_ws.is_dir() and not any(_nested_ws.iterdir()):
         _nested_ws.rmdir()
+    (ws / "logs").mkdir(exist_ok=True)
     (ws / "memory").mkdir(exist_ok=True)
     (ws / "memory" / "learnings").mkdir(exist_ok=True)
     (ws / "evolution").mkdir(exist_ok=True)

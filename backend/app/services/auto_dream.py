@@ -317,6 +317,11 @@ async def run_dream(agent_id: uuid.UUID, tenant_id: uuid.UUID) -> dict:
         },
     )
 
+    # T0 cleanup: remove log directories older than 30 days
+    from app.services.t0_logger import cleanup_old_logs
+
+    cleanup_old_logs(agent_id, retention_days=30)
+
     result = {
         "consolidated": after_count,
         "removed": max(0, before_count - after_count),
