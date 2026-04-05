@@ -102,8 +102,11 @@ def _parse_agent_id(ctx: HookContext) -> uuid.UUID | None:
         return None
 
 
+_t0_written_sessions: set[str] = set()  # Track sessions that already wrote T0 (prevent duplicates)
+
+
 async def _t0_session_close(ctx: HookContext) -> None:
-    """SESSION_CLOSE → drain extractor + write chat T0 log."""
+    """SESSION_CLOSE → drain extractor + write chat T0 log (skip if SESSION_IDLE already wrote)."""
     agent_id = _parse_agent_id(ctx)
     if not agent_id:
         return
@@ -111,6 +114,12 @@ async def _t0_session_close(ctx: HookContext) -> None:
     logger.info("[Hooks] SESSION_CLOSE: agent=%s reason=%s msgs=%d", ctx.agent_id, reason, len(ctx.messages or []))
     # Drain pending extractions before session ends
     await extract_agent.drain(agent_id, timeout_s=10.0)
+    # Skip T0 write if SESSION_IDLE already wrote for this session
+    session_key = f"{agent_id}:{ctx.session_id}"
+    if session_key in _t0_written_sessions:
+        _t0_written_sessions.discard(session_key)
+        logger.debug("[Hooks] SESSION_CLOSE: skipping T0 write (SESSION_IDLE already wrote)")
+        return
     write_t0_log(
         agent_id,
         behavior_type="chat",
@@ -132,6 +141,8 @@ async def _t0_session_idle(ctx: HookContext) -> None:
         messages=ctx.messages or [],
         metadata={**ctx.metadata, "source": ctx.source or "web"},
     )
+    # Mark this session as T0-written so SESSION_CLOSE won't duplicate
+    _t0_written_sessions.add(f"{agent_id}:{ctx.session_id}")
     # Trigger extraction — idle is the last reliable chance to extract before user disappears.
     # Synchronous (await) since we're already in the idle window, no urgency to return.
     tenant_id = ctx.metadata.get("tenant_id")
