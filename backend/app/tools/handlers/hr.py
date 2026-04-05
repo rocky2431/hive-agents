@@ -284,9 +284,20 @@ async def _refine_soul_inputs(
             timeout=45.0,
         )
         content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
+        if not content or not content.strip():
+            logger.warning(
+                "[HR] Soul refinement LLM returned empty content. Provider=%s model=%s response_keys=%s",
+                model_config.get("provider"), model_config.get("model"),
+                list(response.keys()) if isinstance(response, dict) else type(response),
+            )
+            return raw
         content = content.strip()
+        # Strip markdown fences (```json ... ```)
         if content.startswith("```"):
             content = content.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+        if not content:
+            logger.warning("[HR] Soul refinement content empty after fence stripping")
+            return raw
         refined = json.loads(content)
 
         # Validate each field — only use refined versions that are substantive
@@ -960,8 +971,13 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
                     "Please add at least one enabled LLM model in Enterprise Settings → LLM Pool."
                 )
 
-            # LLM soul refinement — enrich raw HR inputs into proper identity content
-            _model_r = await db.execute(select(LLMModel).where(LLMModel.id == primary_model_id))
+            # LLM soul refinement — use the HR agent's own model (proven capable,
+            # it just ran the entire hiring conversation). Falls back to new agent's
+            # default model if HR agent model is unavailable.
+            _hr_agent_r = await db.execute(select(Agent).where(Agent.id == request.context.agent_id))
+            _hr_agent = _hr_agent_r.scalar_one_or_none()
+            _refine_model_id = (_hr_agent.primary_model_id if _hr_agent else None) or primary_model_id
+            _model_r = await db.execute(select(LLMModel).where(LLMModel.id == _refine_model_id))
             _llm_obj = _model_r.scalar_one_or_none()
             _model_cfg = {
                 "provider": _llm_obj.provider,
@@ -969,6 +985,9 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
                 "api_key": _llm_obj.api_key,
                 "base_url": _llm_obj.base_url,
             } if _llm_obj else {}
+            logger.info("[HR] Soul refinement using model: %s/%s (from %s)",
+                        _model_cfg.get("provider", "?"), _model_cfg.get("model", "?"),
+                        "hr_agent" if _hr_agent and _hr_agent.primary_model_id else "tenant_default")
             _refined = await _refine_soul_inputs(
                 name=name,
                 role_description=role_description,
