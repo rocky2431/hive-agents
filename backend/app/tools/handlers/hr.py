@@ -1169,25 +1169,28 @@ async def create_digital_employee(request: ToolExecutionRequest) -> str:
                     ))
                 await db.flush()
 
-            # Convert focus tasks into standard once-triggers so agent auto-starts.
-            # Staggered 30s apart so trigger daemon processes them sequentially.
+            # Kick-start: create ONE trigger for the first focus task.
+            # After completing it, the agent's self-direction rules (executing_actions.py)
+            # tell it to update focus.md and create the next trigger itself.
             _first_tasks = _refined.get("first_tasks", [])
-            if _first_tasks:
+            _boot_task = next((str(t).strip() for t in _first_tasks if str(t).strip()), "")
+            if not _boot_task:
+                _boot_task = str(args.get("focus_content", "")).strip()
+            if _boot_task:
                 from app.models.trigger import AgentTrigger
-                for i, task in enumerate(_first_tasks[:5]):
-                    task_str = str(task).strip()
-                    if not task_str:
-                        continue
-                    _fire_at = (_dt.now(_tz.utc) + __import__("datetime").timedelta(seconds=30 + i * 30)).isoformat()
-                    db.add(AgentTrigger(
-                        agent_id=agent.id,
-                        name=f"focus_task_{i + 1}",
-                        type="once",
-                        config={"at": _fire_at},
-                        reason=f"Read focus.md for full context, then execute this task: {task_str}",
-                    ))
+                _fire_at = (_dt.now(_tz.utc) + __import__("datetime").timedelta(seconds=30)).isoformat()
+                db.add(AgentTrigger(
+                    agent_id=agent.id,
+                    name="focus_boot",
+                    type="once",
+                    config={"at": _fire_at},
+                    reason=(
+                        f"Read focus.md for your full mission and task list. Start with this first task: {_boot_task}\n\n"
+                        "After completing it, update focus.md (mark done) and create a trigger for the next task."
+                    ),
+                ))
                 await db.flush()
-                logger.info("[HR] Created %d focus task triggers for agent %s", len(_first_tasks), agent.id)
+                logger.info("[HR] Created boot trigger for agent %s: %s", agent.id, _boot_task[:80])
 
             # Copy default skills + requested skills
             from sqlalchemy.orm import selectinload
