@@ -247,6 +247,26 @@ async def _delegate(request: AgentDelegationRequest) -> AgentDelegationResult:
             failed=True,
         )
 
+    # Emit DELEGATION_START hook
+    try:
+        from app.runtime.hooks import HookEvent, emit_hook
+
+        await emit_hook(
+            HookEvent.DELEGATION_START,
+            agent_id=request.target.id,
+            session_id=child_session_id,
+            source="agent",
+            metadata={
+                "from_agent": str(request.parent_agent_id) if request.parent_agent_id else None,
+                "to_agent": str(request.target.id),
+                "to_agent_name": request.target.name,
+                "trace_id": trace_id,
+                "depth": request.depth,
+            },
+        )
+    except Exception as _hook_err:
+        logger.debug("[Orchestrator] DELEGATION_START hook failed (non-fatal): %s", _hook_err)
+
     invocation = AgentInvocationRequest(
         model=request.target_model,
         messages=request.conversation_messages,
@@ -276,13 +296,23 @@ async def _delegate(request: AgentDelegationRequest) -> AgentDelegationResult:
         max_tool_rounds=request.max_tool_rounds,
     )
 
+    delegation_result: AgentDelegationResult
+    _delegation_status = "success"
+
     try:
         result = await asyncio.wait_for(
             invoke_agent(invocation),
             timeout=max(request.policy.timeout_seconds, 0.01),
         )
+        delegation_result = AgentDelegationResult(
+            content=result.content or "",
+            child_session_id=child_session_id,
+            trace_id=trace_id,
+            depth=request.depth,
+        )
     except asyncio.TimeoutError:
-        return AgentDelegationResult(
+        _delegation_status = "timeout"
+        delegation_result = AgentDelegationResult(
             content=(
                 f"⚠️ Delegation to {request.target.name} timed out after "
                 f"{request.policy.timeout_seconds:.2f}s."
@@ -294,12 +324,13 @@ async def _delegate(request: AgentDelegationRequest) -> AgentDelegationResult:
             failed=True,
         )
     except Exception as exc:
+        _delegation_status = "error"
         # M-22: Log full stack server-side; return only safe summary to LLM
         logger.error(
             "[Orchestrator] Child agent %s failed (depth=%d, trace=%s): %s",
             request.target.name, request.depth, trace_id, exc, exc_info=True,
         )
-        return AgentDelegationResult(
+        delegation_result = AgentDelegationResult(
             content=(
                 f"⚠️ Delegation to {request.target.name} failed: {type(exc).__name__}: {str(exc)[:300]}\n"
                 f"Trace: {trace_id}, depth: {request.depth}"
@@ -310,12 +341,31 @@ async def _delegate(request: AgentDelegationRequest) -> AgentDelegationResult:
             failed=True,
         )
 
-    return AgentDelegationResult(
-        content=result.content or "",
-        child_session_id=child_session_id,
-        trace_id=trace_id,
-        depth=request.depth,
-    )
+    # Emit DELEGATION_END hook on ALL paths (success/timeout/error) → T0 log
+    try:
+        from app.runtime.hooks import HookEvent, emit_hook
+
+        await emit_hook(
+            HookEvent.DELEGATION_END,
+            agent_id=request.target.id,
+            session_id=child_session_id,
+            messages=request.conversation_messages,
+            source="agent",
+            metadata={
+                "from_agent": str(request.parent_agent_id) if request.parent_agent_id else None,
+                "to_agent": str(request.target.id),
+                "to_agent_name": request.target.name,
+                "trace_id": trace_id,
+                "depth": request.depth,
+                "status": _delegation_status,
+                "failed": delegation_result.failed,
+                "reply_len": len(delegation_result.content or ""),
+            },
+        )
+    except Exception as _hook_err:
+        logger.debug("[Orchestrator] DELEGATION_END hook failed (non-fatal): %s", _hook_err)
+
+    return delegation_result
 
 
 def _spawn_async_delegation_task(

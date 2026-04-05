@@ -495,6 +495,26 @@ async def run_dream(agent_id: uuid.UUID, tenant_id: uuid.UUID) -> dict:
         "t3_deduped": t3_removed,
         "t2_truncated": t2_removed,
     }
+
+    # Emit DREAM_END hook → T0 log + heartbeat session reset
+    try:
+        from app.runtime.hooks import HookEvent, emit_hook
+
+        await emit_hook(
+            HookEvent.DREAM_END,
+            agent_id=agent_id,
+            source="dream",
+            metadata={
+                "t3_processed": after_count,
+                "deduped": t3_removed,
+                "promoted_to_soul": result.get("added", 0),
+                "strategy": strategy,
+                "t2_truncated": t2_removed,
+            },
+        )
+    except Exception as _hook_err:
+        logger.debug("[AutoDream] DREAM_END hook failed (non-fatal): %s", _hook_err)
+
     logger.info(
         "[AutoDream] Consolidated memory for %s: %d → %d facts (%d removed, %d added, strategy=%s, clusters=%d, t3_dedup=%d, t2_trunc=%d)",
         agent_id,

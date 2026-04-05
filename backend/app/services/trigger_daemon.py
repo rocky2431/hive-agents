@@ -648,10 +648,28 @@ async def _invoke_agent_for_triggers(agent_id: uuid.UUID, triggers: list[AgentTr
 
         logger.info(f"⚡ Triggers fired for {agent.name}: {[t.name for t in triggers]}")
 
+        # Emit TRIGGER_END hook → T0 log + extraction pipeline
+        try:
+            from app.runtime.hooks import HookEvent, emit_hook
+
+            await emit_hook(
+                HookEvent.TRIGGER_END,
+                agent_id=agent_id,
+                session_id=str(session_id),
+                messages=messages,
+                source="trigger",
+                metadata={
+                    "trigger_names": trigger_names,
+                    "trigger_types": [t.type for t in triggers],
+                    "status": "success",
+                    "reply_len": len(final_reply) if final_reply else 0,
+                },
+            )
+        except Exception as _hook_err:
+            logger.debug("[TriggerDaemon] TRIGGER_END hook failed (non-fatal): %s", _hook_err)
+
     except Exception as e:
-        logger.error(f"Failed to invoke agent {agent_id} for triggers: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Failed to invoke agent {agent_id} for triggers: {e}", exc_info=True)
 
 
 # ── Main Tick Loop ──────────────────────────────────────────────────

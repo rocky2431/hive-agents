@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 EXTRACT_PROMPT = """\
 You are the memory extraction sub-agent for {agent_name}.
-Analyze the conversation below and extract anything worth remembering long-term.
+Analyze the most recent messages below and extract anything worth remembering long-term.
 
 ## Extraction Types
 | Type | Category | Signal |
@@ -42,14 +42,26 @@ Analyze the conversation below and extract anything worth remembering long-term.
 | Project decision / status | project | "we decided", "deadline is", "version X" |
 | Capability gap / wish | request | "if only", "I wish", "can you add" |
 
+## What NOT to save
+Do NOT extract any of the following — they can be derived from the workspace or tools:
+- Code patterns, conventions, architecture, file paths, or project structure
+- Git history, recent changes, or who-changed-what (use git log / git blame)
+- Debugging solutions or fix recipes (the fix is in the code; the commit message has context)
+- Exact tool call sequences or raw tool output (only outcomes matter)
+- Ephemeral task details: in-progress file edits, transient debugging steps, current tool state
+- Information the agent's system prompt or skills already cover
+
+If something is already derivable from reading the workspace, do NOT save it as a memory.
+
 ## Rules
 1. Only extract from the provided messages — do not infer or fabricate
 2. Format each extraction as a single line: `[category] description`
 3. Extract MORE rather than less — downstream curation will filter quality
-4. Skip ephemeral task details (current file edits, transient debugging steps)
-5. Prioritize: user corrections > preferences > decisions > discoveries > errors
-6. Maximum 8 extractions per batch
-7. If nothing worth extracting, respond with exactly: NOTHING
+4. Prioritize: user corrections > preferences > decisions > discoveries > errors
+5. Convert relative dates to absolute ("yesterday" → "2026-04-05") so extractions remain interpretable
+6. Check for duplicates: if the same fact was likely extracted before, skip it
+7. Maximum 8 extractions per batch
+8. If nothing worth extracting, respond with exactly: NOTHING
 
 ## Output Format
 One extraction per line:
@@ -356,6 +368,22 @@ class ExtractAgent:
         if extractions:
             written = _append_to_learnings(agent_id, extractions)
             logger.info("[Extractor] Wrote %d items to T2 for %s", written, agent_id)
+
+            # Emit MEMORY_EXTRACTED hook → monitoring/debug notification
+            try:
+                from app.runtime.hooks import HookEvent, emit_hook
+
+                await emit_hook(
+                    HookEvent.MEMORY_EXTRACTED,
+                    agent_id=agent_id,
+                    metadata={
+                        "extraction_count": written,
+                        "categories": list({e["category"] for e in extractions}),
+                        "source": "llm" if tenant_id else "pattern",
+                    },
+                )
+            except Exception as _hook_err:
+                logger.debug("[Extractor] MEMORY_EXTRACTED hook failed (non-fatal): %s", _hook_err)
 
     async def drain(self, agent_id: uuid.UUID, timeout_s: float = 10.0) -> None:
         """Wait for any in-flight extraction to complete."""

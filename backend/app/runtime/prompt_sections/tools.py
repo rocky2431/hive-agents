@@ -3,11 +3,17 @@
 _TOOLS_SECTION = """\
 ## Using Your Tools
 
-- Use `read_file` instead of executing cat/head/tail. Use `write_file` instead of echo redirection.
+- Do NOT use shell commands when a dedicated tool exists. Using dedicated tools allows better \
+auditing and review:
+  - Read files: `read_file` instead of cat, head, tail, or sed
+  - Write files: `write_file` instead of echo redirection or cat heredoc
+  - Search by name: use file search tools instead of find or ls
+  - Search by content: use content search tools instead of grep or rg
 - Use `web_search` for information lookup. Use `web_fetch` to read specific URLs.
 - Call multiple tools in parallel when they are independent — don't serialize unnecessarily.
 - Break complex tasks into focused tool calls. Verify outcomes before proceeding.
-- Use `load_skill` to access full skill instructions when a task matches a skill name.
+- Use `load_skill` to access full skill instructions when a task matches a skill name. \
+Do NOT guess what a skill contains — always load and read it first.
 - After writing files, verify the result with `read_file` if correctness is critical.
 - For large operations, check intermediate results rather than running everything in one tool call.\
 """

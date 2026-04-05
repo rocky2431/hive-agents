@@ -30,7 +30,7 @@ from app.tools.registry import is_parallel_safe_tool
 
 # Mid-loop compaction: check every N rounds and compress when approaching context limit.
 _MIDLOOP_COMPACT_CHECK_INTERVAL = 3
-_MIDLOOP_COMPACT_THRESHOLD = 0.85  # 85% of context window
+_MIDLOOP_COMPACT_THRESHOLD = 0.90  # 90% of context window (CC uses ~92.8%)
 
 # Prompt-Too-Long reactive retry: compress and retry when provider rejects oversized prompt.
 # Aligned with Claude Code MAX_PTL_RETRIES = 3.
@@ -452,15 +452,20 @@ def _build_restoration_context(
     _restore_budget = getattr(_budget_profile, "restore_budget_chars", _POST_COMPACT_RESTORE_BUDGET)
     _per_file_cap = getattr(_budget_profile, "restore_per_file_cap_chars", _POST_COMPACT_PER_FILE_CAP)
 
-    # ── 1+2: Soul + Focus (existing logic) ──
-    for ws_root in [
+    # ── Resolve workspace root (used for all file reads below) ──
+    _resolved_ws: _Path | None = None
+    for _candidate in [
         _Path("/tmp/hive_workspaces") / str(agent_id),
         _Path(settings.AGENT_DATA_DIR) / str(agent_id),
     ]:
-        if not ws_root.exists():
-            continue
+        if _candidate.exists():
+            _resolved_ws = _candidate
+            break
+
+    # ── 1+2: Soul + Focus ──
+    if _resolved_ws:
         for rel_path, label in [("soul.md", "Agent Identity"), ("focus.md", "Working Memory")]:
-            fpath = ws_root / rel_path
+            fpath = _resolved_ws / rel_path
             if not fpath.exists():
                 continue
             try:
@@ -475,8 +480,31 @@ def _build_restoration_context(
                 total += len(content)
             except Exception:
                 continue
-        if parts:
-            break  # Use first workspace that has files
+
+    # ── 2.5: T3 high-priority memory files (feedback + blocked) ──
+    # These are P0 — must survive compaction regardless of memory retriever state.
+    if _resolved_ws and parts:
+        for rel_path, label in [
+            ("memory/feedback.md", "Memory: Feedback & Constraints"),
+            ("memory/blocked.md", "Memory: Blocked Patterns"),
+            ("memory/knowledge.md", "Memory: Knowledge"),
+            ("memory/strategies.md", "Memory: Strategies"),
+        ]:
+            fpath = _resolved_ws / rel_path
+            if not fpath.exists():
+                continue
+            try:
+                content = fpath.read_text(encoding="utf-8", errors="replace").strip()
+                if not content or (content.startswith("# ") and len(content) < 30):
+                    continue  # Skip empty templates
+                if len(content) > _per_file_cap:
+                    content = content[:_per_file_cap] + "\n...(truncated)"
+                if total + len(content) > _restore_budget:
+                    break
+                parts.append(f"### {label}\n{content}")
+                total += len(content)
+            except Exception:
+                continue
 
     # ── 3: Recently-read files ──
     if session_context and getattr(session_context, "recent_files", None):

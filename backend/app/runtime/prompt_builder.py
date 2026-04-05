@@ -82,16 +82,20 @@ def build_frozen_prompt_prefix(
     These do NOT change within a single session.
     """
     from app.runtime.prompt_sections import (
+        build_output_efficiency_section,
         build_system_section,
         build_tasks_section,
         build_tools_section,
     )
 
+    # NOTE: tone_style is already included by agent_context (via build_agent_context).
+    # Do NOT add build_tone_style_section() here — it would double-inject.
     parts = [
         agent_context,
         build_system_section(),
         build_tasks_section(),
         build_tools_section(),
+        build_output_efficiency_section(),
     ]
     if memory_snapshot:
         parts.append(memory_snapshot)
@@ -104,20 +108,10 @@ def build_frozen_prompt_prefix(
 
 
 def _render_active_packs(active_packs: list[dict[str, Any]], *, budget_chars: int = _ACTIVE_PACKS_CHAR_BUDGET) -> str:
-    if not active_packs:
-        return ""
-    lines = [
-        "## Active Capability Packs",
-        "These capability packs are already active for the current invocation. Use them directly when relevant.",
-        "",
-    ]
-    for pack in active_packs:
-        tools = ", ".join(pack.get("tools", []))
-        summary = pack.get("summary", "")
-        lines.append(f"- {pack.get('name', 'unknown_pack')}: {summary}")
-        if tools:
-            lines.append(f"  Tools: {tools}")
-    return _trim_block("\n".join(lines), budget_chars=budget_chars)
+    """Delegate to modular section builder (kept for backward compat)."""
+    from app.runtime.prompt_sections import build_active_packs_section
+
+    return build_active_packs_section(active_packs, budget_chars=budget_chars)
 
 
 def build_dynamic_prompt_suffix(
@@ -137,7 +131,7 @@ def build_dynamic_prompt_suffix(
     § Environment, and request-specific suffix.
     These CAN change between rounds within the same session.
     """
-    from app.runtime.prompt_sections import build_environment_section, build_memory_section
+    from app.runtime.prompt_sections import build_environment_section, build_knowledge_section, build_memory_section
 
     parts: list[str] = []
 
@@ -153,7 +147,9 @@ def build_dynamic_prompt_suffix(
         parts.append(packs_section)
 
     if retrieval_context:
-        parts.append(_trim_block(retrieval_context, budget_chars=retrieval_budget))
+        knowledge = build_knowledge_section(retrieval_context, budget_chars=retrieval_budget)
+        if knowledge:
+            parts.append(knowledge)
 
     if budget_profile and not active_packs and budget_profile.task_profile.suggested_pack_names:
         hint_lines = [

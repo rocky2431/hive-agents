@@ -173,6 +173,38 @@ async def ensure_workspace(agent_id: uuid.UUID, tenant_id: str | None = None) ->
             encoding="utf-8",
         )
 
+    # Pre-create focus.md (T1 working memory)
+    focus_path = ws / "focus.md"
+    if not focus_path.exists():
+        focus_path.write_text("# Focus\n\n_No active tasks._\n", encoding="utf-8")
+
+    # Pre-create T3 semantic memory files so heartbeat/dream don't need to create them
+    for t3_file, t3_seed in [
+        ("memory/feedback.md", "# Feedback\n\nUser corrections, preferences, and constraints.\n"),
+        ("memory/knowledge.md", "# Knowledge\n\nProject and domain knowledge.\n"),
+        ("memory/strategies.md", "# Strategies\n\nEffective approaches and patterns.\n"),
+        ("memory/blocked.md", "# Blocked Patterns\n\nFailed approaches — do not retry.\n"),
+        ("memory/user.md", "# User Profile\n\nUser characteristics and working style.\n"),
+    ]:
+        t3_path = ws / t3_file
+        if not t3_path.exists():
+            t3_path.write_text(t3_seed, encoding="utf-8")
+
+    # Pre-create INDEX.md (T3 memory index)
+    index_path = ws / "memory" / "INDEX.md"
+    if not index_path.exists():
+        index_path.write_text(
+            "# Memory Index\nUpdated: initial\n\n"
+            "| File | Category | Items | Updated | Load |\n"
+            "|------|----------|-------|---------|------|\n"
+            "| feedback.md | feedback, constraint | 0 | - | P0 always |\n"
+            "| knowledge.md | project, reference | 0 | - | P1 on-demand |\n"
+            "| strategies.md | strategy | 0 | - | P1 on-demand |\n"
+            "| blocked.md | blocked_pattern | 0 | - | P0 always |\n"
+            "| user.md | user | 0 | - | P2 optional |\n",
+            encoding="utf-8",
+        )
+
     soul_path = ws / "soul.md"
     if not soul_path.exists():
         # Structure aligned with agent_template/soul.md (single source of truth)

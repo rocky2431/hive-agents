@@ -1098,6 +1098,26 @@ async def _execute_heartbeat(agent_id: uuid.UUID, *, lease_acquired: bool = Fals
             # writes (F1 fix) — evolution files are the single source, distillation
             # is the single path to semantic_facts.
 
+            # Emit HEARTBEAT_TICK_END hook → T0 log
+            try:
+                from app.runtime.hooks import HookEvent, emit_hook
+
+                await emit_hook(
+                    HookEvent.HEARTBEAT_TICK_END,
+                    agent_id=agent_id,
+                    session_id=str(session_id),
+                    messages=runtime_messages,
+                    source="heartbeat",
+                    metadata={
+                        "tick": tick_count,
+                        "outcome": outcome_type,
+                        "score": heartbeat_score,
+                        "summary": summary[:200] if summary else "",
+                    },
+                )
+            except Exception as _hook_err:
+                logger.debug("[Heartbeat] HEARTBEAT_TICK_END hook failed (non-fatal): %s", _hook_err)
+
             # Bootstrap validation: verify key files exist regardless of outcome
             # (cold_start agents need validation even on failure/noop)
             _validate_bootstrap_completion(agent_id)
@@ -1273,7 +1293,7 @@ async def _heartbeat_tick():
                     continue
 
                 # Check interval
-                interval = timedelta(minutes=agent.heartbeat_interval_minutes or 120)
+                interval = timedelta(minutes=agent.heartbeat_interval_minutes or 45)
                 if agent.last_heartbeat_at and (now - agent.last_heartbeat_at) < interval:
                     skipped_interval += 1
                     continue

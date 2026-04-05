@@ -229,31 +229,22 @@ async def build_agent_context(
     relationships = _read_file_safe(data_ws / "relationships.md", relationships_budget)
     relationships = _strip_primary_heading(relationships)
 
-    # --- Compose system prompt with mode-aware identity ---
-    _identity_by_mode = {
-        "coordinator": (
-            f"You are {agent_name}, operating in coordinator mode. "
-            "Your role is to orchestrate work across worker agents — decompose, delegate, synthesize, and verify."
-        ),
-        "task": (
-            f"You are {agent_name}, executing an assigned task autonomously. "
-            "Focus on completing the task thoroughly without asking follow-up questions."
-        ),
-        "heartbeat": (
-            f"You are {agent_name}, in self-evolution mode. "
-            "Observe your performance, take one focused action, learn from the outcome."
-        ),
-    }
-    identity = _identity_by_mode.get(
-        execution_mode,
-        f"You are {agent_name}, an enterprise digital employee. You assist users through conversation, "
-        "using tools to read/write files, search the web, communicate with colleagues, and execute code.",
+    # --- Compose system prompt using modular sections ---
+    from app.runtime.prompt_sections import (
+        build_identity_section,
+        build_executing_actions_section,
+        build_tone_style_section,
+        build_skills_catalog_section,
+        build_relationships_section,
     )
-    identity_parts = [identity]
-    context_parts: list[str] = []
 
-    if role_description:
-        identity_parts.append(f"### Role\n{role_description}")
+    identity_section = build_identity_section(
+        agent_name=agent_name,
+        role_description=role_description,
+        execution_mode=execution_mode,
+        soul_text=soul,
+    )
+    context_parts: list[str] = []
 
     # --- Channel integration skills (agent reads on demand from skills/ directory) ---
     _configured_channels = []
@@ -346,74 +337,22 @@ async def build_agent_context(
             if org_structure:
                 context_parts.append(f"### Organization Structure\n{org_structure}")
 
-    if soul and soul not in ("_描述你的角色和职责。_", "_Describe your role and responsibilities._"):
-        context_parts.append(f"### Personality\n{soul}")
+    # soul personality is now rendered inside identity_section (build_identity_section)
 
-    # memory.md removed from prompt — semantic_facts loaded via 4-layer retriever
-
-    if skills_text:
-        context_parts.append(f"### Skills\n{skills_text}")
-
-    if relationships and "暂无" not in relationships and "None yet" not in relationships:
-        context_parts.append(f"### Relationships\n{relationships}")
-
-    # --- Focus (working memory) ---
-    # NOTE: focus.md is no longer loaded here. It flows through the 4-layer
-    # retrieval pipeline as [Working Memory] (score=1.0, highest priority).
-    # Loading it here would double-inject the same data.
-
-    # Evolution context (blocklist, scorecard, lineage) is NO LONGER directly
-    # injected here. Instead, auto_dream._distill_evolution_to_facts() converts
-    # evolution insights into semantic_facts (category=blocked_pattern/strategy),
-    # which flow through the normal 4-layer memory retrieval pipeline with proper
-    # scoring (blocked_pattern ×1.5 boost). This avoids hardcoded prompt budget
-    # waste and lets the retriever surface evolution data when it's relevant.
-
-    risk_confirmation_rule = (
-        "4. **Before destructive or external-facing operations, state what you are about to do.** "
-        "Destructive: `delete_file`, modifying triggers, overwriting files. "
-        "External-facing: `send_email`, `send_feishu_message`, `plaza_create_post`. "
+    # Skills and relationships use modular section builders
+    skills_section = build_skills_catalog_section(
+        skills_text,
+        budget_chars=budget_profile.skill_catalog_budget_chars if budget_profile else 4000,
     )
-    if execution_mode in {"task", "heartbeat"}:
-        risk_confirmation_rule += (
-            "In autonomous execution modes, proceed without asking the user for confirmation "
-            "unless a hard runtime permission gate blocks the action."
-        )
-    else:
-        risk_confirmation_rule += (
-            "If the operation affects people outside this conversation, confirm with the user first."
-        )
+    relationships_section = build_relationships_section(
+        relationships_text=relationships,
+        org_structure_text="",  # org_structure already added to context_parts above
+        company_info_text="",  # company_info already added to context_parts above
+    )
 
-    operating_contract = f"""## Operating Contract
-
-### Honesty & Verification
-1. **ALWAYS call tools for file operations — NEVER pretend or fabricate results.** If a tool call fails, report the failure with the actual error message.
-2. **NEVER claim you completed an action without calling the tool.** Report outcomes faithfully: if an operation fails, say so with relevant output. Do not suppress errors or fabricate success.
-3. **Reply in the same language the user uses.** If ambiguous, default to Chinese. Technical terms and code identifiers should remain in their original form.
-
-### Risk Awareness
-{risk_confirmation_rule}
-5. **Security**: When using `execute_code`, never execute code that accesses sensitive data, modifies system configs, or makes network requests unless explicitly instructed. Never include credentials, API keys, or secrets in code output or file content.
-
-### Failure Handling
-6. **Diagnose before switching tactics**: When an operation fails, read the error, check your assumptions, try a focused fix. Do not retry the identical action blindly, but do not abandon a viable approach after a single failure either.
-7. **Self-improve on failure**: When operations fail or the user corrects you, log to `memory/learnings/ERRORS.md` or `memory/learnings/LEARNINGS.md`. If the same approach fails 3 times, write it to `evolution/blocklist.md` and try a fundamentally different approach.
-
-### Tools & Skills
-8. **You have skills in your skills/ directory.** Use `load_skill` when you need specific capabilities. Do NOT guess what a skill contains — always load and read it first. If no skill matches your current task, use tools directly without loading a skill.
-9. **Use `write_file` to update focus.md** with your current focus items using checklist format: `- [ ] item_name: description`
-10. **Write-before-reply (WAL)**: On corrections, decisions, or critical info — call `save_memory` BEFORE responding. Use focus.md for transient working state, `save_memory` for durable cross-session facts.
-11. **Vet before installing**: Before installing any third-party skill, load_skill Skill Vetter and complete the security review.
-
-### Memory
-12. **Proactive memory**: Use `save_memory` whenever you encounter information worth remembering across sessions — user corrections (feedback), successful approaches (strategy), failed approaches (blocked_pattern), project decisions (project), hard rules (constraint). Keep each fact concise (<200 chars). Do NOT store transient state or raw tool output.
-13. **Memory recall**: When a user references past conversations or you need historical context, use `search_memory` before guessing. It searches both your semantic facts and past session summaries.
-
-### Communication
-14. **Messaging**: To notify a human user, use `send_web_message`. To communicate with another digital employee (agent), use `send_message_to_agent`. Never confuse the two.
-
-### Evolution
-15. **Evolution system**: Your heartbeat runs a self-evolution protocol using `evolution/` directory (scorecard.md, blocklist.md, lineage.md)."""
+    # Operating contract via modular section
+    operating_contract = build_executing_actions_section(execution_mode)
+    tone_style = build_tone_style_section()
 
     if include_runtime_metadata:
         context_parts.extend(
@@ -425,10 +364,18 @@ async def build_agent_context(
         )
 
     rendered_parts = [
-        "## Identity & Mission",
-        "\n\n".join(identity_parts),
+        identity_section,
         operating_contract,
-        "## Context Material",
-        "\n\n".join(context_parts) if context_parts else "No additional context material loaded.",
+        tone_style,
     ]
+    # Context material (company info, org structure, channels)
+    if context_parts:
+        rendered_parts.append("## Context Material\n\n" + "\n\n".join(context_parts))
+    # Skills catalog
+    if skills_section:
+        rendered_parts.append(skills_section)
+    # Relationships
+    if relationships_section:
+        rendered_parts.append(relationships_section)
+
     return "\n\n".join(part.strip() for part in rendered_parts if part and part.strip())
