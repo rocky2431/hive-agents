@@ -767,18 +767,28 @@ async def _tick():
             logger.warning("[TriggerDaemon] Failed to process agent %s: %s", agent_id, _agent_err)
 
 
+_FOCUS_WAKE_MAX_PER_DAY = 10  # daily cap per agent to prevent runaway
+_focus_wake_counts: dict[str, int] = {}  # "agent_id:YYYY-MM-DD" → count today
+_FOCUS_WAKE_COOLDOWN = 300  # 5 min cooldown between focus wakes per agent
+
+
 async def _focus_wake_check():
     """Check for agents with .focus_wake marker and invoke them.
 
-    When focus.md is written with tasks (e.g., during agent creation),
-    a .focus_wake marker file is created. This function picks it up,
-    deletes the marker, and invokes the agent with a focus-driven instruction.
+    Focus.md acts as a task queue:
+    1. .focus_wake marker created → agent wakes, executes one task
+    2. After execution, if uncompleted tasks remain → re-create marker
+    3. Next tick → agent wakes again → repeat until all tasks done
+    4. Daily cap prevents runaway (max 10 wakes/day/agent)
     """
     from app.config import get_settings
 
     agents_dir = Path(get_settings().AGENT_DATA_DIR)
     if not agents_dir.exists():
         return
+
+    now = datetime.now(timezone.utc)
+    today = now.strftime("%Y-%m-%d")
 
     for agent_dir in agents_dir.iterdir():
         if not agent_dir.is_dir():
@@ -793,33 +803,61 @@ async def _focus_wake_check():
         except ValueError:
             continue
 
+        # Daily cap check
+        cap_key = f"{agent_id}:{today}"
+        if _focus_wake_counts.get(cap_key, 0) >= _FOCUS_WAKE_MAX_PER_DAY:
+            logger.debug("[FocusWake] Agent %s hit daily cap (%d)", agent_id, _FOCUS_WAKE_MAX_PER_DAY)
+            wake_file.unlink(missing_ok=True)
+            continue
+
         # Remove marker first (prevent re-fire on next tick)
         try:
             wake_file.unlink()
         except FileNotFoundError:
             continue
 
-        # Check dedup — don't wake if recently invoked
+        # Cooldown — don't wake if recently invoked (5 min between wakes)
         last = _last_invoke.get(agent_id)
-        if last and (datetime.now(timezone.utc) - last).total_seconds() < DEDUP_WINDOW:
-            logger.debug("[FocusWake] Agent %s invoked recently, skipping", agent_id)
+        if last and (now - last).total_seconds() < _FOCUS_WAKE_COOLDOWN:
+            # Re-create marker so it picks up on next check after cooldown
+            (agent_dir / ".focus_wake").write_text("queued", encoding="utf-8")
+            logger.debug("[FocusWake] Agent %s cooling down, re-queued", agent_id)
             continue
 
-        # Read focus.md for context
-        focus_path = agent_dir / "focus.md"
-        focus_snippet = ""
-        if focus_path.exists():
-            try:
-                focus_snippet = focus_path.read_text(encoding="utf-8")[:2000]
-            except Exception as _read_err:
-                logger.debug("[FocusWake] Failed to read focus.md for %s: %s", agent_id, _read_err)
-
-        logger.info("[FocusWake] Waking agent %s — focus.md has tasks", agent_id)
-        asyncio.create_task(_invoke_focus_wake(agent_id))
+        _focus_wake_counts[cap_key] = _focus_wake_counts.get(cap_key, 0) + 1
+        logger.info("[FocusWake] Waking agent %s (wake %d/%d today)",
+                    agent_id, _focus_wake_counts[cap_key], _FOCUS_WAKE_MAX_PER_DAY)
+        asyncio.create_task(_invoke_focus_wake(agent_id, agent_dir))
 
 
-async def _invoke_focus_wake(agent_id: uuid.UUID):
-    """Invoke an agent based on its focus.md tasks. Mirrors trigger invocation pattern."""
+def _focus_has_uncompleted_tasks(agent_dir: Path) -> bool:
+    """Check if focus.md still has uncompleted tasks (lines starting with '- ' not '- [x]')."""
+    focus_path = agent_dir / "focus.md"
+    if not focus_path.exists():
+        return False
+    try:
+        content = focus_path.read_text(encoding="utf-8")
+    except Exception:
+        return False
+    in_tasks = False
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("## ") and "task" in stripped.lower():
+            in_tasks = True
+            continue
+        if stripped.startswith("## ") and in_tasks:
+            break  # left the tasks section
+        if in_tasks and stripped.startswith("- ") and not stripped.startswith("- [x]"):
+            return True
+    return False
+
+
+async def _invoke_focus_wake(agent_id: uuid.UUID, agent_dir: Path):
+    """Invoke an agent based on its focus.md tasks. Mirrors trigger invocation pattern.
+
+    After execution, checks if focus.md still has uncompleted tasks.
+    If yes, re-creates .focus_wake to continue the cycle.
+    """
     from app.api.websocket import call_llm
     from app.kernel.contracts import ExecutionIdentityRef
     from app.models.llm import LLMModel
@@ -863,7 +901,9 @@ async def _invoke_focus_wake(agent_id: uuid.UUID):
             instruction = (
                 "You just woke up. Read focus.md to understand your current mission and priorities, "
                 "then start working on the highest priority uncompleted task. "
-                "Use your available tools to produce concrete output."
+                "Use your available tools to produce concrete output.\n\n"
+                "After completing a task, update focus.md: mark it with [x] (e.g., '- [x] Done task'). "
+                "Leave uncompleted tasks as '- Task description' so the system knows to wake you again."
             )
             db.add(ChatMessage(
                 agent_id=agent_id, conversation_id=str(session_id),
@@ -926,6 +966,13 @@ async def _invoke_focus_wake(agent_id: uuid.UUID):
             await db.commit()
 
         logger.info("[FocusWake] Agent %s completed focus task", agent_id)
+
+        # Re-wake if focus.md still has uncompleted tasks
+        if _focus_has_uncompleted_tasks(agent_dir):
+            (agent_dir / ".focus_wake").write_text("continue", encoding="utf-8")
+            logger.info("[FocusWake] Agent %s has remaining tasks — re-queued", agent_id)
+        else:
+            logger.info("[FocusWake] Agent %s — all focus tasks completed", agent_id)
     except Exception as e:
         logger.warning("[FocusWake] Failed to invoke agent %s: %s", agent_id, e)
 
