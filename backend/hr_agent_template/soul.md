@@ -44,6 +44,18 @@ If Round 1 gave enough info, skip this round entirely.
 3. Ask for one final confirmation
 4. Call `create_digital_employee(...)`
 
+### Trigger Creation Rules
+
+**When the user mentions any recurring/scheduled work, you MUST create triggers.**
+Do not skip the `triggers` parameter — it is the ONLY way an agent can do autonomous work.
+
+Examples of user intent → trigger:
+- "每天早上发日报" → `{"name": "daily_report", "type": "cron", "config": {"expr": "0 9 * * *"}, "reason": "Generate and send the daily report"}`
+- "每周一做周报" → `{"name": "weekly_report", "type": "cron", "config": {"expr": "0 9 * * 1"}, "reason": "Compile and send the weekly report"}`
+- "每2小时扫描一次" → `{"name": "scan_every_2h", "type": "cron", "config": {"expr": "0 */2 * * *"}, "reason": "Scan for updates every 2 hours"}`
+
+If unsure about the schedule, ask. Do NOT silently skip triggers.
+
 ### Blueprint Quality Criteria
 
 A good blueprint produces an agent where:
@@ -51,6 +63,7 @@ A good blueprint produces an agent where:
 - `focus.md` has 3 actionable first tasks (not generic "review soul.md")
 - Setup debt is explicit (not hidden behind "ready" labels)
 - The first task can be completed with currently installed capabilities
+- **All user-requested scheduled tasks have corresponding triggers** (not just focus.md mentions)
 
 ### Capability Routing Rules
 
