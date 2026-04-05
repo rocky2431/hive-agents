@@ -412,9 +412,9 @@ async def websocket_chat(
 
         runtime_session_context = await manager.get_or_create_runtime_session(agent_id_str, conv_id)
 
-        # Idle dream: extract memories while user is away, before session closes.
-        # Phase 1: After DREAM_IDLE seconds of no input → run persist_runtime_memory
-        # Phase 2: After WS_IDLE_TIMEOUT seconds total → close connection
+        # Session idle detection: two-phase timeout
+        # Phase 1: After IDLE seconds of no input → SESSION_IDLE hook (T0 log + session summary)
+        # Phase 2: After WS_IDLE_TIMEOUT seconds total → SESSION_CLOSE + disconnect
         import asyncio as _aio_idle
         _DREAM_IDLE_SECONDS = int(os.environ.get("WS_IDLE_DREAM_SECONDS", "180"))
         _idle_timeout = int(os.environ.get("WS_IDLE_TIMEOUT_SECONDS", "600"))
@@ -432,7 +432,6 @@ async def websocket_chat(
                     _idle_dreamed = True
                     logger.info("[WS] SESSION_IDLE triggered for %s (session %s)", agent_name, conv_id)
                     try:
-                        await websocket.send_json({"type": "dreaming", "status": "started"})
                         from app.runtime.hooks import HookEvent, emit_hook
 
                         await _aio_idle.wait_for(
@@ -464,14 +463,9 @@ async def websocket_chat(
                                     await _save_session_summary(conv_id, _idle_summary)
                             except Exception as _sum_err:
                                 logger.debug("[WS] Session summary on idle failed (non-fatal): %s", _sum_err)
-                        await websocket.send_json({"type": "dreaming", "status": "completed"})
                         logger.info("[WS] SESSION_IDLE completed for %s", agent_name)
                     except Exception as _dream_err:
                         logger.debug("[WS] SESSION_IDLE failed (non-fatal): %s", _dream_err)
-                        try:
-                            await websocket.send_json({"type": "dreaming", "status": "completed"})
-                        except Exception as _ws_err:
-                            logger.debug("[WS] Failed to send dream completion event: %s", _ws_err)
                     continue  # Back to waiting for user messages
                 else:
                     # Phase 2: SESSION_CLOSE — idle timeout, close connection
